@@ -102,6 +102,20 @@ function ProductGalleryBase({
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [frameReady, setFrameReady] = useState(false);
+  // Reper de timing (doar dev) pentru imaginea principală - marcat o
+  // singură dată, nu la fiecare navigare ulterioară prin galerie.
+  const mainImageMarkedRef = useRef(false);
+
+  const handleMainImageLoad = () => {
+    if (mainImageMarkedRef.current) return;
+    if (!(import.meta.env?.DEV && typeof performance !== "undefined")) return;
+    mainImageMarkedRef.current = true;
+    try {
+      performance.mark("productdetails:main-image-loaded");
+    } catch {
+      // ignore
+    }
+  };
 
   // La schimbarea slide-ului de pe video: oprim redarea (unmount-ul
   // <video> de mai jos o face oricum) și resetăm starea la
@@ -273,6 +287,7 @@ function ProductGalleryBase({
             width={1000}
             height={750}
             sizes="(max-width: 768px) 100vw, (max-width: 980px) 92vw, 58vw"
+            onLoad={handleMainImageLoad}
             onError={(e) => onImgError(e, 1000, 750, "Produs")}
           />
         )}

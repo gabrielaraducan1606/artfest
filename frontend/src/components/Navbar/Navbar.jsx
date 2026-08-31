@@ -111,12 +111,14 @@ function MobileBar({ me, unreadNotif, cartCount, onOpenAuth }) {
       {me ? (
         <NavLink
           to={
-            me.role === "USER"
-              ? "/desktop-user"
-              : me.role === "VENDOR"
-              ? "/desktop"
-              : "/desktop"
-          }
+  me.role === "USER"
+    ? "/desktop-user"
+    : me.role === "VENDOR"
+    ? "/desktop"
+    : me.role === "INFLUENCER"
+    ? "/influencer"
+    : "/"
+}
           className={styles.mobileItem}
           aria-label="Contul meu"
         >
@@ -905,7 +907,7 @@ useEffect(() => {
 
   const avatarUrl = me?.avatarUrl || null;
   const isVendor = me?.role === "VENDOR";
-
+const isInfluencer = me?.role === "INFLUENCER";
   const supportHref = useMemo(() => {
     if (!me) return "/support";
     if (me.role === "ADMIN") return "/admin/support";
@@ -1476,11 +1478,27 @@ useEffect(() => {
             </NavLink>
           )}
 
-          {me && !isVendor && (
-            <NavLink className={styles.iconWrapper} to="/desktop-user" title="Desktop" aria-label="Desktop">
-              <LayoutGrid size={22} />
-            </NavLink>
-          )}
+          {me && !isVendor && !isInfluencer && (
+  <NavLink
+    className={styles.iconWrapper}
+    to="/desktop-user"
+    title="Desktop"
+    aria-label="Desktop"
+  >
+    <LayoutGrid size={22} />
+  </NavLink>
+)}
+
+{isInfluencer && (
+  <NavLink
+    className={styles.iconWrapper}
+    to="/influencer"
+    title="Dashboard influencer"
+    aria-label="Dashboard influencer"
+  >
+    <LayoutGrid size={22} />
+  </NavLink>
+)}
 
           <NavLink
             className={styles.iconWrapper}
@@ -1590,17 +1608,48 @@ useEffect(() => {
               <div className={styles.dropdownContent} style={{ padding: 10, minWidth: 240 }}>
                 <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
                   {isVendor ? (
-                    <>
-                      <li><NavLink to="/vendor/orders">Comenzile mele</NavLink></li>
-                      <li><NavLink to="/vendor/invoices">Facturi</NavLink></li>
-                      <li><NavLink to="/setari">Setări</NavLink></li>
-                    </>
-                  ) : (
-                    <>
-                      <li><NavLink to="/comenzile-mele">Comenzile mele</NavLink></li>
-                      <li><NavLink to="/cont/setari">Setări</NavLink></li>
-                    </>
-                  )}
+  <>
+    <li>
+      <NavLink to="/vendor/orders">
+        Comenzile mele
+      </NavLink>
+    </li>
+
+    <li>
+      <NavLink to="/vendor/invoices">
+        Facturi
+      </NavLink>
+    </li>
+
+    <li>
+      <NavLink to="/setari">
+        Setări
+      </NavLink>
+    </li>
+  </>
+) : isInfluencer ? (
+  <>
+    <li>
+      <NavLink to="/influencer">
+        Dashboard influencer
+      </NavLink>
+    </li>
+  </>
+) : (
+  <>
+    <li>
+      <NavLink to="/comenzile-mele">
+        Comenzile mele
+      </NavLink>
+    </li>
+
+    <li>
+      <NavLink to="/cont/setari">
+        Setări
+      </NavLink>
+    </li>
+  </>
+)}
 
                   <li style={{ borderTop: "1px solid var(--color-border)", marginTop: 6, paddingTop: 6 }}>
                     <button

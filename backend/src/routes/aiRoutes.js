@@ -19,6 +19,10 @@ import {
   COLOR_LABELS,
 } from "../constants/colors.js";
 
+import {
+  MAX_BATCH_CLUSTER_IMAGES,
+} from "../constants/aiLimits.js";
+
 const router = Router();
 
 const aiVendorAccess = [
@@ -874,6 +878,281 @@ Schema exactă a răspunsului:
         message:
           err?.message ||
           "Analiza AI a eșuat.",
+      });
+    }
+  }
+);
+
+/* ======================================================
+   Grupare AI a fotografiilor pentru import în bulk
+
+   STRICT clustering - primește toate fotografiile unui lot și
+   întoarce DOAR grupurile (ce fotografii aparțin aceluiași
+   produs) + o încredere + o etichetă scurtă orientativă. NU
+   generează descriere/categorie/preț complet - asta rămâne
+   exclusiv la /product-analyze, apelat separat per grup, DUPĂ
+   ce vendorul confirmă/corectează gruparea (vezi
+   handleAnalyzeBatchGroups / handleAnalyzeGroupProducts pe
+   frontend - VendorAssistant.jsx).
+====================================================== */
+
+function normalizeBatchImages(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set();
+  const result = [];
+
+  for (const item of value) {
+    const id = String(item?.id || "").trim();
+    const url = String(item?.url || "").trim();
+
+    if (!id || !url) {
+      continue;
+    }
+
+    if (
+      !/^https?:\/\//i.test(url) &&
+      !/^data:image\//i.test(url)
+    ) {
+      continue;
+    }
+
+    if (seen.has(id)) {
+      continue;
+    }
+
+    seen.add(id);
+    result.push({ id, url });
+  }
+
+  return result;
+}
+
+router.post(
+  "/product-batch-group",
+  aiVendorAccess,
+  async (req, res) => {
+    try {
+      const images = normalizeBatchImages(
+        req.body?.images
+      );
+
+      if (!images.length) {
+        return res.status(400).json({
+          error: "no_images",
+          message:
+            "Trimite cel puțin o fotografie pentru grupare.",
+        });
+      }
+
+      /*
+       * Defensiv - frontend-ul e cel care împarte batch-urile mari
+       * în loturi de MAX_BATCH_CLUSTER_IMAGES (vezi comentariul
+       * din constants/aiLimits.js), dar backend-ul nu are voie să
+       * trunchieze silențios peste limită (ar pierde fotografii
+       * fără să spună nimănui) - respinge explicit în schimb.
+       */
+      if (
+        images.length >
+        MAX_BATCH_CLUSTER_IMAGES
+      ) {
+        return res.status(400).json({
+          error: "too_many_images",
+
+          message: `Poți grupa maximum ${MAX_BATCH_CLUSTER_IMAGES} fotografii într-un singur pas.`,
+        });
+      }
+
+      /*
+       * O singură fotografie - un singur grup, evident, fără
+       * să mai cheltuim un apel AI pentru asta.
+       */
+      if (images.length === 1) {
+        return res.json({
+          groups: [
+            {
+              imageIds: [
+                images[0].id,
+              ],
+
+              confidence: 1,
+              label: "",
+            },
+          ],
+        });
+      }
+
+      const response =
+        await openai.responses.create({
+          model: "gpt-4.1",
+
+          text: {
+            format: {
+              type: "json_object",
+            },
+          },
+
+          input: [
+            {
+              role: "user",
+
+              content: [
+                {
+                  type: "input_text",
+
+                  text: `
+Ai ${images.length} fotografii încărcate de un vânzător pe un
+marketplace românesc de produse handmade, într-un singur import.
+Mai multe fotografii pot aparține ACELUIAȘI produs (unghiuri
+diferite, detalii, ambalaj), iar altele pot fi produse diferite.
+
+Fotografiile sunt numerotate mai jos, în ordine, de la 1 la ${images.length}.
+Fiecare fotografie este introdusă printr-o etichetă text "Imagine N"
+urmată imediat de imaginea respectivă.
+
+Sarcina ta: grupează fotografiile pe produse distincte.
+
+Reguli:
+- Fiecare fotografie trebuie să apară în EXACT UN grup.
+- Nu inventa fotografii - folosește DOAR numerele 1-${images.length}.
+- Referă fotografiile STRICT prin numărul lor (imageIndexes),
+  NICIODATĂ prin descriere sau altă identificare.
+- confidence (0-1) reflectă cât de sigur ești de gruparea UNUI
+  grup anume - pune o valoare mică dacă fotografiile din acel grup
+  ar putea la fel de bine fi produse diferite.
+- label este o etichetă scurtă orientativă (2-4 cuvinte, română),
+  NU o descriere completă de produs.
+
+Răspunde EXCLUSIV cu JSON valid, fără markdown, în formatul:
+
+{
+  "groups": [
+    { "imageIndexes": [1, 2], "confidence": 0.9, "label": "Cercei aurii" },
+    { "imageIndexes": [3], "confidence": 0.6, "label": "Brățară piele" }
+  ]
+}
+`,
+                },
+
+                ...images.flatMap(
+                  (image, index) => [
+                    {
+                      type: "input_text",
+                      text: `Imagine ${index + 1}:`,
+                    },
+                    {
+                      type: "input_image",
+                      image_url: image.url,
+                    },
+                  ]
+                ),
+              ],
+            },
+          ],
+        });
+
+      const parsed = safeJsonParse(
+        response.output_text
+      );
+
+      const rawGroups = Array.isArray(
+        parsed?.groups
+      )
+        ? parsed.groups
+        : [];
+
+      const assigned = new Set();
+      const groups = [];
+
+      for (const rawGroup of rawGroups) {
+        const indexes = Array.isArray(
+          rawGroup?.imageIndexes
+        )
+          ? rawGroup.imageIndexes
+          : [];
+
+        const imageIds = [];
+
+        for (const rawIndex of indexes) {
+          const index = Number(rawIndex);
+
+          if (
+            !Number.isInteger(index) ||
+            index < 1 ||
+            index > images.length
+          ) {
+            continue;
+          }
+
+          const image =
+            images[index - 1];
+
+          if (
+            !image ||
+            assigned.has(image.id)
+          ) {
+            continue;
+          }
+
+          assigned.add(image.id);
+          imageIds.push(image.id);
+        }
+
+        if (!imageIds.length) {
+          continue;
+        }
+
+        groups.push({
+          imageIds,
+
+          confidence:
+            normalizeConfidence(
+              rawGroup?.confidence
+            ) ?? 0,
+
+          label: String(
+            rawGroup?.label || ""
+          )
+            .trim()
+            .slice(0, 60),
+        });
+      }
+
+      /*
+       * Orice fotografie pe care modelul n-a menționat-o deloc
+       * devine propriul ei grup, cu confidence null (frontend-ul
+       * o marchează explicit "de verificat") - nicio fotografie nu
+       * se pierde din grupare, indiferent cât de neclar/incomplet
+       * răspunde modelul.
+       */
+      for (const image of images) {
+        if (assigned.has(image.id)) {
+          continue;
+        }
+
+        groups.push({
+          imageIds: [image.id],
+          confidence: null,
+          label: "",
+        });
+      }
+
+      return res.json({ groups });
+    } catch (err) {
+      console.error(
+        "AI product batch group error:",
+        err
+      );
+
+      return res.status(500).json({
+        error:
+          "ai_product_batch_group_failed",
+
+        message:
+          err?.message ||
+          "Gruparea AI a fotografiilor a eșuat.",
       });
     }
   }

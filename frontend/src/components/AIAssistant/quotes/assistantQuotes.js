@@ -5,6 +5,8 @@ import {
   isExplainIntentMessage,
 } from "../explainIntent.js";
 
+import { humanizeAssistantErrorMessage } from "../assistantErrorMessages.js";
+
 import {
   createQuoteRequest,
   createVendorQuoteOffer,
@@ -1019,10 +1021,10 @@ export async function openMyQuotes({
     addMessage(
       createMessage(
         "assistant",
-        error?.data
-          ?.message ||
-          error?.message ||
+        humanizeAssistantErrorMessage(
+          error,
           "Nu am putut încărca cererile tale de ofertă."
+        )
       )
     );
 
@@ -1117,10 +1119,10 @@ export async function openVendorQuotes({
     addMessage(
       createMessage(
         "assistant",
-        error?.data
-          ?.message ||
-          error?.message ||
+        humanizeAssistantErrorMessage(
+          error,
           "Nu am putut încărca cererile de ofertă."
+        )
       )
     );
 
@@ -1342,10 +1344,10 @@ export async function openUserQuote({
     addMessage(
       createMessage(
         "assistant",
-        error?.data
-          ?.message ||
-          error?.message ||
+        humanizeAssistantErrorMessage(
+          error,
           "Nu am putut deschide cererea de ofertă."
+        )
       )
     );
 
@@ -1568,10 +1570,10 @@ export async function openVendorQuote({
     addMessage(
       createMessage(
         "assistant",
-        error?.data
-          ?.message ||
-          error?.message ||
+        humanizeAssistantErrorMessage(
+          error,
           "Nu am putut deschide cererea de ofertă."
+        )
       )
     );
 
@@ -2923,10 +2925,10 @@ addMessage({
       addMessage(
         createMessage(
           "assistant",
-          error?.data
-            ?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Comanda nu a putut fi înregistrată. Oferta nu a fost acceptată."
+          )
         )
       );
 
@@ -3047,10 +3049,10 @@ addMessage({
       addMessage(
         createMessage(
           "assistant",
-          error?.data
-            ?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Oferta nu a putut fi refuzată."
+          )
         )
       );
 
@@ -3340,10 +3342,10 @@ export async function submitQuoteMessage({
       addMessage(
         createMessage(
           "assistant",
-          error?.data
-            ?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Cererea a fost creată, dar fotografia de inspirație nu a putut fi trimisă."
+          )
         )
       );
 
@@ -3401,10 +3403,10 @@ export async function submitQuoteMessage({
       addMessage(
         createMessage(
           "assistant",
-          error?.data
-            ?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Mesajul nu a putut fi trimis."
+          )
         )
       );
 
@@ -4336,10 +4338,10 @@ export async function submitQuoteMessage({
       addMessage(
         createMessage(
           "assistant",
-          error?.data
-            ?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Mesajul nu a putut fi trimis clientului."
+          )
         )
       );
 
@@ -4671,10 +4673,10 @@ export async function submitQuoteMessage({
         addMessage(
           createMessage(
             "assistant",
-            error?.data
-              ?.message ||
-              error?.message ||
+            humanizeAssistantErrorMessage(
+              error,
               "Oferta nu a putut fi trimisă."
+            )
           )
         );
 
@@ -4913,10 +4915,10 @@ export async function submitQuoteMessage({
       addMessage(
         createMessage(
           "assistant",
-          error?.data
-            ?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Nu am putut trimite cererea de ofertă."
+          )
         )
       );
 
@@ -5302,10 +5304,10 @@ export async function submitQuoteMessage({
       addMessage(
         createMessage(
           "assistant",
-          error?.data
-            ?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Nu am putut trimite cererea de ofertă."
+          )
         )
       );
 

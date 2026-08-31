@@ -12,6 +12,7 @@ import {
   enforceTokenVersion,
   signToken,
 } from "../api/auth.js";
+
 const router = Router();
 
 /* =========================================================
@@ -52,12 +53,20 @@ function randomOtp6() {
     1000000
   );
 
-  return String(n).padStart(6, "0");
+  return String(n).padStart(
+    6,
+    "0"
+  );
 }
 
-function hashOtp(email, code) {
+function hashOtp(
+  email,
+  code
+) {
   return sha256(
-    `${normalizeEmail(email)}:${String(
+    `${normalizeEmail(
+      email
+    )}:${String(
       code
     ).trim()}:${EMAIL_OTP_PEPPER}`
   );
@@ -65,47 +74,87 @@ function hashOtp(email, code) {
 
 function getReqIp(req) {
   const ipHeader = String(
-    req.headers["x-forwarded-for"] ||
-      ""
+    req.headers[
+      "x-forwarded-for"
+    ] || ""
   );
 
   return (
-    ipHeader.split(",")[0].trim() ||
-    req.socket?.remoteAddress ||
+    ipHeader
+      .split(",")[0]
+      .trim() ||
+    req.socket
+      ?.remoteAddress ||
     null
   );
 }
 
 function getReqUa(req) {
   return (
-    req.get("user-agent") ||
+    req.get(
+      "user-agent"
+    ) ||
     null
   );
 }
 
-function bpsToPercent(value) {
-  return Number(value || 0) / 100;
+/**
+ * commissionBps este folosit de acum
+ * ca procent din COMISIONUL ARTFEST
+ * alocat influencerului.
+ *
+ * Exemple:
+ * 2500 bps = 25%
+ * 3000 bps = 30%
+ *
+ * 0 = remunerația nu este încă setată.
+ */
+function bpsToPercent(
+  value
+) {
+  return (
+    Number(
+      value || 0
+    ) / 100
+  );
 }
 
 function passwordStrengthScore(
   password = ""
 ) {
-  const value = String(password);
+  const value =
+    String(password);
 
   const length =
-    value.length >= 8 ? 1 : 0;
+    value.length >= 8
+      ? 1
+      : 0;
 
   const lower =
-    /[a-z]/.test(value) ? 1 : 0;
+    /[a-z]/.test(
+      value
+    )
+      ? 1
+      : 0;
 
   const upper =
-    /[A-Z]/.test(value) ? 1 : 0;
+    /[A-Z]/.test(
+      value
+    )
+      ? 1
+      : 0;
 
   const digit =
-    /\d/.test(value) ? 1 : 0;
+    /\d/.test(
+      value
+    )
+      ? 1
+      : 0;
 
   const symbol =
-    /[^A-Za-z0-9]/.test(value)
+    /[^A-Za-z0-9]/.test(
+      value
+    )
       ? 1
       : 0;
 
@@ -118,7 +167,9 @@ function passwordStrengthScore(
   );
 }
 
-function invitationState(invite) {
+function invitationState(
+  invite
+) {
   if (!invite) {
     return "INVALID";
   }
@@ -130,7 +181,8 @@ function invitationState(invite) {
   if (
     new Date(
       invite.expiresAt
-    ).getTime() <= Date.now()
+    ).getTime() <=
+    Date.now()
   ) {
     return "EXPIRED";
   }
@@ -143,13 +195,16 @@ async function findInviteByRawToken(
 ) {
   if (
     !rawToken ||
-    typeof rawToken !== "string"
+    typeof rawToken !==
+      "string"
   ) {
     return null;
   }
 
   const tokenHash =
-    hashInviteToken(rawToken);
+    hashInviteToken(
+      rawToken
+    );
 
   return prisma.influencerInvite.findUnique(
     {
@@ -160,13 +215,27 @@ async function findInviteByRawToken(
   );
 }
 
-function mapConsentDocument(type) {
-  if (type === "tos") {
+function mapConsentDocument(
+  type
+) {
+  if (
+    type === "tos"
+  ) {
     return "TOS";
   }
 
-  if (type === "privacy_ack") {
+  if (
+    type ===
+    "privacy_ack"
+  ) {
     return "PRIVACY_ACK";
+  }
+
+  if (
+    type ===
+    "influencer_terms"
+  ) {
+    return "INFLUENCER_TERMS";
   }
 
   return "MARKETING_EMAIL_OPTIN";
@@ -176,24 +245,26 @@ function mapConsentDocument(type) {
    VALIDATION
 ========================================================= */
 
-const ConsentSchema = z.object({
-  type: z.enum([
-    "tos",
-    "privacy_ack",
-    "marketing_email_optin",
-  ]),
+const ConsentSchema =
+  z.object({
+    type: z.enum([
+      "tos",
+      "privacy_ack",
+      "influencer_terms",
+      "marketing_email_optin",
+    ]),
 
-  version: z
-    .string()
-    .trim()
-    .optional(),
+    version: z
+      .string()
+      .trim()
+      .optional(),
 
-  checksum: z
-    .string()
-    .trim()
-    .optional()
-    .nullable(),
-});
+    checksum: z
+      .string()
+      .trim()
+      .optional()
+      .nullable(),
+  });
 
 const RegisterInfluencerSchema =
   z.object({
@@ -214,7 +285,9 @@ const RegisterInfluencerSchema =
       .min(1),
 
     consents: z
-      .array(ConsentSchema)
+      .array(
+        ConsentSchema
+      )
       .optional()
       .default([]),
   });
@@ -232,23 +305,38 @@ const AcceptExistingSchema =
 
    Verifică invitația înainte să afișăm
    formularul de creare cont.
+
+   IMPORTANT:
+   Nu expunem:
+   - referralCode
+   - commissionBps
+   - remunerația
+
+   Acestea sunt detalii interne.
 ========================================================= */
 
 router.get(
   "/invite",
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const rawToken =
-        typeof req.query?.token ===
+        typeof req.query
+          ?.token ===
         "string"
           ? req.query.token.trim()
           : "";
 
       if (!rawToken) {
-        return res.status(400).json({
-          ok: false,
-          error: "token_required",
-        });
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            error:
+              "token_required",
+          });
       }
 
       const invite =
@@ -257,39 +345,64 @@ router.get(
         );
 
       const state =
-        invitationState(invite);
+        invitationState(
+          invite
+        );
 
-      if (state === "INVALID") {
-        return res.status(404).json({
-          ok: false,
-          error: "invalid_invitation",
-          message:
-            "Invitația nu este validă.",
-        });
+      if (
+        state ===
+        "INVALID"
+      ) {
+        return res
+          .status(404)
+          .json({
+            ok: false,
+
+            error:
+              "invalid_invitation",
+
+            message:
+              "Invitația nu este validă.",
+          });
       }
 
-      if (state === "USED") {
-        return res.status(410).json({
-          ok: false,
-          error:
-            "invitation_already_used",
-          message:
-            "Această invitație a fost deja folosită.",
-        });
+      if (
+        state === "USED"
+      ) {
+        return res
+          .status(410)
+          .json({
+            ok: false,
+
+            error:
+              "invitation_already_used",
+
+            message:
+              "Această invitație a fost deja folosită.",
+          });
       }
 
-      if (state === "EXPIRED") {
-        return res.status(410).json({
-          ok: false,
-          error:
-            "invitation_expired",
-          message:
-            "Această invitație a expirat.",
-        });
+      if (
+        state ===
+        "EXPIRED"
+      ) {
+        return res
+          .status(410)
+          .json({
+            ok: false,
+
+            error:
+              "invitation_expired",
+
+            message:
+              "Această invitație a expirat.",
+          });
       }
 
       const email =
-        normalizeEmail(invite.email);
+        normalizeEmail(
+          invite.email
+        );
 
       const existingUser =
         await prisma.user.findUnique({
@@ -299,8 +412,12 @@ router.get(
 
           select: {
             id: true,
+
             role: true,
-            emailVerifiedAt: true,
+
+            emailVerifiedAt:
+              true,
+
             influencerProfile: {
               select: {
                 id: true,
@@ -314,23 +431,10 @@ router.get(
 
         invite: {
           name:
-            invite.name || "",
+            invite.name ||
+            "",
 
           email,
-
-          code:
-            invite.referralCode,
-
-          referralCode:
-            invite.referralCode,
-
-          commissionBps:
-            invite.commissionBps,
-
-          commissionPercent:
-            bpsToPercent(
-              invite.commissionBps
-            ),
 
           expiresAt:
             invite.expiresAt,
@@ -339,7 +443,8 @@ router.get(
             !!existingUser,
 
           existingRole:
-            existingUser?.role ||
+            existingUser
+              ?.role ||
             null,
 
           alreadyInfluencer:
@@ -347,17 +452,22 @@ router.get(
               ?.influencerProfile,
         },
       });
-    } catch (error) {
+    } catch (
+      error
+    ) {
       console.error(
         "[influencerRoutes] GET /invite error:",
         error
       );
 
-      return res.status(500).json({
-        ok: false,
-        error:
-          "invite_validation_failed",
-      });
+      return res
+        .status(500)
+        .json({
+          ok: false,
+
+          error:
+            "invite_validation_failed",
+        });
     }
   }
 );
@@ -369,27 +479,39 @@ router.get(
 
    IMPORTANT:
    - frontendul NU poate trimite role
-   - frontendul NU poate trimite comision
+   - frontendul NU poate trimite remunerația
    - frontendul NU poate trimite referralCode
-   - toate vin exclusiv din invitație
+   - referralCode vine exclusiv din invitație
+   - remunerația pornește NESATATĂ = 0
 ========================================================= */
 
 router.post(
   "/register",
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const parsed =
         RegisterInfluencerSchema.safeParse(
-          req.body || {}
+          req.body ||
+            {}
         );
 
-      if (!parsed.success) {
-        return res.status(400).json({
-          ok: false,
-          error: "invalid_payload",
-          details:
-            parsed.error.flatten(),
-        });
+      if (
+        !parsed.success
+      ) {
+        return res
+          .status(400)
+          .json({
+            ok: false,
+
+            error:
+              "invalid_payload",
+
+            details:
+              parsed.error.flatten(),
+          });
       }
 
       const {
@@ -403,13 +525,17 @@ router.post(
         password !==
         confirmPassword
       ) {
-        return res.status(400).json({
-          ok: false,
-          error:
-            "passwords_do_not_match",
-          message:
-            "Parolele nu coincid.",
-        });
+        return res
+          .status(400)
+          .json({
+            ok: false,
+
+            error:
+              "passwords_do_not_match",
+
+            message:
+              "Parolele nu coincid.",
+          });
       }
 
       if (
@@ -417,18 +543,24 @@ router.post(
           password
         ) < 3
       ) {
-        return res.status(400).json({
-          ok: false,
-          error: "weak_password",
-          message:
-            "Alege o parolă mai puternică.",
-        });
+        return res
+          .status(400)
+          .json({
+            ok: false,
+
+            error:
+              "weak_password",
+
+            message:
+              "Alege o parolă mai puternică.",
+          });
       }
 
       const hasTosConsent =
         consents.some(
           (item) =>
-            item?.type === "tos"
+            item?.type ===
+            "tos"
         );
 
       const hasPrivacyConsent =
@@ -436,6 +568,13 @@ router.post(
           (item) =>
             item?.type ===
             "privacy_ack"
+        );
+
+      const hasInfluencerTermsConsent =
+        consents.some(
+          (item) =>
+            item?.type ===
+            "influencer_terms"
         );
 
       const hasMarketingConsent =
@@ -449,13 +588,37 @@ router.post(
         !hasTosConsent ||
         !hasPrivacyConsent
       ) {
-        return res.status(400).json({
-          ok: false,
-          error:
-            "mandatory_consents_required",
-          message:
-            "Termenii și Condițiile și Politica de confidențialitate trebuie acceptate.",
-        });
+        return res
+          .status(400)
+          .json({
+            ok: false,
+
+            error:
+              "mandatory_consents_required",
+
+            message:
+              "Termenii și Condițiile, Politica de confidențialitate și Acordul Programului de Influenceri trebuie acceptate.",
+          });
+      }
+
+      /*
+       * Acordul influencerului
+       * este obligatoriu separat.
+       */
+      if (
+        !hasInfluencerTermsConsent
+      ) {
+        return res
+          .status(400)
+          .json({
+            ok: false,
+
+            error:
+              "influencer_terms_required",
+
+            message:
+              "Trebuie să accepți Acordul privind Programul de Influenceri Artfest.",
+          });
       }
 
       const invite =
@@ -464,44 +627,65 @@ router.post(
         );
 
       const state =
-        invitationState(invite);
+        invitationState(
+          invite
+        );
 
-      if (state === "INVALID") {
-        return res.status(404).json({
-          ok: false,
-          error:
-            "invalid_invitation",
-        });
+      if (
+        state ===
+        "INVALID"
+      ) {
+        return res
+          .status(404)
+          .json({
+            ok: false,
+
+            error:
+              "invalid_invitation",
+          });
       }
 
-      if (state === "USED") {
-        return res.status(410).json({
-          ok: false,
-          error:
-            "invitation_already_used",
-        });
+      if (
+        state === "USED"
+      ) {
+        return res
+          .status(410)
+          .json({
+            ok: false,
+
+            error:
+              "invitation_already_used",
+          });
       }
 
-      if (state === "EXPIRED") {
-        return res.status(410).json({
-          ok: false,
-          error:
-            "invitation_expired",
-        });
+      if (
+        state ===
+        "EXPIRED"
+      ) {
+        return res
+          .status(410)
+          .json({
+            ok: false,
+
+            error:
+              "invitation_expired",
+          });
       }
 
       const email =
-        normalizeEmail(invite.email);
+        normalizeEmail(
+          invite.email
+        );
 
       /*
        * Dacă există deja cont cu acest
        * email NU îi schimbăm parola și
        * NU îi schimbăm rolul aici.
        *
-       * Va trebui să se autentifice în
-       * contul existent și să accepte
-       * invitația prin /accept-existing.
+       * Se autentifică și acceptă
+       * prin /accept-existing.
        */
+
       const existingUser =
         await prisma.user.findUnique({
           where: {
@@ -510,7 +694,9 @@ router.post(
 
           select: {
             id: true,
+
             role: true,
+
             influencerProfile: {
               select: {
                 id: true,
@@ -519,7 +705,9 @@ router.post(
           },
         });
 
-      if (existingUser) {
+      if (
+        existingUser
+      ) {
         if (
           existingUser
             .influencerProfile
@@ -528,9 +716,12 @@ router.post(
             .status(409)
             .json({
               ok: false,
+
               error:
                 "already_influencer",
-              requiresLogin: true,
+
+              requiresLogin:
+                true,
             });
         }
 
@@ -538,9 +729,12 @@ router.post(
           .status(409)
           .json({
             ok: false,
+
             error:
               "account_already_exists",
-            requiresLogin: true,
+
+            requiresLogin:
+              true,
 
             message:
               "Există deja un cont Artfest cu acest email. Conectează-te în contul existent pentru a accepta invitația.",
@@ -554,24 +748,32 @@ router.post(
         );
 
       const reqIp =
-        getReqIp(req);
+        getReqIp(
+          req
+        );
 
       const reqUa =
-        getReqUa(req);
+        getReqUa(
+          req
+        );
 
       const created =
         await prisma.$transaction(
-          async (tx) => {
+          async (
+            tx
+          ) => {
             /*
-             * Recitim invitația în
-             * tranzacție pentru a evita
-             * folosirea ei de două ori.
+             * Recitim invitația în tranzacție
+             * pentru a evita folosirea ei
+             * simultan de două ori.
              */
+
             const freshInvite =
               await tx.influencerInvite.findUnique(
                 {
                   where: {
-                    id: invite.id,
+                    id:
+                      invite.id,
                   },
                 }
               );
@@ -596,9 +798,10 @@ router.post(
             }
 
             /*
-             * Codul trebuie să fie în
-             * continuare liber.
+             * Referral code-ul este intern,
+             * dar trebuie să rămână unic.
              */
+
             const existingProfile =
               await tx.influencerProfile.findUnique(
                 {
@@ -613,7 +816,9 @@ router.post(
                 }
               );
 
-            if (existingProfile) {
+            if (
+              existingProfile
+            ) {
               const error =
                 new Error(
                   "referral_code_taken"
@@ -640,9 +845,8 @@ router.post(
                     "INFLUENCER",
 
                   /*
-                   * Rămâne neverificat
-                   * până la OTP, exact ca
-                   * signup-ul normal.
+                   * Rămâne neverificat până la OTP,
+                   * identic cu signup-ul normal.
                    */
                   emailVerifiedAt:
                     null,
@@ -673,11 +877,23 @@ router.post(
                       freshInvite.name ||
                       null,
 
+                    /*
+                     * Referral-ul rămâne intern
+                     * și este folosit pentru
+                     * linkul personal de tracking.
+                     */
                     referralCode:
                       freshInvite.referralCode,
 
+                    /*
+                     * IMPORTANT:
+                     * Nu copiem commissionBps
+                     * din invitațiile vechi.
+                     *
+                     * 0 = remunerație nesetată.
+                     */
                     commissionBps:
-                      freshInvite.commissionBps,
+                      0,
 
                     status:
                       "ACTIVE",
@@ -685,16 +901,17 @@ router.post(
 
                   select: {
                     id: true,
-                    referralCode:
-                      true,
-                    commissionBps:
-                      true,
                   },
                 }
               );
 
+            /* ===============================================
+               CONSENTS
+            =============================================== */
+
             for (
-              const consent of consents
+              const consent of
+              consents
             ) {
               await tx.userConsent.create(
                 {
@@ -726,6 +943,10 @@ router.post(
                 }
               );
             }
+
+            /* ===============================================
+               MARKETING
+            =============================================== */
 
             if (
               hasMarketingConsent
@@ -778,6 +999,10 @@ router.post(
               );
             }
 
+            /* ===============================================
+               INVITAȚIE FOLOSITĂ
+            =============================================== */
+
             await tx.influencerInvite.update(
               {
                 where: {
@@ -802,14 +1027,9 @@ router.post(
           }
         );
 
-      /*
-       * ===============================
-       * VERIFICARE EMAIL
-       * ===============================
-       *
-       * Păstrăm același sistem OTP
-       * folosit la signup-ul normal.
-       */
+      /* =====================================================
+         VERIFICARE EMAIL
+      ===================================================== */
 
       await prisma.emailVerificationToken.deleteMany(
         {
@@ -854,11 +1074,6 @@ router.post(
 
             expiresAt,
 
-            /*
-             * VerifyIntent-ul existent
-             * este folosit pentru fluxul
-             * general de user.
-             */
             intent:
               "USER",
 
@@ -871,13 +1086,19 @@ router.post(
       try {
         await sendVerificationEmail({
           to: email,
-          code: otp,
+
+          code:
+            otp,
+
           ttlMin:
             EMAIL_OTP_TTL_MIN,
+
           userId:
             created.user.id,
         });
-      } catch (error) {
+      } catch (
+        error
+      ) {
         console.error(
           "[influencerRoutes] sendVerificationEmail failed:",
           error
@@ -885,7 +1106,8 @@ router.post(
       }
 
       if (
-        process.env.NODE_ENV !==
+        process.env
+          .NODE_ENV !==
         "production"
       ) {
         console.log(
@@ -896,82 +1118,85 @@ router.post(
         );
       }
 
-      return res.status(201).json({
-        ok: true,
+      return res
+        .status(201)
+        .json({
+          ok: true,
 
-        status:
-          "pending_verification",
+          status:
+            "pending_verification",
 
-        next:
-          `/verify-email?email=${encodeURIComponent(
-            email
-          )}`,
+          next:
+            `/verify-email?email=${encodeURIComponent(
+              email
+            )}`,
 
-        user: {
-          id:
-            created.user.id,
+          user: {
+            id:
+              created.user.id,
 
-          email:
-            created.user.email,
+            email:
+              created.user.email,
 
-          role:
-            created.user.role,
+            role:
+              created.user.role,
 
-          name:
-            created.user.name,
-        },
+            name:
+              created.user.name,
+          },
 
-        influencer: {
-          id:
-            created.profile.id,
-
-          referralCode:
-            created.profile
-              .referralCode,
-
-          commissionBps:
-            created.profile
-              .commissionBps,
-
-          commissionPercent:
-            bpsToPercent(
-              created.profile
-                .commissionBps
-            ),
-        },
-      });
-    } catch (error) {
+          /*
+           * Nu expunem referralCode
+           * și remunerația aici.
+           */
+          influencer: {
+            id:
+              created.profile.id,
+          },
+        });
+    } catch (
+      error
+    ) {
       if (
         error?.code ===
         "INVITATION_UNAVAILABLE"
       ) {
-        return res.status(410).json({
-          ok: false,
-          error:
-            "invitation_unavailable",
-        });
+        return res
+          .status(410)
+          .json({
+            ok: false,
+
+            error:
+              "invitation_unavailable",
+          });
       }
 
       if (
         error?.code ===
         "REFERRAL_CODE_TAKEN"
       ) {
-        return res.status(409).json({
-          ok: false,
-          error:
-            "referral_code_already_exists",
-        });
+        return res
+          .status(409)
+          .json({
+            ok: false,
+
+            error:
+              "referral_code_already_exists",
+          });
       }
 
       if (
         error?.code ===
         "P2002"
       ) {
-        return res.status(409).json({
-          ok: false,
-          error:
-            "influencer_registration_conflict",
-        });
+        return res
+          .status(409)
+          .json({
+            ok: false,
+
+            error:
+              "influencer_registration_conflict",
+          });
       }
 
       console.error(
@@ -979,11 +1204,14 @@ router.post(
         error
       );
 
-      return res.status(500).json({
-        ok: false,
-        error:
-          "influencer_registration_failed",
-      });
+      return res
+        .status(500)
+        .json({
+          ok: false,
+
+          error:
+            "influencer_registration_failed",
+        });
     }
   }
 );
@@ -998,77 +1226,117 @@ router.post(
 
    IMPORTANT:
    Nu transformăm VENDOR sau ADMIN în
-   INFLUENCER, fiindcă ai momentan un
-   singur câmp role.
+   INFLUENCER, deoarece User are momentan
+   un singur câmp role.
 ========================================================= */
+
 router.post(
   "/accept-existing",
   authRequired,
   enforceTokenVersion,
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const parsed =
         AcceptExistingSchema.safeParse(
-          req.body || {}
+          req.body ||
+            {}
         );
 
-      if (!parsed.success) {
-        return res.status(400).json({
-          ok: false,
-          error: "invalid_payload",
-        });
+      if (
+        !parsed.success
+      ) {
+        return res
+          .status(400)
+          .json({
+            ok: false,
+
+            error:
+              "invalid_payload",
+          });
       }
 
       const invite =
         await findInviteByRawToken(
-          parsed.data.token
+          parsed.data
+            .token
         );
 
       const state =
-        invitationState(invite);
+        invitationState(
+          invite
+        );
 
-      if (state === "INVALID") {
-        return res.status(404).json({
-          ok: false,
-          error: "invalid_invitation",
-        });
+      if (
+        state ===
+        "INVALID"
+      ) {
+        return res
+          .status(404)
+          .json({
+            ok: false,
+
+            error:
+              "invalid_invitation",
+          });
       }
 
-      if (state === "USED") {
-        return res.status(410).json({
-          ok: false,
-          error: "invitation_already_used",
-        });
+      if (
+        state === "USED"
+      ) {
+        return res
+          .status(410)
+          .json({
+            ok: false,
+
+            error:
+              "invitation_already_used",
+          });
       }
 
-      if (state === "EXPIRED") {
-        return res.status(410).json({
-          ok: false,
-          error: "invitation_expired",
-        });
+      if (
+        state ===
+        "EXPIRED"
+      ) {
+        return res
+          .status(410)
+          .json({
+            ok: false,
+
+            error:
+              "invitation_expired",
+          });
       }
 
       const userId =
         req.user?.sub;
 
       if (!userId) {
-        return res.status(401).json({
-          ok: false,
-          error: "unauthorized",
-        });
+        return res
+          .status(401)
+          .json({
+            ok: false,
+
+            error:
+              "unauthorized",
+          });
       }
 
       const user =
         await prisma.user.findUnique({
           where: {
-            id: userId,
+            id:
+              userId,
           },
 
           select: {
             id: true,
             email: true,
             role: true,
-            tokenVersion: true,
+            tokenVersion:
+              true,
 
             influencerProfile: {
               select: {
@@ -1079,75 +1347,101 @@ router.post(
         });
 
       if (!user) {
-        return res.status(404).json({
-          ok: false,
-          error: "user_not_found",
-        });
+        return res
+          .status(404)
+          .json({
+            ok: false,
+
+            error:
+              "user_not_found",
+          });
       }
 
       /*
-       * Invitația trebuie acceptată exact
-       * de contul cu emailul invitat.
+       * Invitația trebuie acceptată
+       * exact de contul cu emailul
+       * invitat.
        */
+
       if (
-        normalizeEmail(user.email) !==
-        normalizeEmail(invite.email)
+        normalizeEmail(
+          user.email
+        ) !==
+        normalizeEmail(
+          invite.email
+        )
       ) {
-        return res.status(403).json({
-          ok: false,
+        return res
+          .status(403)
+          .json({
+            ok: false,
 
-          error:
-            "invitation_email_mismatch",
+            error:
+              "invitation_email_mismatch",
 
-          message:
-            "Invitația aparține unui alt email.",
-        });
+            message:
+              "Invitația aparține unui alt email.",
+          });
+      }
+
+      if (
+        user.influencerProfile
+      ) {
+        return res
+          .status(409)
+          .json({
+            ok: false,
+
+            error:
+              "already_influencer",
+          });
       }
 
       /*
-       * Dacă profilul există deja,
-       * nu îl creăm din nou.
-       */
-      if (user.influencerProfile) {
-        return res.status(409).json({
-          ok: false,
-          error: "already_influencer",
-        });
-      }
-
-      /*
-       * Momentan User are un singur role.
+       * Momentan User are un singur rol.
        *
        * Nu transformăm automat:
        * VENDOR -> INFLUENCER
        * ADMIN  -> INFLUENCER
        */
-      if (user.role !== "USER") {
-        return res.status(409).json({
-          ok: false,
 
-          error: "role_incompatible",
+      if (
+        user.role !==
+        "USER"
+      ) {
+        return res
+          .status(409)
+          .json({
+            ok: false,
 
-          currentRole: user.role,
+            error:
+              "role_incompatible",
 
-          message:
-            "Acest cont are deja un alt rol în Artfest.",
-        });
+            currentRole:
+              user.role,
+
+            message:
+              "Acest cont are deja un alt rol în Artfest.",
+          });
       }
 
       const result =
         await prisma.$transaction(
-          async (tx) => {
+          async (
+            tx
+          ) => {
             /*
              * Recitim invitația în tranzacție
-             * ca să nu poată fi acceptată
-             * simultan de două requesturi.
+             * pentru a evita acceptarea
+             * simultană.
              */
+
             const freshInvite =
               await tx.influencerInvite.findUnique(
                 {
                   where: {
-                    id: invite.id,
+                    id:
+                      invite.id,
                   },
                 }
               );
@@ -1157,7 +1451,8 @@ router.post(
               freshInvite.usedAt ||
               new Date(
                 freshInvite.expiresAt
-              ).getTime() <= Date.now()
+              ).getTime() <=
+                Date.now()
             ) {
               const error =
                 new Error(
@@ -1171,8 +1466,10 @@ router.post(
             }
 
             /*
-             * Verificăm din nou codul referral.
+             * Referral code intern.
+             * Trebuie să fie unic.
              */
+
             const existingProfile =
               await tx.influencerProfile.findUnique(
                 {
@@ -1187,7 +1484,9 @@ router.post(
                 }
               );
 
-            if (existingProfile) {
+            if (
+              existingProfile
+            ) {
               const error =
                 new Error(
                   "referral_code_taken"
@@ -1202,32 +1501,48 @@ router.post(
             /*
              * Creăm profilul influencerului.
              */
+
             const profile =
               await tx.influencerProfile.create(
                 {
                   data: {
-                    userId: user.id,
+                    userId:
+                      user.id,
 
                     displayName:
                       freshInvite.name ||
                       user.email,
 
+                    /*
+                     * Intern, pentru tracking.
+                     */
                     referralCode:
                       freshInvite.referralCode,
 
+                    /*
+                     * Nu copiem valoarea veche
+                     * din invitație.
+                     *
+                     * 0 = remunerație nesetată.
+                     */
                     commissionBps:
-                      freshInvite.commissionBps,
+                      0,
 
-                    status: "ACTIVE",
+                    status:
+                      "ACTIVE",
                   },
 
                   select: {
                     id: true,
-                    userId: true,
-                    displayName: true,
-                    referralCode: true,
-                    commissionBps: true,
-                    status: true,
+
+                    userId:
+                      true,
+
+                    displayName:
+                      true,
+
+                    status:
+                      true,
                   },
                 }
               );
@@ -1235,14 +1550,17 @@ router.post(
             /*
              * Schimbăm rolul userului.
              */
+
             const updatedUser =
               await tx.user.update({
                 where: {
-                  id: user.id,
+                  id:
+                    user.id,
                 },
 
                 data: {
-                  role: "INFLUENCER",
+                  role:
+                    "INFLUENCER",
                 },
 
                 select: {
@@ -1250,21 +1568,62 @@ router.post(
                   email: true,
                   name: true,
                   role: true,
-                  tokenVersion: true,
+
+                  tokenVersion:
+                    true,
                 },
               });
 
             /*
+             * Păstrăm comportamentul existent
+             * pentru acceptarea acordului
+             * în fluxul de cont existent.
+             */
+
+            await tx.userConsent.create(
+              {
+                data: {
+                  userId:
+                    user.id,
+
+                  document:
+                    "INFLUENCER_TERMS",
+
+                  version:
+                    "1.0.0",
+
+                  checksum:
+                    null,
+
+                  ip:
+                    getReqIp(
+                      req
+                    ) ||
+                    "",
+
+                  ua:
+                    getReqUa(
+                      req
+                    ) ||
+                    "",
+                },
+              }
+            );
+
+            /*
              * Marcăm invitația ca folosită.
              */
+
             await tx.influencerInvite.update(
               {
                 where: {
-                  id: freshInvite.id,
+                  id:
+                    freshInvite.id,
                 },
 
                 data: {
-                  usedAt: new Date(),
+                  usedAt:
+                    new Date(),
 
                   acceptedUserId:
                     user.id,
@@ -1280,22 +1639,28 @@ router.post(
         );
 
       /*
-       * IMPORTANT:
-       * Loginul inițial a creat JWT când
-       * userul avea încă role=USER.
+       * Loginul inițial a creat JWT
+       * când userul avea role=USER.
        *
        * După schimbarea rolului trebuie
        * emis imediat un JWT nou.
        */
+
       const jwt =
         signToken({
-          sub: result.updatedUser.id,
+          sub:
+            result
+              .updatedUser
+              .id,
 
           role:
-            result.updatedUser.role,
+            result
+              .updatedUser
+              .role,
 
           tv:
-            result.updatedUser
+            result
+              .updatedUser
               .tokenVersion,
         });
 
@@ -1303,6 +1668,7 @@ router.post(
        * Aceeași logică secure/sameSite
        * folosită în authRoutes.
        */
+
       const forwardedProtocol =
         String(
           req.headers[
@@ -1311,14 +1677,16 @@ router.post(
         ).toLowerCase();
 
       const secure =
-        forwardedProtocol === "https" ||
+        forwardedProtocol ===
+          "https" ||
         !!req.secure;
 
       res.cookie(
         "token",
         jwt,
         {
-          httpOnly: true,
+          httpOnly:
+            true,
 
           secure,
 
@@ -1343,77 +1711,93 @@ router.post(
 
         user: {
           id:
-            result.updatedUser.id,
+            result
+              .updatedUser
+              .id,
 
           email:
-            result.updatedUser.email,
+            result
+              .updatedUser
+              .email,
 
           name:
-            result.updatedUser.name,
+            result
+              .updatedUser
+              .name,
 
           role:
-            result.updatedUser.role,
+            result
+              .updatedUser
+              .role,
         },
 
+        /*
+         * Nu expunem referralCode
+         * și remunerația.
+         */
         influencer: {
           id:
-            result.profile.id,
+            result
+              .profile
+              .id,
 
           displayName:
-            result.profile
+            result
+              .profile
               .displayName,
 
-          referralCode:
-            result.profile
-              .referralCode,
-
-          commissionBps:
-            result.profile
-              .commissionBps,
-
-          commissionPercent:
-            bpsToPercent(
-              result.profile
-                .commissionBps
-            ),
-
           status:
-            result.profile.status,
+            result
+              .profile
+              .status,
         },
 
-        next: "/influencer",
+        next:
+          "/influencer",
       });
-    } catch (error) {
+    } catch (
+      error
+    ) {
       if (
         error?.code ===
         "INVITATION_UNAVAILABLE"
       ) {
-        return res.status(410).json({
-          ok: false,
-          error:
-            "invitation_unavailable",
-        });
+        return res
+          .status(410)
+          .json({
+            ok: false,
+
+            error:
+              "invitation_unavailable",
+          });
       }
 
       if (
         error?.code ===
         "REFERRAL_CODE_TAKEN"
       ) {
-        return res.status(409).json({
-          ok: false,
-          error:
-            "referral_code_already_exists",
-        });
+        return res
+          .status(409)
+          .json({
+            ok: false,
+
+            error:
+              "referral_code_already_exists",
+          });
       }
 
       if (
-        error?.code === "P2002"
+        error?.code ===
+        "P2002"
       ) {
-        return res.status(409).json({
-          ok: false,
-          error:
-            "influencer_profile_conflict",
-        });
+        return res
+          .status(409)
+          .json({
+            ok: false,
+
+            error:
+              "influencer_profile_conflict",
+          });
       }
 
       console.error(
@@ -1421,163 +1805,300 @@ router.post(
         error
       );
 
-      return res.status(500).json({
-        ok: false,
-        error:
-          "influencer_accept_failed",
-      });
+      return res
+        .status(500)
+        .json({
+          ok: false,
+
+          error:
+            "influencer_accept_failed",
+        });
     }
   }
 );
+
+/* =========================================================
+   GET /api/influencer/me
+
+   Dashboard influencer.
+
+   referralCode:
+   - nu este afișat ca "cod influencer"
+   - este trimis doar pentru construirea
+     linkului personal de tracking.
+
+   commissionBps:
+   - reprezintă procentul DIN COMISIONUL ARTFEST
+   - 2500 = 25%
+   - 3000 = 30%
+   - 0 = nesetat
+========================================================= */
 
 router.get(
   "/me",
   authRequired,
   enforceTokenVersion,
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
-      const userId = req.user?.sub;
+      const userId =
+        req.user?.sub;
 
       if (!userId) {
-        return res.status(401).json({
-          ok: false,
-          error: "unauthorized",
-        });
+        return res
+          .status(401)
+          .json({
+            ok: false,
+
+            error:
+              "unauthorized",
+          });
       }
 
-      const user = await prisma.user.findUnique({
-        where: {
-          id: userId,
-        },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          firstName: true,
-          lastName: true,
-          avatarUrl: true,
-          role: true,
+      const user =
+        await prisma.user.findUnique({
+          where: {
+            id:
+              userId,
+          },
 
-          influencerProfile: {
-            select: {
-              id: true,
-              displayName: true,
-              referralCode: true,
-              commissionBps: true,
-              status: true,
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            firstName:
+              true,
+            lastName:
+              true,
+            avatarUrl:
+              true,
+            role: true,
 
-              instagramUrl: true,
-              tiktokUrl: true,
-              facebookUrl: true,
-              websiteUrl: true,
+            influencerProfile: {
+              select: {
+                id: true,
 
-              createdAt: true,
-              updatedAt: true,
+                displayName:
+                  true,
 
-              _count: {
-                select: {
-                  clicks: true,
+                /*
+                 * Folosit intern de frontend
+                 * doar pentru linkul referral.
+                 */
+                referralCode:
+                  true,
+
+                commissionBps:
+                  true,
+
+                status:
+                  true,
+
+                instagramUrl:
+                  true,
+
+                tiktokUrl:
+                  true,
+
+                facebookUrl:
+                  true,
+
+                websiteUrl:
+                  true,
+
+                createdAt:
+                  true,
+
+                updatedAt:
+                  true,
+
+                _count: {
+                  select: {
+                    clicks:
+                      true,
+                  },
                 },
               },
             },
           },
-        },
-      });
+        });
 
       if (!user) {
-        return res.status(404).json({
-          ok: false,
-          error: "user_not_found",
-        });
+        return res
+          .status(404)
+          .json({
+            ok: false,
+
+            error:
+              "user_not_found",
+          });
       }
 
       if (
-        user.role !== "INFLUENCER" ||
+        user.role !==
+          "INFLUENCER" ||
         !user.influencerProfile
       ) {
-        return res.status(403).json({
-          ok: false,
-          error: "influencer_required",
-        });
+        return res
+          .status(403)
+          .json({
+            ok: false,
+
+            error:
+              "influencer_required",
+          });
       }
 
+      const profile =
+        user.influencerProfile;
+
       const displayName =
-        user.influencerProfile.displayName ||
+        profile.displayName ||
         user.name ||
-        [user.firstName, user.lastName]
-          .filter(Boolean)
+        [
+          user.firstName,
+          user.lastName,
+        ]
+          .filter(
+            Boolean
+          )
           .join(" ")
           .trim() ||
         user.email;
+
+      /*
+       * commissionBps este interpretat
+       * ca procent din comisionul Artfest.
+       *
+       * 2500 -> 25%
+       */
+      const platformCommissionSharePercent =
+        bpsToPercent(
+          profile.commissionBps
+        );
+
+      const commissionConfigured =
+        Number(
+          profile.commissionBps ||
+            0
+        ) > 0;
 
       return res.json({
         ok: true,
 
         user: {
-          id: user.id,
-          email: user.email,
-          name: displayName,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          avatarUrl: user.avatarUrl,
-          role: user.role,
+          id:
+            user.id,
+
+          email:
+            user.email,
+
+          name:
+            displayName,
+
+          firstName:
+            user.firstName,
+
+          lastName:
+            user.lastName,
+
+          avatarUrl:
+            user.avatarUrl,
+
+          role:
+            user.role,
         },
 
         profile: {
-          id: user.influencerProfile.id,
+          id:
+            profile.id,
 
           displayName,
 
+          /*
+           * Nu este prezentat utilizatorului
+           * ca "cod".
+           *
+           * Dashboardul îl folosește doar
+           * pentru:
+           * /?ref=...
+           */
           referralCode:
-            user.influencerProfile.referralCode,
+            profile.referralCode,
 
+          /*
+           * Valoarea brută rămâne disponibilă
+           * pentru backend/admin.
+           */
           commissionBps:
-            user.influencerProfile.commissionBps,
+            profile.commissionBps,
 
-          commissionPercent:
-            Number(
-              user.influencerProfile.commissionBps || 0
-            ) / 100,
+          /*
+           * Contractul folosit acum de
+           * InfluencerDashboardPage.jsx.
+           */
+          commissionConfigured,
+
+          platformCommissionSharePercent,
 
           status:
-            user.influencerProfile.status,
+            profile.status,
 
           clicks:
-            user.influencerProfile._count?.clicks || 0,
+            profile._count
+              ?.clicks ||
+            0,
 
-          ordersCount: 0,
-          salesAmount: 0,
-          commissionAmount: 0,
+          /*
+           * Le conectăm ulterior la
+           * atribuirea reală a comenzilor.
+           */
+          ordersCount:
+            0,
+
+          salesAmount:
+            0,
+
+          earningsAmount:
+            0,
 
           instagramUrl:
-            user.influencerProfile.instagramUrl,
+            profile.instagramUrl,
 
           tiktokUrl:
-            user.influencerProfile.tiktokUrl,
+            profile.tiktokUrl,
 
           facebookUrl:
-            user.influencerProfile.facebookUrl,
+            profile.facebookUrl,
 
           websiteUrl:
-            user.influencerProfile.websiteUrl,
+            profile.websiteUrl,
 
           createdAt:
-            user.influencerProfile.createdAt,
+            profile.createdAt,
 
           updatedAt:
-            user.influencerProfile.updatedAt,
+            profile.updatedAt,
         },
       });
-    } catch (error) {
+    } catch (
+      error
+    ) {
       console.error(
         "[influencerRoutes] GET /me error:",
         error
       );
 
-      return res.status(500).json({
-        ok: false,
-        error: "influencer_me_failed",
-      });
+      return res
+        .status(500)
+        .json({
+          ok: false,
+
+          error:
+            "influencer_me_failed",
+        });
     }
   }
 );

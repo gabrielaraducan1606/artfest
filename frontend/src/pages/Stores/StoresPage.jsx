@@ -14,6 +14,10 @@ import {
 } from "react-router-dom";
 
 import { api } from "../../lib/api";
+import {
+  useSmartPrefetchItem,
+  useVisibleStableTrigger,
+} from "../../hooks/useSmartPrefetch.js";
 
 import styles from "./StoresPage.module.css";
 
@@ -1449,7 +1453,7 @@ export default function StoresPage({
             }
           >
             {items.map(
-              (store) => (
+              (store, index) => (
                 <StoreCard
                   key={
                     store.id
@@ -1457,17 +1461,38 @@ export default function StoresPage({
                   s={
                     store
                   }
+                  autoPrefetch={index < 4}
                   onClick={() => {
-                    const to =
-                      store.profileSlug
-                        ? `/magazin/${encodeURIComponent(
-                            store.profileSlug
-                          )}`
-                        : `/magazin/${store.id}`;
+                    if (import.meta.env?.DEV && typeof performance !== "undefined") {
+                      try {
+                        performance.mark("store:route-click");
+                      } catch {
+                        // ignore
+                      }
+                    }
 
-                    navigate(
-                      to
-                    );
+                    const slug =
+                      store.profileSlug || store.id;
+                    const to = `/magazin/${encodeURIComponent(slug)}`;
+
+                    /*
+                     * Summary DOAR pentru primul paint instant al
+                     * skeleton-ului (nume/logo) - ProfilMagazin
+                     * revalidează oricum din API imediat.
+                     */
+                    navigate(to, {
+                      state: {
+                        storeSummary: {
+                          slug,
+                          shopName:
+                            store.storeName ||
+                            store.displayName ||
+                            "Magazin",
+                          profileImageUrl: store.logoUrl || null,
+                          shortDescription: store.about || null,
+                        },
+                      },
+                    });
                   }}
                 />
               )
@@ -1521,10 +1546,26 @@ export default function StoresPage({
    STORE CARD
 ========================================================= */
 
+const storePrefetchDescriptor = {
+  getKey: (s) => `store:${s.profileSlug || s.id}`,
+  routeChunk: () => import("../Vendor/ProfilMagazin/ProfilMagazin.jsx"),
+  fetchData: (s) =>
+    api(
+      `/api/public/store/${encodeURIComponent(
+        s.profileSlug || s.id
+      )}/initial`
+    ),
+  getDataUrl: (s) =>
+    `/api/public/store/${encodeURIComponent(s.profileSlug || s.id)}/initial`,
+  getImageUrl: (s) => s.logoUrl || null,
+};
+
 function StoreCard({
   s,
   onClick,
+  autoPrefetch = false,
 }) {
+  const cardRef = useRef(null);
   const title =
     s.storeName ||
     s.displayName ||
@@ -1538,8 +1579,17 @@ function StoreCard({
       .filter(Boolean)
       .join(" • ");
 
+  const triggerPrefetch = useSmartPrefetchItem(s, storePrefetchDescriptor);
+
+  useVisibleStableTrigger(
+    cardRef,
+    useCallback(() => triggerPrefetch("auto"), [triggerPrefetch]),
+    { enabled: autoPrefetch }
+  );
+
   return (
     <li
+      ref={cardRef}
       className={
         styles.card
       }
@@ -1552,6 +1602,9 @@ function StoreCard({
         onClick={
           onClick
         }
+        onMouseEnter={() => triggerPrefetch("intent")}
+        onFocus={() => triggerPrefetch("intent")}
+        onTouchStart={() => triggerPrefetch("intent")}
         aria-label={
           title
         }

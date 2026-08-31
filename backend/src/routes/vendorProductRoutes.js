@@ -1119,30 +1119,52 @@ async function suggestProductPrice(req, res) {
 
 async function createProduct(req, res) {
   try {
-    const slug = String(req.params.slug || "").trim().toLowerCase();
-    const { service, error, status } = await getOwnedProductsServiceBySlug(slug, req.user.sub);
+    const slug = String(
+      req.params.slug || ""
+    )
+      .trim()
+      .toLowerCase();
 
-    if (error) return res.status(status).json({ error });
+    const {
+      service,
+      error,
+      status,
+    } =
+      await getOwnedProductsServiceBySlug(
+        slug,
+        req.user.sub
+      );
 
-    const limitCheck = await checkProductLimitForService({
-      serviceId: service.id,
-      vendorId: service.vendorId,
-    });
+    if (error) {
+      return res
+        .status(status)
+        .json({ error });
+    }
 
-   if (!limitCheck.ok) {
-  return res.status(402).json({
-    ...limitCheck,
-    title: "Ai atins limita de produse",
-    message:
-      limitCheck.limit == null
-        ? "Nu mai poți adăuga produse pe planul curent."
-        : `Planul tău permite maximum ${limitCheck.limit} produse. Ai deja ${limitCheck.current}. Pentru a adăuga mai multe produse, modifică abonamentul.`,
-    cta: {
-      label: "Modifică abonamentul",
-      url: "/setari?tab=subscription",
-    },
-  });
-}
+    const limitCheck =
+      await checkProductLimitForService({
+        serviceId: service.id,
+        vendorId: service.vendorId,
+      });
+
+    if (!limitCheck.ok) {
+      return res.status(402).json({
+        ...limitCheck,
+        title:
+          "Ai atins limita de produse",
+        message:
+          limitCheck.limit == null
+            ? "Nu mai poți adăuga produse pe planul curent."
+            : `Planul tău permite maximum ${limitCheck.limit} produse. Ai deja ${limitCheck.current}. Pentru a adăuga mai multe produse, modifică abonamentul.`,
+        cta: {
+          label:
+            "Modifică abonamentul",
+          url:
+            "/setari?tab=subscription",
+        },
+      });
+    }
+
     const {
       title,
       description = "",
@@ -1153,16 +1175,21 @@ async function createProduct(req, res) {
       currency = "RON",
       category = null,
       color = null,
+
       availability,
       leadTimeDays,
       readyQty,
       nextShipDate,
+
       acceptsCustom = false,
-      orderMode = "READY_TO_BUY",
-optionsSchema = [],
-customSchema = [],
-repeatedGroups = [],
-quoteSchema = [],
+
+      orderMode =
+        "READY_TO_BUY",
+      optionsSchema = [],
+      customSchema = [],
+      repeatedGroups = [],
+      quoteSchema = [],
+
       materialMain,
       technique,
       styleTags,
@@ -1172,421 +1199,942 @@ quoteSchema = [],
       specialNotes,
     } = req.body || {};
 
-    if (!title || typeof title !== "string" || !title.trim()) {
-      return res.status(400).json({ error: "invalid_title" });
+    if (
+      !title ||
+      typeof title !== "string" ||
+      !title.trim()
+    ) {
+      return res
+        .status(400)
+        .json({
+          error: "invalid_title",
+        });
     }
 
-    const imgs = normalizeProductImages(images);
+    const imgs =
+      normalizeProductImages(images);
 
     const normalizedVideoUrl =
-      typeof videoUrl === "string" && /^https?:\/\//i.test(videoUrl.trim())
+      typeof videoUrl === "string" &&
+      /^https?:\/\//i.test(
+        videoUrl.trim()
+      )
         ? videoUrl.trim()
         : null;
 
-    // Fără video, preferința de sunet nu are sens - rămâne default.
-    const normalizedVideoMuted = normalizedVideoUrl ? !!videoMuted : false;
+    const normalizedVideoMuted =
+      normalizedVideoUrl
+        ? !!videoMuted
+        : false;
 
     let cat = null;
-    if (category != null && String(category).trim() !== "") {
-      const c = String(category).trim();
+
+    if (
+      category != null &&
+      String(category).trim() !== ""
+    ) {
+      const c =
+        String(category).trim();
+
       if (!CATEGORY_SET.has(c)) {
-        return res.status(400).json({ error: "invalid_category" });
+        return res
+          .status(400)
+          .json({
+            error:
+              "invalid_category",
+          });
       }
+
       cat = c;
     }
 
     let colorCode = null;
-    if (color != null && String(color).trim() !== "") {
-      const c = String(color).trim();
+
+    if (
+      color != null &&
+      String(color).trim() !== ""
+    ) {
+      const c =
+        String(color).trim();
+
       if (COLOR_SET.has(c)) {
         colorCode = c;
       } else {
-        console.warn("Unknown color code from payload:", c);
+        console.warn(
+          "Unknown color code from payload:",
+          c
+        );
+
         colorCode = null;
       }
     }
 
-    const availNorm = normalizeAvailabilityPayload(
-      { availability, leadTimeDays, readyQty, nextShipDate },
-      null
-    );
-const orderConfig =
-  normalizeOrderConfiguration({
-    orderMode,
-    optionsSchema,
-    customSchema,
-    repeatedGroups,
-    quoteSchema,
-  });
-
-if (orderConfig.error) {
-  return res.status(400).json({
-    error: orderConfig.error,
-  });
-}
-let priceCents = 0;
-
-if (orderConfig.orderMode !== "QUOTE_ONLY") {
-  const priceNum = Number(price);
-
-  if (!Number.isFinite(priceNum) || priceNum < 0) {
-    return res.status(400).json({
-      error: "invalid_price",
-    });
-  }
-
-  priceCents = Math.round(priceNum * 100);
-}
+    const availNorm =
+      normalizeAvailabilityPayload(
+        {
+          availability,
+          leadTimeDays,
+          readyQty,
+          nextShipDate,
+        },
+        null
+      );
 
     if (availNorm.error) {
-      return res.status(400).json({ error: availNorm.error });
+      return res
+        .status(400)
+        .json({
+          error: availNorm.error,
+        });
     }
+
+    const orderConfig =
+      normalizeOrderConfiguration({
+        orderMode,
+        optionsSchema,
+        customSchema,
+        repeatedGroups,
+        quoteSchema,
+      });
+
+    if (orderConfig.error) {
+      return res
+        .status(400)
+        .json({
+          error:
+            orderConfig.error,
+        });
+    }
+
+    /*
+     * IMPORTANT:
+     * Toate produsele trebuie să aibă
+     * un preț mai mare decât 0.
+     *
+     * Pentru QUOTE_ONLY acesta reprezintă
+     * prețul orientativ / "de la".
+     */
+    const priceNum =
+      Number(price);
+
+    if (
+      !Number.isFinite(priceNum) ||
+      priceNum <= 0
+    ) {
+      return res
+        .status(400)
+        .json({
+          error: "invalid_price",
+
+          message:
+            orderConfig.orderMode ===
+            "QUOTE_ONLY"
+              ? "Introdu un preț orientativ mai mare decât 0."
+              : "Introdu un preț valid mai mare decât 0.",
+        });
+    }
+
+    const priceCents =
+      Math.round(
+        priceNum * 100
+      );
 
     if (imgs.length === 0) {
-  return res.status(400).json({
-    error: "product_image_required",
-    message: "Adaugă cel puțin o imagine validă.",
-  });
-}
+      return res
+        .status(400)
+        .json({
+          error:
+            "product_image_required",
 
-console.info("[PRODUCT CREATE]", {
-  title,
-  imagesReceived: images?.length || 0,
-  imagesSaved: imgs.length,
-});
-
-    const created = await prisma.product.create({
-      data: {
-        serviceId: service.id,
-        title: title.trim(),
-        description: String(description || ""),
-        priceCents,
-        currency: String(currency || "RON"),
-        images: imgs,
-        videoUrl: normalizedVideoUrl,
-        videoMuted: normalizedVideoMuted,
-
-        isActive: req.body.isActive !== false, // default true
-isHidden: !!req.body.isHidden,         // default false
-moderationStatus: "PENDING",
-        moderationMessage: null,
-        submittedAt: new Date(),
-        reviewedAt: null,
-        reviewedByUserId: null,
-        approvedAt: null,
-
-        category: cat,
-        color: colorCode,
-        availability: availNorm.availability,
-        leadTimeDays: availNorm.leadTimeDays,
-        readyQty: availNorm.readyQty,
-        nextShipDate: availNorm.nextShipDate,
-        acceptsCustom: !!acceptsCustom,
-        orderMode:
-  orderConfig.orderMode,
-
-optionsSchema:
-  orderConfig.optionsSchema,
-
-customSchema:
-  orderConfig.customSchema,
-
-repeatedGroups:
-  orderConfig.repeatedGroups,
-
-quoteSchema:
-  orderConfig.quoteSchema,
-        materialMain: materialMain ? String(materialMain).trim() : null,
-        technique: technique ? String(technique).trim() : null,
-        styleTags: normalizeTags(styleTags),
-        occasionTags: normalizeTags(occasionTags),
-        dimensions: dimensions ? String(dimensions).trim() : null,
-        careInstructions: careInstructions ? String(careInstructions) : null,
-        specialNotes: specialNotes ? String(specialNotes) : null,
-      },
-    });
-
-    return res.status(201).json(mapProduct(created));
-  } catch (e) {
-    console.error("POST /vendors/store/:slug/products error:", e);
-    return res.status(500).json({ error: "server_error" });
-  }
-}
-
-async function updateProduct(req, res) {
-  try {
-    const id = String(req.params.id);
-
-    const product = await prisma.product.findUnique({
-      where: { id },
-      include: {
-        service: {
-          include: {
-            vendor: true,
-            type: true,
-          },
-        },
-      },
-    });
-
-    if (!product) return res.status(404).json({ error: "not_found" });
-
-    if (product.service?.vendor?.userId !== req.user.sub) {
-      return res.status(403).json({ error: "forbidden" });
+          message:
+            "Adaugă cel puțin o imagine validă.",
+        });
     }
 
-    if (product.service?.type?.code !== "products") {
-      return res.status(400).json({ error: "not_a_products_store" });
+    console.info(
+      "[PRODUCT CREATE]",
+      {
+        title,
+        imagesReceived:
+          images?.length || 0,
+        imagesSaved:
+          imgs.length,
+        orderMode:
+          orderConfig.orderMode,
+        priceCents,
+      }
+    );
+
+    const created =
+      await prisma.product.create({
+        data: {
+          serviceId:
+            service.id,
+
+          title:
+            title.trim(),
+
+          description:
+            String(
+              description || ""
+            ),
+
+          /*
+           * Pentru QUOTE_ONLY acesta este
+           * prețul orientativ.
+           */
+          priceCents,
+
+          currency:
+            String(
+              currency || "RON"
+            ),
+
+          images: imgs,
+
+          videoUrl:
+            normalizedVideoUrl,
+
+          videoMuted:
+            normalizedVideoMuted,
+
+          isActive:
+            req.body.isActive !==
+            false,
+
+          isHidden:
+            !!req.body.isHidden,
+
+          moderationStatus:
+            "PENDING",
+
+          moderationMessage:
+            null,
+
+          submittedAt:
+            new Date(),
+
+          reviewedAt: null,
+
+          reviewedByUserId:
+            null,
+
+          approvedAt: null,
+
+          category: cat,
+
+          color:
+            colorCode,
+
+          availability:
+            availNorm.availability,
+
+          leadTimeDays:
+            availNorm.leadTimeDays,
+
+          readyQty:
+            availNorm.readyQty,
+
+          nextShipDate:
+            availNorm.nextShipDate,
+
+          acceptsCustom:
+            !!acceptsCustom,
+
+          orderMode:
+            orderConfig.orderMode,
+
+          optionsSchema:
+            orderConfig.optionsSchema,
+
+          customSchema:
+            orderConfig.customSchema,
+
+          repeatedGroups:
+            orderConfig.repeatedGroups,
+
+          quoteSchema:
+            orderConfig.quoteSchema,
+
+          materialMain:
+            materialMain
+              ? String(
+                  materialMain
+                ).trim()
+              : null,
+
+          technique:
+            technique
+              ? String(
+                  technique
+                ).trim()
+              : null,
+
+          styleTags:
+            normalizeTags(
+              styleTags
+            ),
+
+          occasionTags:
+            normalizeTags(
+              occasionTags
+            ),
+
+          dimensions:
+            dimensions
+              ? String(
+                  dimensions
+                ).trim()
+              : null,
+
+          careInstructions:
+            careInstructions
+              ? String(
+                  careInstructions
+                )
+              : null,
+
+          specialNotes:
+            specialNotes
+              ? String(
+                  specialNotes
+                )
+              : null,
+        },
+      });
+
+    return res
+      .status(201)
+      .json(
+        mapProduct(created)
+      );
+  } catch (e) {
+    console.error(
+      "POST /vendors/store/:slug/products error:",
+      e
+    );
+
+    return res
+      .status(500)
+      .json({
+        error: "server_error",
+      });
+  }
+}
+async function updateProduct(
+  req,
+  res
+) {
+  try {
+    const id =
+      String(req.params.id);
+
+    const product =
+      await prisma.product.findUnique(
+        {
+          where: { id },
+
+          include: {
+            service: {
+              include: {
+                vendor: true,
+                type: true,
+              },
+            },
+          },
+        }
+      );
+
+    if (!product) {
+      return res
+        .status(404)
+        .json({
+          error: "not_found",
+        });
+    }
+
+    if (
+      product.service?.vendor
+        ?.userId !== req.user.sub
+    ) {
+      return res
+        .status(403)
+        .json({
+          error: "forbidden",
+        });
+    }
+
+    if (
+      product.service?.type
+        ?.code !== "products"
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "not_a_products_store",
+        });
     }
 
     const patch = {};
 
-    if (typeof req.body.title === "string") {
-      if (!req.body.title.trim()) return res.status(400).json({ error: "invalid_title" });
-      patch.title = req.body.title.trim();
+    if (
+      typeof req.body.title ===
+      "string"
+    ) {
+      if (
+        !req.body.title.trim()
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "invalid_title",
+          });
+      }
+
+      patch.title =
+        req.body.title.trim();
     }
 
-    if (typeof req.body.description === "string") patch.description = req.body.description;
+    if (
+      typeof req.body
+        .description === "string"
+    ) {
+      patch.description =
+        req.body.description;
+    }
 
- const requestedOrderMode =
-  normalizeOrderModePayload(
-    req.body.orderMode ??
-      product.orderMode
-  );
+    /*
+     * Stabilim modul final al produsului,
+     * inclusiv când orderMode nu este trimis
+     * explicit în request.
+     */
+    const requestedOrderMode =
+      normalizeOrderModePayload(
+        req.body.orderMode ??
+          product.orderMode
+      );
 
-if (!requestedOrderMode) {
-  return res.status(400).json({
-    error: "invalid_order_mode",
-  });
-}
+    if (!requestedOrderMode) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "invalid_order_mode",
+        });
+    }
 
-if (
-  requestedOrderMode ===
-  "QUOTE_ONLY"
-) {
-  patch.priceCents = 0;
-} else if (
-  req.body.price !== undefined
-) {
-  const priceNum =
-    Number(req.body.price);
+    /*
+     * PREȚ
+     *
+     * QUOTE_ONLY nu mai primește priceCents = 0.
+     * Prețul este păstrat ca preț orientativ.
+     */
+    if (
+      req.body.price !==
+      undefined
+    ) {
+      const priceNum =
+        Number(req.body.price);
 
-  if (
-    !Number.isFinite(priceNum) ||
-    priceNum < 0
-  ) {
-    return res.status(400).json({
-      error: "invalid_price",
-    });
-  }
+      if (
+        !Number.isFinite(
+          priceNum
+        ) ||
+        priceNum <= 0
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "invalid_price",
 
-  patch.priceCents =
-    Math.round(priceNum * 100);
-}
+            message:
+              requestedOrderMode ===
+              "QUOTE_ONLY"
+                ? "Introdu un preț orientativ mai mare decât 0."
+                : "Introdu un preț valid mai mare decât 0.",
+          });
+      }
 
-    if (Array.isArray(req.body.images)) {
-  patch.images = normalizeProductImages(req.body.images);
-}
+      patch.priceCents =
+        Math.round(
+          priceNum * 100
+        );
+    }
 
-if (
-  Array.isArray(req.body.images) &&
-  patch.images.length === 0
-) {
-  return res.status(400).json({
-    error: "product_image_required",
-    message: "Produsul trebuie să aibă cel puțin o imagine validă.",
-  });
-}
+    /*
+     * Dacă produsul devine QUOTE_ONLY,
+     * dar request-ul nu conține price,
+     * verificăm prețul existent.
+     *
+     * Astfel nu putem ajunge la un
+     * QUOTE_ONLY cu preț 0.
+     */
+    if (
+      requestedOrderMode ===
+        "QUOTE_ONLY" &&
+      req.body.price ===
+        undefined &&
+      (!product.priceCents ||
+        product.priceCents <= 0)
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "quote_price_required",
 
-    if (req.body.videoUrl !== undefined) {
-      const v = req.body.videoUrl;
+          message:
+            "Introdu un preț orientativ pentru produsul cu cerere de ofertă.",
+        });
+    }
+
+    if (
+      Array.isArray(
+        req.body.images
+      )
+    ) {
+      patch.images =
+        normalizeProductImages(
+          req.body.images
+        );
+    }
+
+    if (
+      Array.isArray(
+        req.body.images
+      ) &&
+      patch.images.length === 0
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "product_image_required",
+
+          message:
+            "Produsul trebuie să aibă cel puțin o imagine validă.",
+        });
+    }
+
+    if (
+      req.body.videoUrl !==
+      undefined
+    ) {
+      const v =
+        req.body.videoUrl;
+
       patch.videoUrl =
-        typeof v === "string" && /^https?:\/\//i.test(v.trim())
+        typeof v === "string" &&
+        /^https?:\/\//i.test(
+          v.trim()
+        )
           ? v.trim()
           : null;
 
-      // Ștergerea video-ului resetează implicit preferința de sunet.
-      if (patch.videoUrl === null) {
-        patch.videoMuted = false;
+      if (
+        patch.videoUrl === null
+      ) {
+        patch.videoMuted =
+          false;
       }
     }
 
-    if (req.body.videoMuted !== undefined && patch.videoUrl !== null) {
-      patch.videoMuted = !!req.body.videoMuted;
+    if (
+      req.body.videoMuted !==
+        undefined &&
+      patch.videoUrl !== null
+    ) {
+      patch.videoMuted =
+        !!req.body.videoMuted;
     }
 
-    if (req.body.category !== undefined) {
-      const v = req.body.category;
-      if (v == null || String(v).trim() === "") {
+    if (
+      req.body.category !==
+      undefined
+    ) {
+      const v =
+        req.body.category;
+
+      if (
+        v == null ||
+        String(v).trim() === ""
+      ) {
         patch.category = null;
       } else {
-        const c = String(v).trim();
-        if (!CATEGORY_SET.has(c)) return res.status(400).json({ error: "invalid_category" });
+        const c =
+          String(v).trim();
+
+        if (
+          !CATEGORY_SET.has(c)
+        ) {
+          return res
+            .status(400)
+            .json({
+              error:
+                "invalid_category",
+            });
+        }
+
         patch.category = c;
       }
     }
 
-    if (req.body.color !== undefined) {
-      const v = req.body.color;
-      if (v == null || String(v).trim() === "") {
+    if (
+      req.body.color !==
+      undefined
+    ) {
+      const v =
+        req.body.color;
+
+      if (
+        v == null ||
+        String(v).trim() === ""
+      ) {
         patch.color = null;
       } else {
-        const c = String(v).trim();
-        patch.color = COLOR_SET.has(c) ? c : null;
+        const c =
+          String(v).trim();
+
+        patch.color =
+          COLOR_SET.has(c)
+            ? c
+            : null;
       }
     }
 
-    if (req.body.materialMain !== undefined) {
-      const v = req.body.materialMain;
-      patch.materialMain = v == null || String(v).trim() === "" ? null : String(v).trim();
+    if (
+      req.body.materialMain !==
+      undefined
+    ) {
+      const v =
+        req.body.materialMain;
+
+      patch.materialMain =
+        v == null ||
+        String(v).trim() === ""
+          ? null
+          : String(v).trim();
     }
 
-    if (req.body.technique !== undefined) {
-      const v = req.body.technique;
-      patch.technique = v == null || String(v).trim() === "" ? null : String(v).trim();
+    if (
+      req.body.technique !==
+      undefined
+    ) {
+      const v =
+        req.body.technique;
+
+      patch.technique =
+        v == null ||
+        String(v).trim() === ""
+          ? null
+          : String(v).trim();
     }
 
-    if (req.body.styleTags !== undefined) patch.styleTags = normalizeTags(req.body.styleTags);
-    if (req.body.occasionTags !== undefined) patch.occasionTags = normalizeTags(req.body.occasionTags);
-
-    if (req.body.dimensions !== undefined) {
-      const v = req.body.dimensions;
-      patch.dimensions = v == null || String(v).trim() === "" ? null : String(v).trim();
+    if (
+      req.body.styleTags !==
+      undefined
+    ) {
+      patch.styleTags =
+        normalizeTags(
+          req.body.styleTags
+        );
     }
 
-    if (req.body.careInstructions !== undefined) {
-      const v = req.body.careInstructions;
-      patch.careInstructions = v == null || String(v).trim() === "" ? null : String(v);
+    if (
+      req.body
+        .occasionTags !==
+      undefined
+    ) {
+      patch.occasionTags =
+        normalizeTags(
+          req.body
+            .occasionTags
+        );
     }
 
-    if (req.body.specialNotes !== undefined) {
-      const v = req.body.specialNotes;
-      patch.specialNotes = v == null || String(v).trim() === "" ? null : String(v);
+    if (
+      req.body.dimensions !==
+      undefined
+    ) {
+      const v =
+        req.body.dimensions;
+
+      patch.dimensions =
+        v == null ||
+        String(v).trim() === ""
+          ? null
+          : String(v).trim();
     }
 
-    const availNorm = normalizeAvailabilityPayload(req.body, product);
-    if (availNorm.error) return res.status(400).json({ error: availNorm.error });
+    if (
+      req.body
+        .careInstructions !==
+      undefined
+    ) {
+      const v =
+        req.body
+          .careInstructions;
 
-    patch.availability = availNorm.availability;
-    patch.leadTimeDays = availNorm.leadTimeDays;
-    patch.readyQty = availNorm.readyQty;
-    patch.nextShipDate = availNorm.nextShipDate;
-
-    if (typeof req.body.acceptsCustom === "boolean") {
-      patch.acceptsCustom = req.body.acceptsCustom;
+      patch.careInstructions =
+        v == null ||
+        String(v).trim() === ""
+          ? null
+          : String(v);
     }
-const hasOrderConfigurationUpdate =
-  req.body.orderMode !==
-    undefined ||
-  req.body.optionsSchema !==
-    undefined ||
-  req.body.customSchema !==
-    undefined ||
-  req.body.repeatedGroups !==
-    undefined ||
-  req.body.quoteSchema !==
-    undefined;
 
-if (hasOrderConfigurationUpdate) {
-  const orderConfig =
-    normalizeOrderConfiguration({
-      orderMode:
-        req.body.orderMode ??
-        product.orderMode,
+    if (
+      req.body.specialNotes !==
+      undefined
+    ) {
+      const v =
+        req.body.specialNotes;
 
-      optionsSchema:
-        req.body.optionsSchema ??
-        product.optionsSchema,
+      patch.specialNotes =
+        v == null ||
+        String(v).trim() === ""
+          ? null
+          : String(v);
+    }
 
-      customSchema:
-        req.body.customSchema ??
-        product.customSchema,
+    const availNorm =
+      normalizeAvailabilityPayload(
+        req.body,
+        product
+      );
 
-      repeatedGroups:
-        req.body.repeatedGroups ??
-        product.repeatedGroups,
+    if (availNorm.error) {
+      return res
+        .status(400)
+        .json({
+          error:
+            availNorm.error,
+        });
+    }
 
-      quoteSchema:
-        req.body.quoteSchema ??
-        product.quoteSchema,
-    });
+    patch.availability =
+      availNorm.availability;
 
-  if (orderConfig.error) {
-    return res.status(400).json({
-      error:
-        orderConfig.error,
-    });
-  }
+    patch.leadTimeDays =
+      availNorm.leadTimeDays;
 
-  patch.orderMode =
-    orderConfig.orderMode;
+    patch.readyQty =
+      availNorm.readyQty;
 
-  patch.optionsSchema =
-    orderConfig.optionsSchema;
+    patch.nextShipDate =
+      availNorm.nextShipDate;
 
-  patch.customSchema =
-    orderConfig.customSchema;
+    if (
+      typeof req.body
+        .acceptsCustom ===
+      "boolean"
+    ) {
+      patch.acceptsCustom =
+        req.body.acceptsCustom;
+    }
 
-  patch.repeatedGroups =
-    orderConfig.repeatedGroups;
+    const hasOrderConfigurationUpdate =
+      req.body.orderMode !==
+        undefined ||
+      req.body.optionsSchema !==
+        undefined ||
+      req.body.customSchema !==
+        undefined ||
+      req.body.repeatedGroups !==
+        undefined ||
+      req.body.quoteSchema !==
+        undefined;
 
-  patch.quoteSchema =
-    orderConfig.quoteSchema;
-}
-    // ===== VISIBILITY CONTROL =====
-if (typeof req.body.isActive === "boolean") {
-  patch.isActive = req.body.isActive;
-}
+    if (
+      hasOrderConfigurationUpdate
+    ) {
+      const orderConfig =
+        normalizeOrderConfiguration(
+          {
+            orderMode:
+              req.body
+                .orderMode ??
+              product.orderMode,
 
-if (typeof req.body.isHidden === "boolean") {
-  patch.isHidden = req.body.isHidden;
-}
+            optionsSchema:
+              req.body
+                .optionsSchema ??
+              product.optionsSchema,
 
-// ===== MODERATION ONLY IF CONTENT CHANGED =====
-const contentFieldsChanged =
-  req.body.title !== undefined ||
-  req.body.description !== undefined ||
-  req.body.price !== undefined ||
-  req.body.images !== undefined ||
-  req.body.category !== undefined ||
-  req.body.color !== undefined ||
-  req.body.materialMain !== undefined ||
-  req.body.technique !== undefined ||
-  req.body.styleTags !== undefined ||
-  req.body.occasionTags !== undefined ||
-  req.body.dimensions !== undefined ||
-  req.body.careInstructions !== undefined ||
-  req.body.specialNotes !== undefined ||
-  req.body.orderMode !== undefined ||
-  req.body.optionsSchema !== undefined ||
-  req.body.customSchema !== undefined ||
-  req.body.repeatedGroups !== undefined ||
-  req.body.quoteSchema !== undefined;
+            customSchema:
+              req.body
+                .customSchema ??
+              product.customSchema,
 
-if (contentFieldsChanged) {
-  patch.moderationStatus = "PENDING";
-  patch.moderationMessage = null;
-  patch.submittedAt = new Date();
-  patch.reviewedAt = null;
-  patch.reviewedByUserId = null;
-  patch.approvedAt = null;
-}
+            repeatedGroups:
+              req.body
+                .repeatedGroups ??
+              product.repeatedGroups,
 
-console.info("[PRODUCT UPDATE]", {
-  productId: id,
-  imagesReceived: req.body.images?.length || 0,
-  imagesSaved: patch.images?.length ?? product.images?.length ?? 0,
-});
+            quoteSchema:
+              req.body
+                .quoteSchema ??
+              product.quoteSchema,
+          }
+        );
 
-    const updated = await prisma.product.update({
-      where: { id },
-      data: patch,
-    });
+      if (
+        orderConfig.error
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              orderConfig.error,
+          });
+      }
 
-    return res.json(mapProduct(updated));
+      patch.orderMode =
+        orderConfig.orderMode;
+
+      patch.optionsSchema =
+        orderConfig.optionsSchema;
+
+      patch.customSchema =
+        orderConfig.customSchema;
+
+      patch.repeatedGroups =
+        orderConfig.repeatedGroups;
+
+      patch.quoteSchema =
+        orderConfig.quoteSchema;
+    }
+
+    /*
+     * VISIBILITY CONTROL
+     */
+    if (
+      typeof req.body
+        .isActive ===
+      "boolean"
+    ) {
+      patch.isActive =
+        req.body.isActive;
+    }
+
+    if (
+      typeof req.body
+        .isHidden ===
+      "boolean"
+    ) {
+      patch.isHidden =
+        req.body.isHidden;
+    }
+
+    /*
+     * MODERATION ONLY IF CONTENT CHANGED
+     */
+    const contentFieldsChanged =
+      req.body.title !==
+        undefined ||
+      req.body.description !==
+        undefined ||
+      req.body.price !==
+        undefined ||
+      req.body.images !==
+        undefined ||
+      req.body.category !==
+        undefined ||
+      req.body.color !==
+        undefined ||
+      req.body.materialMain !==
+        undefined ||
+      req.body.technique !==
+        undefined ||
+      req.body.styleTags !==
+        undefined ||
+      req.body.occasionTags !==
+        undefined ||
+      req.body.dimensions !==
+        undefined ||
+      req.body.careInstructions !==
+        undefined ||
+      req.body.specialNotes !==
+        undefined ||
+      req.body.orderMode !==
+        undefined ||
+      req.body.optionsSchema !==
+        undefined ||
+      req.body.customSchema !==
+        undefined ||
+      req.body.repeatedGroups !==
+        undefined ||
+      req.body.quoteSchema !==
+        undefined;
+
+    if (
+      contentFieldsChanged
+    ) {
+      patch.moderationStatus =
+        "PENDING";
+
+      patch.moderationMessage =
+        null;
+
+      patch.submittedAt =
+        new Date();
+
+      patch.reviewedAt = null;
+
+      patch.reviewedByUserId =
+        null;
+
+      patch.approvedAt = null;
+    }
+
+    console.info(
+      "[PRODUCT UPDATE]",
+      {
+        productId: id,
+
+        imagesReceived:
+          req.body.images
+            ?.length || 0,
+
+        imagesSaved:
+          patch.images
+            ?.length ??
+          product.images
+            ?.length ??
+          0,
+
+        requestedOrderMode,
+
+        priceCents:
+          patch.priceCents ??
+          product.priceCents,
+      }
+    );
+
+    const updated =
+      await prisma.product.update(
+        {
+          where: { id },
+          data: patch,
+        }
+      );
+
+    return res.json(
+      mapProduct(updated)
+    );
   } catch (e) {
-    console.error("PUT /vendors/products/:id error:", e);
-    return res.status(500).json({ error: "server_error" });
+    console.error(
+      "PUT /vendors/products/:id error:",
+      e
+    );
+
+    return res
+      .status(500)
+      .json({
+        error: "server_error",
+      });
   }
 }
 

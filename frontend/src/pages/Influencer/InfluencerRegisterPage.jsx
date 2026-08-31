@@ -791,7 +791,7 @@ export default function InfluencerRegisterPage() {
             styles.subtitle
           }
         >
-          Contul tău va fi asociat invitației primite.
+          Creează-ți contul de influencer Artfest pentru a activa colaborarea.
         </p>
 
         <div
@@ -813,25 +813,6 @@ export default function InfluencerRegisterPage() {
               invite.email ||
               "—"
             }
-          />
-
-          <SummaryRow
-            label="Cod influencer"
-            value={
-              invite.referralCode ||
-              invite.code ||
-              "—"
-            }
-          />
-
-          <SummaryRow
-            label="Comision"
-            value={`${Number(
-              invite.commissionPercent ||
-                0
-            ).toLocaleString(
-              "ro-RO"
-            )}%`}
           />
         </div>
 
@@ -1547,7 +1528,7 @@ function mapRegisterError(
       return "Această invitație a fost deja folosită.";
 
     case "referral_code_already_exists":
-      return "Codul influencerului este deja folosit.";
+      return "Nu am putut finaliza activarea profilului. Încearcă din nou.";
 
     case "account_already_exists":
       return "Există deja un cont Artfest cu acest email.";

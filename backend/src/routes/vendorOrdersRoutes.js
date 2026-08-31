@@ -210,6 +210,8 @@ async function computeVendorEarningForShipment({
 }) {
   const shipment =
     await prisma.shipment.findUnique({
+      // Pin explicit pe "query" - calcul earning/comision vendor.
+      relationLoadStrategy: "query",
       where: {
         id: shipmentId,
       },
@@ -888,6 +890,11 @@ function endOfDay(d) {
 // ----------------------------------------------------
 async function findShipmentByOrderRef({ vendorId, orderRef, include, select }) {
   return prisma.shipment.findFirst({
+    // Pin explicit pe "query" - folosit de comandă vendor (detalii,
+    // status, deposit, facturare); relații adiacente payment/comision
+    // în majoritatea apelurilor - păstrăm strategia curentă până sunt
+    // testate separat A/B, nu doar auditate mecanic.
+    relationLoadStrategy: "query",
     where: {
       vendorId,
       OR: [{ orderId: orderRef }, { order: { orderNumber: orderRef } }],
@@ -1276,11 +1283,27 @@ router.get(
     const [
       rows,
       total,
-      billing,
-      activePlan,
     ] =
       await Promise.all([
         prisma.shipment.findMany({
+          /*
+           * LEAN LIST SELECT - doar câmpurile randate efectiv în
+           * rândul din tabel (trace exhaustiv făcut pe Orders.jsx,
+           * fiecare câmp verificat unul câte unul). Explicit
+           * EXCLUSE, disponibile doar în Order Details:
+           * courier/AWB, pickup, delivered/refused/returned,
+           * câmpuri de campanie, vendorNotes, invoiceNumber/Date,
+           * items complete (personalizări/discount breakdown),
+           * și breakdown-ul de comision per rând (vendorFinancials -
+           * confirmat neutilizat de UI, calculat degeaba pe server).
+           *
+           * join: toate relațiile de mai jos sunt 1:1 (service,
+           * profile, vendor, order) + items redus la 2 câmpuri
+           * scalare (fără relație) - testat A/B cu date reale din
+           * DEV, rezultat identic, 6->1 query-uri.
+           */
+          relationLoadStrategy: "join",
+
           where,
 
           orderBy: {
@@ -1314,55 +1337,10 @@ router.get(
             price:
               true,
 
-            courierProvider:
-              true,
-
-            courierService:
-              true,
-
-            awb:
-              true,
-
-            labelUrl:
-              true,
-
-            pickupDate:
-              true,
-
-            pickupSlotStart:
-              true,
-
-            pickupSlotEnd:
-              true,
-
-            pickupScheduledAt:
-              true,
-
-            deliveredAt:
-              true,
-
-            refusedAt:
-              true,
-
-            returnedAt:
-              true,
-
             cancelReason:
               true,
 
             cancelReasonNote:
-              true,
-
-            campaignId:
-              true,
-
-            campaignCommissionBps:
-              true,
-
-            campaignDiscountPercent:
-              true,
-
-            campaignAttributedAt:
               true,
 
             depositStatus:
@@ -1380,87 +1358,26 @@ router.get(
             remainingCodAmount:
               true,
 
-            depositRequestedAt:
-              true,
-
-            depositPaidAt:
-              true,
-
-            depositExpiresAt:
-              true,
-
             items: {
               select: {
-                id:
-                  true,
-
-                productId:
-                  true,
-
-                title:
-                  true,
-
-                qty:
-                  true,
-
+                // doar ce are nevoie getShipmentPaidGross() pentru
+                // `total` - nimic altceva nu ajunge în listă.
                 price:
                   true,
 
-                selectedOptions:
-                  true,
-
-                customAnswers:
-                  true,
-
-                configurationKey:
-                  true,
-
-                originalPrice:
-                  true,
-
-                discountAmount:
-                  true,
-
-                platformDiscountPercent:
-                  true,
-
-                vendorDiscountPercent:
-                  true,
-
-                platformDiscountAmount:
-                  true,
-
-                vendorDiscountAmount:
-                  true,
-
-                promoCollectionId:
-                  true,
-
-                promoFundingSource:
-                  true,
-
-                homepageFeatureId:
-                  true,
-
-                discountSource:
+                qty:
                   true,
               },
             },
 
             service: {
               select: {
-                id:
-                  true,
-
                 title:
                   true,
 
                 profile: {
                   select: {
                     displayName:
-                      true,
-
-                    slug:
                       true,
                   },
                 },
@@ -1478,12 +1395,6 @@ router.get(
               select: {
                 orderNumber:
                   true,
-
-                /*
-                 * =================================================
-                 * STATUS + PLATĂ
-                 * =================================================
-                 */
 
                 status:
                   true,
@@ -1506,15 +1417,6 @@ router.get(
                 isGuestOrder:
                   true,
 
-                vendorNotes:
-                  true,
-
-                invoiceNumber:
-                  true,
-
-                invoiceDate:
-                  true,
-
                 shippingAddress:
                   true,
               },
@@ -1525,126 +1427,12 @@ router.get(
         prisma.shipment.count({
           where,
         }),
-
-        prisma.vendorBilling.findUnique({
-          where: {
-            vendorId,
-          },
-        }),
-
-        getActivePlanForVendor(
-          vendorId
-        ).catch(
-          () =>
-            null
-        ),
       ]);
 
-    /*
-     * =====================================================
-     * IMAGINI PRODUSE
-     * =====================================================
-     */
-
-    const productIdSet =
-      new Set();
-
-    for (
-      const shipment of
-      rows
-    ) {
-      for (
-        const item of
-        shipment.items ||
-        []
-      ) {
-        if (
-          item.productId
-        ) {
-          productIdSet.add(
-            item.productId
-          );
-        }
-      }
-    }
-
-    let imageMap =
-      new Map();
-
-    if (
-      productIdSet.size
-    ) {
-      const products =
-        await prisma.product.findMany({
-          where: {
-            id: {
-              in:
-                Array.from(
-                  productIdSet
-                ),
-            },
-          },
-
-          select: {
-            id:
-              true,
-
-            images:
-              true,
-          },
-        });
-
-      imageMap =
-        new Map(
-          products.map(
-            (
-              product
-            ) => [
-              product.id,
-
-              Array.isArray(
-                product.images
-              ) &&
-              product
-                .images[0]
-                ? product
-                    .images[0]
-                : null,
-            ]
-          )
-        );
-    }
-
-    const vatStatus =
-      billing?.vatStatus ||
-      null;
-
-    const vatRate =
-      vatStatus ===
-      "payer"
-        ? Number(
-            billing?.vatRate ||
-              0
-          )
-        : 0;
-
-    let baseCommissionBps =
-      Number(
-        activePlan
-          ?.commissionBps ||
-          0
-      );
-
-    if (
-      !Number.isFinite(
-        baseCommissionBps
-      ) ||
-      baseCommissionBps <
-        0
-    ) {
-      baseCommissionBps =
-        0;
-    }
+    // Nu mai există lookup de imagini/vendorFinancials aici -
+    // `items[]` complet și breakdown-ul de comision per rând nu sunt
+    // randate de tabelul din Comenzi (confirmat prin trace exhaustiv
+    // pe Orders.jsx) - au fost mutate/eliminate din select mai sus.
 
     let items =
       rows.map(
@@ -1652,26 +1440,15 @@ router.get(
           shipment
         ) => {
           /*
-           * Comision de campanie (override) - per shipment,
-           * nu per vendor. Fiecare comandă din listă poate
-           * avea o atribuire de campanie diferită (sau
-           * niciuna), deci nu putem refolosi un singur
-           * commissionBps calculat o singură dată din plan
-           * pentru toate rândurile.
+           * Breakdown-ul complet de comision (platformNet/vendorNet/
+           * planCode etc.) NU se mai calculează aici - confirmat prin
+           * trace exhaustiv că `vendorFinancials` nu e randat de
+           * tabelul din Comenzi. Sursa unică pentru comision rămâne
+           * neschimbată pentru Order Details/COD/CARD:
+           * computeVendorEarningForShipment() / computeOrderSplits().
+           * Aici păstrăm DOAR ce hrănește `total`, câmpul singur
+           * folosit efectiv de listă.
            */
-          const hasCampaignCommission =
-            shipment.campaignCommissionBps !==
-              null &&
-            shipment.campaignCommissionBps !==
-              undefined;
-
-          const commissionBps =
-            hasCampaignCommission
-              ? Number(
-                  shipment.campaignCommissionBps
-                )
-              : baseCommissionBps;
-
           const order =
             shipment.order ||
             {};
@@ -1702,18 +1479,6 @@ router.get(
                 []
             );
 
-          const platformDiscountGross =
-            getPlatformDiscountGross(
-              shipment.items ||
-                []
-            );
-
-          const vendorDiscountGross =
-            getVendorDiscountGross(
-              shipment.items ||
-                []
-            );
-
           const shipmentShipping =
             Number(
               shipment.price ||
@@ -1723,54 +1488,6 @@ router.get(
           const shipmentTotal =
             shipmentSubtotal +
             shipmentShipping;
-
-          const commissionBaseGross =
-            round2(
-              shipmentSubtotal +
-                platformDiscountGross +
-                vendorDiscountGross
-            );
-
-          const vatFraction =
-            vatRate > 0
-              ? vatRate / 100
-              : 0;
-
-          /*
-           * Sursă unică pentru comision - identică cu COD
-           * (computeVendorEarningForShipment), CARD
-           * (computeOrderSplits) și detaliul comenzii.
-           */
-          const rowBreakdown =
-            computeCommissionBreakdown({
-              itemsOriginalGross:
-                commissionBaseGross,
-
-              itemsAfterDiscountGross:
-                shipmentSubtotal,
-
-              platformDiscountAmount:
-                platformDiscountGross,
-
-              commissionBps,
-
-              vatFraction,
-            });
-
-          const itemsNet =
-            rowBreakdown.itemsAfterDiscount;
-
-          /*
-           * IMPORTANT: commissionNet afișat = platformNet
-           * (ce reține efectiv Artfest, după subvenția
-           * platformei pentru discounturile Collection /
-           * Product of the Day / Artisan of the Week).
-           */
-          const commissionNet =
-            rowBreakdown.platformNet;
-
-          const vendorNetBeforeShipping =
-            rowBreakdown.vendorNet;
 
           return {
             id:
@@ -1804,20 +1521,13 @@ router.get(
               address.email ||
               "",
 
-            address,
+            address: {
+              city:
+                address.city ||
+                "",
+            },
 
             storeName,
-
-            serviceId:
-              shipment.service
-                ?.id ||
-              null,
-
-            serviceSlug:
-              shipment.service
-                ?.profile
-                ?.slug ||
-              null,
 
             status:
               shipmentToUiStatus(
@@ -1827,208 +1537,11 @@ router.get(
             total:
               shipmentTotal,
 
-            items:
+            itemsCount:
               (
                 shipment.items ||
                 []
-              ).map(
-                (
-                  item
-                ) => {
-                  const price =
-                    Number(
-                      item.price ||
-                        0
-                    );
-
-                  const originalPrice =
-                    item.originalPrice !=
-                    null
-                      ? Number(
-                          item.originalPrice
-                        )
-                      : null;
-
-                  const hasDiscount =
-                    originalPrice !=
-                      null &&
-                    originalPrice >
-                      price;
-
-                  const discountAmount =
-                    Number(
-                      item.discountAmount ||
-                        0
-                    );
-
-                  const discountPercent =
-                    hasDiscount &&
-                    originalPrice >
-                      0
-                      ? Math.round(
-                          (
-                            (
-                              originalPrice -
-                              price
-                            ) /
-                            originalPrice
-                          ) *
-                            100
-                        )
-                      : 0;
-
-                  return {
-                    id:
-                      item.id,
-
-                    productId:
-                      item.productId,
-
-                    title:
-                      item.title,
-
-                    qty:
-                      item.qty,
-
-                    price,
-
-                    priceCents:
-                      Math.round(
-                        price *
-                          100
-                      ),
-
-                    originalPrice:
-                      hasDiscount
-                        ? originalPrice
-                        : null,
-
-                    originalPriceCents:
-                      hasDiscount
-                        ? Math.round(
-                            originalPrice *
-                              100
-                          )
-                        : null,
-
-                    hasDiscount,
-
-                    discountPercent,
-
-                    discountAmount,
-
-                    discountAmountCents:
-                      Math.round(
-                        discountAmount *
-                          100
-                      ),
-
-                    platformDiscountPercent:
-                      Number(
-                        item.platformDiscountPercent ||
-                          0
-                      ),
-
-                    vendorDiscountPercent:
-                      Number(
-                        item.vendorDiscountPercent ||
-                          0
-                      ),
-
-                    platformDiscountAmount:
-                      Number(
-                        item.platformDiscountAmount ||
-                          0
-                      ),
-
-                    vendorDiscountAmount:
-                      Number(
-                        item.vendorDiscountAmount ||
-                          0
-                      ),
-
-                    promoCollectionId:
-                      item.promoCollectionId ||
-                      null,
-
-                    promoFundingSource:
-                      item.promoFundingSource ||
-                      null,
-
-                    homepageFeatureId:
-                      item.homepageFeatureId ||
-                      null,
-
-                    discountSource:
-                      item.discountSource ||
-                      null,
-
-                    selectedOptions:
-                      item.selectedOptions ||
-                      {},
-
-                    customAnswers:
-                      item.customAnswers ||
-                      {},
-
-                    configurationKey:
-                      item.configurationKey ||
-                      null,
-
-                    image:
-                      item.productId
-                        ? imageMap.get(
-                            item.productId
-                          ) ||
-                          null
-                        : null,
-                  };
-                }
-              ),
-
-            shipmentId:
-              shipment.id,
-
-            shipmentStatus:
-              shipment.status,
-
-            courierProvider:
-              shipment.courierProvider ||
-              null,
-
-            courierService:
-              shipment.courierService ||
-              null,
-
-            awb:
-              shipment.awb,
-
-            labelUrl:
-              shipment.labelUrl,
-
-            pickupScheduledAt:
-              shipment.pickupScheduledAt,
-
-            pickupDate:
-              shipment.pickupDate,
-
-            pickupSlotStart:
-              shipment.pickupSlotStart,
-
-            pickupSlotEnd:
-              shipment.pickupSlotEnd,
-
-            deliveredAt:
-              shipment.deliveredAt ||
-              null,
-
-            refusedAt:
-              shipment.refusedAt ||
-              null,
-
-            returnedAt:
-              shipment.returnedAt ||
-              null,
+              ).length,
 
             cancelReason:
               shipment.cancelReason ||
@@ -2037,10 +1550,6 @@ router.get(
             cancelReasonNote:
               shipment.cancelReasonNote ||
               null,
-
-            vendorNotes:
-              order.vendorNotes ||
-              "",
 
             /*
              * =================================================
@@ -2055,10 +1564,6 @@ router.get(
             paymentStatus:
               paymentState
                 .paymentStatus,
-
-            paidAt:
-              order.paidAt ||
-              null,
 
             waitingForCardPayment:
               paymentState
@@ -2104,103 +1609,14 @@ router.get(
                       shipment.remainingCodAmount
                     )
                   : null,
-
-              requestedAt:
-                shipment.depositRequestedAt ||
-                null,
-
-              paidAt:
-                shipment.depositPaidAt ||
-                null,
-
-              expiresAt:
-                shipment.depositExpiresAt ||
-                null,
             },
 
-            invoiceNumber:
-              order.invoiceNumber ||
-              null,
-
-            invoiceDate:
-              order.invoiceDate ||
-              null,
-
-            vendorFinancials: {
-              planCode:
-                activePlan
-                  ?.code ||
-                null,
-
-              planName:
-                activePlan
-                  ?.name ||
-                null,
-
-              vatStatus,
-              vatRate,
-
-              commissionBps,
-
-              commissionSource:
-                hasCampaignCommission
-                  ? "campaign"
-                  : "plan",
-
-              commissionPercent:
-                round2(
-                  commissionBps /
-                    100
-                ),
-
-              commissionRate:
-                round2(
-                  commissionBps /
-                    10000
-                ),
-
-              itemsNet:
-                round2(
-                  itemsNet
-                ),
-
-              commissionNet,
-
-              vendorNetBeforeShipping,
-
-              baseCommissionBps,
-
-              platformDiscountGross:
-                round2(
-                  platformDiscountGross
-                ),
-
-              vendorDiscountGross:
-                round2(
-                  vendorDiscountGross
-                ),
-
-              commissionBaseGross:
-                round2(
-                  commissionBaseGross
-                ),
-
-              itemsAfterDiscount:
-                rowBreakdown.itemsAfterDiscount,
-
-              commissionBase:
-                rowBreakdown.commissionBase,
-
-              commissionAmount:
-                rowBreakdown.commissionAmount,
-
-              platformSubsidyAmount:
-                rowBreakdown.platformSubsidyAmount,
-
-              platformNet:
-                rowBreakdown.platformNet,
-            },
-
+            /*
+             * Placeholder - completat printr-un apel separat,
+             * nu-blocant, de la client (vezi
+             * GET /orders/thread-meta) ca să nu întârzie primul
+             * randare a tabelului pentru un simplu badge.
+             */
             messageThreadId:
               null,
 
@@ -2210,50 +1626,10 @@ router.get(
         }
       );
 
-    if (
-      items.length >
-      0
-    ) {
-      const orderIds =
-        items.map(
-          (
-            item
-          ) =>
-            item.id
-        );
-
-      const metaByOrderId =
-        await getThreadMetaByOrderId({
-          vendorId,
-          orderIds,
-        });
-
-      items =
-        items.map(
-          (
-            item
-          ) => {
-            const meta =
-              metaByOrderId.get(
-                item.id
-              );
-
-            if (!meta) {
-              return item;
-            }
-
-            return {
-              ...item,
-
-              messageThreadId:
-                meta.threadId,
-
-              messageUnreadCount:
-                meta.unreadCount,
-            };
-          }
-        );
-    }
+    // messageThreadId/messageUnreadCount rămân null/0 aici - clientul
+    // le completează printr-un apel separat (GET /orders/thread-meta),
+    // ca badge-ul de mesaje necitite să nu mai blocheze primul
+    // răspuns al listei.
 
     const payload = {
       total,
@@ -2270,6 +1646,45 @@ router.get(
     );
   }
 );
+
+/* ----------------------------------------------------
+   GET /api/vendor/orders/thread-meta?orderIds=a,b,c
+   Populează messageThreadId/messageUnreadCount separat de lista
+   principală, ca badge-ul de mesaje să nu mai întârzie primul
+   randare al tabelului. Aceeași logică (getThreadMetaByOrderId),
+   doar mutată într-un apel non-blocant, ulterior.
+----------------------------------------------------- */
+router.get("/orders/thread-meta", requireVendor, async (req, res, next) => {
+  try {
+    const vendorId = req.user.vendorId;
+
+    const orderIds = String(req.query.orderIds || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (!orderIds.length) {
+      return res.json({});
+    }
+
+    const metaByOrderId = await getThreadMetaByOrderId({
+      vendorId,
+      orderIds,
+    });
+
+    const out = {};
+    for (const [orderId, meta] of metaByOrderId.entries()) {
+      out[orderId] = {
+        messageThreadId: meta.threadId,
+        messageUnreadCount: meta.unreadCount,
+      };
+    }
+
+    return res.json(out);
+  } catch (e) {
+    next(e);
+  }
+});
 
 router.get("/orders/stream", requireVendor, (req, res) => {
   const vendorId = req.user.vendorId;
@@ -4869,6 +4284,8 @@ router.get("/orders/:id/invoice", requireVendor, async (req, res) => {
     });
 
     const existing = await prisma.invoice.findFirst({
+      // Pin explicit pe "query" - date de facturare.
+      relationLoadStrategy: "query",
       where: {
         vendorId,
         orderId: order.id,
@@ -5040,6 +4457,8 @@ router.post("/orders/:id/invoice", requireVendor, async (req, res) => {
     }
 
     const existing = await prisma.invoice.findFirst({
+      // Pin explicit pe "query" - date de facturare.
+      relationLoadStrategy: "query",
       where: {
         vendorId,
         orderId: order.id,

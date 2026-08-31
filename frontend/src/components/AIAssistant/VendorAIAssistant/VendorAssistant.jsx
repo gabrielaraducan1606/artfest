@@ -7,12 +7,13 @@ import React, {
   useState,
 } from "react";
 
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import styles from "../AiAssistant.module.css";
 
 import { derivePageContext } from "../derivePageContext.js";
 import { useCurrentEntityContext } from "../CurrentEntityContext.jsx";
+import { humanizeAssistantErrorMessage } from "../assistantErrorMessages.js";
 
 import AssistantMessage from "../components/AssistantMessage.jsx";
 import ActionMenu from "../components/ActionMenu.jsx";
@@ -42,17 +43,37 @@ import {
   getVendorInputPlaceholder,
 } from "./vendorFlows.js";
 
-import VendorProductWizard from "./components/VendorProductWizard.jsx";
+import VendorProductWizard, {
+  getMissingFields,
+} from "./components/VendorProductWizard.jsx";
 import VendorProductBatchWizard from "./components/VendorProductBatchWizard.jsx";
 import {
   detectVendorIntent,
   VENDOR_INTENTS,
+  detectVendorNavigationTarget,
+  extractProductNameFromMessage,
 } from "./vendorIntent.js";
+
+import {
+  fetchLeanProductList,
+  fetchProductEditDraft,
+  fetchProductCategories,
+  buildProductSavePayload,
+} from "./services/productEditMapping.js";
+
+import {
+  ASSISTANT_ROLES,
+  resolveAssistantAction,
+} from "../assistantActionRegistry.js";
+
+import { prefetchChunk } from "../../../lib/smartPrefetch.js";
 
 import {
   analyzeVendorProduct,
   analyzeVendorProductOrder,
   uploadVendorProductImages,
+  clusterVendorProductImages,
+  MAX_BATCH_CLUSTER_IMAGES,
 } from "./services/vendorProductAi.js";
 
 import { sendPriceCalculatorTurn } from "./services/vendorPriceCalculatorApi.js";
@@ -376,6 +397,110 @@ aiOrderConfidence: null,
 };
 
 /* =========================================================
+   EDIT_PRODUCT conversațional - quick actions afișate după
+   selectarea unui produs din listă (vezi presentProductQuickActions).
+   Câmpurile text/numerice simple sunt EXACT cele deja suportate de
+   orchestratorul PRODUCT_UPDATE (PRODUCT_FIELD_LABELS din
+   vendorAssistantCommandService.js) - nu inventăm capabilități noi
+   de editare conversațională. Imagini/variante/personalizare rămân
+   STRICT în wizard-ul complet (VendorProductWizard mode="edit"),
+   pentru că nu sunt structuri potrivite pentru text liber.
+========================================================= */
+
+const PRODUCT_QUICK_ACTIONS = [
+  { id: "title", label: "Titlul" },
+  { id: "description", label: "Descrierea" },
+  { id: "price", label: "Prețul" },
+  { id: "stock", label: "Stocul / disponibilitatea" },
+  { id: "category", label: "Categoria" },
+  { id: "variants", label: "Variante / opțiuni" },
+  { id: "personalization", label: "Personalizarea" },
+  { id: "images", label: "Imaginile" },
+  { id: "full-editor", label: "Deschide editorul complet" },
+  { id: "other", label: "Altceva" },
+];
+
+/*
+ * DOAR pentru id-urile de mai jos awaitingField devine numele exact
+ * al câmpului din PRODUCT_FIELD_LABELS (backend) - restul (stock/
+ * other) rămân cu awaitingField null, dar productId tot ajunge la
+ * orchestrator (vezi relaxarea din handleCostingAssistantCommand),
+ * ca AI-ul să știe în continuare despre ce produs e vorba.
+ */
+const PRODUCT_QUICK_ACTION_FIELD_MAP = {
+  title: "title",
+  description: "description",
+  price: "price",
+  category: "category",
+};
+
+const PRODUCT_QUICK_ACTION_PROMPTS = {
+  title: "Care este noul titlu?",
+  description:
+    "Ce descriere vrei să folosesc? Scrie liber, iar eu pregătesc un draft pe care îl confirmi înainte să-l salvez.",
+  price: "Care este noul preț, în lei?",
+  category: "Care este noua categorie?",
+  stock:
+    "Spune-mi noul stoc sau disponibilitatea - ex. „mai am 5 bucăți” sau „e disponibil doar la comandă”.",
+  other: "Spune-mi liber ce vrei să modific la acest produs.",
+};
+
+const PRODUCT_FULL_EDITOR_ACTIONS = new Set([
+  "variants",
+  "personalization",
+  "images",
+  "full-editor",
+]);
+
+const PRODUCT_UPDATE_FOLLOWUP_CHOICES = [
+  "Mai modific ceva la acest produs",
+  "Alege alt produs",
+  "Deschide editorul complet",
+  "Înapoi la Produse",
+];
+
+/*
+ * Preț/imagine - sursele diferă după origine: un item din lista
+ * lean (fetchLeanProductList) are `.price` în LEI + `.image`, un
+ * produs complet (fetchProductEditDraft / răspunsul PUT de update)
+ * are `.priceCents` + `.images[]`. Ambele acoperite aici, o
+ * singură dată, ca resolvedProductPreview să rămână corect
+ * indiferent de unde vine produsul.
+ */
+function toPriceCentsFromProduct(product) {
+  if (!product) return null;
+
+  const priceCents = Number(product.priceCents);
+
+  if (Number.isFinite(priceCents)) {
+    return priceCents;
+  }
+
+  const price = Number(product.price);
+
+  if (Number.isFinite(price)) {
+    return Math.round(price * 100);
+  }
+
+  return null;
+}
+
+function toProductPreviewImage(product) {
+  if (!product) return null;
+
+  if (product.image) return product.image;
+
+  if (
+    Array.isArray(product.images) &&
+    product.images.length
+  ) {
+    return product.images[0];
+  }
+
+  return null;
+}
+
+/* =========================================================
    Helpers mesaje
 ========================================================= */
 
@@ -487,7 +612,19 @@ function normalizeProductDraft(
    Dimensiune și poziție
 ========================================================= */
 
-function getPanelSize() {
+/*
+ * BUGFIX (audit mobil) - `window.innerHeight` NU se micșorează pe
+ * toate browserele mobile când se deschide tastatura (ex. Safari iOS
+ * păstrează viewport-ul de layout neschimbat și doar acoperă vizual
+ * partea de jos) - `window.visualViewport`, acolo unde e disponibil,
+ * reflectă corect zona vizibilă efectiv. Fără asta, panoul (și
+ * implicit zona de input, aflată jos) putea rămâne dimensionat/
+ * poziționat pentru toată înălțimea ecranului și ajunge acoperit de
+ * tastatură. Cădere înapoi pe innerWidth/innerHeight peste tot unde
+ * visualViewport nu există (desktop, browsere vechi) - comportament
+ * identic cu înainte în acele cazuri.
+ */
+function getViewportSize() {
   if (
     typeof window ===
     "undefined"
@@ -499,38 +636,46 @@ function getPanelSize() {
   }
 
   return {
+    width:
+      window.visualViewport?.width ||
+      window.innerWidth,
+
+    height:
+      window.visualViewport?.height ||
+      window.innerHeight,
+  };
+}
+
+function getPanelSize() {
+  const viewport =
+    getViewportSize();
+
+  return {
     width: Math.min(
       380,
-      window.innerWidth - 24
+      viewport.width - 24
     ),
 
     height: Math.min(
       580,
-      window.innerHeight - 24
+      viewport.height - 24
     ),
   };
 }
 
 function getDefaultPosition() {
-  if (
-    typeof window ===
-    "undefined"
-  ) {
-    return {
-      x: 24,
-      y: 24,
-    };
-  }
+  const viewport =
+    getViewportSize();
 
   return {
     x: Math.max(
       12,
-      window.innerWidth - 84
+      viewport.width - 84
     ),
 
     y: Math.max(
       12,
-      window.innerHeight - 84
+      viewport.height - 84
     ),
   };
 }
@@ -583,12 +728,15 @@ function clampPosition(
     return position;
   }
 
+  const viewport =
+    getViewportSize();
+
   const padding = 12;
 
   const maxX =
     Math.max(
       padding,
-      window.innerWidth -
+      viewport.width -
         elementWidth -
         padding
     );
@@ -596,7 +744,7 @@ function clampPosition(
   const maxY =
     Math.max(
       padding,
-      window.innerHeight -
+      viewport.height -
         elementHeight -
         padding
     );
@@ -671,6 +819,7 @@ function getSavedDraft() {
 
 export default function VendorAssistant() {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const {
     currentEntity: announcedEntity,
@@ -716,11 +865,34 @@ export default function VendorAssistant() {
   const fileInputRef =
     useRef(null);
 
+  /*
+   * Input ascuns separat, DOAR pentru "Fă poze" din wizard-ul de
+   * import în bulk (capture="environment" deschide direct camera pe
+   * mobil, spre deosebire de fileInputRef, care deschide galeria).
+   * Folosește EXACT același handleImageChange - nicio logică
+   * duplicată, doar o a doua poartă de intrare pentru fișiere.
+   */
+  const cameraInputRef =
+    useRef(null);
+
   const messagesEndRef =
     useRef(null);
 
   const uploadedImagesRef =
     useRef([]);
+
+  /*
+   * Protecție reală anti-dublu-submit (cerința #13) - `useRef`, NU
+   * state: un state guard citit la începutul unui handler poate fi
+   * încă "vechi" pentru al doilea click, dacă ambele click-uri
+   * pornesc înainte ca React să re-randeze (batching). Un ref se
+   * actualizează sincron, în aceeași tură de execuție.
+   */
+  const inFlightGroupPublishRef =
+    useRef(new Set());
+
+  const bulkPublishingRef =
+    useRef(false);
 
   const dragRef = useRef({
     active: false,
@@ -848,6 +1020,46 @@ const [
 ] = useState(null);
 
 /*
+ * EDIT_PRODUCT din chat (intent-ul din vendorIntent.js, conectat mai
+ * jos în handleSend) - complet SEPARAT de productDraft (folosit de
+ * flow-ul de CREARE, activeVendorView "product-wizard"), ca cele
+ * două flow-uri să nu se poată suprascrie una pe alta din greșeală.
+ * Reutilizează STRICT VendorProductWizard mode="edit" (aceeași
+ * componentă ca CatalogProduse.jsx).
+ */
+const [
+  chatEditDraft,
+  setChatEditDraft,
+] = useState(null);
+
+const [
+  chatEditingProduct,
+  setChatEditingProduct,
+] = useState(null);
+
+const [
+  chatEditCategories,
+  setChatEditCategories,
+] = useState([]);
+
+const [
+  chatEditSaving,
+  setChatEditSaving,
+] = useState(false);
+
+const [
+  chatEditSaveError,
+  setChatEditSaveError,
+] = useState("");
+
+const [
+  chatEditSaveSuccess,
+  setChatEditSaveSuccess,
+] = useState(null);
+
+const chatEditSavingRef = useRef(false);
+
+/*
  * { costDraft, pricing } - setat EXPLICIT doar de
  * handleCreateProductFromCalculator, la momentul exact al
  * handoff-ului calculator -> wizard. NU citim direct
@@ -884,6 +1096,68 @@ const [
   analyzingBatch,
   setAnalyzingBatch,
 ] = useState(false);
+
+/*
+ * { phase: "clustering" | "analyzing", done, total } - progres
+ * incremental afișat în VendorProductBatchWizard cât timp
+ * analyzingBatch e true. null = nimic în curs.
+ */
+const [
+  batchProgress,
+  setBatchProgress,
+] = useState(null);
+
+/*
+ * Eroare persistentă (nu window.alert) afișată în pasul "images"
+ * al wizard-ului de bulk - ex. gruparea AI a eșuat complet pentru
+ * un lot. Fotografiile rămân intacte, vendorul poate reîncerca.
+ */
+const [
+  batchGroupingError,
+  setBatchGroupingError,
+] = useState("");
+
+/*
+ * id-ul grupului editat integral prin VendorProductWizard (faza 2 -
+ * editare per produs) - null cât timp vendorul e pe lista de
+ * carduri. Un singur editor montat o dată (performanță, cerința
+ * #18) - niciodată mai multe simultan.
+ */
+const [
+  editingGroupId,
+  setEditingGroupId,
+] = useState(null);
+
+const [
+  editorAnalyzing,
+  setEditorAnalyzing,
+] = useState(false);
+
+const [
+  editorAnalyzingOrder,
+  setEditorAnalyzingOrder,
+] = useState(false);
+
+/*
+ * Publicare în masă ("Publică produsele pregătite") - separată de
+ * saveStatus-ul per grup, doar ca să dezactivăm butonul global cât
+ * timp rulează un lot de publicări (protecție dublu-click, cerința
+ * #13).
+ */
+const [
+  bulkPublishing,
+  setBulkPublishing,
+] = useState(false);
+
+/*
+ * Rezumat afișat DUPĂ un "Publică produsele pregătite" - cerința
+ * #14 ("4 produse publicate / 1 mai are nevoie de modificări").
+ * null = niciun rezumat de arătat.
+ */
+const [
+  bulkPublishSummary,
+  setBulkPublishSummary,
+] = useState(null);
 
 /* =========================================================
    Calculator de preț + analiză foto - INLINE în conversație,
@@ -1205,8 +1479,23 @@ const [
       handleResize
     );
 
+    /*
+     * Tastatura pe mobil (vezi getViewportSize) - pe unele browsere
+     * doar visualViewport emite "resize" la deschiderea/închiderea
+     * tastaturii, nu window.
+     */
+    window.visualViewport?.addEventListener(
+      "resize",
+      handleResize
+    );
+
     return () => {
       window.removeEventListener(
+        "resize",
+        handleResize
+      );
+
+      window.visualViewport?.removeEventListener(
         "resize",
         handleResize
       );
@@ -1492,6 +1781,548 @@ const [
     );
   }
 
+  /* =======================================================
+     EDIT_PRODUCT din chat - selector lean + editor real.
+
+     Reutilizează STRICT VendorProductWizard mode="edit" (aceeași
+     componentă montată de CatalogProduse.jsx / "Produsele mele") -
+     niciun editor separat, nicio duplicare de logică de salvare
+     (buildProductSavePayload e din services/productEditMapping.js,
+     folosit și de CatalogProduse.jsx).
+
+     Selector LEAN: fetchLeanProductList() e exact endpoint-ul din
+     "Produsele mele" - fetch full (fetchProductEditDraft) rulează
+     DOAR după ce vendorul alege un produs, niciodată pentru toată
+     lista.
+  ======================================================= */
+
+  /*
+   * Carduri compacte (imagine/preț/stoc/status), NU doar butoane
+   * text - randate de ProductEditChoiceCard din AssistantMessage.jsx
+   * (discriminator: productEdit === true). Câmpurile vin STRICT din
+   * fetchLeanProductList (GET /api/vendor/catalog/products), același
+   * endpoint ca "Produsele mele" - niciun fetch suplimentar per
+   * card.
+   */
+  function buildEditProductChoices(products) {
+    return products.map((product) => ({
+      id: product.id || product._id,
+      label: product.title || "Produs fără titlu",
+
+      productEdit: true,
+
+      image: toProductPreviewImage(product),
+      priceCents: toPriceCentsFromProduct(product),
+      currency: product.currency || "RON",
+
+      stock: product.stock ?? null,
+      availability: product.availability || null,
+
+      active: product.active !== false,
+      hidden: !!product.hidden,
+    }));
+  }
+
+  async function openEditProductSelector(
+    productNameHint = null
+  ) {
+    setShowMenu(false);
+
+    try {
+      const products =
+        await fetchLeanProductList();
+
+      if (!products.length) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Nu am găsit niciun produs în catalogul tău. Poți începe prin a adăuga unul."
+          )
+        );
+
+        return;
+      }
+
+      const hint = String(
+        productNameHint || ""
+      )
+        .trim()
+        .toLowerCase();
+
+      const matches = hint
+        ? products.filter((product) =>
+            String(product.title || "")
+              .toLowerCase()
+              .includes(hint)
+          )
+        : [];
+
+      /*
+       * Nume clar, un singur produs potrivit -> intrăm direct în
+       * quick actions conversaționale pentru el, fără să mai cerem
+       * confirmarea din listă.
+       */
+      if (hint && matches.length === 1) {
+        presentProductQuickActions(matches[0]);
+
+        return;
+      }
+
+      const candidates =
+        hint && matches.length > 0
+          ? matches
+          : products;
+
+      addMessage(
+        createMessage(
+          "assistant",
+
+          hint && !matches.length
+            ? `Nu am găsit un produs numit „${productNameHint}”. Alege din lista ta:`
+            : hint
+              ? `Am găsit mai multe produse care se potrivesc cu „${productNameHint}”. Care dintre ele?`
+              : "Ce produs vrei să editezi?",
+
+          {
+            type: "choices",
+            choiceStep: "edit-product-select",
+            choices:
+              buildEditProductChoices(
+                candidates
+              ),
+          }
+        )
+      );
+    } catch (error) {
+      addMessage(
+        createMessage(
+          "assistant",
+
+          error?.message ||
+            "Nu am putut încărca produsele tale."
+        )
+      );
+    }
+  }
+
+  async function openEditProductForId(
+    productId
+  ) {
+    try {
+      const [
+        { full, draft },
+        categories,
+      ] = await Promise.all([
+        fetchProductEditDraft(
+          productId
+        ),
+        fetchProductCategories(),
+      ]);
+
+      setChatEditingProduct(full);
+      setChatEditDraft(draft);
+      setChatEditCategories(categories);
+      setChatEditSaveError("");
+      setChatEditSaveSuccess(null);
+
+      setActiveVendorView(
+        "product-edit-wizard"
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          `Am deschis „${full.title || "produsul"}” pentru editare.`
+        )
+      );
+    } catch (error) {
+      addMessage(
+        createMessage(
+          "assistant",
+
+          error?.message ||
+            "Nu am putut încărca produsul pentru editare."
+        )
+      );
+    }
+  }
+
+  /* =======================================================
+     EDIT_PRODUCT din chat - quick actions conversaționale.
+
+     Unifică cele două mecanisme deja existente:
+     - selectorul lean de produse de mai sus (imagine/preț/stoc);
+     - modul conversațional PRODUCT_UPDATE (conversationContext,
+       resolvedProductPreview, handleCostingAssistantCommand,
+       PendingActionCard din processCostingCommandResult) - folosit
+       până acum DOAR din text liber ("schimbă prețul la 85 lei").
+
+     Selectarea unui produs din listă intră ACUM direct în același
+     mod PRODUCT_UPDATE, cu productId deja cunoscut - text liber sau
+     un quick action pornesc de aici mai departe fără nicio logică
+     nouă de salvare (rămâne PendingActionCard -> Confirmă/Renunță
+     -> PUT /api/vendors/products/:id, neschimbat).
+  ======================================================= */
+
+  function presentProductQuickActions(
+    product,
+    { intro } = {}
+  ) {
+    const productId =
+      product?.id ||
+      product?._id ||
+      conversationContext.productId;
+
+    if (!productId) {
+      return;
+    }
+
+    const title =
+      product?.title ||
+      product?.label ||
+      resolvedProductPreview?.title ||
+      "produsul selectat";
+
+    setResolvedProductPreview({
+      title,
+
+      image:
+        toProductPreviewImage(product) ??
+        resolvedProductPreview?.image ??
+        null,
+
+      priceCents:
+        toPriceCentsFromProduct(product) ??
+        resolvedProductPreview?.priceCents ??
+        null,
+    });
+
+    setConversationContext((current) => ({
+      ...current,
+      mode: "PRODUCT_UPDATE",
+      productId,
+      awaitingField: null,
+      productUpdateDraft: null,
+    }));
+
+    addMessage(
+      createMessage(
+        "assistant",
+
+        intro ||
+          `Am selectat „${title}”. Ce dorești să modifici?`,
+
+        {
+          type: "choices",
+          choiceStep: "product-quick-action",
+          choices: PRODUCT_QUICK_ACTIONS,
+        }
+      )
+    );
+  }
+
+  /*
+   * Click pe un quick action - câmpurile simple (title/description/
+   * price/category) intră STRICT în mecanismul deja existent
+   * "needs_field" (awaitingField cunoscut, productId cunoscut) -
+   * răspunsul următor al vendorului merge la orchestrator cu
+   * pendingContext, EXACT ca înainte. Stoc/Altceva rămân cu
+   * awaitingField null (composite/liber), dar productId tot ajunge
+   * la orchestrator - vezi relaxarea din handleCostingAssistantCommand.
+   * Imagini/variante/personalizare/editor complet deschid STRICT
+   * wizard-ul complet, cu produsul deja încărcat.
+   */
+  async function handleProductQuickAction(
+    choiceId
+  ) {
+    const productId =
+      conversationContext.productId;
+
+    if (!productId) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu mai știu despre ce produs vorbeam. Alege din nou produsul."
+        )
+      );
+
+      await openEditProductSelector();
+
+      return;
+    }
+
+    if (
+      PRODUCT_FULL_EDITOR_ACTIONS.has(
+        choiceId
+      )
+    ) {
+      await openEditProductForId(productId);
+
+      return;
+    }
+
+    const field =
+      PRODUCT_QUICK_ACTION_FIELD_MAP[
+        choiceId
+      ] || null;
+
+    const prompt =
+      PRODUCT_QUICK_ACTION_PROMPTS[
+        choiceId
+      ] ||
+      "Spune-mi ce vrei să modific.";
+
+    setConversationContext((current) => ({
+      ...current,
+      mode: "PRODUCT_UPDATE",
+      productId,
+      awaitingField: field,
+      productUpdateDraft: null,
+    }));
+
+    addMessage(
+      createMessage(
+        "assistant",
+        prompt
+      )
+    );
+  }
+
+  /*
+   * Quick actions arătate DUPĂ o modificare salvată cu succes (vezi
+   * handleConfirmPendingCostingAction, action.kind === "UPDATE_PRODUCT") -
+   * vendorul rămâne pe același produs în loc să fie resetat la
+   * modul NORMAL.
+   */
+  async function handleProductFollowUpChoice(
+    choiceLabel
+  ) {
+    if (
+      choiceLabel ===
+      "Mai modific ceva la acest produs"
+    ) {
+      presentProductQuickActions(
+        {
+          id: conversationContext.productId,
+          title: resolvedProductPreview?.title,
+          image: resolvedProductPreview?.image,
+          priceCents:
+            resolvedProductPreview?.priceCents,
+        },
+        {
+          intro: `Ce altceva dorești să modific la „${
+            resolvedProductPreview?.title ||
+            "produs"
+          }”?`,
+        }
+      );
+
+      return;
+    }
+
+    if (choiceLabel === "Alege alt produs") {
+      setResolvedProductPreview(null);
+
+      setConversationContext(
+        EMPTY_CONVERSATION_CONTEXT
+      );
+
+      await openEditProductSelector();
+
+      return;
+    }
+
+    if (
+      choiceLabel ===
+      "Deschide editorul complet"
+    ) {
+      if (conversationContext.productId) {
+        await openEditProductForId(
+          conversationContext.productId
+        );
+      }
+
+      return;
+    }
+
+    if (choiceLabel === "Înapoi la Produse") {
+      setResolvedProductPreview(null);
+
+      setConversationContext(
+        EMPTY_CONVERSATION_CONTEXT
+      );
+
+      setActiveFlow(null);
+      setActiveVendorView("conversation");
+      setCurrentMenu(
+        VENDOR_MENU_IDS.PRODUCTS
+      );
+      setShowMenu(true);
+    }
+  }
+
+  function closeChatEditProduct() {
+    if (chatEditSaving) {
+      return;
+    }
+
+    setActiveVendorView(
+      "conversation"
+    );
+
+    setChatEditingProduct(null);
+    setChatEditDraft(null);
+  }
+
+  async function handleSaveChatEditProduct(
+    event
+  ) {
+    event?.preventDefault?.();
+
+    if (chatEditSavingRef.current) {
+      return false;
+    }
+
+    const id =
+      chatEditingProduct?.id ||
+      chatEditingProduct?._id ||
+      chatEditDraft?.id;
+
+    if (!id) {
+      setChatEditSaveError(
+        "Produsul nu a fost identificat."
+      );
+
+      return false;
+    }
+
+    const title = String(
+      chatEditDraft?.title || ""
+    ).trim();
+
+    const description =
+      chatEditDraft?.description || "";
+
+    const numericPrice = Number(
+      String(
+        chatEditDraft?.price ?? ""
+      ).replace(",", ".")
+    );
+
+    if (!title) {
+      setChatEditSaveError(
+        "Titlul produsului este obligatoriu."
+      );
+
+      return false;
+    }
+
+    if (
+      chatEditDraft?.orderMode !==
+        "QUOTE_ONLY" &&
+      (
+        !Number.isFinite(
+          numericPrice
+        ) ||
+        numericPrice < 0
+      )
+    ) {
+      setChatEditSaveError(
+        "Introdu un preț valid."
+      );
+
+      return false;
+    }
+
+    chatEditSavingRef.current = true;
+    setChatEditSaving(true);
+    setChatEditSaveError("");
+
+    try {
+      const payload =
+        buildProductSavePayload(
+          chatEditDraft,
+          {
+            title,
+            description,
+            numericPrice,
+          }
+        );
+
+      const response =
+        await fetch(
+          `/api/vendors/products/${encodeURIComponent(id)}`,
+          {
+            method: "PUT",
+
+            credentials: "include",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+              Accept:
+                "application/json",
+            },
+
+            body: JSON.stringify(
+              payload
+            ),
+          }
+        );
+
+      let saved = null;
+
+      try {
+        saved =
+          await response.json();
+      } catch {
+        saved = null;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          saved?.message ||
+            saved?.error ||
+            "Nu am putut salva produsul."
+        );
+      }
+
+      try {
+        window.dispatchEvent(
+          new CustomEvent(
+            "vendor:productUpdated",
+            {
+              detail: {
+                product: saved,
+              },
+            }
+          )
+        );
+      } catch {
+        // noop
+      }
+
+      setChatEditingProduct(saved);
+
+      setChatEditSaveSuccess({
+        productId: id,
+        title: saved?.title || title,
+      });
+
+      return true;
+    } catch (error) {
+      setChatEditSaveError(
+        error?.message ||
+          "Nu am putut salva produsul."
+      );
+
+      return false;
+    } finally {
+      setChatEditSaving(false);
+      chatEditSavingRef.current = false;
+    }
+  }
+
   function openBatchProductWizard({
   resetBatch = false,
 } = {}) {
@@ -1524,6 +2355,8 @@ if (resetBatch) {
   );
 
   setBatchGroups([]);
+  setBatchProgress(null);
+  setBatchGroupingError("");
 }
 
   setBatchWizardStep(
@@ -2798,8 +3631,23 @@ if (resetBatch) {
       return;
     }
 
+    /*
+     * BUGFIX (verificare finală EDIT_PRODUCT conversațional): NU
+     * resetăm contextul produsului chiar înainte să afișăm cardul
+     * de confirmare pentru UPDATE_PRODUCT - altfel "Renunță" (care
+     * nu mai are ce restaura) pierde produsul selectat din quick
+     * actions. Pentru orice alt rezultat (inclusiv alte kind-uri de
+     * pending_action, dacă ar apărea vreodată cât timp mode e
+     * PRODUCT_UPDATE), comportamentul rămâne EXACT cel de dinainte.
+     */
+    const isPendingUpdateProductAction =
+      result?.resultType === "pending_action" &&
+      result?.pendingAction?.kind ===
+        "UPDATE_PRODUCT";
+
     if (
-      conversationContext.mode === "PRODUCT_UPDATE"
+      conversationContext.mode === "PRODUCT_UPDATE" &&
+      !isPendingUpdateProductAction
     ) {
       setResolvedProductPreview(null);
 
@@ -2885,14 +3733,26 @@ if (resetBatch) {
             }
           : conversationContext.mode ===
                 "PRODUCT_UPDATE" &&
-              conversationContext.productId &&
-              conversationContext.awaitingField
+              conversationContext.productId
             ? {
+                /*
+                 * BUGFIX: productId trimis ca hint chiar și fără un
+                 * awaitingField specific (ex. quick action "Stocul /
+                 * disponibilitatea" sau "Altceva", sau o continuare
+                 * liberă după o salvare - "schimbă și descrierea")
+                 * - ruta /assistant/command tolerează deja
+                 * missingField gol (vezi rawPendingContext.productId
+                 * ca singură condiție), așa că orchestratorul știe
+                 * despre ce produs e vorba fără să mai ceară numele
+                 * din nou. Cazul EXISTENT (awaitingField cunoscut,
+                 * ex. "care e noul preț?") rămâne identic.
+                 */
                 commandType: "UPDATE_PRODUCT",
                 productId:
                   conversationContext.productId,
                 missingField:
-                  conversationContext.awaitingField,
+                  conversationContext.awaitingField ||
+                  "",
               }
             : null;
 
@@ -3241,23 +4101,50 @@ if (resetBatch) {
           // Evenimentul e doar pentru refresh UI - nu blocăm fluxul.
         }
 
-        addMessage(
-          createMessage(
-            "assistant",
+        /*
+         * BUGFIX: rămânem pe ACELAȘI produs după o salvare reușită
+         * (nu resetăm la modul NORMAL) - vendorul poate continua
+         * natural ("acum pune și stocul 4") sau alege una din
+         * quick actions de mai jos, fără să reselecteze produsul.
+         */
+        setResolvedProductPreview({
+          title:
+            updated?.title ||
+            action.productTitle,
 
-            `Am actualizat „${action.productTitle}”: ${action.summary}.`
-          )
-        );
+          image:
+            toProductPreviewImage(updated) ??
+            resolvedProductPreview?.image ??
+            null,
+
+          priceCents:
+            toPriceCentsFromProduct(updated) ??
+            resolvedProductPreview?.priceCents ??
+            null,
+        });
 
         setConversationContext((current) => ({
           ...current,
-          mode: "NORMAL",
-          productId: null,
+          mode: "PRODUCT_UPDATE",
+          productId: action.productId,
           awaitingField: null,
           productUpdateDraft: null,
         }));
 
-        setResolvedProductPreview(null);
+        addMessage(
+          createMessage(
+            "assistant",
+
+            `Am actualizat „${action.productTitle}”: ${action.summary}.`,
+
+            {
+              type: "choices",
+              choiceStep: "product-update-followup",
+              choices:
+                PRODUCT_UPDATE_FOLLOWUP_CHOICES,
+            }
+          )
+        );
       } else if (
         action.kind === "CREATE_SUPPORT_TICKET"
       ) {
@@ -3532,6 +4419,14 @@ setAnalyzingBatch(
   false
 );
 
+setBatchProgress(null);
+setBatchGroupingError("");
+setEditingGroupId(null);
+setEditorAnalyzing(false);
+setEditorAnalyzingOrder(false);
+setBulkPublishing(false);
+setBulkPublishSummary(null);
+
 setConversationContext(
   EMPTY_CONVERSATION_CONTEXT
 );
@@ -3761,6 +4656,21 @@ async function handleAction(
     actionId ===
     VENDOR_ACTION_IDS.ADD_PRODUCT
   ) {
+    /*
+     * BUGFIX (audit) - click direct pe cardul de meniu "Adaugă produs
+     * cu AI" pornea wizard-ul FĂRĂ niciun mesaj de conversație (flow-ul
+     * era real, doar tăcut) - calea prin text liber ("vreau să adaug
+     * un produs", vezi VENDOR_INTENTS.ADD_PRODUCT mai jos) arăta deja
+     * mesajul corect; aici lipsea complet. Același text, un singur
+     * loc de adevăr pentru formulare.
+     */
+    addMessage(
+      createMessage(
+        "assistant",
+        "Sigur. Te ajut să adaugi produsul pas cu pas. Poți începe direct cu fotografiile - AI-ul propune singur titlul și descrierea - sau, dacă nu ai poze acum, poți completa totul manual."
+      )
+    );
+
     openAddProductWizard();
 
     return;
@@ -3770,8 +4680,18 @@ async function handleAction(
     actionId ===
     VENDOR_ACTION_IDS.ADD_PRODUCTS_BATCH
   ) {
+    /*
+     * Reia un import în curs dacă există (persistență, cerința
+     * #15/#20) - reset doar dacă nu e nimic de reluat. Ștergerea
+     * explicită se face DOAR din "Șterge tot și începe din nou"
+     * (handleResetBatch), niciodată implicit la reintrare în meniu.
+     */
+    const hasInProgressBatch =
+      batchImages.length > 0 ||
+      batchGroups.length > 0;
+
     openBatchProductWizard({
-      resetBatch: true,
+      resetBatch: !hasInProgressBatch,
     });
 
     return;
@@ -3924,6 +4844,73 @@ async function handleAction(
     }
 
     /*
+     * Selectorul de produse pentru EDIT_PRODUCT (vezi
+     * openEditProductSelector) - "choice" e obiectul construit de
+     * buildEditProductChoices (imagine/preț/stoc/status incluse).
+     * NU mai deschide direct wizard-ul complet - intră în modul
+     * conversațional PRODUCT_UPDATE (quick actions), unificat cu
+     * fluxul care exista deja pentru text liber.
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep ===
+        "edit-product-select"
+    ) {
+      presentProductQuickActions(choice);
+
+      return;
+    }
+
+    /*
+     * Quick actions afișate după selectarea produsului (Titlul/
+     * Descrierea/Prețul/Stocul/.../Deschide editorul complet).
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep ===
+        "product-quick-action"
+    ) {
+      await handleProductQuickAction(
+        choice?.id
+      );
+
+      return;
+    }
+
+    /*
+     * Quick actions afișate DUPĂ o modificare salvată cu succes
+     * (Mai modific ceva / Alege alt produs / Deschide editorul
+     * complet / Înapoi la Produse).
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep ===
+        "product-update-followup"
+    ) {
+      await handleProductFollowUpChoice(
+        choice
+      );
+
+      return;
+    }
+
+    /*
+     * BUGFIX: "Vezi produsele mele" din startVendorFlow (EDIT_PRODUCT)
+     * trebuie să deschidă selectorul REAL de produse - interceptat
+     * ÎNAINTE de handleVendorChoice (care nu mai are un placeholder
+     * pentru asta, vezi vendorFlows.js).
+     */
+    if (
+      activeFlow ===
+        VENDOR_PRODUCT_FLOWS.EDIT_PRODUCT &&
+      choice === "Vezi produsele mele"
+    ) {
+      await openEditProductSelector();
+
+      return;
+    }
+
+    /*
      * BUGFIX (audit): alegeri din flow-ul de marketplace (search
      * text/imagine/cadou/buget) - identic cu AiAssistant.jsx,
      * același handleProductChoice, niciun cod nou de căutare.
@@ -4010,11 +4997,26 @@ async function handleAction(
      */
     setShowMenu(false);
 
+    const editingGroupForUpload =
+      activeVendorView ===
+      "product-batch-wizard-edit"
+        ? batchGroups.find(
+            (group) =>
+              group.id === editingGroupId
+          )
+        : null;
+
     const currentImagesCount =
   activeVendorView ===
   "product-batch-wizard"
     ? batchImages.length
-    : uploadedImages.length;
+    : editingGroupForUpload
+      ? (
+          editingGroupForUpload
+            .productDraft?.images ||
+          []
+        ).length
+      : uploadedImages.length;
 
 const maxAllowedImages =
   activeVendorView ===
@@ -4115,6 +5117,40 @@ const remainingSlots =
     ) {
       return;
     }
+if (
+  activeVendorView ===
+  "product-batch-wizard-edit" &&
+  editingGroupId
+) {
+  setBatchGroups((current) =>
+    current.map((group) =>
+      group.id === editingGroupId
+        ? {
+            ...group,
+            productDraft: {
+              ...(group.productDraft ||
+                {}),
+
+              images: [
+                ...(Array.isArray(
+                  group.productDraft
+                    ?.images
+                )
+                  ? group.productDraft
+                      .images
+                  : []),
+
+                ...nextImages,
+              ],
+            },
+          }
+        : group
+    )
+  );
+
+  return;
+}
+
 if (
   activeVendorView ===
   "product-batch-wizard"
@@ -4254,6 +5290,140 @@ if (
    * imageUrl} sau {file: File} - nu reîncarcă imaginile deja
    * publice, doar le urcă pe cele care sunt încă fișiere locale.
    */
+  /*
+   * Extras din setProductDraft-ul de mai jos, cuvânt cu cuvânt -
+   * NU o rescriere - ca să poată fi reutilizat IDENTIC de editorul
+   * per-produs din importul în bulk (handleAnalyzeGroupEditorProduct)
+   * fără o a doua implementare a acelorași reguli de mapare AI.
+   */
+  function applyPhotoAnalysisToDraft(
+    current,
+    analysis,
+    imageUrls
+  ) {
+    const canApplyOrderMode =
+      Number(
+        analysis
+          ?.orderModeConfidence
+      ) >= 0.75;
+
+    return {
+      ...normalizeProductDraft(
+        current
+      ),
+
+      images: imageUrls,
+
+      title:
+        analysis?.title ||
+        current.title,
+
+      description:
+        analysis?.description ||
+        current.description,
+
+      category:
+        analysis?.category ||
+        current.category,
+
+      materialMain:
+        analysis?.materialMain ||
+        current.materialMain,
+
+      technique:
+        analysis?.technique ||
+        current.technique,
+
+      color:
+        analysis?.color ||
+        current.color,
+
+      styleTags:
+        Array.isArray(
+          analysis?.styleTags
+        )
+          ? analysis.styleTags.join(
+              ", "
+            )
+          : current.styleTags,
+
+      occasionTags:
+        Array.isArray(
+          analysis?.occasionTags
+        )
+          ? analysis.occasionTags.join(
+              ", "
+            )
+          : current.occasionTags,
+
+      careInstructions:
+        analysis?.careInstructions ||
+        current.careInstructions,
+
+      specialNotes:
+        analysis?.specialNotes ||
+        current.specialNotes,
+
+      orderMode:
+        canApplyOrderMode
+          ? analysis
+              ?.likelyOrderMode ||
+            current.orderMode
+          : current.orderMode,
+
+      optionsSchema:
+        canApplyOrderMode &&
+        analysis
+          ?.likelyOrderMode ===
+          "OPTIONS" &&
+        Array.isArray(
+          analysis
+            ?.likelyOptions
+        )
+          ? analysis
+              .likelyOptions
+          : current
+              .optionsSchema,
+
+      customSchema:
+        canApplyOrderMode &&
+        analysis
+          ?.likelyOrderMode ===
+          "OPTIONS" &&
+        Array.isArray(
+          analysis
+            ?.likelyCustomFields
+        )
+          ? analysis
+              .likelyCustomFields
+          : current
+              .customSchema,
+
+      quoteSchema:
+        analysis
+          ?.likelyOrderMode ===
+          "QUOTE_ONLY"
+          ? current
+              .quoteSchema
+          : [],
+
+      aiAnalysis:
+        analysis,
+
+      aiQuestions:
+        Array.isArray(
+          analysis?.questions
+        )
+          ? analysis
+              .questions
+          : [],
+
+      aiConfidence:
+        analysis?.confidence ??
+        null,
+    };
+  }
+
   async function handleAnalyzeProduct() {
   const imagesToAnalyze = Array.isArray(
     productDraft?.images
@@ -4289,129 +5459,13 @@ if (
           imagesToAnalyze,
       });
 
-    const canApplyOrderMode =
-      Number(
-        analysis
-          ?.orderModeConfidence
-      ) >= 0.75;
-
     setProductDraft(
-      (current) => ({
-        ...normalizeProductDraft(
-          current
-        ),
-
-        images:
-          imageUrls,
-
-        title:
-          analysis?.title ||
-          current.title,
-
-        description:
-          analysis?.description ||
-          current.description,
-
-        category:
-          analysis?.category ||
-          current.category,
-
-        materialMain:
-          analysis?.materialMain ||
-          current.materialMain,
-
-        technique:
-          analysis?.technique ||
-          current.technique,
-
-        color:
-          analysis?.color ||
-          current.color,
-
-        styleTags:
-          Array.isArray(
-            analysis?.styleTags
-          )
-            ? analysis.styleTags.join(
-                ", "
-              )
-            : current.styleTags,
-
-        occasionTags:
-          Array.isArray(
-            analysis?.occasionTags
-          )
-            ? analysis.occasionTags.join(
-                ", "
-              )
-            : current.occasionTags,
-
-        careInstructions:
-          analysis?.careInstructions ||
-          current.careInstructions,
-
-        specialNotes:
-          analysis?.specialNotes ||
-          current.specialNotes,
-
-        orderMode:
-          canApplyOrderMode
-            ? analysis
-                ?.likelyOrderMode ||
-              current.orderMode
-            : current.orderMode,
-
-        optionsSchema:
-          canApplyOrderMode &&
-          analysis
-            ?.likelyOrderMode ===
-            "OPTIONS" &&
-          Array.isArray(
-            analysis
-              ?.likelyOptions
-          )
-            ? analysis
-                .likelyOptions
-            : current
-                .optionsSchema,
-
-        customSchema:
-          canApplyOrderMode &&
-          analysis
-            ?.likelyOrderMode ===
-            "OPTIONS" &&
-          Array.isArray(
-            analysis
-              ?.likelyCustomFields
-          )
-            ? analysis
-                .likelyCustomFields
-            : current
-                .customSchema,
-
-        quoteSchema:
-          analysis
-            ?.likelyOrderMode ===
-            "QUOTE_ONLY"
-            ? current
-                .quoteSchema
-            : [],
-
-        aiAnalysis:
+      (current) =>
+        applyPhotoAnalysisToDraft(
+          current,
           analysis,
-
-        aiQuestions:
-          Array.isArray(
-            analysis?.questions
-          )
-            ? analysis
-                .questions
-            : [],
-
-        aiConfidence:
-          analysis?.confidence ??
-          null,
-      })
+          imageUrls
+        )
     );
 
     setUploadedImages(
@@ -4450,8 +5504,10 @@ if (
     );
 
     window.alert(
-      error?.message ||
+      humanizeAssistantErrorMessage(
+        error,
         "Nu am putut analiza produsul."
+      )
     );
   } finally {
     setAnalyzingProduct(
@@ -4459,6 +5515,117 @@ if (
     );
   }
 }
+/*
+ * Extras din setProductDraft-ul de mai jos, cuvânt cu cuvânt - vezi
+ * comentariul de la applyPhotoAnalysisToDraft. Reutilizat identic de
+ * handleAnalyzeGroupEditorOrder (import în bulk).
+ */
+function applyOrderAnalysisToDraft(
+  current,
+  result,
+  imageUrls
+) {
+  const currentDraft =
+    normalizeProductDraft(current);
+
+  const patch =
+    result?.patch &&
+    typeof result.patch === "object"
+      ? result.patch
+      : {};
+
+  const nextOrderMode = [
+    "READY_TO_BUY",
+    "OPTIONS",
+    "QUOTE_ONLY",
+  ].includes(patch?.orderMode)
+    ? patch.orderMode
+    : currentDraft.orderMode;
+
+  return {
+    ...currentDraft,
+
+    images:
+      Array.isArray(imageUrls) &&
+      imageUrls.length
+        ? imageUrls
+        : currentDraft.images,
+
+    price:
+      patch.price !== null &&
+      patch.price !== undefined
+        ? patch.price
+        : currentDraft.price,
+
+    availability:
+      patch.availability ||
+      currentDraft.availability,
+
+    readyQty:
+      patch.readyQty !== null &&
+      patch.readyQty !== undefined
+        ? patch.readyQty
+        : currentDraft.readyQty,
+
+    leadTimeDays:
+      patch.leadTimeDays !== null &&
+      patch.leadTimeDays !== undefined
+        ? patch.leadTimeDays
+        : currentDraft.leadTimeDays,
+
+    orderMode: nextOrderMode,
+
+    optionsSchema:
+      nextOrderMode === "OPTIONS"
+        ? Array.isArray(
+            patch.optionsSchema
+          )
+          ? patch.optionsSchema
+          : currentDraft.optionsSchema
+        : [],
+
+    customSchema:
+      nextOrderMode === "OPTIONS"
+        ? Array.isArray(
+            patch.customSchema
+          )
+          ? patch.customSchema
+          : currentDraft.customSchema
+        : [],
+
+    repeatedGroups:
+      nextOrderMode === "OPTIONS"
+        ? currentDraft.repeatedGroups
+        : [],
+
+    quoteSchema:
+      nextOrderMode === "QUOTE_ONLY"
+        ? Array.isArray(
+            patch.quoteSchema
+          )
+          ? patch.quoteSchema
+          : currentDraft.quoteSchema
+        : [],
+
+    aiOrderMessage: String(
+      result?.message || ""
+    ).trim(),
+
+    aiOrderReason: String(
+      result?.orderModeReason || ""
+    ).trim(),
+
+    aiOrderConfidence:
+      result?.confidence ?? null,
+
+    aiQuestions: Array.isArray(
+      result?.questions
+    )
+      ? result.questions
+      : [],
+  };
+}
+
 async function handleAnalyzeProductOrder() {
   const safeDraft =
     normalizeProductDraft(
@@ -4515,133 +5682,13 @@ if (
         history: [],
       });
 
-    const patch =
-      result?.patch &&
-      typeof result.patch ===
-        "object"
-        ? result.patch
-        : {};
-
-    const nextOrderMode =
-      [
-        "READY_TO_BUY",
-        "OPTIONS",
-        "QUOTE_ONLY",
-      ].includes(
-        patch?.orderMode
-      )
-        ? patch.orderMode
-        : safeDraft.orderMode;
-
     setProductDraft(
-      (current) => {
-        const currentDraft =
-          normalizeProductDraft(
-            current
-          );
-
-        return {
-          ...currentDraft,
-
-          images:
-            Array.isArray(
-              imageUrls
-            ) &&
-            imageUrls.length
-              ? imageUrls
-              : currentDraft.images,
-
-          price:
-            patch.price !==
-              null &&
-            patch.price !==
-              undefined
-              ? patch.price
-              : currentDraft.price,
-
-          availability:
-            patch.availability ||
-            currentDraft.availability,
-
-          readyQty:
-            patch.readyQty !==
-              null &&
-            patch.readyQty !==
-              undefined
-              ? patch.readyQty
-              : currentDraft.readyQty,
-
-          leadTimeDays:
-            patch.leadTimeDays !==
-              null &&
-            patch.leadTimeDays !==
-              undefined
-              ? patch.leadTimeDays
-              : currentDraft.leadTimeDays,
-
-          orderMode:
-            nextOrderMode,
-
-          optionsSchema:
-            nextOrderMode ===
-              "OPTIONS"
-              ? Array.isArray(
-                  patch.optionsSchema
-                )
-                ? patch.optionsSchema
-                : currentDraft.optionsSchema
-              : [],
-
-          customSchema:
-            nextOrderMode ===
-              "OPTIONS"
-              ? Array.isArray(
-                  patch.customSchema
-                )
-                ? patch.customSchema
-                : currentDraft.customSchema
-              : [],
-
-          repeatedGroups:
-            nextOrderMode ===
-              "OPTIONS"
-              ? currentDraft.repeatedGroups
-              : [],
-
-          quoteSchema:
-            nextOrderMode ===
-              "QUOTE_ONLY"
-              ? Array.isArray(
-                  patch.quoteSchema
-                )
-                ? patch.quoteSchema
-                : currentDraft.quoteSchema
-              : [],
-
-          aiOrderMessage:
-            String(
-              result?.message ||
-                ""
-            ).trim(),
-
-          aiOrderReason:
-            String(
-              result?.orderModeReason ||
-                ""
-            ).trim(),
-
-          aiOrderConfidence:
-            result?.confidence ??
-            null,
-
-          aiQuestions:
-            Array.isArray(
-              result?.questions
-            )
-              ? result.questions
-              : [],
-        };
-      }
+      (current) =>
+        applyOrderAnalysisToDraft(
+          current,
+          result,
+          imageUrls
+        )
     );
   } catch (error) {
     console.error(
@@ -4650,8 +5697,10 @@ if (
     );
 
     window.alert(
-      error?.message ||
+      humanizeAssistantErrorMessage(
+        error,
         "Nu am putut pregăti formularul de comandă."
+      )
     );
   } finally {
     setAnalyzingOrder(
@@ -4684,6 +5733,125 @@ if (
  *   calculat de noul produs, DOAR după ce produsul chiar a fost
  *   creat - nicio formulă de calcul duplicată.
  */
+/*
+ * Extras din handlePublishProductFromWizard, cuvânt cu cuvânt - NU o
+ * rescriere - ca să existe UN SINGUR loc care știe cum aflăm slug-ul
+ * magazinului de produse. Reutilizat identic de publicarea per-grup
+ * din importul în bulk (handlePublishGroupProduct).
+ */
+async function resolveVendorStoreSlug() {
+  const catalogData = await api(
+    "/api/vendor/catalog/products"
+  );
+
+  return (
+    catalogData?.defaultStoreSlug ||
+    catalogData?.stores?.[0]?.slug ||
+    null
+  );
+}
+
+/*
+ * Extras din handlePublishProductFromWizard, cuvânt cu cuvânt - vezi
+ * comentariul de la resolveVendorStoreSlug. Reutilizat identic de
+ * handlePublishGroupProduct, ca ambele fluxuri (single-product și
+ * import în bulk) să trimită EXACT același shape de body către
+ * POST /vendors/store/:slug/products - nicio a doua implementare a
+ * acelorași reguli de business.
+ */
+function buildCreateProductBody(
+  draft,
+  imageUrls
+) {
+  const availability =
+    draft.availability || "READY";
+
+  const body = {
+    title: draft.title.trim(),
+    description: draft.description || "",
+
+    /*
+     * BUGFIX (audit) - QUOTE_ONLY trimite acum prețul orientativ real,
+     * la fel ca celelalte moduri. Backend-ul (createProduct din
+     * vendorProductRoutes.js) cere deja price > 0 pentru toate
+     * modurile, inclusiv QUOTE_ONLY - nu mai inventăm 0 aici.
+     */
+    price: Number(draft.price || 0),
+
+    images: imageUrls,
+    videoUrl: draft.videoUrl || null,
+    videoMuted: draft.videoUrl
+      ? !!draft.videoMuted
+      : false,
+    currency: draft.currency || "RON",
+    category: draft.category || null,
+    color: draft.color || null,
+    availability,
+
+    orderMode:
+      draft.orderMode ||
+      "READY_TO_BUY",
+
+    optionsSchema:
+      draft.optionsSchema || [],
+
+    customSchema:
+      draft.customSchema || [],
+
+    repeatedGroups:
+      draft.repeatedGroups || [],
+
+    quoteSchema:
+      draft.quoteSchema || [],
+
+    materialMain:
+      draft.materialMain || null,
+
+    technique:
+      draft.technique || null,
+
+    styleTags: draft.styleTags || "",
+
+    occasionTags:
+      draft.occasionTags || "",
+
+    dimensions: draft.dimensions || "",
+
+    careInstructions:
+      draft.careInstructions || "",
+
+    specialNotes:
+      draft.specialNotes || "",
+  };
+
+  if (availability === "MADE_TO_ORDER") {
+    body.leadTimeDays = Math.max(
+      1,
+      Number(draft.leadTimeDays || 1)
+    );
+  } else if (availability === "READY") {
+    body.readyQty =
+      draft.readyQty === "" ||
+      draft.readyQty == null
+        ? null
+        : Math.max(
+            0,
+            Number(draft.readyQty)
+          );
+  } else if (
+    availability === "PREORDER"
+  ) {
+    body.nextShipDate =
+      draft.nextShipDate
+        ? new Date(
+            draft.nextShipDate
+          ).toISOString()
+        : null;
+  }
+
+  return body;
+}
+
 async function handlePublishProductFromWizard() {
   if (wizardPublishing) return;
 
@@ -4715,19 +5883,8 @@ async function handlePublishProductFromWizard() {
   setWizardPublishSuccess(null);
 
   try {
-    /*
-     * Slug-ul magazinului de produse al vendorului curent -
-     * reutilizăm exact endpoint-ul deja folosit de pagina de
-     * catalog (nu creăm un endpoint dedicat "care e slug-ul meu").
-     */
-    const catalogData = await api(
-      "/api/vendor/catalog/products"
-    );
-
     const storeSlug =
-      catalogData?.defaultStoreSlug ||
-      catalogData?.stores?.[0]?.slug ||
-      null;
+      await resolveVendorStoreSlug();
 
     if (!storeSlug) {
       throw new Error(
@@ -4745,86 +5902,10 @@ async function handlePublishProductFromWizard() {
         draft.images
       );
 
-    const availability =
-      draft.availability || "READY";
-
-    const body = {
-      title: draft.title.trim(),
-      description: draft.description || "",
-
-      price:
-        draft.orderMode === "QUOTE_ONLY"
-          ? 0
-          : Number(draft.price || 0),
-
-      images: imageUrls,
-      videoUrl: draft.videoUrl || null,
-      videoMuted: draft.videoUrl ? !!draft.videoMuted : false,
-      currency: draft.currency || "RON",
-      category: draft.category || null,
-      color: draft.color || null,
-      availability,
-
-      orderMode:
-        draft.orderMode ||
-        "READY_TO_BUY",
-
-      optionsSchema:
-        draft.optionsSchema || [],
-
-      customSchema:
-        draft.customSchema || [],
-
-      repeatedGroups:
-        draft.repeatedGroups || [],
-
-      quoteSchema:
-        draft.quoteSchema || [],
-
-      materialMain:
-        draft.materialMain || null,
-
-      technique:
-        draft.technique || null,
-
-      styleTags: draft.styleTags || "",
-
-      occasionTags:
-        draft.occasionTags || "",
-
-      dimensions: draft.dimensions || "",
-
-      careInstructions:
-        draft.careInstructions || "",
-
-      specialNotes:
-        draft.specialNotes || "",
-    };
-
-    if (availability === "MADE_TO_ORDER") {
-      body.leadTimeDays = Math.max(
-        1,
-        Number(draft.leadTimeDays || 1)
-      );
-    } else if (availability === "READY") {
-      body.readyQty =
-        draft.readyQty === "" ||
-        draft.readyQty == null
-          ? null
-          : Math.max(
-              0,
-              Number(draft.readyQty)
-            );
-    } else if (
-      availability === "PREORDER"
-    ) {
-      body.nextShipDate =
-        draft.nextShipDate
-          ? new Date(
-              draft.nextShipDate
-            ).toISOString()
-          : null;
-    }
+    const body = buildCreateProductBody(
+      draft,
+      imageUrls
+    );
 
     const created = await api(
       `/api/vendors/store/${encodeURIComponent(
@@ -4877,9 +5958,10 @@ async function handlePublishProductFromWizard() {
         );
       } catch (err) {
         costingWarning =
-          err instanceof Error
-            ? err.message
-            : "Nu am putut salva costingul calculat pentru acest produs.";
+          humanizeAssistantErrorMessage(
+            err,
+            "Nu am putut salva costingul calculat pentru acest produs."
+          );
       }
     }
 
@@ -4906,114 +5988,361 @@ async function handlePublishProductFromWizard() {
     );
   } catch (err) {
     setWizardPublishError(
-      err instanceof Error
-        ? err.message
-        : "Nu am putut salva produsul."
+      humanizeAssistantErrorMessage(
+        err,
+        "Nu am putut salva produsul."
+      )
     );
   } finally {
     setWizardPublishing(false);
   }
 }
 
-async function handleAnalyzeBatchGroups() {
-  if (
-    !batchImages.length
+/*
+ * Împarte un array în bucăți succesive de dimensiune `size` -
+ * folosit ca să respectăm MAX_BATCH_CLUSTER_IMAGES per apel de
+ * grupare AI (vezi comentariul din aiLimits.js pe backend).
+ */
+function chunkArray(list, size) {
+  const chunks = [];
+
+  for (
+    let index = 0;
+    index < list.length;
+    index += size
   ) {
-    window.alert(
+    chunks.push(
+      list.slice(index, index + size)
+    );
+  }
+
+  return chunks;
+}
+
+function fallbackSingletonGroups(images) {
+  return images.map((image) => ({
+    imageIds: [image.id],
+    confidence: null,
+    label: "",
+  }));
+}
+
+function makeGroupId() {
+  return `group-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
+/*
+ * Câmpurile de stare pentru salvare/publicare (faza 2 - editare per
+ * produs) - UN SINGUR loc care le inițializează, ca orice grup nou
+ * (din grupare, separare sau mutare) să pornească identic, indiferent
+ * pe unde a fost creat.
+ */
+function makeGroupSaveState() {
+  return {
+    saveStatus: "pending",
+    saveError: "",
+    publishedProduct: null,
+    wizardStep: "details",
+  };
+}
+
+/*
+ * Prag sub care o grupare (sau o imagine rămasă singură, cu
+ * confidence null) e marcată "de verificat" - vendorul trebuie să
+ * confirme explicit, nu presupunem că AI-ul a grupat corect.
+ */
+const LOW_GROUP_CONFIDENCE = 0.55;
+
+function groupStatusFor(confidence) {
+  if (
+    confidence == null ||
+    confidence < LOW_GROUP_CONFIDENCE
+  ) {
+    return "NEEDS_REVIEW";
+  }
+
+  return "GROUPED";
+}
+
+/*
+ * Pasul 1 (clustering strict) - împarte batch-ul în loturi de
+ * MAX_BATCH_CLUSTER_IMAGES, apelează /product-batch-group pentru
+ * fiecare lot (secvențial - e un pas rapid, doar grupare, nu
+ * analiză completă), apoi rulează o verificare ușoară "ar putea fi
+ * același produs?" ÎNTRE loturi adiacente (fără să le combine
+ * automat - doar marchează, vendorul decide). NU pornește automat
+ * analiza AI completă per grup - asta se întâmplă abia la
+ * handleAnalyzeGroupProducts, după ce vendorul confirmă gruparea.
+ */
+async function handleAnalyzeBatchGroups() {
+  if (!batchImages.length) {
+    setBatchGroupingError(
       "Încarcă mai întâi fotografiile produselor."
     );
 
     return;
   }
 
+  setBatchGroupingError("");
+  setAnalyzingBatch(true);
+  setBatchWizardStep("analysis");
+
   try {
-    setAnalyzingBatch(
-      true
+    /*
+     * Upload o singură dată, pentru TOATE imaginile batch-ului
+     * (maxImages: 50, nu 10 - vezi comentariul din
+     * uploadVendorProductImages) - grupurile rezultate refolosesc
+     * aceste URL-uri, fără reîncărcare ulterioară la analiza per
+     * grup (analyzeVendorProduct scurtcircuitează uploadul dacă
+     * imaginea are deja `url`).
+     */
+    const uploadedUrls =
+      await uploadVendorProductImages(
+        batchImages,
+        { maxImages: 50 }
+      );
+
+    const imagesWithUrl =
+      batchImages.map(
+        (image, index) => ({
+          ...image,
+          url:
+            uploadedUrls[index] ||
+            image.url ||
+            null,
+        })
+      );
+
+    setBatchImages(imagesWithUrl);
+
+    const chunks = chunkArray(
+      imagesWithUrl,
+      MAX_BATCH_CLUSTER_IMAGES
     );
 
-    setBatchWizardStep(
-      "analysis"
-    );
+    let hadClusterError = false;
 
     /*
-     * Temporar, până conectăm endpointul AI:
-     * punem toate imaginile într-un singur grup.
+     * groupsByChunk: păstrăm gruparea PE LOT separat (nu le
+     * combinăm încă într-un singur array plat) - avem nevoie de
+     * ultimul grup al lotului K și primul grup al lotului K+1 ca
+     * să rulăm verificarea de graniță de mai jos.
      */
-    await new Promise(
-      (resolve) =>
-        window.setTimeout(
-          resolve,
-          700
-        )
-    );
+    const groupsByChunk = [];
 
-    setBatchGroups([
-      {
-        id:
-          `group-${Date.now()}`,
+    for (
+      let chunkIndex = 0;
+      chunkIndex < chunks.length;
+      chunkIndex++
+    ) {
+      const chunk = chunks[chunkIndex];
 
-        title:
-          "Produs identificat",
+      setBatchProgress({
+        phase: "clustering",
+        done: chunkIndex,
+        total: chunks.length,
+      });
 
-        images:
-          batchImages,
+      let rawGroups;
 
-        confidence:
-          null,
+      try {
+        rawGroups =
+          await clusterVendorProductImages({
+            images: chunk.map(
+              (image) => ({
+                id: image.id,
+                url: image.url,
+              })
+            ),
+          });
+      } catch (error) {
+        console.error(
+          "Batch clustering failed for chunk:",
+          error
+        );
 
-        status:
-          "NEEDS_REVIEW",
+        hadClusterError = true;
 
-        productDraft: {
-          images:
-            batchImages,
+        /*
+         * Un lot eșuat NU oprește restul - fotografiile lui devin
+         * grupuri individuale, marcate "de verificat", iar
+         * vendorul le poate regrupa manual. Nicio fotografie nu
+         * se pierde.
+         */
+        rawGroups =
+          fallbackSingletonGroups(
+            chunk
+          );
+      }
 
-          title: "",
-          description: "",
-          category: "",
+      const byId = new Map(
+        chunk.map((image) => [
+          image.id,
+          image,
+        ])
+      );
 
-          price: "",
-          currency:
-            "RON",
+      const chunkGroups = rawGroups
+        .map((rawGroup) => {
+          const groupImages = (
+            rawGroup.imageIds || []
+          )
+            .map((id) => byId.get(id))
+            .filter(Boolean);
 
-          availability:
-            "",
+          if (!groupImages.length) {
+            return null;
+          }
 
-          readyQty:
-            "",
+          return {
+            id: makeGroupId(),
 
-          leadTimeDays:
-            "",
+            title:
+              rawGroup.label ||
+              "",
 
-          orderMode:
-            "READY_TO_BUY",
+            confidence:
+              rawGroup.confidence ??
+              null,
 
-          optionsSchema:
-            [],
+            images: groupImages,
 
-          customSchema:
-            [],
+            status: groupStatusFor(
+              rawGroup.confidence
+            ),
 
-          repeatedGroups:
-            [],
+            boundaryHint: null,
 
-          quoteSchema:
-            [],
+            productDraft: null,
+            analysisError: "",
 
-          orderInstructions:
-            "",
-        },
+            ...makeGroupSaveState(),
+          };
+        })
+        .filter(Boolean);
 
-        missingFields:
-          [],
+      groupsByChunk.push(
+        chunkGroups
+      );
+    }
 
-        questions:
-          [],
-      },
-    ]);
+    setBatchProgress({
+      phase: "clustering",
+      done: chunks.length,
+      total: chunks.length,
+    });
 
-    setBatchWizardStep(
-      "groups"
+    /*
+     * Verificare de graniță ÎNTRE loturi adiacente - NU combinăm
+     * automat, doar marcăm ambele grupuri cu un indiciu, ca
+     * vendorul să decidă. Eșecul acestei verificări e ignorat
+     * silențios (e un semnal secundar, cosmetic - nu blochează
+     * fluxul principal).
+     */
+    for (
+      let chunkIndex = 0;
+      chunkIndex < groupsByChunk.length - 1;
+      chunkIndex++
+    ) {
+      const previousGroups =
+        groupsByChunk[chunkIndex];
+
+      const nextGroups =
+        groupsByChunk[chunkIndex + 1];
+
+      const lastGroup =
+        previousGroups[
+          previousGroups.length - 1
+        ];
+
+      const firstGroup =
+        nextGroups[0];
+
+      if (!lastGroup || !firstGroup) {
+        continue;
+      }
+
+      try {
+        const boundaryImages = [
+          ...lastGroup.images.slice(-3),
+          ...firstGroup.images.slice(0, 3),
+        ];
+
+        const boundaryResult =
+          await clusterVendorProductImages({
+            images: boundaryImages.map(
+              (image) => ({
+                id: image.id,
+                url: image.url,
+              })
+            ),
+          });
+
+        if (
+          boundaryResult.length === 1
+        ) {
+          lastGroup.boundaryHint = {
+            groupId: firstGroup.id,
+            title:
+              firstGroup.title ||
+              "grupul următor",
+          };
+
+          firstGroup.boundaryHint = {
+            groupId: lastGroup.id,
+            title:
+              lastGroup.title ||
+              "grupul anterior",
+          };
+        }
+      } catch (error) {
+        console.error(
+          "Batch boundary check failed:",
+          error
+        );
+      }
+    }
+
+    const finalGroups =
+      groupsByChunk.flat();
+
+    setBatchGroups(finalGroups);
+    setBatchWizardStep("groups");
+
+    const boundaryHintsCount =
+      finalGroups.filter(
+        (group) => group.boundaryHint
+      ).length / 2;
+
+    const summaryParts = [
+      finalGroups.length === 1
+        ? "AI-ul a detectat 1 produs."
+        : `AI-ul a detectat ${finalGroups.length} produse.`,
+    ];
+
+    if (hadClusterError) {
+      summaryParts.push(
+        "Câteva fotografii nu au putut fi grupate automat - le-am pus separat, ca să le regrupezi manual."
+      );
+    }
+
+    if (boundaryHintsCount > 0) {
+      summaryParts.push(
+        boundaryHintsCount === 1
+          ? "Am marcat 2 grupuri care ar putea fi de fapt același produs - verifică-le."
+          : `Am marcat ${Math.round(
+              boundaryHintsCount
+            ) * 2} grupuri care ar putea fi de fapt același produs - verifică-le.`
+      );
+    }
+
+    addMessage(
+      createMessage(
+        "assistant",
+        summaryParts.join(" ")
+      )
     );
   } catch (error) {
     console.error(
@@ -5021,19 +6350,1104 @@ async function handleAnalyzeBatchGroups() {
       error
     );
 
-    setBatchWizardStep(
+    setBatchWizardStep("images");
+
+    setBatchGroupingError(
+      humanizeAssistantErrorMessage(
+        error,
+        "Nu am putut grupa fotografiile. Fotografiile încărcate rămân disponibile - poți încerca din nou."
+      )
+    );
+  } finally {
+    setAnalyzingBatch(false);
+    setBatchProgress(null);
+  }
+}
+
+/*
+ * Pasul 2 - analiza AI COMPLETĂ per grup (reutilizează
+ * analyzeVendorProduct, EXACT serviciul folosit de fluxul
+ * single-product), apelată DOAR după ce vendorul a confirmat/
+ * corectat gruparea. Concurență limitată (max 3 simultan) - nu
+ * bombardăm backend-ul/OpenAI cu N cereri deodată. Eșecul unui
+ * grup NU oprește restul - grupul respectiv rămâne marcat cu
+ * eroare, vendorul poate reîncerca doar pe acela.
+ */
+const BATCH_ANALYSIS_CONCURRENCY = 3;
+
+async function handleAnalyzeGroupProducts(
+  groupIds = null
+) {
+  const targetGroups = batchGroups.filter(
+    (group) =>
+      !groupIds ||
+      groupIds.includes(group.id)
+  );
+
+  if (!targetGroups.length) {
+    return;
+  }
+
+  setAnalyzingBatch(true);
+
+  setBatchProgress({
+    phase: "analyzing",
+    done: 0,
+    total: targetGroups.length,
+  });
+
+  const results = new Map();
+  let completed = 0;
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < targetGroups.length) {
+      const index = cursor;
+      cursor += 1;
+
+      const group = targetGroups[index];
+
+      try {
+        const { analysis, imageUrls } =
+          await analyzeVendorProduct({
+            images: group.images,
+          });
+
+        results.set(group.id, {
+          analysis,
+          imageUrls,
+          error: null,
+        });
+      } catch (error) {
+        results.set(group.id, {
+          analysis: null,
+          imageUrls: null,
+
+          error:
+            error instanceof Error
+              ? error.message
+              : "Nu am putut analiza acest produs.",
+        });
+      } finally {
+        completed += 1;
+
+        setBatchProgress({
+          phase: "analyzing",
+          done: completed,
+          total: targetGroups.length,
+        });
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      {
+        length: Math.min(
+          BATCH_ANALYSIS_CONCURRENCY,
+          targetGroups.length
+        ),
+      },
+      worker
+    )
+  );
+
+  setBatchGroups((current) =>
+    current.map((group) => {
+      const result = results.get(
+        group.id
+      );
+
+      if (!result) {
+        return group;
+      }
+
+      if (result.error) {
+        return {
+          ...group,
+          status: "ANALYSIS_FAILED",
+          analysisError: result.error,
+        };
+      }
+
+      return {
+        ...group,
+        status: "ANALYZED",
+        analysisError: "",
+
+        /*
+         * applyPhotoAnalysisToDraft - EXACT funcția de mapare
+         * folosită de single-product (handleAnalyzeProduct), pornind
+         * de la un draft gol - orderMode/optionsSchema/customSchema/
+         * quoteSchema/styleTags/occasionTags rezultă identic, nu o
+         * mapare separată, mai săracă, pentru import în bulk.
+         */
+        productDraft:
+          applyPhotoAnalysisToDraft(
+            {},
+            result.analysis,
+            result.imageUrls
+          ),
+      };
+    })
+  );
+
+  setBatchWizardStep("review");
+  setAnalyzingBatch(false);
+  setBatchProgress(null);
+
+  const failedCount = Array.from(
+    results.values()
+  ).filter(
+    (result) => result.error
+  ).length;
+
+  if (failedCount > 0) {
+    addMessage(
+      createMessage(
+        "assistant",
+
+        failedCount === 1
+          ? "Am pregătit produsele. Un produs nu a putut fi analizat - poți reîncerca doar pentru el."
+          : `Am pregătit produsele. ${failedCount} produse nu au putut fi analizate - poți reîncerca doar pentru ele.`
+      )
+    );
+  } else {
+    addMessage(
+      createMessage(
+        "assistant",
+        "Am pregătit toate produsele. Verifică fiecare înainte să salvezi sau să publici."
+      )
+    );
+  }
+}
+
+/* =======================================================
+   Corectare grupare (mutare/separare/combinare/eliminare)
+======================================================= */
+
+function findGroupOfImage(groups, imageId) {
+  return groups.find((group) =>
+    group.images.some(
+      (image) => image.id === imageId
+    )
+  );
+}
+
+function handleMoveImageToGroup(
+  imageId,
+  targetGroupId
+) {
+  setBatchGroups((current) => {
+    const sourceGroup = findGroupOfImage(
+      current,
+      imageId
+    );
+
+    if (!sourceGroup) {
+      return current;
+    }
+
+    /*
+     * Un grup deja publicat e "blocat" pentru corectări de grupare -
+     * produsul respectiv există deja pe backend cu compoziția
+     * curentă de imagini, mutarea unei poze acum ar dezacorda
+     * lista din wizard de produsul chiar creat.
+     */
+    if (sourceGroup.saveStatus === "published") {
+      return current;
+    }
+
+    if (
+      targetGroupId !== "__new__" &&
+      current.find(
+        (group) => group.id === targetGroupId
+      )?.saveStatus === "published"
+    ) {
+      return current;
+    }
+
+    const movedImage =
+      sourceGroup.images.find(
+        (image) => image.id === imageId
+      );
+
+    if (!movedImage) {
+      return current;
+    }
+
+    const withoutImage = current
+      .map((group) =>
+        group.id === sourceGroup.id
+          ? {
+              ...group,
+              images: group.images.filter(
+                (image) =>
+                  image.id !== imageId
+              ),
+            }
+          : group
+      )
+      .filter(
+        (group) => group.images.length > 0
+      );
+
+    if (targetGroupId === "__new__") {
+      return [
+        ...withoutImage,
+        {
+          id: makeGroupId(),
+          title: "",
+          confidence: null,
+          images: [movedImage],
+          status: "NEEDS_REVIEW",
+          boundaryHint: null,
+          productDraft: null,
+          analysisError: "",
+          ...makeGroupSaveState(),
+        },
+      ];
+    }
+
+    return withoutImage.map((group) =>
+      group.id === targetGroupId
+        ? {
+            ...group,
+            images: [
+              ...group.images,
+              movedImage,
+            ],
+            status: "NEEDS_REVIEW",
+            productDraft: null,
+            analysisError: "",
+          }
+        : group
+    );
+  });
+}
+
+function handleRemoveImageFromBatch(
+  imageId
+) {
+  setBatchGroups((current) =>
+    current
+      .map((group) => {
+        if (
+          group.saveStatus ===
+          "published"
+        ) {
+          return group;
+        }
+
+        return {
+          ...group,
+
+          images: group.images.filter(
+            (image) => {
+              if (image.id !== imageId) {
+                return true;
+              }
+
+              if (
+                image?.previewUrl?.startsWith(
+                  "blob:"
+                )
+              ) {
+                URL.revokeObjectURL(
+                  image.previewUrl
+                );
+              }
+
+              return false;
+            }
+          ),
+        };
+      })
+      .filter(
+        (group) => group.images.length > 0
+      )
+  );
+
+  setBatchImages((current) =>
+    current.filter(
+      (image) => image.id !== imageId
+    )
+  );
+}
+
+function handleSplitGroupImages(
+  groupId,
+  imageIdsToExtract
+) {
+  if (!imageIdsToExtract?.length) {
+    return;
+  }
+
+  setBatchGroups((current) => {
+    const group = current.find(
+      (item) => item.id === groupId
+    );
+
+    if (
+      !group ||
+      group.saveStatus === "published"
+    ) {
+      return current;
+    }
+
+    const extractSet = new Set(
+      imageIdsToExtract
+    );
+
+    const remaining =
+      group.images.filter(
+        (image) => !extractSet.has(image.id)
+      );
+
+    const extracted = group.images.filter(
+      (image) => extractSet.has(image.id)
+    );
+
+    if (!extracted.length) {
+      return current;
+    }
+
+    /*
+     * Dacă vendorul selectează TOATE fotografiile grupului pentru
+     * mutare într-un grup nou, grupul original rămâne fără
+     * imagini - îl eliminăm în loc să blocăm acțiunea (echivalent
+     * cu "redenumește/golește" grupul, nu o eroare).
+     */
+    return current
+      .filter(
+        (item) =>
+          item.id !== groupId ||
+          remaining.length > 0
+      )
+      .map((item) =>
+        item.id === groupId
+          ? {
+              ...item,
+              images: remaining,
+              status: "NEEDS_REVIEW",
+              productDraft: null,
+              analysisError: "",
+            }
+          : item
+      )
+      .concat({
+        id: makeGroupId(),
+        title: "",
+        confidence: null,
+        images: extracted,
+        status: "NEEDS_REVIEW",
+        boundaryHint: null,
+        productDraft: null,
+        analysisError: "",
+        ...makeGroupSaveState(),
+      });
+  });
+}
+
+function handleMergeGroups(
+  groupIdA,
+  groupIdB
+) {
+  if (groupIdA === groupIdB) {
+    return;
+  }
+
+  setBatchGroups((current) => {
+    const groupA = current.find(
+      (item) => item.id === groupIdA
+    );
+
+    const groupB = current.find(
+      (item) => item.id === groupIdB
+    );
+
+    if (
+      !groupA ||
+      !groupB ||
+      groupA.saveStatus === "published" ||
+      groupB.saveStatus === "published"
+    ) {
+      return current;
+    }
+
+    return current
+      .filter(
+        (item) => item.id !== groupIdB
+      )
+      .map((item) =>
+        item.id === groupIdA
+          ? {
+              ...item,
+              images: [
+                ...item.images,
+                ...groupB.images,
+              ],
+              title:
+                item.title ||
+                groupB.title,
+              status: "NEEDS_REVIEW",
+              boundaryHint: null,
+              productDraft: null,
+              analysisError: "",
+            }
+          : item
+      );
+  });
+}
+
+function handleSetGroupTitle(
+  groupId,
+  title
+) {
+  setBatchGroups((current) =>
+    current.map((group) =>
+      group.id === groupId
+        ? { ...group, title }
+        : group
+    )
+  );
+}
+
+function handleSetPrimaryImage(
+  groupId,
+  imageId
+) {
+  setBatchGroups((current) =>
+    current.map((group) => {
+      if (group.id !== groupId) {
+        return group;
+      }
+
+      const target = group.images.find(
+        (image) => image.id === imageId
+      );
+
+      if (!target) {
+        return group;
+      }
+
+      return {
+        ...group,
+
+        images: [
+          target,
+          ...group.images.filter(
+            (image) => image.id !== imageId
+          ),
+        ],
+      };
+    })
+  );
+}
+
+function handleRemoveGroupFromImport(
+  groupId
+) {
+  setBatchGroups((current) => {
+    const group = current.find(
+      (item) => item.id === groupId
+    );
+
+    if (group) {
+      for (const image of group.images) {
+        if (
+          image?.previewUrl?.startsWith(
+            "blob:"
+          )
+        ) {
+          URL.revokeObjectURL(
+            image.previewUrl
+          );
+        }
+      }
+
+      setBatchImages((currentImages) =>
+        currentImages.filter(
+          (image) =>
+            !group.images.some(
+              (groupImage) =>
+                groupImage.id === image.id
+            )
+        )
+      );
+    }
+
+    return current.filter(
+      (item) => item.id !== groupId
+    );
+  });
+
+  setEditingGroupId((current) =>
+    current === groupId ? null : current
+  );
+}
+
+/* =======================================================
+   Editor per produs (faza 2 - editare/validare/preview/
+   salvare) - reutilizează STRICT VendorProductWizard, montat
+   O SINGURĂ dată, pentru grupul aflat în editingGroupId.
+======================================================= */
+
+function handleOpenGroupEditor(groupId) {
+  setBatchGroups((current) =>
+    current.map((group) => {
+      if (group.id !== groupId) {
+        return group;
+      }
+
+      /*
+       * Dacă analiza AI nu a rulat încă sau a eșuat, deschidem
+       * editorul oricum, cu un draft gol pornit din fotografiile
+       * grupului - vendorul poate completa totul manual (aceeași
+       * filozofie ca "Nu am poze acum, continui fără AI" din
+       * fluxul single-product, secțiunea 16 - self-recovery).
+       */
+      if (group.productDraft) {
+        return group;
+      }
+
+      return {
+        ...group,
+
+        productDraft: {
+          images: group.images,
+          title: group.title || "",
+        },
+      };
+    })
+  );
+
+  setEditingGroupId(groupId);
+  setActiveVendorView(
+    "product-batch-wizard-edit"
+  );
+}
+
+function handleCloseGroupEditor() {
+  setEditingGroupId(null);
+
+  setActiveVendorView(
+    "product-batch-wizard"
+  );
+
+  setBatchWizardStep("review");
+}
+
+function handleSetGroupDraft(
+  groupId,
+  updater
+) {
+  setBatchGroups((current) =>
+    current.map((group) => {
+      if (group.id !== groupId) {
+        return group;
+      }
+
+      const nextDraft =
+        typeof updater === "function"
+          ? updater(group.productDraft)
+          : updater;
+
+      return {
+        ...group,
+        productDraft: nextDraft,
+      };
+    })
+  );
+}
+
+function handleSetGroupWizardStep(
+  groupId,
+  step
+) {
+  setBatchGroups((current) =>
+    current.map((group) =>
+      group.id === groupId
+        ? { ...group, wizardStep: step }
+        : group
+    )
+  );
+}
+
+/*
+ * "Analizează cu AI" din editorul unui produs din import - EXACT
+ * analyzeVendorProduct + applyPhotoAnalysisToDraft folosite de
+ * handleAnalyzeProduct (single-product), doar că patch-ul se aplică
+ * pe draftul grupului curent, nu pe productDraft global. Modificarea
+ * produsului A NU afectează produsul B (fiecare grup are propriul
+ * productDraft, complet separat).
+ */
+async function handleAnalyzeGroupEditorProduct() {
+  if (!editingGroupId) {
+    return;
+  }
+
+  const group = batchGroups.find(
+    (item) => item.id === editingGroupId
+  );
+
+  const imagesToAnalyze = Array.isArray(
+    group?.productDraft?.images
+  )
+    ? group.productDraft.images
+    : [];
+
+  if (!imagesToAnalyze.length) {
+    addMessage(
+      createMessage(
+        "assistant",
+        "Încarcă mai întâi cel puțin o fotografie."
+      )
+    );
+
+    return;
+  }
+
+  const groupId = editingGroupId;
+
+  try {
+    setEditorAnalyzing(true);
+    handleSetGroupWizardStep(
+      groupId,
+      "analysis"
+    );
+
+    const { analysis, imageUrls } =
+      await analyzeVendorProduct({
+        images: imagesToAnalyze,
+      });
+
+    handleSetGroupDraft(
+      groupId,
+      (current) =>
+        applyPhotoAnalysisToDraft(
+          current,
+          analysis,
+          imageUrls
+        )
+    );
+
+    handleSetGroupWizardStep(
+      groupId,
+      "details"
+    );
+  } catch (error) {
+    console.error(
+      "Batch group product analysis error:",
+      error
+    );
+
+    handleSetGroupWizardStep(
+      groupId,
       "images"
     );
 
-    window.alert(
-      error?.message ||
-        "Nu am putut grupa fotografiile."
+    addMessage(
+      createMessage(
+        "assistant",
+
+        humanizeAssistantErrorMessage(
+          error,
+          "Nu am putut analiza acest produs."
+        )
+      )
     );
   } finally {
-    setAnalyzingBatch(
-      false
+    setEditorAnalyzing(false);
+  }
+}
+
+/*
+ * "Pregătește formularul cu AI" (modul de comandă) din editorul
+ * unui produs din import - EXACT analyzeVendorProductOrder +
+ * applyOrderAnalysisToDraft folosite de handleAnalyzeProductOrder
+ * (single-product).
+ */
+async function handleAnalyzeGroupEditorOrder() {
+  if (!editingGroupId) {
+    return;
+  }
+
+  const groupId = editingGroupId;
+
+  const group = batchGroups.find(
+    (item) => item.id === groupId
+  );
+
+  const safeDraft = normalizeProductDraft(
+    group?.productDraft
+  );
+
+  const message = String(
+    safeDraft.orderInstructions || ""
+  ).trim();
+
+  const hasAiContext =
+    Boolean(safeDraft.aiAnalysis) ||
+    safeDraft.aiQuestions.length > 0 ||
+    safeDraft.optionsSchema.length >
+      0 ||
+    safeDraft.customSchema.length >
+      0 ||
+    safeDraft.quoteSchema.length > 0;
+
+  if (!message && !hasAiContext) {
+    addMessage(
+      createMessage(
+        "assistant",
+        "Explică pe scurt cum trebuie comandat produsul."
+      )
+    );
+
+    return;
+  }
+
+  try {
+    setEditorAnalyzingOrder(true);
+
+    const { result, imageUrls } =
+      await analyzeVendorProductOrder({
+        product: safeDraft,
+        message,
+        images: safeDraft.images,
+        visionAnalysis:
+          safeDraft.aiAnalysis,
+        history: [],
+      });
+
+    handleSetGroupDraft(
+      groupId,
+      (current) =>
+        applyOrderAnalysisToDraft(
+          current,
+          result,
+          imageUrls
+        )
+    );
+  } catch (error) {
+    console.error(
+      "Batch group order analysis error:",
+      error
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+
+        humanizeAssistantErrorMessage(
+          error,
+          "Nu am putut pregăti formularul de comandă."
+        )
+      )
+    );
+  } finally {
+    setEditorAnalyzingOrder(false);
+  }
+}
+
+/*
+ * Publicare per produs (faza 2, cerințele #11-13) - reutilizează
+ * STRICT resolveVendorStoreSlug + buildCreateProductBody + endpoint-ul
+ * de creare produs, EXACT ca handlePublishProductFromWizard, dar cu
+ * stare independentă per grup (saveStatus/saveError/publishedProduct)
+ * - un produs eșuat NU blochează sau afectează celelalte.
+ *
+ * Protecție dublu-submit: dacă grupul e deja "saving" sau
+ * "published", ieșim imediat.
+ */
+async function handlePublishGroupProduct(
+  groupId
+) {
+  /*
+   * Verificare + marcare SINCRONĂ (ref, nu state) - vezi
+   * comentariul de la inFlightGroupPublishRef. Dacă e deja în curs,
+   * al doilea click iese imediat, înainte de orice alt cod.
+   */
+  if (
+    inFlightGroupPublishRef.current.has(
+      groupId
+    )
+  ) {
+    return;
+  }
+
+  const group = batchGroups.find(
+    (item) => item.id === groupId
+  );
+
+  if (
+    !group ||
+    group.saveStatus === "saving" ||
+    group.saveStatus === "published"
+  ) {
+    return;
+  }
+
+  inFlightGroupPublishRef.current.add(
+    groupId
+  );
+
+  const draft = normalizeProductDraft(
+    group.productDraft
+  );
+
+  if (!draft.title.trim()) {
+    setBatchGroups((current) =>
+      current.map((item) =>
+        item.id === groupId
+          ? {
+              ...item,
+              saveStatus: "failed",
+              saveError:
+                "Adaugă un titlu pentru produs înainte de a salva.",
+            }
+          : item
+      )
+    );
+
+    inFlightGroupPublishRef.current.delete(
+      groupId
+    );
+
+    return;
+  }
+
+  if (
+    !Array.isArray(draft.images) ||
+    !draft.images.length
+  ) {
+    setBatchGroups((current) =>
+      current.map((item) =>
+        item.id === groupId
+          ? {
+              ...item,
+              saveStatus: "failed",
+              saveError:
+                "Adaugă cel puțin o fotografie înainte de a salva.",
+            }
+          : item
+      )
+    );
+
+    inFlightGroupPublishRef.current.delete(
+      groupId
+    );
+
+    return;
+  }
+
+  setBatchGroups((current) =>
+    current.map((item) =>
+      item.id === groupId
+        ? {
+            ...item,
+            saveStatus: "saving",
+            saveError: "",
+          }
+        : item
+    )
+  );
+
+  try {
+    const storeSlug =
+      await resolveVendorStoreSlug();
+
+    if (!storeSlug) {
+      throw new Error(
+        "Nu am găsit magazinul tău de produse. Verifică din Catalog înainte de a salva."
+      );
+    }
+
+    const imageUrls =
+      await uploadVendorProductImages(
+        draft.images
+      );
+
+    const body = buildCreateProductBody(
+      draft,
+      imageUrls
+    );
+
+    const created = await api(
+      `/api/vendors/store/${encodeURIComponent(
+        storeSlug
+      )}/products`,
+
+      {
+        method: "POST",
+        body,
+      }
+    );
+
+    try {
+      window.dispatchEvent(
+        new CustomEvent(
+          "vendor:productUpdated",
+
+          {
+            detail: {
+              product: created,
+            },
+          }
+        )
+      );
+    } catch {
+      // Evenimentul e doar pentru refresh UI - nu blocăm fluxul.
+    }
+
+    setBatchGroups((current) =>
+      current.map((item) =>
+        item.id === groupId
+          ? {
+              ...item,
+              saveStatus: "published",
+              saveError: "",
+
+              publishedProduct: {
+                productId: created.id,
+
+                title:
+                  created.title ||
+                  draft.title,
+              },
+            }
+          : item
+      )
+    );
+  } catch (err) {
+    setBatchGroups((current) =>
+      current.map((item) =>
+        item.id === groupId
+          ? {
+              ...item,
+              saveStatus: "failed",
+
+              saveError:
+                humanizeAssistantErrorMessage(
+                  err,
+
+                  `Produsul „${
+                    draft.title ||
+                    "fără titlu"
+                  }” nu a putut fi salvat.`
+                ),
+            }
+          : item
+      )
+    );
+  } finally {
+    inFlightGroupPublishRef.current.delete(
+      groupId
     );
   }
+}
+
+/*
+ * "Publică produsele pregătite" - publică în paralel (concurență
+ * limitată la 3) toate grupurile fără câmpuri lipsă
+ * (getMissingFields) și care nu sunt deja "saving"/"published".
+ * Un eșec NU oprește restul (handlePublishGroupProduct e deja
+ * izolat per grup). Protecție dublu-click: bulkPublishing.
+ */
+const BATCH_PUBLISH_CONCURRENCY = 3;
+
+async function handlePublishReadyGroups() {
+  if (bulkPublishingRef.current) {
+    return;
+  }
+
+  const readyGroups = batchGroups.filter(
+    (group) =>
+      group.saveStatus !== "saving" &&
+      group.saveStatus !== "published" &&
+      getMissingFields(
+        normalizeProductDraft(
+          group.productDraft
+        ),
+
+        Array.isArray(
+          group.productDraft?.images
+        )
+          ? group.productDraft.images
+          : group.images
+      ).length === 0
+  );
+
+  if (!readyGroups.length) {
+    return;
+  }
+
+  bulkPublishingRef.current = true;
+  setBulkPublishing(true);
+  setBulkPublishSummary(null);
+
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < readyGroups.length) {
+      const index = cursor;
+      cursor += 1;
+
+      await handlePublishGroupProduct(
+        readyGroups[index].id
+      );
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      {
+        length: Math.min(
+          BATCH_PUBLISH_CONCURRENCY,
+          readyGroups.length
+        ),
+      },
+      worker
+    )
+  );
+
+  bulkPublishingRef.current = false;
+  setBulkPublishing(false);
+
+  const publishedIds = new Set(
+    readyGroups.map((group) => group.id)
+  );
+
+  setBatchGroups((current) => {
+    const publishedCount = current.filter(
+      (group) =>
+        publishedIds.has(group.id) &&
+        group.saveStatus === "published"
+    ).length;
+
+    const pendingCount =
+      current.length - publishedCount;
+
+    setBulkPublishSummary({
+      publishedCount,
+      pendingCount,
+    });
+
+    return current;
+  });
+}
+
+/*
+ * "Șterge tot și începe din nou" - explicit, din pasul "images" al
+ * wizard-ului de bulk. Singura cale de a reseta un import în curs -
+ * intrarea normală din meniu (ADD_PRODUCTS_BATCH) REIA batch-ul
+ * existent, nu îl șterge (vezi handleAction / persistență, cerința
+ * #15).
+ */
+function handleResetBatch() {
+  openBatchProductWizard({
+    resetBatch: true,
+  });
 }
 
   /* =======================================================
@@ -5142,6 +7556,59 @@ async function handleAnalyzeBatchGroups() {
       return;
     }
 
+    /*
+     * ===================================================
+     * NAVIGARE (audit - acțiuni/navigare pentru toate rolurile)
+     * ===================================================
+     * Determinist, verificat ÎNAINTEA orchestratorului server-side -
+     * "du-mă la comenzi"/"deschide calculatorul de preț" nu trebuie
+     * să facă un round-trip la LLM doar ca să afle că userul vrea
+     * să navigheze. VENDOR e mereu autentificat aici (widget-ul nu
+     * se montează altfel - vezi AppLayout.jsx), deci singurele
+     * rezultate posibile din resolveAssistantAction sunt "ok" sau
+     * "unavailable"/"not_found" (niciodată needs_auth/role_forbidden).
+     */
+    const vendorNavigation =
+      detectVendorNavigationTarget(value);
+
+    if (vendorNavigation?.target) {
+      const resolution = resolveAssistantAction(
+        vendorNavigation.target,
+        {
+          role: ASSISTANT_ROLES.VENDOR,
+          isAuthenticated: true,
+        }
+      );
+
+      if (resolution.status === "ok") {
+        addMessage(
+          createMessage("user", value)
+        );
+
+        setInputValue("");
+
+        addMessage(
+          createMessage(
+            "assistant",
+            `Sigur — te duc la ${resolution.entry.label}.`
+          )
+        );
+
+        if (resolution.entry.prefetch) {
+          prefetchChunk(
+            vendorNavigation.target,
+            resolution.entry.prefetch,
+            { mode: "intent" }
+          );
+        }
+
+        closeAssistant();
+        navigate(resolution.entry.route);
+
+        return;
+      }
+    }
+
     const detectedIntent =
       detectVendorIntent(
         value
@@ -5175,6 +7642,48 @@ async function handleAnalyzeBatchGroups() {
       );
 
       openAddProductWizard();
+
+      return;
+    }
+
+    /*
+     * "editează produs" / "modifică produsul X" - flow separat de
+     * ADD_PRODUCT: nu deschide wizard-ul de creare, ci selectorul
+     * lean de produse (sau direct editorul, dacă numele e clar și
+     * unic). Verificat imediat după ADD_PRODUCT, cu aceeași
+     * prioritate (câștigă indiferent de subflow-ul activ).
+     */
+    if (
+      detectedIntent?.type ===
+      VENDOR_INTENTS.EDIT_PRODUCT
+    ) {
+      addMessage(
+        createMessage(
+          "user",
+          value
+        )
+      );
+
+      setInputValue("");
+
+      const productNameHint =
+        extractProductNameFromMessage(
+          value
+        );
+
+      addMessage(
+        createMessage(
+          "assistant",
+
+          productNameHint
+            ? `Sigur, caut produsul „${productNameHint}”...`
+            : "Sigur, care produs vrei să-l editezi?"
+        )
+      );
+
+      await openEditProductSelector(
+        productNameHint
+      );
 
       return;
     }
@@ -5508,6 +8017,22 @@ async function handleAnalyzeBatchGroups() {
         }
       />
 
+      <input
+        ref={
+          cameraInputRef
+        }
+        type="file"
+        multiple
+        accept="image/png,image/jpeg,image/webp"
+        capture="environment"
+        className={
+          styles.fileInput
+        }
+        onChange={
+          handleImageChange
+        }
+      />
+
       <div
         className={
           styles[
@@ -5708,6 +8233,61 @@ async function handleAnalyzeBatchGroups() {
     }
   />
 ) : activeVendorView ===
+  "product-edit-wizard" ? (
+  <VendorProductWizard
+    mode="edit"
+    editingProduct={
+      chatEditingProduct
+    }
+    draft={
+      chatEditDraft
+    }
+    setDraft={
+      setChatEditDraft
+    }
+    categories={
+      chatEditCategories
+    }
+    storeSlug={
+      chatEditingProduct
+        ?.service
+        ?.profile
+        ?.slug ||
+      chatEditingProduct
+        ?.store
+        ?.slug ||
+      ""
+    }
+    onSave={
+      handleSaveChatEditProduct
+    }
+    saving={
+      chatEditSaving
+    }
+    saveError={
+      chatEditSaveError
+    }
+    saveSuccess={
+      chatEditSaveSuccess
+    }
+    onClose={
+      closeChatEditProduct
+    }
+    onBack={() => {
+      setActiveVendorView(
+        "conversation"
+      );
+
+      setCurrentMenu(
+        VENDOR_MENU_IDS.PRODUCTS
+      );
+
+      setShowMenu(
+        true
+      );
+    }}
+  />
+) : activeVendorView ===
   "product-batch-wizard" ? (
   <VendorProductBatchWizard
     images={
@@ -5715,9 +8295,6 @@ async function handleAnalyzeBatchGroups() {
     }
     groups={
       batchGroups
-    }
-    setGroups={
-      setBatchGroups
     }
     step={
       batchWizardStep
@@ -5728,11 +8305,65 @@ async function handleAnalyzeBatchGroups() {
     analyzing={
       analyzingBatch
     }
+    progress={
+      batchProgress
+    }
+    groupingError={
+      batchGroupingError
+    }
     onUpload={() =>
       fileInputRef.current?.click()
     }
+    onCapturePhoto={() =>
+      cameraInputRef.current?.click()
+    }
     onAnalyzeGroups={
       handleAnalyzeBatchGroups
+    }
+    onAnalyzeGroupProducts={
+      handleAnalyzeGroupProducts
+    }
+    onMoveImage={
+      handleMoveImageToGroup
+    }
+    onRemoveImage={
+      handleRemoveImageFromBatch
+    }
+    onSplitGroup={
+      handleSplitGroupImages
+    }
+    onMergeGroups={
+      handleMergeGroups
+    }
+    onSetGroupTitle={
+      handleSetGroupTitle
+    }
+    onSetPrimaryImage={
+      handleSetPrimaryImage
+    }
+    onRemoveGroup={
+      handleRemoveGroupFromImport
+    }
+    onEditGroup={
+      handleOpenGroupEditor
+    }
+    onPublishGroup={
+      handlePublishGroupProduct
+    }
+    onPublishReadyGroups={
+      handlePublishReadyGroups
+    }
+    bulkPublishing={
+      bulkPublishing
+    }
+    bulkPublishSummary={
+      bulkPublishSummary
+    }
+    onDismissBulkSummary={() =>
+      setBulkPublishSummary(null)
+    }
+    onResetBatch={
+      handleResetBatch
     }
     onBack={() => {
       setActiveVendorView(
@@ -5751,6 +8382,91 @@ async function handleAnalyzeBatchGroups() {
       closeAssistant
     }
   />
+) : activeVendorView ===
+  "product-batch-wizard-edit" ? (
+  (() => {
+    const editingGroup =
+      batchGroups.find(
+        (group) =>
+          group.id === editingGroupId
+      );
+
+    if (!editingGroup) {
+      return null;
+    }
+
+    return (
+      <VendorProductWizard
+        draft={
+          editingGroup.productDraft
+        }
+        setDraft={(updater) =>
+          handleSetGroupDraft(
+            editingGroup.id,
+            updater
+          )
+        }
+        step={
+          editingGroup.wizardStep ||
+          "details"
+        }
+        setStep={(nextStep) =>
+          handleSetGroupWizardStep(
+            editingGroup.id,
+            nextStep
+          )
+        }
+        analyzing={editorAnalyzing}
+        analyzingOrder={
+          editorAnalyzingOrder
+        }
+        onUpload={() =>
+          fileInputRef.current?.click()
+        }
+        onAnalyze={
+          handleAnalyzeGroupEditorProduct
+        }
+        onAnalyzeOrder={
+          handleAnalyzeGroupEditorOrder
+        }
+        onBack={handleCloseGroupEditor}
+        onClose={closeAssistant}
+        onRemoveImage={(imageId) =>
+          handleSetGroupDraft(
+            editingGroup.id,
+            (current) => ({
+              ...(current || {}),
+
+              images: (
+                current?.images || []
+              ).filter(
+                (image) =>
+                  image.id !== imageId
+              ),
+            })
+          )
+        }
+        onPublish={() =>
+          handlePublishGroupProduct(
+            editingGroup.id
+          )
+        }
+        publishing={
+          editingGroup.saveStatus ===
+          "saving"
+        }
+        publishError={
+          editingGroup.saveStatus ===
+          "failed"
+            ? editingGroup.saveError
+            : ""
+        }
+        publishSuccess={
+          editingGroup.publishedProduct
+        }
+      />
+    );
+  })()
 ) : (
   <div>
     {messages.map(
@@ -6283,6 +8999,26 @@ async function handleAnalyzeBatchGroups() {
               activeIntent: null,
               currentFlow: null,
               collectedParams: null,
+            }));
+          }
+
+          /*
+           * BUGFIX (verificare finală EDIT_PRODUCT conversațional):
+           * Renunță la o modificare de produs păstrează produsul
+           * selectat (mode/productId rămân neatinse - vezi fix-ul
+           * din processCostingCommandResult) și golește DOAR
+           * awaitingField, ca vendorul să revină la "produs
+           * selectat, fără un câmp anume în așteptare" - poate
+           * folosi din nou orice quick action sau text liber, fără
+           * să reselecteze produsul.
+           */
+          if (
+            pendingCostingAction?.kind ===
+            "UPDATE_PRODUCT"
+          ) {
+            setConversationContext((current) => ({
+              ...current,
+              awaitingField: null,
             }));
           }
         }}

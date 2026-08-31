@@ -43,6 +43,12 @@ export function getGuestCart() {
       ? item.customAnswers
       : {},
 
+  repeatedGroupAnswers:
+    item?.repeatedGroupAnswers &&
+    typeof item.repeatedGroupAnswers === "object"
+      ? item.repeatedGroupAnswers
+      : {},
+
   configurationKey:
     typeof item?.configurationKey === "string"
       ? item.configurationKey
@@ -78,6 +84,13 @@ customAnswers:
   typeof item.customAnswers === "object" &&
   !Array.isArray(item.customAnswers)
     ? item.customAnswers
+    : {},
+
+repeatedGroupAnswers:
+  item?.repeatedGroupAnswers &&
+  typeof item.repeatedGroupAnswers === "object" &&
+  !Array.isArray(item.repeatedGroupAnswers)
+    ? item.repeatedGroupAnswers
     : {},
   configurationKey:
     item?.configurationKey || "default",
@@ -162,6 +175,11 @@ const safeConfiguration =
     cart[existingIndex].customAnswers ||
     {},
 
+  repeatedGroupAnswers:
+    safeConfiguration.repeatedGroupAnswers ||
+    cart[existingIndex].repeatedGroupAnswers ||
+    {},
+
   configurationKey:
     safeConfiguration.configurationKey ||
     cart[existingIndex].configurationKey ||
@@ -177,6 +195,9 @@ const safeConfiguration =
 
   customAnswers:
     safeConfiguration.customAnswers || {},
+
+  repeatedGroupAnswers:
+    safeConfiguration.repeatedGroupAnswers || {},
 
   configurationKey:
     safeConfiguration.configurationKey || "default",

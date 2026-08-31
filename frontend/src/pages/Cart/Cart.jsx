@@ -11,6 +11,7 @@ import React, {
 import { Link, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "../../lib/api";
+import { humanizeOptionValue } from "../../utils/optionLabels";
 import {
   productPlaceholder,
   onImgError,
@@ -63,17 +64,19 @@ const money = (v, currency = "RON", locale = "ro-RO") => {
 
 const getReadableValue = (value) => {
   if (Array.isArray(value)) {
-    return value.map(String).join(", ");
+    return value.map((v) => humanizeOptionValue(String(v))).join(", ");
   }
 
   if (value && typeof value === "object") {
-    return Object.values(value).map(String).join(", ");
+    return Object.values(value)
+      .map((v) => humanizeOptionValue(String(v)))
+      .join(", ");
   }
 
   if (value === true) return "Da";
   if (value === false) return "Nu";
 
-  return String(value ?? "");
+  return humanizeOptionValue(String(value ?? ""));
 };
 
 const isImageUrl = (value) => {

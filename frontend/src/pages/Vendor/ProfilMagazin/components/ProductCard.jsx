@@ -23,6 +23,11 @@ import {
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { api } from "../../../../lib/api";
 import { addToGuestCart } from "../../../../utils/guestCart";
+import { productPrefetchKey } from "../../../../lib/smartPrefetch";
+import {
+  useSmartPrefetchItem,
+  useVisibleStableTrigger,
+} from "../../../../hooks/useSmartPrefetch";
 
 const humanizeSlug = (slug = "", { dropPrefix = false } = {}) => {
   if (!slug || typeof slug !== "string") return "";
@@ -115,6 +120,8 @@ function ProductCard({
   colorLabelMap,
   onEditProduct,
   vendorActionsOverride,
+  priorityImage = false,
+  autoPrefetch = false,
 }) {
   const nav = useNavigate();
   const loc = useLocation();
@@ -127,7 +134,7 @@ function ProductCard({
   const [localFav, setLocalFav] = useState(!!isFav);
 
   const touchStartX = useRef(null);
-  const prefetchedRef = useRef(false);
+  const cardRootRef = useRef(null);
 
   const isLoggedIn = viewMode === "user" || viewMode === "vendor";
 
@@ -434,8 +441,8 @@ promoLabel:
   }, [safe.availability, isSoldOut]);
 
   const goTo = useCallback(
-    (path) => {
-      if (path) go(path);
+    (path, options) => {
+      if (path) go(path, options);
     },
     [go]
   );
@@ -444,38 +451,84 @@ promoLabel:
     goTo(`/autentificare?redirect=${encodeURIComponent(href || "/")}`);
   }, [goTo, href]);
 
+  // Prefetch predictiv (chunk-ul ProductDetails + datele reale ale
+  // produsului + imaginea principală) prin serviciul central - vezi
+  // src/lib/smartPrefetch.js. Nu prefetch-uim niciodată pentru
+  // cardul propriu al unui vendor (viewMode "vendor") sau pentru un
+  // card dezactivat.
+  const prefetchEligible = !isDisabled && viewMode !== "vendor";
+
+  const prefetchDescriptor = useMemo(
+    () => ({
+      getKey: (p) => productPrefetchKey(p.id),
+      routeChunk: () => import("../../Produse/ProductDetails"),
+      fetchData: (p) =>
+        api(`/api/public/products/${encodeURIComponent(p.id)}`),
+      getDataUrl: (p) => `/api/public/products/${encodeURIComponent(p.id)}`,
+      getImageUrl: () => resolvedImages[0],
+    }),
+    [resolvedImages]
+  );
+
+  const triggerPrefetch = useSmartPrefetchItem(
+    prefetchEligible ? safe : null,
+    prefetchDescriptor
+  );
+
   const prefetchProduct = useCallback(() => {
-    if (!safe.id || prefetchedRef.current) return;
-    if (viewMode === "vendor" || isDisabled) return;
+    triggerPrefetch("intent");
+  }, [triggerPrefetch]);
 
-    prefetchedRef.current = true;
-
-    api(`/api/public/products/${encodeURIComponent(safe.id)}`).catch(() => {});
-
-    if (resolvedImages[0]) {
-      const hero = new Image();
-      hero.decoding = "async";
-      hero.src = resolvedImages[0];
-    }
-
-    if (resolvedImages[1]) {
-      const second = new Image();
-      second.decoding = "async";
-      second.src = resolvedImages[1];
-    }
-  }, [safe.id, resolvedImages, viewMode, isDisabled]);
-
-  useEffect(() => {
-    prefetchedRef.current = false;
-  }, [safe.id]);
+  // Primul rând vizibil (index < 4 pe /produse) - prefetch automat,
+  // dar doar după ce cardul a fost vizibil ȘI stabil un moment, ca
+  // să nu pornim request-uri pentru carduri care doar "trec" prin
+  // viewport la un scroll rapid.
+  useVisibleStableTrigger(
+    cardRootRef,
+    useCallback(() => triggerPrefetch("auto"), [triggerPrefetch]),
+    { enabled: autoPrefetch && prefetchEligible }
+  );
 
   const handleOpenProduct = useCallback(
     (e) => {
       if (!href || isDisabled) return;
       e?.preventDefault?.();
-      goTo(href);
+
+      // Reper de timing (doar dev) - citit de ProductDetails ca să
+      // măsoare click → chunk → produs → primul paint. Nu importăm
+      // helperul din ProductDetails.jsx ca să nu forțăm încărcarea
+      // chunk-ului lazy de aici.
+      if (import.meta.env?.DEV && typeof performance !== "undefined") {
+        try {
+          performance.mark("productdetails:route-click");
+        } catch {
+          // ignore
+        }
+      }
+
+      /*
+       * Doar pentru primul paint instant al ProductDetails (poză
+       * principală, titlu, preț) - NU sursă finală pentru pricing
+       * sau personalizare. ProductDetails revalidează din API
+       * imediat, indiferent de acest summary.
+       */
+      goTo(href, {
+        state: {
+          productSummary: {
+            id: safe.id,
+            title: safe.title,
+            images: safe.images,
+            price: safe.price,
+            currency: safe.currency,
+            hasDiscount: safe.hasDiscount,
+            originalPrice: safe.originalPrice,
+            discountPercent: safe.discountPercent,
+            promoLabel: safe.promoLabel,
+          },
+        },
+      });
     },
-    [href, isDisabled, goTo]
+    [href, isDisabled, goTo, safe]
   );
 
   const handleFav = useCallback(
@@ -692,6 +745,7 @@ const handleCart = useCallback(
 
   return (
     <article
+      ref={cardRootRef}
       className={`${styles.card} ${isDisabled ? styles.cardInactive : ""}`}
       data-product-id={safe.id}
       aria-labelledby={`prod-title-${safe.id}`}
@@ -783,7 +837,8 @@ const handleCart = useCallback(
               src={imgSrc}
               alt={`${safe.title}${catLabel ? ` - ${catLabel}` : ""}`}
               className={styles.image}
-              loading="lazy"
+              loading={priorityImage ? "eager" : "lazy"}
+              fetchPriority={priorityImage ? "high" : "auto"}
               decoding="async"
               width={600}
               height={450}
@@ -796,7 +851,8 @@ const handleCart = useCallback(
             src={imgSrc}
             alt={`${safe.title}${catLabel ? ` - ${catLabel}` : ""}`}
             className={styles.image}
-            loading="lazy"
+            loading={priorityImage ? "eager" : "lazy"}
+            fetchPriority={priorityImage ? "high" : "auto"}
             decoding="async"
             width={600}
             height={450}
@@ -1129,7 +1185,9 @@ function areEqual(prevProps, nextProps) {
     prevProps.categoryLabelMap === nextProps.categoryLabelMap &&
     prevProps.categoryGroupLabelMap === nextProps.categoryGroupLabelMap &&
     prevProps.colorLabelMap === nextProps.colorLabelMap &&
-    prevProps.vendorActionsOverride === nextProps.vendorActionsOverride
+    prevProps.vendorActionsOverride === nextProps.vendorActionsOverride &&
+    prevProps.priorityImage === nextProps.priorityImage &&
+    prevProps.autoPrefetch === nextProps.autoPrefetch
   );
 }
 

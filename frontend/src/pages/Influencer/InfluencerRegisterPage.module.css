@@ -1,150 +1,335 @@
 .page {
-  min-height: calc(100vh - var(--appbar-h));
+  min-height:
+    calc(
+      100vh -
+      var(--appbar-h)
+    );
+
   display: flex;
+
   align-items: flex-start;
+
   justify-content: center;
-  padding: 48px 20px;
-  background: var(--color-bg);
-  color: var(--color-text);
+
+  padding:
+    48px
+    20px
+    72px;
+
+  background:
+    radial-gradient(
+      circle at top,
+      rgba(111, 78, 67, 0.06),
+      transparent 30rem
+    ),
+    var(--color-bg);
+
+  color:
+    var(--color-text);
+
+  overflow-x: hidden;
 }
 
 .card {
   width: 100%;
+
   max-width: 620px;
-  padding: 28px;
-  border: 1px solid var(--color-border);
-  border-radius: 18px;
-  background: var(--surface);
-  box-shadow: var(--shadow-md);
+
+  box-sizing: border-box;
+
+  padding: 30px;
+
+  border:
+    1px solid
+    var(--color-border);
+
+  border-radius: 20px;
+
+  background:
+    var(--surface);
+
+  box-shadow:
+    var(--shadow-md);
 }
 
 .badge {
   display: inline-flex;
+
   align-items: center;
+
   margin-bottom: 14px;
-  padding: 6px 10px;
-  border: 1px solid var(--color-primary);
+
+  padding:
+    6px
+    11px;
+
+  border:
+    1px solid
+    rgba(111, 78, 67, 0.4);
+
   border-radius: 999px;
-  color: var(--color-primary);
-  font-size: 12px;
-  font-weight: 700;
+
+  background:
+    rgba(111, 78, 67, 0.05);
+
+  color:
+    var(--color-primary);
+
+  font-size: 11px;
+
+  font-weight: 800;
+
+  letter-spacing:
+    0.03em;
+
+  text-transform: uppercase;
 }
 
 .iconCircle {
-  width: 48px;
-  height: 48px;
+  width: 50px;
+
+  height: 50px;
+
   display: flex;
+
   align-items: center;
+
   justify-content: center;
-  margin: 0 auto 16px;
-  border: 1px solid var(--color-danger);
+
+  margin:
+    0
+    auto
+    16px;
+
+  border:
+    1px solid
+    var(--color-danger);
+
   border-radius: 999px;
-  color: var(--color-danger);
+
+  color:
+    var(--color-danger);
+
+  background:
+    rgba(190, 24, 93, 0.04);
+
   font-size: 24px;
+
   font-weight: 800;
 }
 
 .title {
   margin: 0;
-  font-family: var(--font-title);
-  font-size: 28px;
-  line-height: 1.25;
-  color: var(--color-text);
+
+  font-family:
+    var(--font-title);
+
+  font-size:
+    clamp(
+      28px,
+      4vw,
+      34px
+    );
+
+  line-height: 1.2;
+
+  letter-spacing:
+    -0.025em;
+
+  color:
+    var(--color-text);
 }
 
 .subtitle {
-  margin: 10px 0 0;
-  color: var(--color-muted);
+  margin:
+    10px
+    0
+    0;
+
+  color:
+    var(--color-muted);
+
   font-size: 14px;
-  line-height: 1.6;
+
+  line-height: 1.65;
 }
 
 .loading {
-  padding: 20px;
+  padding:
+    24px
+    12px;
+
   text-align: center;
-  color: var(--color-muted);
+
+  color:
+    var(--color-muted);
 }
+
+/* =========================================================
+   INVITE SUMMARY
+========================================================= */
 
 .inviteSummary {
   margin-top: 24px;
-  padding: 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-bg);
+
+  padding:
+    14px
+    16px;
+
+  border:
+    1px solid
+    var(--color-border);
+
+  border-radius: 14px;
+
+  background:
+    var(--color-bg);
 }
 
 .summaryRow {
   display: flex;
+
   justify-content: space-between;
+
+  align-items: flex-start;
+
   gap: 16px;
-  padding: 8px 0;
+
+  padding:
+    10px
+    0;
 }
 
 .summaryRow + .summaryRow {
-  border-top: 1px solid var(--color-border);
+  border-top:
+    1px solid
+    var(--color-border);
 }
 
 .summaryLabel {
-  color: var(--color-muted);
-  font-size: 13px;
+  color:
+    var(--color-muted);
+
+  font-size: 12px;
+
+  font-weight: 600;
 }
 
 .summaryValue {
-  color: var(--color-text);
+  max-width: 70%;
+
+  color:
+    var(--color-text);
+
   font-size: 13px;
-  font-weight: 700;
+
+  font-weight: 800;
+
   text-align: right;
+
   word-break: break-word;
 }
 
+/* =========================================================
+   FORM
+========================================================= */
+
 .form {
   display: flex;
+
   flex-direction: column;
+
   gap: 18px;
+
   margin-top: 24px;
 }
 
 .field {
   display: flex;
+
   flex-direction: column;
+
   gap: 7px;
 }
 
 .label {
-  color: var(--color-text);
+  color:
+    var(--color-text);
+
   font-size: 13px;
-  font-weight: 700;
+
+  font-weight: 800;
 }
 
 .input {
   width: 100%;
-  min-height: 44px;
+
+  min-height: 46px;
+
   box-sizing: border-box;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--color-text);
-  font-family: var(--font-body);
+
+  padding:
+    11px
+    12px;
+
+  border:
+    1px solid
+    var(--color-border);
+
+  border-radius: 12px;
+
+  background:
+    var(--surface);
+
+  color:
+    var(--color-text);
+
+  font-family:
+    var(--font-body);
+
   font-size: 14px;
+
   outline: none;
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
 }
 
 .input:focus {
-  border-color: var(--color-primary);
+  border-color:
+    var(--color-primary);
+
+  box-shadow:
+    0
+    0
+    0
+    3px
+    rgba(111, 78, 67, 0.1);
 }
 
 .input:disabled {
-  opacity: 0.8;
+  opacity: 0.82;
+
   cursor: not-allowed;
-  background: var(--color-bg);
+
+  background:
+    var(--color-bg);
 }
 
 .hint {
-  color: var(--color-muted);
+  color:
+    var(--color-muted);
+
   font-size: 12px;
-  line-height: 1.4;
+
+  line-height: 1.45;
 }
+
+/* =========================================================
+   PASSWORD
+========================================================= */
 
 .passwordWrap {
   position: relative;
@@ -156,192 +341,667 @@
 
 .passwordToggle {
   position: absolute;
+
   top: 50%;
+
   right: 8px;
-  transform: translateY(-50%);
+
+  transform:
+    translateY(-50%);
+
+  min-height: 34px;
+
+  padding:
+    0
+    8px;
+
   border: 0;
-  background: transparent;
-  color: var(--color-primary);
+
+  border-radius: 8px;
+
+  background:
+    transparent;
+
+  color:
+    var(--color-primary);
+
   font-size: 12px;
-  font-weight: 700;
+
+  font-weight: 800;
+
   cursor: pointer;
 }
 
 .passwordToggle:hover {
-  color: var(--color-hover);
+  background:
+    rgba(111, 78, 67, 0.05);
+
+  color:
+    var(--color-hover);
 }
 
 .passwordStrength {
-  margin-top: 3px;
+  margin-top: 4px;
 }
 
 .strengthBars {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+
+  grid-template-columns:
+    repeat(
+      5,
+      minmax(
+        0,
+        1fr
+      )
+    );
+
   gap: 4px;
 }
 
 .strengthBar {
-  height: 4px;
+  height: 5px;
+
   border-radius: 999px;
-  background: var(--color-border);
+
+  background:
+    var(--color-border);
 }
 
 .strengthBarActive {
-  background: var(--color-primary);
+  background:
+    var(--color-primary);
 }
 
 .strengthLabel {
-  margin-top: 5px;
-  color: var(--color-muted);
-  font-size: 12px;
+  margin-top: 6px;
+
+  color:
+    var(--color-muted);
+
+  font-size: 11px;
+
+  font-weight: 600;
 }
+
+/* =========================================================
+   CONSENTS
+========================================================= */
 
 .consents {
   display: flex;
+
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-bg);
+
+  gap: 12px;
+
+  padding: 15px;
+
+  border:
+    1px solid
+    var(--color-border);
+
+  border-radius: 14px;
+
+  background:
+    var(--color-bg);
 }
 
 .checkboxRow {
   display: flex;
+
   align-items: flex-start;
-  gap: 9px;
-  color: var(--color-text);
+
+  gap: 10px;
+
+  color:
+    var(--color-text);
+
   font-size: 13px;
-  line-height: 1.45;
+
+  line-height: 1.5;
+
   cursor: pointer;
+
+  padding:
+    2px
+    0;
 }
 
 .checkboxRow input {
-  margin-top: 2px;
-  accent-color: var(--color-primary);
+  width: 18px;
+
+  height: 18px;
+
+  flex:
+    0
+    0
+    18px;
+
+  margin-top: 1px;
+
+  accent-color:
+    var(--color-primary);
+
+  cursor: pointer;
 }
 
+.checkboxRow a {
+  color:
+    var(--color-primary);
+
+  font-weight: 700;
+
+  text-decoration-thickness:
+    1px;
+
+  text-underline-offset:
+    2px;
+}
+
+/* =========================================================
+   BUTTONS
+========================================================= */
+
 .primaryButton {
-  min-height: 44px;
-  padding: 11px 16px;
+  min-height: 46px;
+
+  padding:
+    11px
+    16px;
+
   border: 0;
-  border-radius: var(--radius);
-  background: var(--color-primary);
+
+  border-radius: 12px;
+
+  background:
+    var(--color-primary);
+
   color: #fff;
-  font-family: var(--font-body);
+
+  font-family:
+    var(--font-body);
+
   font-size: 14px;
+
   font-weight: 800;
+
   cursor: pointer;
+
   transition:
     background 0.18s ease,
     opacity 0.18s ease,
-    transform 0.18s ease;
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .primaryButton:hover:not(:disabled) {
-  background: var(--color-hover);
+  background:
+    var(--color-hover);
+
+  box-shadow:
+    0
+    8px
+    20px
+    rgba(111, 78, 67, 0.18);
 }
 
 .primaryButton:active:not(:disabled) {
-  transform: translateY(1px);
+  transform:
+    translateY(1px);
 }
 
 .primaryButton:disabled {
   opacity: 0.55;
+
   cursor: not-allowed;
 }
 
 .secondaryButton {
   width: 100%;
+
   min-height: 44px;
+
   margin-top: 18px;
-  padding: 11px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--color-text);
-  font-family: var(--font-body);
+
+  padding:
+    11px
+    16px;
+
+  border:
+    1px solid
+    var(--color-border);
+
+  border-radius: 12px;
+
+  background:
+    var(--surface);
+
+  color:
+    var(--color-text);
+
+  font-family:
+    var(--font-body);
+
   font-size: 14px;
-  font-weight: 700;
+
+  font-weight: 750;
+
   cursor: pointer;
 }
 
 .secondaryButton:hover {
-  border-color: var(--color-primary);
+  border-color:
+    var(--color-primary);
+
+  background:
+    rgba(111, 78, 67, 0.025);
 }
 
+/* =========================================================
+   MESSAGES
+========================================================= */
+
 .errorBox {
-  padding: 11px 12px;
-  border: 1px solid var(--color-danger);
-  border-radius: var(--radius);
-  color: var(--color-danger);
-  background: var(--surface);
+  padding:
+    12px
+    13px;
+
+  border:
+    1px solid
+    var(--color-danger);
+
+  border-radius: 12px;
+
+  color:
+    var(--color-danger);
+
+  background:
+    rgba(190, 24, 93, 0.035);
+
   font-size: 13px;
+
   line-height: 1.45;
 }
 
 .successBox {
-  padding: 11px 12px;
-  border: 1px solid var(--color-success);
-  border-radius: var(--radius);
-  color: var(--color-success);
-  background: var(--surface);
+  padding:
+    12px
+    13px;
+
+  border:
+    1px solid
+    var(--color-success);
+
+  border-radius: 12px;
+
+  color:
+    var(--color-success);
+
+  background:
+    rgba(5, 150, 105, 0.035);
+
   font-size: 13px;
+
   line-height: 1.45;
 }
 
 .fieldError {
-  color: var(--color-danger);
+  color:
+    var(--color-danger);
+
   font-size: 12px;
+
+  font-weight: 600;
 }
 
 .fieldSuccess {
-  color: var(--color-success);
+  color:
+    var(--color-success);
+
   font-size: 12px;
+
+  font-weight: 600;
 }
+
+/* =========================================================
+   EXISTING ACCOUNT
+========================================================= */
 
 .existingAccountBox {
   margin-top: 24px;
+
   padding: 18px;
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius);
-  background: var(--color-bg);
+
+  border:
+    1px solid
+    var(--color-warning);
+
+  border-radius: 14px;
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(245, 158, 11, 0.05),
+      transparent
+    );
 }
 
 .existingAccountTitle {
-  color: var(--color-text);
+  color:
+    var(--color-text);
+
   font-size: 15px;
-  font-weight: 800;
+
+  font-weight: 850;
 }
 
 .existingAccountText {
-  margin: 7px 0 16px;
-  color: var(--color-muted);
+  margin:
+    7px
+    0
+    16px;
+
+  color:
+    var(--color-muted);
+
   font-size: 13px;
-  line-height: 1.5;
+
+  line-height: 1.55;
 }
 
-@media (max-width: 640px) {
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media (
+  max-width: 640px
+) {
   .page {
-    padding: 24px 12px;
+    min-height:
+      calc(
+        100dvh -
+        var(--appbar-h)
+      );
+
+    align-items: flex-start;
+
+    padding:
+      14px
+      8px
+      calc(
+        40px +
+        env(
+          safe-area-inset-bottom
+        )
+      );
   }
 
   .card {
-    padding: 20px 16px;
-    border-radius: 14px;
+    max-width: none;
+
+    padding:
+      20px
+      14px
+      22px;
+
+    border-radius: 16px;
+
+    box-shadow:
+      0
+      6px
+      22px
+      rgba(15, 23, 42, 0.04);
+  }
+
+  .badge {
+    margin-bottom: 10px;
+
+    padding:
+      5px
+      9px;
+
+    font-size: 10px;
   }
 
   .title {
-    font-size: 23px;
+    font-size: 24px;
+
+    line-height: 1.18;
+  }
+
+  .subtitle {
+    margin-top: 8px;
+
+    font-size: 13px;
+
+    line-height: 1.55;
+  }
+
+  /* SUMMARY */
+
+  .inviteSummary {
+    margin-top: 18px;
+
+    padding:
+      10px
+      12px;
+
+    border-radius: 13px;
   }
 
   .summaryRow {
     flex-direction: column;
+
     gap: 3px;
+
+    padding:
+      9px
+      0;
+  }
+
+  .summaryLabel {
+    font-size: 10px;
+
+    text-transform: uppercase;
+
+    letter-spacing:
+      0.04em;
   }
 
   .summaryValue {
+    max-width: 100%;
+
     text-align: left;
+
+    font-size: 13px;
+  }
+
+  /* FORM */
+
+  .form {
+    gap: 16px;
+
+    margin-top: 20px;
+  }
+
+  .label {
+    font-size: 12px;
+  }
+
+  /*
+   * IMPORTANT pentru iPhone:
+   * 16px evită zoom-ul automat la focus.
+   */
+  .input {
+    min-height: 48px;
+
+    font-size: 16px;
+
+    border-radius: 12px;
+  }
+
+  .passwordWrap .input {
+    padding-right: 82px;
+  }
+
+  .passwordToggle {
+    min-height: 38px;
+
+    font-size: 12px;
+  }
+
+  .hint {
+    font-size: 11px;
+  }
+
+  /* CONSENTS */
+
+  .consents {
+    padding:
+      13px
+      12px;
+
+    gap: 13px;
+
+    border-radius: 13px;
+  }
+
+  .checkboxRow {
+    gap: 10px;
+
+    font-size: 12px;
+
+    line-height: 1.5;
+  }
+
+  .checkboxRow input {
+    width: 20px;
+
+    height: 20px;
+
+    flex-basis: 20px;
+  }
+
+  /* BUTTONS */
+
+  .primaryButton {
+    width: 100%;
+
+    min-height: 50px;
+
+    border-radius: 13px;
+
+    font-size: 14px;
+  }
+
+  .secondaryButton {
+    min-height: 48px;
+
+    border-radius: 13px;
+  }
+
+  /* EXISTING ACCOUNT */
+
+  .existingAccountBox {
+    margin-top: 18px;
+
+    padding:
+      15px
+      13px;
+
+    border-radius: 13px;
+  }
+
+  .existingAccountTitle {
+    font-size: 14px;
+  }
+
+  .existingAccountText {
+    font-size: 12px;
+
+    line-height: 1.5;
+  }
+
+  /* STATES */
+
+  .iconCircle {
+    width: 46px;
+
+    height: 46px;
+
+    font-size: 21px;
+  }
+
+  .errorBox,
+  .successBox {
+    font-size: 12px;
+
+    padding:
+      11px
+      12px;
+  }
+}
+
+/* =========================================================
+   VERY SMALL PHONES
+========================================================= */
+
+@media (
+  max-width: 380px
+) {
+  .page {
+    padding-left: 6px;
+
+    padding-right: 6px;
+  }
+
+  .card {
+    padding:
+      18px
+      12px
+      20px;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+
+  .subtitle {
+    font-size: 12px;
+  }
+
+  .checkboxRow {
+    font-size: 11px;
+  }
+}
+
+/* =========================================================
+   TOUCH
+========================================================= */
+
+@media (
+  hover: none
+) {
+  .primaryButton:hover:not(:disabled) {
+    box-shadow: none;
+  }
+}
+
+/* =========================================================
+   REDUCED MOTION
+========================================================= */
+
+@media (
+  prefers-reduced-motion: reduce
+) {
+  *,
+  *::before,
+  *::after {
+    transition-duration:
+      0.01ms !important;
+
+    animation-duration:
+      0.01ms !important;
   }
 }

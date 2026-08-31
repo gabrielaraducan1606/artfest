@@ -11,19 +11,7 @@ import styles from "./AdminInfluencersTab.module.css";
 const INITIAL_FORM = {
   name: "",
   email: "",
-  code: "",
-  commissionPercent: "3",
 };
-
-function normalizeCode(value = "") {
-  return String(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
 
 function formatDate(value) {
   if (!value) {
@@ -110,6 +98,76 @@ function getStatusClass(status) {
   return styles.statusDisabled;
 }
 
+function getRemunerationLabel(item) {
+  if (
+    item?.type === "INVITE"
+  ) {
+    return "—";
+  }
+
+  if (
+    item?.platformCommissionSharePercent !==
+      undefined &&
+    item?.platformCommissionSharePercent !==
+      null &&
+    Number(
+      item.platformCommissionSharePercent
+    ) > 0
+  ) {
+    return `${Number(
+      item.platformCommissionSharePercent
+    ).toLocaleString(
+      "ro-RO"
+    )}% din comisionul Artfest`;
+  }
+
+  if (
+    item?.commissionSharePercent !==
+      undefined &&
+    item?.commissionSharePercent !==
+      null &&
+    Number(
+      item.commissionSharePercent
+    ) > 0
+  ) {
+    return `${Number(
+      item.commissionSharePercent
+    ).toLocaleString(
+      "ro-RO"
+    )}% din comisionul Artfest`;
+  }
+
+  return "Nesetată";
+}
+
+function mapInviteError(
+  errorCode,
+  fallback
+) {
+  switch (errorCode) {
+    case "email_already_influencer":
+      return "Acest email aparține deja unui influencer.";
+
+    case "email_already_invited":
+      return "Există deja o invitație activă pentru acest email.";
+
+    case "invite_not_found":
+      return "Invitația nu mai există.";
+
+    case "invite_already_used":
+      return "Invitația a fost deja acceptată și nu mai poate fi modificată.";
+
+    case "influencer_invite_conflict":
+      return "Există deja o invitație care intră în conflict cu aceste date.";
+
+    default:
+      return (
+        fallback ||
+        "Nu am putut procesa invitația."
+      );
+  }
+}
+
 export default function AdminInfluencersTab() {
   const [
     items,
@@ -149,6 +207,11 @@ export default function AdminInfluencersTab() {
   ] = useState(false);
 
   const [
+    deletingId,
+    setDeletingId,
+  ] = useState("");
+
+  const [
     inviteResult,
     setInviteResult,
   ] = useState(null);
@@ -157,6 +220,16 @@ export default function AdminInfluencersTab() {
     copyState,
     setCopyState,
   ] = useState("");
+
+  const [
+    editingInvite,
+    setEditingInvite,
+  ] = useState(null);
+
+  const isEditing =
+    Boolean(
+      editingInvite?.id
+    );
 
   const loadInfluencers =
     useCallback(
@@ -223,6 +296,10 @@ export default function AdminInfluencersTab() {
 
       setInviteOpen(false);
       setInviteResult(null);
+      setEditingInvite(null);
+      setForm(
+        INITIAL_FORM
+      );
       setCopyState("");
       setError("");
     }, [creating]);
@@ -275,8 +352,6 @@ export default function AdminInfluencersTab() {
           const values = [
             item.name,
             item.email,
-            item.code,
-            item.referralCode,
             item.status,
           ];
 
@@ -375,6 +450,7 @@ export default function AdminInfluencersTab() {
 
   function openInviteModal() {
     setError("");
+    setEditingInvite(null);
 
     setForm(
       INITIAL_FORM
@@ -385,6 +461,37 @@ export default function AdminInfluencersTab() {
     );
 
     setCopyState("");
+
+    setInviteOpen(true);
+  }
+
+  function openEditInvite(
+    item
+  ) {
+    if (
+      item?.type !==
+      "INVITE"
+    ) {
+      return;
+    }
+
+    setError("");
+    setInviteResult(null);
+    setCopyState("");
+
+    setEditingInvite(
+      item
+    );
+
+    setForm({
+      name:
+        item.name ||
+        "",
+
+      email:
+        item.email ||
+        "",
+    });
 
     setInviteOpen(true);
   }
@@ -403,39 +510,7 @@ export default function AdminInfluencersTab() {
     );
   }
 
-  function handleNameChange(
-    value
-  ) {
-    setForm(
-      (current) => {
-        const oldGenerated =
-          normalizeCode(
-            current.name
-          );
-
-        const shouldUpdateCode =
-          !current.code ||
-          current.code ===
-            oldGenerated;
-
-        return {
-          ...current,
-
-          name:
-            value,
-
-          code:
-            shouldUpdateCode
-              ? normalizeCode(
-                  value
-                )
-              : current.code,
-        };
-      }
-    );
-  }
-
-  async function createInvite(
+  async function submitInvite(
     event
   ) {
     event.preventDefault();
@@ -450,16 +525,6 @@ export default function AdminInfluencersTab() {
       form.email
         .trim()
         .toLowerCase();
-
-    const code =
-      normalizeCode(
-        form.code
-      );
-
-    const commissionPercent =
-      Number(
-        form.commissionPercent
-      );
 
     if (!name) {
       setError(
@@ -477,45 +542,30 @@ export default function AdminInfluencersTab() {
       return;
     }
 
-    if (!code) {
-      setError(
-        "Completează codul influencerului."
-      );
-
-      return;
-    }
-
-    if (
-      !Number.isFinite(
-        commissionPercent
-      ) ||
-      commissionPercent <
-        0 ||
-      commissionPercent >
-        100
-    ) {
-      setError(
-        "Comisionul trebuie să fie între 0 și 100%."
-      );
-
-      return;
-    }
-
     setCreating(true);
 
     try {
+      const endpoint =
+        isEditing
+          ? `/api/admin/influencers/invite/${encodeURIComponent(
+              editingInvite.id
+            )}`
+          : "/api/admin/influencers/invite";
+
+      const method =
+        isEditing
+          ? "PATCH"
+          : "POST";
+
       const data =
         await api(
-          "/api/admin/influencers/invite",
+          endpoint,
           {
-            method:
-              "POST",
+            method,
 
             body: {
               name,
               email,
-              code,
-              commissionPercent,
             },
           }
         );
@@ -523,24 +573,11 @@ export default function AdminInfluencersTab() {
       if (
         data?.ok === false
       ) {
-        const errorMessage =
-          data?.error ===
-          "referral_code_already_exists"
-            ? "Codul influencerului este deja folosit."
-            : data?.error ===
-                "email_already_influencer"
-              ? "Acest email aparține deja unui influencer."
-              : data?.error ===
-                  "email_already_invited"
-                ? "Există deja o invitație activă pentru acest email."
-                : data?.error ===
-                    "invalid_referral_code"
-                  ? "Codul influencerului nu este valid."
-                  : data?.error ||
-                    "Nu am putut crea invitația.";
-
         throw new Error(
-          errorMessage
+          mapInviteError(
+            data?.error,
+            data?.message
+          )
         );
       }
 
@@ -549,6 +586,8 @@ export default function AdminInfluencersTab() {
           data?.invite
             ?.id ||
           data?.id ||
+          editingInvite
+            ?.id ||
           null,
 
         name:
@@ -560,18 +599,6 @@ export default function AdminInfluencersTab() {
           data?.invite
             ?.email ||
           email,
-
-        code:
-          data?.invite
-            ?.code ||
-          data?.invite
-            ?.referralCode ||
-          code,
-
-        commissionPercent:
-          data?.invite
-            ?.commissionPercent ??
-          commissionPercent,
 
         expiresAt:
           data?.invite
@@ -594,16 +621,103 @@ export default function AdminInfluencersTab() {
         emailError:
           data?.emailError ||
           null,
+
+        edited:
+          isEditing,
       });
 
       await loadInfluencers();
     } catch (err) {
       setError(
-        err?.message ||
-          "Nu am putut crea invitația."
+        mapInviteError(
+          err?.code,
+          err?.message ||
+            (
+              isEditing
+                ? "Nu am putut modifica invitația."
+                : "Nu am putut crea invitația."
+            )
+        )
       );
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function deleteInvite(
+    item
+  ) {
+    if (
+      item?.type !==
+      "INVITE"
+    ) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        `Sigur vrei să ștergi invitația pentru ${
+          item.name ||
+          item.email ||
+          "acest influencer"
+        }?`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingId(
+      item.id
+    );
+
+    setError("");
+
+    try {
+      const data =
+        await api(
+          `/api/admin/influencers/invite/${encodeURIComponent(
+            item.id
+          )}`,
+          {
+            method:
+              "DELETE",
+          }
+        );
+
+      if (
+        data?.ok === false
+      ) {
+        throw new Error(
+          mapInviteError(
+            data?.error,
+            data?.message
+          )
+        );
+      }
+
+      setItems(
+        (current) =>
+          current.filter(
+            (entry) =>
+              !(
+                entry.type ===
+                  "INVITE" &&
+                entry.id ===
+                  item.id
+              )
+          )
+      );
+    } catch (err) {
+      setError(
+        mapInviteError(
+          err?.code,
+          err?.message ||
+            "Nu am putut șterge invitația."
+        )
+      );
+    } finally {
+      setDeletingId("");
     }
   }
 
@@ -648,7 +762,7 @@ export default function AdminInfluencersTab() {
 
     if (!inviteUrl) {
       setError(
-        "Linkul original al invitației nu mai este disponibil. Tokenul este păstrat securizat doar ca hash."
+        "Linkul original al invitației nu mai este disponibil. Editează invitația pentru a genera un link nou."
       );
 
       return;
@@ -689,7 +803,7 @@ export default function AdminInfluencersTab() {
               styles.subtitle
             }
           >
-            Invită influenceri în Artfest, urmărește activarea conturilor și performanța referralurilor lor.
+            Invită influenceri în Artfest, urmărește activarea conturilor și performanța colaborărilor.
           </p>
         </div>
 
@@ -783,7 +897,7 @@ export default function AdminInfluencersTab() {
             <input
               type="search"
               value={query}
-              placeholder="Caută nume, email, cod..."
+              placeholder="Caută după nume sau email..."
               onChange={(
                 event
               ) =>
@@ -872,11 +986,7 @@ export default function AdminInfluencersTab() {
                   </th>
 
                   <th>
-                    Cod
-                  </th>
-
-                  <th>
-                    Comision
+                    Remunerație
                   </th>
 
                   <th>
@@ -904,15 +1014,13 @@ export default function AdminInfluencersTab() {
               <tbody>
                 {filteredItems.map(
                   (item) => {
-                    const code =
-                      item.code ||
-                      item.referralCode ||
-                      "—";
+                    const isInvite =
+                      item.type ===
+                      "INVITE";
 
-                    const commissionPercent =
-                      item.commissionPercent ??
-                      item.commission ??
-                      0;
+                    const isDeleting =
+                      deletingId ===
+                      item.id;
 
                     return (
                       <tr
@@ -947,22 +1055,9 @@ export default function AdminInfluencersTab() {
                         </td>
 
                         <td>
-                          <code
-                            className={
-                              styles.code
-                            }
-                          >
-                            {code}
-                          </code>
-                        </td>
-
-                        <td>
-                          {Number(
-                            commissionPercent
-                          ).toLocaleString(
-                            "ro-RO"
+                          {getRemunerationLabel(
+                            item
                           )}
-                          %
                         </td>
 
                         <td>
@@ -1003,6 +1098,35 @@ export default function AdminInfluencersTab() {
                               styles.actions
                             }
                           >
+                            {isInvite && (
+                              <>
+                                <SmallButton
+                                  onClick={() =>
+                                    openEditInvite(
+                                      item
+                                    )
+                                  }
+                                >
+                                  Editează
+                                </SmallButton>
+
+                                <SmallButton
+                                  onClick={() =>
+                                    deleteInvite(
+                                      item
+                                    )
+                                  }
+                                  disabled={
+                                    isDeleting
+                                  }
+                                >
+                                  {isDeleting
+                                    ? "Se șterge..."
+                                    : "Șterge"}
+                                </SmallButton>
+                              </>
+                            )}
+
                             {(item.inviteUrl ||
                               item.invitationUrl ||
                               item.invite
@@ -1018,22 +1142,6 @@ export default function AdminInfluencersTab() {
                                 `invite-${item.id}`
                                   ? "Copiat ✓"
                                   : "Copiază invitația"}
-                              </SmallButton>
-                            )}
-
-                            {item.referralUrl && (
-                              <SmallButton
-                                onClick={() =>
-                                  copyText(
-                                    item.referralUrl,
-                                    `ref-${item.id}`
-                                  )
-                                }
-                              >
-                                {copyState ===
-                                `ref-${item.id}`
-                                  ? "Copiat ✓"
-                                  : "Copiază referral"}
                               </SmallButton>
                             )}
                           </div>
@@ -1085,7 +1193,9 @@ export default function AdminInfluencersTab() {
                     styles.modalTitle
                   }
                 >
-                  Invită influencer
+                  {isEditing
+                    ? "Editează invitația"
+                    : "Invită influencer"}
                 </h3>
 
                 <p
@@ -1093,7 +1203,9 @@ export default function AdminInfluencersTab() {
                     styles.modalSubtitle
                   }
                 >
-                  Invitația va fi trimisă automat pe email și vei primi și linkul privat.
+                  {isEditing
+                    ? "La salvare se generează un link nou, iar invitația este retrimisă automat pe email."
+                    : "Invitația va fi trimisă automat pe email și vei primi și linkul privat."}
                 </p>
               </div>
 
@@ -1117,7 +1229,7 @@ export default function AdminInfluencersTab() {
             {!inviteResult ? (
               <form
                 onSubmit={
-                  createInvite
+                  submitInvite
                 }
                 className={
                   styles.form
@@ -1136,7 +1248,8 @@ export default function AdminInfluencersTab() {
                     onChange={(
                       event
                     ) =>
-                      handleNameChange(
+                      updateField(
+                        "name",
                         event.target
                           .value
                       )
@@ -1174,74 +1287,15 @@ export default function AdminInfluencersTab() {
                   />
                 </FormField>
 
-                <FormField
-                  label="Cod influencer"
-                  hint="Cod unic folosit pentru atribuirea traficului și vânzărilor."
-                  required
+                <div
+                  className={
+                    styles.infoBox
+                  }
                 >
-                  <input
-                    type="text"
-                    value={
-                      form.code
-                    }
-                    placeholder="dora"
-                    onChange={(
-                      event
-                    ) =>
-                      updateField(
-                        "code",
-                        normalizeCode(
-                          event.target
-                            .value
-                        )
-                      )
-                    }
-                    className={
-                      styles.input
-                    }
-                    autoComplete="off"
-                  />
-                </FormField>
-
-                <FormField
-                  label="Comision din vânzările generate"
-                  hint="Procentul din comenzile atribuite influencerului. Recomandarea inițială Artfest: 3%."
-                  required
-                >
-                  <div
-                    className={
-                      styles.commissionRow
-                    }
-                  >
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      value={
-                        form.commissionPercent
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        updateField(
-                          "commissionPercent",
-                          event.target
-                            .value
-                        )
-                      }
-                      className={`${styles.input} ${styles.commissionInput}`}
-                    />
-
-                    <div
-                      className={
-                        styles.percentSuffix
-                      }
-                    >
-                      %
-                    </div>
-                  </div>
-                </FormField>
+                  {isEditing
+                    ? "Modificarea invitației va invalida linkul vechi și va genera unul nou, valabil 7 zile."
+                    : "Remunerația colaborării va putea fi stabilită ulterior, după activarea contului."}
+                </div>
 
                 {error && (
                   <div
@@ -1283,8 +1337,16 @@ export default function AdminInfluencersTab() {
                     }
                   >
                     {creating
-                      ? "Se trimite invitația..."
-                      : "Trimite invitația"}
+                      ? (
+                          isEditing
+                            ? "Se salvează..."
+                            : "Se trimite invitația..."
+                        )
+                      : (
+                          isEditing
+                            ? "Salvează și retrimite invitația"
+                            : "Trimite invitația"
+                        )}
                   </button>
                 </div>
               </form>
@@ -1305,7 +1367,9 @@ export default function AdminInfluencersTab() {
                         styles.successTitle
                       }
                     >
-                      Invitația a fost trimisă ✓
+                      {inviteResult.edited
+                        ? "Invitația a fost actualizată și retrimisă ✓"
+                        : "Invitația a fost trimisă ✓"}
                     </div>
 
                     <div
@@ -1327,7 +1391,9 @@ export default function AdminInfluencersTab() {
                     }
                   >
                     <strong>
-                      Invitația a fost creată, dar emailul nu a putut fi trimis.
+                      {inviteResult.edited
+                        ? "Invitația a fost actualizată, dar emailul nu a putut fi trimis."
+                        : "Invitația a fost creată, dar emailul nu a putut fi trimis."}
                     </strong>
 
                     <div>
@@ -1336,6 +1402,23 @@ export default function AdminInfluencersTab() {
                   </div>
                 )}
 
+                <FormField label="Nume">
+                  <div
+                    className={
+                      styles.readOnlyBox
+                    }
+                  >
+                    {inviteResult.name ||
+                      "—"}
+                  </div>
+                </FormField>
+
+                <div
+                  className={
+                    styles.spacer
+                  }
+                />
+
                 <FormField label="Email">
                   <div
                     className={
@@ -1343,38 +1426,6 @@ export default function AdminInfluencersTab() {
                     }
                   >
                     {inviteResult.email}
-                  </div>
-                </FormField>
-
-                <div
-                  className={
-                    styles.spacer
-                  }
-                />
-
-                <FormField label="Cod influencer">
-                  <div
-                    className={
-                      styles.readOnlyBox
-                    }
-                  >
-                    {inviteResult.code}
-                  </div>
-                </FormField>
-
-                <div
-                  className={
-                    styles.spacer
-                  }
-                />
-
-                <FormField label="Comision din vânzările generate">
-                  <div
-                    className={
-                      styles.readOnlyBox
-                    }
-                  >
-                    {inviteResult.commissionPercent}%
                   </div>
                 </FormField>
 
@@ -1551,12 +1602,16 @@ function EmptyState({
 function SmallButton({
   children,
   onClick,
+  disabled = false,
 }) {
   return (
     <button
       type="button"
       onClick={
         onClick
+      }
+      disabled={
+        disabled
       }
       className={
         styles.smallButton

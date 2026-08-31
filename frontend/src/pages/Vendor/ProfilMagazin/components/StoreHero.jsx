@@ -256,8 +256,11 @@ Hai să ajungem împreună la 1000 de creatori!
             src={coverUrl}
             className={styles.coverImg}
             alt="Copertă"
-            loading="lazy"
+            loading="eager"
+            fetchPriority="high"
             decoding="async"
+            width={1200}
+            height={360}
             onError={(e) =>
               onImgError(
                 e,
@@ -315,8 +318,11 @@ Hai să ajungem împreună la 1000 de creatori!
                 src={avatarUrl}
                 className={styles.avatar}
                 alt="Profil"
-                loading="lazy"
+                loading="eager"
+                fetchPriority="high"
                 decoding="async"
+                width={160}
+                height={160}
                 onError={(e) =>
                   onImgError(
                     e,

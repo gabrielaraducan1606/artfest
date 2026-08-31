@@ -4,25 +4,65 @@ import {
   useState,
 } from "react";
 
-import { useNavigate } from "react-router-dom";
+import {
+  useNavigate,
+} from "react-router-dom";
 
 import { api } from "../../../lib/api.js";
+
+import InfluencerCollectionsModal
+  from "../components/InfluencerCollectionsModal.jsx";
+
+import InfluencerDiscountCodesModal
+  from "../components/InfluencerDiscountCodesModal.jsx";
+
 import styles from "./InfluencerDashboardPage.module.css";
 
 export default function InfluencerDashboardPage() {
-  const navigate = useNavigate();
+  const navigate =
+    useNavigate();
 
-  const [loading, setLoading] =
-    useState(true);
+  /* =========================================================
+     DASHBOARD STATE
+  ========================================================= */
 
-  const [error, setError] =
-    useState("");
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-  const [data, setData] =
-    useState(null);
+  const [
+    error,
+    setError,
+  ] = useState("");
 
-  const [copyState, setCopyState] =
-    useState("");
+  const [
+    data,
+    setData,
+  ] = useState(null);
+
+  const [
+    copyState,
+    setCopyState,
+  ] = useState("");
+
+  /* =========================================================
+     MODALS
+  ========================================================= */
+
+  const [
+    collectionsOpen,
+    setCollectionsOpen,
+  ] = useState(false);
+
+  const [
+    discountCodesOpen,
+    setDiscountCodesOpen,
+  ] = useState(false);
+
+  /* =========================================================
+     LOAD DASHBOARD
+  ========================================================= */
 
   useEffect(() => {
     let active = true;
@@ -41,36 +81,46 @@ export default function InfluencerDashboardPage() {
           return;
         }
 
-        if (response?.ok === false) {
+        if (
+          response?.ok === false
+        ) {
           throw Object.assign(
             new Error(
               response?.message ||
                 "Nu am putut încărca dashboardul."
             ),
             {
-              data: response,
+              data:
+                response,
             }
           );
         }
 
-        setData(response);
-      } catch (loadError) {
+        setData(
+          response
+        );
+      } catch (
+        loadError
+      ) {
         if (!active) {
           return;
         }
 
         const code =
-          loadError?.data?.error ||
+          loadError?.data
+            ?.error ||
           loadError?.error ||
           "";
 
         if (
-          code === "unauthorized"
+          code ===
+          "unauthorized"
         ) {
           navigate(
             "/autentificare",
             {
-              replace: true,
+              replace:
+                true,
             }
           );
 
@@ -84,7 +134,8 @@ export default function InfluencerDashboardPage() {
           navigate(
             "/",
             {
-              replace: true,
+              replace:
+                true,
             }
           );
 
@@ -92,13 +143,16 @@ export default function InfluencerDashboardPage() {
         }
 
         setError(
-          loadError?.data?.message ||
+          loadError?.data
+            ?.message ||
             loadError?.message ||
             "Nu am putut încărca dashboardul."
         );
       } finally {
         if (active) {
-          setLoading(false);
+          setLoading(
+            false
+          );
         }
       }
     }
@@ -106,14 +160,20 @@ export default function InfluencerDashboardPage() {
     loadDashboard();
 
     return () => {
-      active = false;
+      active =
+        false;
     };
   }, [navigate]);
+
+  /* =========================================================
+     LINK PERSONAL
+  ========================================================= */
 
   const referralUrl =
     useMemo(() => {
       const code =
-        data?.profile?.referralCode;
+        data?.profile
+          ?.referralCode;
 
       if (!code) {
         return "";
@@ -126,6 +186,10 @@ export default function InfluencerDashboardPage() {
         code
       )}`;
     }, [data]);
+
+  /* =========================================================
+     COPY
+  ========================================================= */
 
   async function copyText(
     value,
@@ -140,11 +204,15 @@ export default function InfluencerDashboardPage() {
         value
       );
 
-      setCopyState(type);
+      setCopyState(
+        type
+      );
 
       window.setTimeout(
         () => {
-          setCopyState("");
+          setCopyState(
+            ""
+          );
         },
         1600
       );
@@ -155,12 +223,17 @@ export default function InfluencerDashboardPage() {
     }
   }
 
+  /* =========================================================
+     LOGOUT
+  ========================================================= */
+
   async function logout() {
     try {
       await api(
         "/api/auth/logout",
         {
-          method: "POST",
+          method:
+            "POST",
         }
       );
     } catch {
@@ -172,10 +245,16 @@ export default function InfluencerDashboardPage() {
     );
   }
 
+  /* =========================================================
+     LOADING
+  ========================================================= */
+
   if (loading) {
     return (
       <main
-        className={styles.page}
+        className={
+          styles.page
+        }
       >
         <div
           className={
@@ -188,16 +267,24 @@ export default function InfluencerDashboardPage() {
     );
   }
 
+  /* =========================================================
+     ERROR
+  ========================================================= */
+
   if (
     error ||
     !data?.profile
   ) {
     return (
       <main
-        className={styles.page}
+        className={
+          styles.page
+        }
       >
         <div
-          className={styles.errorCard}
+          className={
+            styles.errorCard
+          }
         >
           <h1>
             Nu am putut încărca contul
@@ -229,15 +316,111 @@ export default function InfluencerDashboardPage() {
     profile,
   } = data;
 
+  /* =========================================================
+     REMUNERAȚIE
+  ========================================================= */
+
+  const commissionConfigured =
+    Boolean(
+      profile
+        ?.commissionConfigured
+    ) ||
+    (
+      profile
+        ?.platformCommissionSharePercent !==
+        undefined &&
+      profile
+        ?.platformCommissionSharePercent !==
+        null &&
+      Number(
+        profile
+          ?.platformCommissionSharePercent
+      ) > 0
+    ) ||
+    (
+      profile
+        ?.commissionSharePercent !==
+        undefined &&
+      profile
+        ?.commissionSharePercent !==
+        null &&
+      Number(
+        profile
+          ?.commissionSharePercent
+      ) > 0
+    );
+
+  const commissionSharePercent =
+    profile
+      ?.platformCommissionSharePercent ??
+    profile
+      ?.commissionSharePercent ??
+    null;
+
+  const commissionLabel =
+    commissionConfigured &&
+    commissionSharePercent !==
+      null
+      ? `${Number(
+          commissionSharePercent
+        ).toLocaleString(
+          "ro-RO"
+        )}% din comisionul Artfest`
+      : "În curs de stabilire";
+
+  /* =========================================================
+     STATS
+  ========================================================= */
+
+  const clicks =
+    Number(
+      profile.clicks ||
+        0
+    );
+
+  const ordersCount =
+    Number(
+      profile.ordersCount ||
+        0
+    );
+
+  const salesAmount =
+    Number(
+      profile.salesAmount ||
+        0
+    );
+
+  const earningsAmount =
+    Number(
+      profile.earningsAmount ??
+        profile.commissionAmount ??
+        0
+    );
+
+  const hasActivity =
+    clicks > 0 ||
+    ordersCount > 0 ||
+    salesAmount > 0;
+
+  /* =========================================================
+     PAGE
+  ========================================================= */
+
   return (
     <main
-      className={styles.page}
+      className={
+        styles.page
+      }
     >
       <div
         className={
           styles.shell
         }
       >
+        {/* =====================================================
+            HEADER
+        ===================================================== */}
+
         <header
           className={
             styles.header
@@ -268,7 +451,7 @@ export default function InfluencerDashboardPage() {
                 styles.subtitle
               }
             >
-              Urmărește performanța codului tău și activitatea generată prin Artfest.
+              Distribuie linkul tău, urmărește rezultatele și vezi activitatea generată prin colaborarea cu Artfest.
             </p>
           </div>
 
@@ -277,11 +460,17 @@ export default function InfluencerDashboardPage() {
             className={
               styles.logoutButton
             }
-            onClick={logout}
+            onClick={
+              logout
+            }
           >
             Ieșire
           </button>
         </header>
+
+        {/* =====================================================
+            STATS
+        ===================================================== */}
 
         <section
           className={
@@ -291,186 +480,195 @@ export default function InfluencerDashboardPage() {
           <StatCard
             label="Clickuri"
             value={
-              profile.clicks || 0
+              clicks.toLocaleString(
+                "ro-RO"
+              )
             }
           />
 
           <StatCard
             label="Comenzi"
             value={
-              profile.ordersCount ||
-              0
+              ordersCount.toLocaleString(
+                "ro-RO"
+              )
             }
           />
 
           <StatCard
             label="Vânzări generate"
-            value={formatMoney(
-              profile.salesAmount ||
-                0
-            )}
+            value={
+              formatMoney(
+                salesAmount
+              )
+            }
           />
 
           <StatCard
-            label="Comision estimat"
-            value={formatMoney(
-              profile.commissionAmount ||
-                0
-            )}
+            label="Câștig estimat"
+            value={
+              formatMoney(
+                earningsAmount
+              )
+            }
           />
         </section>
 
+        {/* =====================================================
+            LINK PROMOVARE + REMUNERAȚIE
+        ===================================================== */}
+
         <section
           className={
-            styles.grid
+            styles.card
           }
         >
           <div
             className={
-              styles.card
+              styles.cardHeader
             }
           >
-            <div
-              className={
-                styles.cardHeader
-              }
-            >
-              <div>
-                <h2
-                  className={
-                    styles.cardTitle
-                  }
-                >
-                  Codul tău
-                </h2>
-
-                <p
-                  className={
-                    styles.cardSubtitle
-                  }
-                >
-                  Folosește acest cod în campaniile tale.
-                </p>
-              </div>
-            </div>
-
-            <div
-              className={
-                styles.codeBox
-              }
-            >
-              <code
+            <div>
+              <h2
                 className={
-                  styles.code
+                  styles.cardTitle
                 }
               >
-                {profile.referralCode}
-              </code>
+                Linkul tău de promovare
+              </h2>
 
-              <button
-                type="button"
+              <p
                 className={
-                  styles.smallButton
-                }
-                onClick={() =>
-                  copyText(
-                    profile.referralCode,
-                    "code"
-                  )
+                  styles.cardSubtitle
                 }
               >
-                {copyState === "code"
-                  ? "Copiat ✓"
-                  : "Copiază"}
-              </button>
-            </div>
-
-            <div
-              className={
-                styles.commissionRow
-              }
-            >
-              <span>
-                Comisionul tău
-              </span>
-
-              <strong>
-                {Number(
-                  profile.commissionPercent ||
-                    0
-                ).toLocaleString(
-                  "ro-RO"
-                )}
-                %
-              </strong>
+                Distribuie acest link în bio, stories, postări sau videoclipuri. Vizitele și comenzile eligibile venite prin el vor fi asociate profilului tău.
+              </p>
             </div>
           </div>
 
           <div
             className={
-              styles.card
+              styles.referralBox
             }
           >
             <div
               className={
-                styles.cardHeader
+                styles.referralUrl
               }
             >
-              <div>
-                <h2
-                  className={
-                    styles.cardTitle
-                  }
-                >
-                  Link referral
-                </h2>
-
-                <p
-                  className={
-                    styles.cardSubtitle
-                  }
-                >
-                  Distribuie acest link în bio, stories sau postări.
-                </p>
-              </div>
+              {referralUrl ||
+                "—"}
             </div>
 
+            <button
+              type="button"
+              className={
+                styles.primaryButton
+              }
+              disabled={
+                !referralUrl
+              }
+              onClick={() =>
+                copyText(
+                  referralUrl,
+                  "url"
+                )
+              }
+            >
+              {copyState ===
+              "url"
+                ? "Link copiat ✓"
+                : "Copiază linkul"}
+            </button>
+          </div>
+
+          <div
+            className={
+              styles.commissionRow
+            }
+          >
+            <span>
+              Remunerația ta
+            </span>
+
+            <strong>
+              {commissionLabel}
+            </strong>
+          </div>
+
+          {!commissionConfigured && (
             <div
               className={
-                styles.referralBox
+                styles.infoBox
               }
             >
-              <div
-                className={
-                  styles.referralUrl
-                }
-              >
-                {referralUrl ||
-                  "—"}
-              </div>
+              Condițiile de remunerare vor fi stabilite de Artfest pentru colaborarea ta și vor apărea aici după configurare.
+            </div>
+          )}
+        </section>
 
-              <button
-                type="button"
+        {/* =====================================================
+            CUM FUNCȚIONEAZĂ
+        ===================================================== */}
+
+        <section
+          className={
+            styles.card
+          }
+        >
+          <div
+            className={
+              styles.cardHeader
+            }
+          >
+            <div>
+              <h2
                 className={
-                  styles.primaryButton
-                }
-                disabled={
-                  !referralUrl
-                }
-                onClick={() =>
-                  copyText(
-                    referralUrl,
-                    "url"
-                  )
+                  styles.cardTitle
                 }
               >
-                {copyState === "url"
-                  ? "Link copiat ✓"
-                  : "Copiază linkul"}
-              </button>
+                Cum funcționează
+              </h2>
+
+              <p
+                className={
+                  styles.cardSubtitle
+                }
+              >
+                Colaborarea ta cu Artfest este urmărită prin linkul tău personal.
+              </p>
             </div>
           </div>
+
+          <div
+            className={
+              styles.stepsGrid
+            }
+          >
+            <StepCard
+              number="1"
+              title="Distribuie"
+              text="Folosește linkul tău Artfest în conținut, stories, bio sau postări."
+            />
+
+            <StepCard
+              number="2"
+              title="Urmărim rezultatele"
+              text="Vizitele și comenzile eligibile venite prin linkul tău sunt asociate profilului tău."
+            />
+
+            <StepCard
+              number="3"
+              title="Primești remunerația"
+              text="Pentru comenzile eligibile, câștigul tău este calculat conform condițiilor stabilite pentru colaborare."
+            />
+          </div>
         </section>
+
+        {/* =====================================================
+            ACTIVITATE
+        ===================================================== */}
 
         <section
           className={
@@ -496,106 +694,412 @@ export default function InfluencerDashboardPage() {
                   styles.cardSubtitle
                 }
               >
-                Pe măsură ce linkul tău este folosit, aici vei vedea rezultatele.
+                Aici vei urmări rezultatele generate prin linkul tău.
               </p>
             </div>
           </div>
 
-          <div
-            className={
-              styles.activityEmpty
-            }
-          >
+          {hasActivity ? (
             <div
               className={
-                styles.activityIcon
+                styles.activityList
               }
             >
-              ↗
-            </div>
+              <ActivityRow
+                label="Clickuri generate"
+                value={
+                  clicks.toLocaleString(
+                    "ro-RO"
+                  )
+                }
+              />
 
-            <div
-              className={
-                styles.activityTitle
-              }
-            >
-              Dashboardul este pregătit
-            </div>
+              <ActivityRow
+                label="Comenzi atribuite"
+                value={
+                  ordersCount.toLocaleString(
+                    "ro-RO"
+                  )
+                }
+              />
 
+              <ActivityRow
+                label="Valoare vânzări"
+                value={
+                  formatMoney(
+                    salesAmount
+                  )
+                }
+              />
+
+              <ActivityRow
+                label="Câștig estimat"
+                value={
+                  formatMoney(
+                    earningsAmount
+                  )
+                }
+              />
+            </div>
+          ) : (
             <div
               className={
-                styles.activityText
+                styles.activityEmpty
               }
             >
-              Clickurile vor apărea aici imediat ce începi să distribui linkul. Comenzile și comisioanele le conectăm în următorul pas.
+              <div
+                className={
+                  styles.activityIcon
+                }
+              >
+                ↗
+              </div>
+
+              <div
+                className={
+                  styles.activityTitle
+                }
+              >
+                Totul este pregătit
+              </div>
+
+              <div
+                className={
+                  styles.activityText
+                }
+              >
+                Aici vei vedea clickurile, comenzile atribuite și câștigurile generate prin linkul tău.
+              </div>
             </div>
-          </div>
+          )}
         </section>
+
+        {/* =====================================================
+            PROMOVARE + CONT
+        ===================================================== */}
 
         <section
           className={
-            styles.card
+            styles.grid
           }
         >
+          {/* ===================================================
+              PROMOVARE
+          =================================================== */}
+
           <div
             className={
-              styles.cardHeader
+              styles.card
             }
           >
-            <div>
-              <h2
-                className={
-                  styles.cardTitle
-                }
-              >
-                Cont
-              </h2>
+            <div
+              className={
+                styles.cardHeader
+              }
+            >
+              <div>
+                <h2
+                  className={
+                    styles.cardTitle
+                  }
+                >
+                  Promovare
+                </h2>
 
-              <p
-                className={
-                  styles.cardSubtitle
-                }
+                <p
+                  className={
+                    styles.cardSubtitle
+                  }
+                >
+                  Creează colecții de produse și coduri de reducere pe care să le distribui comunității tale.
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display:
+                  "grid",
+                gap:
+                  12,
+              }}
+            >
+              {/* =================================================
+                  COLECȚII
+              ================================================= */}
+
+              <div
+                style={{
+                  border:
+                    "1px solid var(--color-border)",
+                  borderRadius:
+                    14,
+                  padding:
+                    16,
+                }}
               >
-                Datele asociate profilului tău.
-              </p>
+                <div
+                  style={{
+                    display:
+                      "flex",
+                    justifyContent:
+                      "space-between",
+                    alignItems:
+                      "flex-start",
+                    gap:
+                      14,
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontWeight:
+                          700,
+                        marginBottom:
+                          5,
+                      }}
+                    >
+                      Colecțiile mele
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize:
+                          13,
+                        lineHeight:
+                          1.5,
+                        color:
+                          "var(--color-text-muted)",
+                      }}
+                    >
+                      Grupează produse Artfest în selecții proprii și distribuie un singur link.
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={
+                      styles.primaryButton
+                    }
+                    onClick={() =>
+                      setCollectionsOpen(
+                        true
+                      )
+                    }
+                  >
+                    Gestionează
+                  </button>
+                </div>
+              </div>
+
+              {/* =================================================
+                  CODURI REDUCERE
+              ================================================= */}
+
+              <div
+                style={{
+                  border:
+                    "1px solid var(--color-border)",
+                  borderRadius:
+                    14,
+                  padding:
+                    16,
+                }}
+              >
+                <div
+                  style={{
+                    display:
+                      "flex",
+                    justifyContent:
+                      "space-between",
+                    alignItems:
+                      "flex-start",
+                    gap:
+                      14,
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontWeight:
+                          700,
+                        marginBottom:
+                          5,
+                      }}
+                    >
+                      Coduri de reducere
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize:
+                          13,
+                        lineHeight:
+                          1.5,
+                        color:
+                          "var(--color-text-muted)",
+                      }}
+                    >
+                      Creează coduri promo pentru colecțiile tale și urmărește utilizarea lor.
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={
+                      styles.secondaryButton
+                    }
+                    onClick={() =>
+                      setDiscountCodesOpen(
+                        true
+                      )
+                    }
+                  >
+                    Gestionează
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
+          {/* ===================================================
+              CONT
+          =================================================== */}
+
           <div
             className={
-              styles.accountList
+              styles.card
             }
           >
-            <AccountRow
-              label="Nume"
-              value={
-                profile.displayName ||
-                user?.name ||
-                "—"
+            <div
+              className={
+                styles.cardHeader
               }
-            />
+            >
+              <div>
+                <h2
+                  className={
+                    styles.cardTitle
+                  }
+                >
+                  Cont
+                </h2>
 
-            <AccountRow
-              label="Email"
-              value={
-                user?.email ||
-                "—"
-              }
-            />
+                <p
+                  className={
+                    styles.cardSubtitle
+                  }
+                >
+                  Datele asociate profilului tău.
+                </p>
+              </div>
+            </div>
 
-            <AccountRow
-              label="Status"
-              value={
-                profile.status ||
-                "—"
+            <div
+              className={
+                styles.accountList
               }
-            />
+            >
+              <AccountRow
+                label="Nume"
+                value={
+                  profile.displayName ||
+                  user?.name ||
+                  "—"
+                }
+              />
+
+              <AccountRow
+                label="Email"
+                value={
+                  user?.email ||
+                  "—"
+                }
+              />
+
+              <AccountRow
+                label="Status"
+                value={
+                  getStatusLabel(
+                    profile.status
+                  )
+                }
+              />
+
+              <AccountRow
+                label="Remunerație"
+                value={
+                  commissionLabel
+                }
+              />
+            </div>
+
+            <div
+              style={{
+                marginTop:
+                  18,
+                paddingTop:
+                  16,
+                borderTop:
+                  "1px solid var(--color-border)",
+              }}
+            >
+              <button
+                type="button"
+                className={
+                  styles.secondaryButton
+                }
+                onClick={
+                  logout
+                }
+                style={{
+                  width:
+                    "100%",
+                  justifyContent:
+                    "center",
+                }}
+              >
+                Deconectare
+              </button>
+            </div>
           </div>
         </section>
       </div>
+
+      {/* =====================================================
+          MODAL COLECȚII
+      ===================================================== */}
+
+      {collectionsOpen && (
+        <InfluencerCollectionsModal
+          onClose={() =>
+            setCollectionsOpen(
+              false
+            )
+          }
+        />
+      )}
+
+      {/* =====================================================
+          MODAL CODURI REDUCERE
+      ===================================================== */}
+
+      {discountCodesOpen && (
+        <InfluencerDiscountCodesModal
+          onClose={() =>
+            setDiscountCodesOpen(
+              false
+            )
+          }
+        />
+      )}
     </main>
   );
 }
+
+/* =========================================================
+   STAT CARD
+========================================================= */
 
 function StatCard({
   label,
@@ -626,6 +1130,87 @@ function StatCard({
   );
 }
 
+/* =========================================================
+   STEP CARD
+========================================================= */
+
+function StepCard({
+  number,
+  title,
+  text,
+}) {
+  return (
+    <div
+      className={
+        styles.stepCard
+      }
+    >
+      <div
+        className={
+          styles.stepNumber
+        }
+      >
+        {number}
+      </div>
+
+      <div>
+        <div
+          className={
+            styles.stepTitle
+          }
+        >
+          {title}
+        </div>
+
+        <div
+          className={
+            styles.stepText
+          }
+        >
+          {text}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   ACTIVITY ROW
+========================================================= */
+
+function ActivityRow({
+  label,
+  value,
+}) {
+  return (
+    <div
+      className={
+        styles.activityRow
+      }
+    >
+      <span
+        className={
+          styles.activityRowLabel
+        }
+      >
+        {label}
+      </span>
+
+      <strong
+        className={
+          styles.activityRowValue
+        }
+      >
+        {value}
+      </strong>
+    </div>
+  );
+}
+
+/* =========================================================
+   ACCOUNT ROW
+========================================================= */
+
 function AccountRow({
   label,
   value,
@@ -655,17 +1240,51 @@ function AccountRow({
   );
 }
 
+/* =========================================================
+   STATUS
+========================================================= */
+
+function getStatusLabel(
+  status
+) {
+  switch (
+    String(
+      status || ""
+    ).toUpperCase()
+  ) {
+    case "ACTIVE":
+      return "Activ";
+
+    case "DISABLED":
+      return "Dezactivat";
+
+    default:
+      return status || "—";
+  }
+}
+
+/* =========================================================
+   MONEY
+========================================================= */
+
 function formatMoney(
   value
 ) {
   return new Intl.NumberFormat(
     "ro-RO",
     {
-      style: "currency",
-      currency: "RON",
-      minimumFractionDigits: 2,
+      style:
+        "currency",
+
+      currency:
+        "RON",
+
+      minimumFractionDigits:
+        2,
     }
   ).format(
-    Number(value || 0)
+    Number(
+      value || 0
+    )
   );
 }

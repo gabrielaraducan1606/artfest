@@ -30,6 +30,11 @@ export const PLATFORM_OVERVIEW_MANIFEST = {
     "cum functioneaza artfest",
     "marketplace handmade",
     "pentru cine e artfest",
+    "cine vinde produsele",
+    "artfest stoc propriu",
+    "cine expediaza produsul",
+    "cum caut un produs",
+    "cautare produse",
   ],
 
   aliases: [
@@ -47,6 +52,34 @@ export const PLATFORM_OVERVIEW_MANIFEST = {
     "ce vand pe artfest",
     "ce gasesc pe artfest",
     "artfest ce este",
+    "cine vinde produsele de pe artfest",
+    "cine sunt vanzatorii de pe artfest",
+    "produsele sunt ale artfest",
+    "artfest are stoc propriu",
+    "aveti stoc propriu",
+    "aveti voi produsele",
+    "cine realizeaza produsul",
+    "cine expediaza produsul",
+    "cine livreaza produsul",
+    "cine trimite comanda",
+    "artfest fabrica produsele",
+    "cum caut un produs pe artfest",
+    "cum caut produse",
+    "cum gasesc produse pe artfest",
+    "unde caut produse",
+    "cum functioneaza cautarea",
+    "cum folosesc bara de cautare",
+    "cum imi creez cont de vanzator",
+    "cum devin vanzator",
+    "vreau sa vand pe artfest",
+    "vreau sa imi deschid magazin",
+    "vreau cont de creator",
+    "cum imi fac magazin pe artfest",
+    "cont de vanzator",
+    "cont de creator",
+    "creare cont de vanzator",
+    "inregistrare vanzator",
+    "devino partener",
   ],
 
   uiLocations: [
@@ -97,10 +130,30 @@ export const PLATFORM_OVERVIEW_MANIFEST = {
     },
     {
       q: "Cum devin vânzător pe Artfest?",
-      a: "Din contul tău, pornești procesul de înregistrare ca vânzător (onboarding) - completezi detaliile magazinului, apoi îți poți adăuga produsele și începe să vinzi.",
+      a: "Îți creezi un cont de vânzător (buton „Devino partener” - un formular de înregistrare separat de cel de cumpărător, unde alegi direct modul vânzător). După ce contul e creat, ești dus la pașii de configurare a magazinului (ce servicii oferi, apoi detaliile magazinului) - de acolo îți poți adăuga produsele și începe să vinzi.",
+    },
+    {
+      q: "Vreau să vând pe Artfest / vreau să îmi deschid un magazin / vreau cont de creator",
+      a: "Sigur - îți poți crea un cont de vânzător chiar acum, apoi configurezi magazinul Artfest pas cu pas.",
+    },
+    {
+      q: "Cine vinde produsele de pe Artfest?",
+      a: "Toate produsele sunt vândute de creatori/vânzători independenți, fiecare cu propriul magazin în platformă - Artfest este marketplace-ul care îi conectează cu cumpărătorii, nu vinde el însuși produse.",
+    },
+    {
+      q: "Artfest are stoc propriu?",
+      a: "Nu. Artfest nu deține și nu gestionează niciun stoc - fiecare vânzător își administrează singur produsele, disponibilitatea și realizarea/livrarea lor.",
+    },
+    {
+      q: "Cine realizează și expediază produsul?",
+      a: "Vânzătorul/creatorul care a listat produsul - el îl realizează (sau îl are deja pregătit, în funcție de disponibilitate) și tot el organizează expedierea. Artfest se ocupă de platformă, plăți și comunicare, nu de producție sau livrare fizică.",
+    },
+    {
+      q: "Cum caut un produs pe Artfest?",
+      a: "Ai mai multe opțiuni: bara de căutare din partea de sus a paginii (caută după text), categoriile și filtrele din pagina de produse (preț, culoare, material, ocazie etc.), sau poți cere direct asistentului să caute pentru tine - după descriere, buget, ocazie sau chiar după o fotografie.",
     },
   ],
 
   notes:
-    "Manifest de orientare generală, nu de funcționalitate tehnică - conținutul e un rezumat, pe înțelesul oricui, al faptelor deja confirmate în manifestele products, orders, quotes, vendorCampaigns, catalogProducts, subscriptionsPlans, vendorStoreProfile. Nu introduce nicio funcție/regulă nouă. Creat 2026-08-26.",
+    "Manifest de orientare generală, nu de funcționalitate tehnică - conținutul e un rezumat, pe înțelesul oricui, al faptelor deja confirmate în manifestele products, orders, quotes, vendorCampaigns, catalogProducts, subscriptionsPlans, vendorStoreProfile. Nu introduce nicio funcție/regulă nouă. Creat 2026-08-26. Extins 2026-08-28 (audit GUEST): aliases/FAQ pentru \"cine vinde\"/\"stoc propriu\"/\"cine expediază\" (produse cădeau greșit pe product-search local, vezi AiAssistant.jsx detectAssistantIntent) și pentru \"cum caut un produs\" (bară de căutare + categorii/filtre + asistent) - căutarea efectivă prin bara de căutare/filtre e verificată din Products.jsx (searchRow, categoryRail, filtersModal); căutarea prin asistent, din assistantProducts.js (SHOPPING_ACTIONS: image-search, product-search, gift, budget).",
 };

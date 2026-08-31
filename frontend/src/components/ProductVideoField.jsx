@@ -9,6 +9,21 @@ const NETWORK_ERROR_MESSAGE =
 const AUTH_ERROR_MESSAGE =
   "Trebuie să fii autentificat pentru a încărca un video.";
 
+/*
+ * Trebuie să rămână identic cu limita reală, aplicată server-side
+ * (backend/src/routes/uploadRoutes.js, ALLOWED_VIDEO_MIME_TYPES +
+ * limits.fileSize = 50*1024*1024) - verificăm ÎNAINTE de upload ca
+ * vendorul să afle imediat, nu după ce așteaptă un upload de zeci
+ * de MB să eșueze cu 413.
+ */
+const MAX_VIDEO_SIZE_BYTES = 50 * 1024 * 1024;
+
+const SIZE_ERROR_MESSAGE =
+  "Videoul este prea mare (peste 50 MB). Alege un fișier mai mic sau comprimă-l înainte de a-l încărca.";
+
+const TYPE_ERROR_MESSAGE =
+  "Acest tip de fișier nu este acceptat. Încarcă un video MP4 sau WebM.";
+
 /**
  * Câmp reutilizabil pentru videoul (opțional) al unui produs.
  * Se folosește DOAR de `videoUrl`, nu atinge `images[]`.
@@ -65,6 +80,34 @@ export default function ProductVideoField({
     if (uploadingRef.current) return;
 
     setError("");
+
+    // Verificare client-side, înainte de orice request de rețea -
+    // aceleași reguli ca server-side (tip + 50 MB), doar mai rapidă
+    // pentru vendor (nu mai așteaptă un upload mare ca să afle abia
+    // apoi că a fost respins).
+    if (
+      file.type &&
+      !["video/mp4", "video/webm"].includes(file.type)
+    ) {
+      setError(TYPE_ERROR_MESSAGE);
+
+      if (inputRef.current) {
+        inputRef.current.value = "";
+      }
+
+      return;
+    }
+
+    if (file.size > MAX_VIDEO_SIZE_BYTES) {
+      setError(SIZE_ERROR_MESSAGE);
+
+      if (inputRef.current) {
+        inputRef.current.value = "";
+      }
+
+      return;
+    }
+
     uploadingRef.current = true;
     setUploading(true);
 

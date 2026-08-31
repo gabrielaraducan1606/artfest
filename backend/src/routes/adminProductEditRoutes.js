@@ -253,6 +253,15 @@ router.patch(
          PREȚ
       ================================================= */
 
+      /*
+       * BUGFIX (audit) - QUOTE_ONLY cere acum preț orientativ > 0, la
+       * fel ca celelalte moduri (nu mai există excepție care să
+       * sară peste validare sau să forțeze 0). Dacă `body.price`
+       * lipsește din request, blocul ăsta nu rulează deloc -
+       * `data.priceCents` rămâne neatins, deci prețul existent al
+       * produsului e păstrat automat (nu doar pentru QUOTE_ONLY, ca
+       * înainte, ci pentru orice mod).
+       */
       if (
         body.price !==
         undefined
@@ -262,30 +271,11 @@ router.patch(
             body.price
           );
 
-        /*
-         * Pentru QUOTE_ONLY
-         * permitem preț 0.
-         */
-        const requestedMode =
-          body.orderMode !==
-          undefined
-            ? String(
-                body.orderMode
-              ).toUpperCase()
-            : String(
-                existing.orderMode ||
-                  "DIRECT"
-              ).toUpperCase();
-
         if (
-          requestedMode !==
-            "QUOTE_ONLY" &&
-          (
-            !Number.isFinite(
-              price
-            ) ||
-            price < 0
-          )
+          !Number.isFinite(
+            price
+          ) ||
+          price <= 0
         ) {
           return res
             .status(400)
@@ -294,17 +284,14 @@ router.patch(
                 "invalid_price",
 
               message:
-                "Prețul produsului nu este valid.",
+                "Prețul produsului nu este valid. Introdu o valoare mai mare decât 0.",
             });
         }
 
         data.priceCents =
-          requestedMode ===
-          "QUOTE_ONLY"
-            ? 0
-            : Math.round(
-                price * 100
-              );
+          Math.round(
+            price * 100
+          );
       }
 
       /* =================================================
@@ -671,8 +658,13 @@ if (
         data.acceptsCustom =
           true;
 
-        data.priceCents =
-          0;
+        /*
+         * BUGFIX (audit) - NU mai resetăm priceCents la 0 aici.
+         * Trecerea pe QUOTE_ONLY nu mai șterge silențios prețul
+         * orientativ existent - dacă adminul nu a trimis explicit
+         * `body.price`, blocul de mai sus (PREȚ) nu a atins deloc
+         * `data.priceCents`, deci valoarea din DB rămâne neschimbată.
+         */
 
         data.optionsSchema =
           [];

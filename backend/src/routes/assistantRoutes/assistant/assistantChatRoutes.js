@@ -357,12 +357,23 @@ INTENȚII PERMISE:
 1. product_search
 Utilizatorul caută produse, idei de cadouri, recomandări,
 produse pentru o persoană, eveniment, buget, culoare sau stil.
+Rămâne product_search și când întrebarea e formulată cu "cum
+găsesc"/"unde găsesc"/"mă ajuți să găsesc", CÂT TIMP numește un
+obiect de cumpărat concret (produs, tip de produs, cadou, ceva
+pentru o ocazie) - "cum"/"unde" nu schimbă intenția dacă mesajul
+tot descrie ceva de căutat pe marketplace. Extrage din "maxPrice"
+orice prag de preț menționat ("sub X lei", "până în X lei", "cu
+X lei", "maxim X lei") - toate înseamnă maxPrice=X.
 
 Exemple:
 - "vreau ceva pentru nașa mea"
 - "caut o lumânare sub 100 lei"
 - "ce cadou pot lua unei profesoare?"
 - "vreau ceva roz pentru botez"
+- "cum găsesc mărturii pentru nuntă?"
+- "mă ajuți să găsesc ceva sub 100 lei?"
+- "produse până în 100 lei"
+- "ce găsesc cu 100 lei?"
 
 2. image_search
 Utilizatorul vrea să caute după fotografie/imagine

@@ -1,6 +1,6 @@
 // src/components/AiAssistant/components/AssistantMessage.jsx
 
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import styles from "../AiAssistant.module.css";
@@ -489,6 +489,232 @@ function getQuoteStatusType(
 }
 
 /* =========================================================
+   Card produs - selector EDIT_PRODUCT (Vendor Assistant)
+
+   Reutilizează STRICT clasele CSS ale QuoteChoiceCard (imagine +
+   conținut + status + săgeată) - același design compact, deja
+   scrollabil ca parte a conversației, fără nicio clasă CSS nouă.
+========================================================= */
+
+function isProductEditChoice(
+  choice
+) {
+  return Boolean(
+    choice &&
+      typeof choice === "object" &&
+      choice.productEdit === true
+  );
+}
+
+const PRODUCT_EDIT_AVAILABILITY_LABELS = {
+  READY: "Disponibil",
+  MADE_TO_ORDER: "La comandă",
+  PREORDER: "Precomandă",
+  SOLD_OUT: "Stoc epuizat",
+};
+
+function getProductEditStatus(
+  choice
+) {
+  if (
+    choice.availability ===
+    "SOLD_OUT"
+  ) {
+    return {
+      label: "Stoc epuizat",
+      type: "discussion",
+    };
+  }
+
+  if (
+    choice.hidden ||
+    choice.active === false
+  ) {
+    return {
+      label: "Ascuns",
+      type: "pending",
+    };
+  }
+
+  return {
+    label: "Publicat",
+    type: "accepted",
+  };
+}
+
+function getProductEditDescription(
+  choice
+) {
+  const parts = [];
+
+  if (choice.priceCents != null) {
+    parts.push(
+      formatPrice(
+        choice.priceCents,
+        choice.currency
+      )
+    );
+  }
+
+  if (
+    choice.availability ===
+      "READY" &&
+    choice.stock != null
+  ) {
+    parts.push(
+      `Stoc: ${choice.stock}`
+    );
+  } else if (
+    choice.availability &&
+    PRODUCT_EDIT_AVAILABILITY_LABELS[
+      choice.availability
+    ]
+  ) {
+    parts.push(
+      PRODUCT_EDIT_AVAILABILITY_LABELS[
+        choice.availability
+      ]
+    );
+  }
+
+  return parts.join(" · ");
+}
+
+function ProductEditChoiceCard({
+  choice,
+  onChoice,
+}) {
+  const title =
+    getChoiceLabel(choice);
+
+  const description =
+    getProductEditDescription(
+      choice
+    );
+
+  const status =
+    getProductEditStatus(choice);
+
+  return (
+    <button
+      type="button"
+      className={
+        styles.quoteChoiceCard
+      }
+      onClick={() =>
+        onChoice(choice)
+      }
+      aria-label={`Editează produsul ${title}`}
+    >
+      <span
+        className={
+          styles.quoteChoiceImage
+        }
+      >
+        <img
+          src={
+            choice.image ||
+            "/placeholder-product.png"
+          }
+          alt=""
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.onerror =
+              null;
+
+            event.currentTarget.src =
+              "/placeholder-product.png";
+          }}
+        />
+      </span>
+
+      <span
+        className={
+          styles.quoteChoiceContent
+        }
+      >
+        <strong
+          className={
+            styles.quoteChoiceTitle
+          }
+        >
+          {title}
+        </strong>
+
+        {description && (
+          <span
+            className={
+              styles.quoteChoiceDescription
+            }
+          >
+            {description}
+          </span>
+        )}
+
+        <span
+          className={`${styles.quoteChoiceStatus} ${
+            status.type ===
+            "accepted"
+              ? styles.quoteChoiceStatusAccepted
+              : status.type ===
+                  "discussion"
+                ? styles.quoteChoiceStatusDiscussion
+                : styles.quoteChoiceStatusPending
+          }`}
+        >
+          <span aria-hidden="true" />
+
+          {status.label}
+        </span>
+      </span>
+
+      <span
+        className={
+          styles.quoteChoiceArrow
+        }
+        aria-hidden="true"
+      >
+        ›
+      </span>
+    </button>
+  );
+}
+
+const productSearchInputStyle = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "8px 12px",
+  marginBottom: 2,
+  border:
+    "1px solid var(--color-border, #e5e5e5)",
+  borderRadius: 10,
+  fontSize: 12.5,
+  fontFamily: "inherit",
+  background: "var(--surface, #ffffff)",
+  color: "var(--color-text, #2d2d2d)",
+};
+
+const productLoadMoreButtonStyle = {
+  alignSelf: "center",
+  border:
+    "1px solid var(--color-border, #e5e5e5)",
+  borderRadius: 999,
+  padding: "7px 14px",
+  fontSize: 11.5,
+  fontWeight: 600,
+  fontFamily: "inherit",
+  background: "var(--surface, #ffffff)",
+  color: "var(--color-text, #2d2d2d)",
+  cursor: "pointer",
+};
+
+const productEmptySearchStyle = {
+  margin: "4px 0 0",
+  fontSize: 12,
+  color: "var(--color-muted, #6b7280)",
+};
+
+/* =========================================================
    Card cerere de ofertă
 ========================================================= */
 
@@ -624,10 +850,30 @@ function QuoteChoiceCard({
    Listă choices
 ========================================================= */
 
+const PRODUCT_EDIT_PAGE_SIZE = 10;
+
 function ChoiceList({
   choices,
   onChoice,
+  leading = false,
 }) {
+  /*
+   * Hook-uri declarate necondiționat (regula React) - folosite DOAR
+   * când lista conține carduri de produs (containsProductEditChoices),
+   * inofensive pentru orice alt tip de mesaj cu choices.
+   */
+  const [
+    productQuery,
+    setProductQuery,
+  ] = useState("");
+
+  const [
+    productVisibleCount,
+    setProductVisibleCount,
+  ] = useState(
+    PRODUCT_EDIT_PAGE_SIZE
+  );
+
   if (
     !Array.isArray(
       choices
@@ -642,15 +888,91 @@ function ChoiceList({
       isQuoteChoice
     );
 
+  const containsProductEditChoices =
+    choices.some(
+      isProductEditChoice
+    );
+
+  /*
+   * "Nu încărca sute de carduri deodată" (cerință) - căutare +
+   * "Încarcă mai multe" DOAR pentru selectorul de produse, filtrare
+   * strict client-side (lista lean e deja încărcată integral de
+   * fetchLeanProductList, un singur request, ca înainte).
+   */
+  let visibleChoices = choices;
+  let hasMoreProducts = false;
+
+  if (containsProductEditChoices) {
+    const normalizedQuery = productQuery
+      .trim()
+      .toLowerCase();
+
+    const filtered = normalizedQuery
+      ? choices.filter((choice) =>
+          getChoiceLabel(choice)
+            .toLowerCase()
+            .includes(normalizedQuery)
+        )
+      : choices;
+
+    hasMoreProducts =
+      filtered.length >
+      productVisibleCount;
+
+    visibleChoices = filtered.slice(
+      0,
+      productVisibleCount
+    );
+  }
+
   return (
     <div
       className={`${styles.choiceList} ${
-        containsQuoteChoices
+        containsQuoteChoices ||
+        containsProductEditChoices
           ? styles.quoteChoiceList
+          : ""
+      } ${
+        leading
+          ? styles.choiceListLeading
           : ""
       }`}
     >
-      {choices.map(
+      {containsProductEditChoices &&
+        choices.length >
+          PRODUCT_EDIT_PAGE_SIZE / 2 && (
+          <input
+            type="text"
+            value={productQuery}
+            onChange={(event) => {
+              setProductQuery(
+                event.target.value
+              );
+
+              setProductVisibleCount(
+                PRODUCT_EDIT_PAGE_SIZE
+              );
+            }}
+            placeholder="Caută după titlu..."
+            style={
+              productSearchInputStyle
+            }
+          />
+        )}
+
+      {containsProductEditChoices &&
+        visibleChoices.length ===
+          0 && (
+          <p
+            style={
+              productEmptySearchStyle
+            }
+          >
+            Niciun produs nu se potrivește cu „{productQuery}”.
+          </p>
+        )}
+
+      {visibleChoices.map(
         (
           choice,
           index
@@ -662,6 +984,27 @@ function ChoiceList({
           ) {
             return (
               <QuoteChoiceCard
+                key={getChoiceKey(
+                  choice,
+                  index
+                )}
+                choice={
+                  choice
+                }
+                onChoice={
+                  onChoice
+                }
+              />
+            );
+          }
+
+          if (
+            isProductEditChoice(
+              choice
+            )
+          ) {
+            return (
+              <ProductEditChoiceCard
                 key={getChoiceKey(
                   choice,
                   index
@@ -696,6 +1039,25 @@ function ChoiceList({
           );
         }
       )}
+
+      {containsProductEditChoices &&
+        hasMoreProducts && (
+          <button
+            type="button"
+            style={
+              productLoadMoreButtonStyle
+            }
+            onClick={() =>
+              setProductVisibleCount(
+                (count) =>
+                  count +
+                  PRODUCT_EDIT_PAGE_SIZE
+              )
+            }
+          >
+            Încarcă mai multe
+          </button>
+        )}
     </div>
   );
 }
@@ -2219,6 +2581,14 @@ export default function AssistantMessage({
       ? message.choices
       : [];
 
+  /*
+   * Ordine vizuală (audit): butoanele/variantele apar ÎNAINTE de
+   * textul mesajului, nu după - DOM-ul reflectă exact ordinea
+   * vizuală cerută, deci ordinea de citire pentru screen readere
+   * rămâne coerentă cu ce se vede (nu doar vizual, via CSS).
+   * Istoricul cronologic al conversației (ordinea MESAJELOR) nu e
+   * atins - doar compunerea INTERNĂ a acestui singur mesaj.
+   */
   return (
     <div
       className={`${styles["artfest-assistant-message"]} ${
@@ -2232,13 +2602,6 @@ export default function AssistantMessage({
       }`}
     >
       <div>
-        <div>
-          {
-            message
-              ?.content
-          }
-        </div>
-
         {genericChoices.length >
           0 && (
           <ChoiceList
@@ -2248,8 +2611,23 @@ export default function AssistantMessage({
             onChoice={
               handleChoice
             }
+            leading
           />
         )}
+
+        <div
+          className={
+            genericChoices.length >
+            0
+              ? styles["message-bubble"]
+              : undefined
+          }
+        >
+          {
+            message
+              ?.content
+          }
+        </div>
 
         {message?.type ===
           "image-upload" && (

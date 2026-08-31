@@ -1,5 +1,5 @@
 // frontend/src/pages/Vendor/Orders/VendorOrdersPage.jsx
-import { useEffect, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../Auth/Context/context.js";
@@ -20,10 +20,27 @@ import {
 
 import styles from "./Orders.module.css";
 import SubscriptionBanner from "../Onboarding/OnBoardingDetails/tabs/SubscriptionBanner/SubscriptionBanner.jsx";
+import { useSmartPrefetchItem } from "../../../hooks/useSmartPrefetch.js";
 
-import UserOrdersPage from "../../User/Orders/UserOrders";
-import VendorManualOrderModal from "./VendorManualOrderModal.jsx";
-import CancelOrderModal from "./modals/CancelOrderModal.jsx";
+// Lazy - fiecare e nevoie doar condiționat (tab client / modale
+// deschise la cerere), nu la primul paint al tabelului de comenzi.
+const UserOrdersPage = lazy(() => import("../../User/Orders/UserOrders"));
+const VendorManualOrderModal = lazy(() => import("./VendorManualOrderModal.jsx"));
+const CancelOrderModal = lazy(() => import("./modals/CancelOrderModal.jsx"));
+
+/*
+ * Cache în memorie (module-level, nu sessionStorage - dispare la
+ * refresh complet, exact cât ține o sesiune SPA) pentru lista de
+ * comenzi, cheie = filtrele+pagina curente. Permite Comenzi -> deschide
+ * o comandă -> Back să arate instant lista deja văzută, în timp ce se
+ * revalidează discret în fundal - fără skeleton complet la fiecare
+ * întoarcere.
+ */
+const vendorOrdersListCache = new Map();
+
+function vendorOrdersCacheKey({ q, status, from, to, page, pageSize }) {
+  return JSON.stringify({ q, status, from, to, page, pageSize });
+}
 
 /* ----------------
    Utils + constants
@@ -131,6 +148,454 @@ function getLeadStatusLabel(st) {
   }
 }
 
+const orderDetailsPrefetchDescriptor = {
+  getKey: (order) => `vendor-order:${order.id}`,
+  routeChunk: () => import("./OrdersDetailsPage.jsx"),
+  fetchData: (order) => api(`/api/vendor/orders/${order.id}`),
+  getDataUrl: (order) => `/api/vendor/orders/${order.id}`,
+};
+
+/*
+ * Rând memoizat - o comandă. Extras separat (nu inline în .map())
+ * din 2 motive:
+ * 1. hook-urile de prefetch (useSmartPrefetchItem) au nevoie de
+ *    state propriu per element, imposibil de făcut corect direct
+ *    într-un callback de .map();
+ * 2. React.memo aici chiar ajută - fără el, orice acțiune pe UN
+ *    rând (mesaj, avans, schimbare status) re-randează toate cele
+ *    15 rânduri din pagină, nu doar rândul respectiv.
+ *
+ * State-ul "e în curs" pentru mesaj/avans a fost mutat din
+ * parent (un singur id global) în local per rând - elimină
+ * re-randarea încrucișată și e echivalent funcțional.
+ */
+const OrderRow = memo(function OrderRow({
+  order: o,
+  onRowClick,
+  onCancelClick,
+  onUpdateOrder,
+}) {
+  const navigate = useNavigate();
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [requestingDeposit, setRequestingDeposit] = useState(false);
+
+  const triggerPrefetch = useSmartPrefetchItem(o, orderDetailsPrefetchDescriptor);
+
+  const leadLabel = getLeadStatusLabel(o.leadStatus);
+  const cancelReasonLabel =
+    o.cancelReason &&
+    (CANCEL_REASONS.find((r) => r.value === o.cancelReason)?.label ||
+      o.cancelReason);
+
+  const canFinalize = ["confirmed", "preparing"].includes(o.status);
+
+  async function handleContactClient() {
+    if (o.messageThreadId) {
+      navigate(`/mesaje?threadId=${o.messageThreadId}`);
+      return;
+    }
+
+    try {
+      setSendingMessage(true);
+
+      const res = await api(`/api/inbox/ensure-thread-from-order/${o.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!res?.threadId) {
+        alert("Nu am putut crea conversația cu clientul.");
+        return;
+      }
+
+      navigate(`/mesaje?threadId=${res.threadId}`);
+    } catch (e) {
+      console.error("Eroare la pornirea conversației", e);
+      alert("Nu am putut porni conversația cu clientul. Încearcă din nou.");
+    } finally {
+      setSendingMessage(false);
+    }
+  }
+
+  return (
+    <tr
+      className={styles.orderRow}
+      onClick={() => onRowClick(o)}
+      onMouseEnter={() => triggerPrefetch("intent")}
+      onFocus={() => triggerPrefetch("intent")}
+      onTouchStart={() => triggerPrefetch("intent")}
+    >
+      <td>
+        <code>{o.orderNumber || o.shortId || o.id}</code>
+      </td>
+
+      <td>{formatDate(o.createdAt)}</td>
+
+      <td>
+        <div className={styles.clientCol}>
+          <div className={styles.clientName}>{o.customerName || "—"}</div>
+
+          <div className={styles.clientNote}>
+            {o.storeName || o.eventName || o.address?.city || ""}
+          </div>
+
+          {!!leadLabel && (
+            <div className={styles.inlineChips}>
+              <span className={`${styles.badge} ${styles.badgeLead || ""}`}>
+                {leadLabel}
+              </span>
+            </div>
+          )}
+        </div>
+      </td>
+
+      <td className={styles.hideSm}>
+        <div className={styles.clientContact}>
+          {o.customerPhone && (
+            <a href={`tel:${o.customerPhone}`} onClick={(e) => e.stopPropagation()}>
+              {o.customerPhone}
+            </a>
+          )}
+          {o.customerEmail && (
+            <a
+              href={`mailto:${o.customerEmail}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {o.customerEmail}
+            </a>
+          )}
+        </div>
+      </td>
+
+      <td>
+        <div>
+          <span
+            className={`${styles.badge} ${
+              o.status === "new"
+                ? styles.badgeNew
+                : o.status === "preparing"
+                ? styles.badgeWarning
+                : o.status === "confirmed"
+                ? styles.badgeConfirmed
+                : o.status === "shipped"
+                ? styles.badgeConfirmed
+                : o.status === "fulfilled"
+                ? styles.badgeFulfilled
+                : o.status === "cancelled"
+                ? styles.badgeCancelled
+                : ""
+            }`}
+          >
+            {STATUS_OPTIONS.find((s) => s.value === o.status)?.label ||
+              o.status ||
+              "—"}
+          </span>
+          {o.paymentMethod && (
+            <div className={styles.clientNote} style={{ marginTop: 4 }}>
+              {o.paymentMethod === "COD" ? (
+                <>
+                  Plată: <strong>Ramburs</strong>
+                </>
+              ) : (
+                <>
+                  Plată: <strong>Card online</strong>
+                  {" · "}
+                  {o.paymentStatus === "PAID" ? (
+                    <span>Achitată</span>
+                  ) : o.paymentStatus === "PENDING" ? (
+                    <span style={{ fontWeight: 700 }}>În așteptarea plății</span>
+                  ) : (
+                    <span>Card</span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {o.waitingForCardPayment && (
+            <div className={styles.clientNote} style={{ marginTop: 3, fontWeight: 700 }}>
+              ⏳ Clientul nu a finalizat încă plata
+            </div>
+          )}
+          {o.deposit?.status === "PENDING" && (
+            <div
+              style={{
+                marginTop: 6,
+                padding: "6px 9px",
+                borderRadius: 8,
+                background: "#fff7ed",
+                border: "1px solid #fed7aa",
+                color: "#9a3412",
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              ⚠ Avans solicitat: {formatMoney(o.deposit.requestedAmount)}
+            </div>
+          )}
+
+          {o.deposit?.status === "PAID" && (
+            <div
+              style={{
+                marginTop: 6,
+                padding: "7px 9px",
+                borderRadius: 8,
+                background: "#ecfdf3",
+                border: "1px solid #a7f3d0",
+                color: "#166534",
+                fontSize: 12,
+                lineHeight: 1.5,
+              }}
+            >
+              <strong>✓ Avans plătit: {formatMoney(o.deposit.paidAmount)}</strong>
+
+              {o.deposit?.remainingCodAmount != null && (
+                <>
+                  <br />
+                  Rest de încasat la livrare:{" "}
+                  <strong>{formatMoney(o.deposit.remainingCodAmount)}</strong>
+                </>
+              )}
+
+              <br />
+              <span style={{ fontWeight: 600 }}>
+                Poți începe pregătirea comenzii.
+              </span>
+            </div>
+          )}
+
+          {cancelReasonLabel && (
+            <div className={styles.clientNote}>
+              Motiv anulare: <strong>{cancelReasonLabel}</strong>
+              {o.cancelReasonNote && <> – {o.cancelReasonNote}</>}
+            </div>
+          )}
+        </div>
+      </td>
+
+      <td>{formatMoney(o.total)}</td>
+
+      <td className={styles.actionsCell}>
+        <button
+          type="button"
+          className={styles.iconActionBtn}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleContactClient();
+          }}
+          disabled={sendingMessage}
+          title={
+            o.messageThreadId
+              ? o.messageUnreadCount > 0
+                ? `${o.messageUnreadCount} mesaje necitite`
+                : "Deschide conversația cu clientul"
+              : "Pornește o conversație cu clientul"
+          }
+          aria-label="Mesaje client"
+        >
+          {sendingMessage ? (
+            <Loader2 size={16} className={styles.spin} />
+          ) : (
+            <MessageSquare size={16} />
+          )}
+          {o.messageUnreadCount > 0 && (
+            <span className={styles.unreadDot}>{o.messageUnreadCount}</span>
+          )}
+        </button>
+
+        {["new", "preparing", "confirmed"].includes(o.status) && (
+          <button
+            className={`${styles.iconActionBtn} ${styles.dangerBtn}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancelClick(o);
+            }}
+            title="Anulează comanda"
+            aria-label="Anulează comanda"
+          >
+            <XCircle size={16} />
+          </button>
+        )}
+
+        {o.status === "new" &&
+          o.paymentMethod === "COD" &&
+          (!o.deposit || o.deposit.status === "NOT_REQUESTED") && (
+            <button
+              type="button"
+              className={styles.primaryBtn}
+              disabled={requestingDeposit}
+              onClick={async (e) => {
+                e.stopPropagation();
+
+                const confirmed = window.confirm(
+                  "Solicităm clientului un avans de 15% din valoarea produselor?"
+                );
+
+                if (!confirmed) return;
+
+                try {
+                  setRequestingDeposit(true);
+
+                  const result = await api(
+                    `/api/vendor/orders/${o.id}/request-deposit`,
+                    { method: "POST" }
+                  );
+
+                  onUpdateOrder(o.id, { deposit: result.deposit });
+                } catch (error) {
+                  const message =
+                    error?.data?.message ||
+                    error?.response?.data?.message ||
+                    error?.message ||
+                    "Nu am putut solicita avansul.";
+
+                  alert(message);
+                } finally {
+                  setRequestingDeposit(false);
+                }
+              }}
+            >
+              {requestingDeposit ? (
+                <>
+                  <Loader2 size={16} className={styles.spin} />
+                  Se solicită…
+                </>
+              ) : (
+                "Solicită avans 15%"
+              )}
+            </button>
+          )}
+
+        {o.status === "new" && o.deposit?.status !== "PENDING" && (
+          <button
+            className={styles.secondaryBtn}
+            disabled={o.canProcess === false}
+            title={
+              o.waitingForCardPayment
+                ? "Clientul trebuie să finalizeze plata înainte să începi pregătirea comenzii."
+                : "Începe pregătirea comenzii"
+            }
+            onClick={async (e) => {
+              e.stopPropagation();
+
+              if (o.canProcess === false) {
+                return;
+              }
+
+              try {
+                const ok = await withLockHandling(() =>
+                  api(`/api/vendor/orders/${o.id}/status`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status: "preparing" }),
+                  })
+                );
+
+                if (!ok) return;
+
+                onUpdateOrder(o.id, { status: "preparing" });
+              } catch {
+                alert("Nu am putut marca 'În pregătire'.");
+              }
+            }}
+          >
+            {o.waitingForCardPayment ? "Așteaptă plata" : "În pregătire"}
+          </button>
+        )}
+        {(o.status === "preparing" || o.status === "confirmed") && (
+          <button
+            className={styles.primaryBtn}
+            onClick={(e) => e.stopPropagation()}
+            disabled={!COURIER_ENABLED || o.canProcess === false}
+            title={
+              o.waitingForCardPayment
+                ? "Clientul trebuie să finalizeze plata înainte să programezi curierul."
+                : "Funcționalitate temporar indisponibilă"
+            }
+          >
+            <PackageCheck size={16} /> Programează curier
+          </button>
+        )}
+
+        {["confirmed", "preparing"].includes(o.status) && (
+          <button
+            className={styles.secondaryBtn}
+            disabled={!canFinalize || o.canProcess === false}
+            title={
+              o.waitingForCardPayment
+                ? "Clientul trebuie să finalizeze plata înainte să predai comanda curierului."
+                : "Marchează drept finalizată"
+            }
+            onClick={async (e) => {
+              e.stopPropagation();
+
+              if (o.canProcess === false) {
+                return;
+              }
+              try {
+                const ok = await withLockHandling(() =>
+                  api(`/api/vendor/orders/${o.id}/status`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status: "shipped" }),
+                  })
+                );
+                if (!ok) return;
+
+                onUpdateOrder(o.id, { status: "shipped" });
+              } catch {
+                alert("Nu am putut marca predată curierului.");
+              }
+            }}
+          >
+            Predată curierului
+          </button>
+        )}
+        {o.status === "shipped" && (
+          <button
+            className={styles.secondaryBtn}
+            disabled={o.canProcess === false}
+            title={
+              o.waitingForCardPayment
+                ? "Clientul trebuie să finalizeze plata înainte să finalizezi comanda."
+                : "Marchează comanda ca finalizată"
+            }
+            onClick={async (e) => {
+              e.stopPropagation();
+
+              if (o.canProcess === false) {
+                return;
+              }
+
+              const okConfirm = window.confirm(
+                "Confirmi că această comandă a fost livrată/finalizată?"
+              );
+              if (!okConfirm) return;
+
+              try {
+                const ok = await withLockHandling(() =>
+                  api(`/api/vendor/orders/${o.id}/status`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status: "fulfilled" }),
+                  })
+                );
+                if (!ok) return;
+
+                onUpdateOrder(o.id, { status: "fulfilled" });
+              } catch {
+                alert("Nu am putut marca finalizată.");
+              }
+            }}
+          >
+            Marchează finalizată
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+});
+
 export default function VendorOrdersPage() {
   const { me } = useAuth();
   const isVendor = me?.role === "VENDOR";
@@ -157,20 +622,22 @@ useEffect(() => {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
+  const [pageSize] = useState(15);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   // data
-  const [loading, setLoading] = useState(false);
+  // initialLoading = niciun rând vizibil încă (skeleton complet).
+  // isRefreshing = rânduri deja vizibile (din cache sau fetch
+  // anterior), se revalidează discret - fără skeleton, fără grey-out.
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [err, setErr] = useState("");
   const [data, setData] = useState({ items: [], total: 0 });
 const [billingGate, setBillingGate] = useState(null);
   // modals state
   const [cancelOrder, setCancelOrder] = useState(null);
 
-const [startingMessageOrderId, setStartingMessageOrderId] = useState(null);
-const [requestingDepositOrderId, setRequestingDepositOrderId] = useState(null);
 const [filtersOpen, setFiltersOpen] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil((data?.total || 0) / pageSize));
@@ -195,7 +662,25 @@ const [filtersOpen, setFiltersOpen] = useState(false);
     async function run() {
       if (!isVendor || activeTab !== "vendor") return;
 
-      setLoading(true);
+      const cacheKey = vendorOrdersCacheKey(query);
+      const cached = vendorOrdersListCache.get(cacheKey);
+
+      /*
+       * Dacă avem deja rezultatul ăsta exact în cache (ex. Comenzi ->
+       * deschide o comandă -> Back, cu aceleași filtre/pagină),
+       * afișăm instant din cache - fără skeleton - și revalidăm
+       * discret în fundal. `reloadToken` nu intră în cheia de cache
+       * (e folosit explicit pt refresh manual), dar el schimbă
+       * `query`, deci oricum va rata cache-ul dacă a fost incrementat.
+       */
+      if (cached) {
+        setBillingGate(cached.billingGate || null);
+        setData({ items: cached.items, total: cached.total });
+        setIsRefreshing(true);
+      } else {
+        setInitialLoading(true);
+      }
+
       setErr("");
       try {
         const qs = new URLSearchParams(
@@ -205,21 +690,59 @@ const [filtersOpen, setFiltersOpen] = useState(false);
         ).toString();
 
         const res = await api(`/api/vendor/orders?${qs}`);
-if (!alive) return;
+        if (!alive) return;
 
-setBillingGate(
-  res?.billingRequired ? res.billingGate : null
-);
+        const nextBillingGate = res?.billingRequired
+          ? res.billingGate
+          : null;
+        const nextItems = Array.isArray(res?.items) ? res.items : [];
+        const nextTotal = Number(res?.total || 0);
 
-setData({
-  items: Array.isArray(res?.items) ? res.items : [],
-  total: Number(res?.total || 0),
-});
+        setBillingGate(nextBillingGate);
+        setData({ items: nextItems, total: nextTotal });
+
+        vendorOrdersListCache.set(cacheKey, {
+          billingGate: nextBillingGate,
+          items: nextItems,
+          total: nextTotal,
+        });
+
+        // Badge de mesaje necitite - cerut separat, non-blocant, ca
+        // să nu întârzie primul randare al listei (backend-ul nu mai
+        // face fetch-ul ăsta inline în /orders).
+        if (nextItems.length) {
+          api(
+            `/api/vendor/orders/thread-meta?orderIds=${nextItems
+              .map((o) => o.id)
+              .join(",")}`
+          )
+            .then((meta) => {
+              if (!alive || !meta) return;
+              setData((prev) => ({
+                ...prev,
+                items: prev.items.map((item) =>
+                  meta[item.id]
+                    ? {
+                        ...item,
+                        messageThreadId: meta[item.id].messageThreadId,
+                        messageUnreadCount: meta[item.id].messageUnreadCount,
+                      }
+                    : item
+                ),
+              }));
+            })
+            .catch(() => {});
+        }
       } catch {
         if (!alive) return;
-        setErr("Nu am putut încărca comenzile. Încearcă din nou.");
+        if (!cached) {
+          setErr("Nu am putut încărca comenzile. Încearcă din nou.");
+        }
       } finally {
-        if (alive) setLoading(false);
+        if (alive) {
+          setInitialLoading(false);
+          setIsRefreshing(false);
+        }
       }
     }
 
@@ -243,38 +766,26 @@ setData({
     );
   }
 
-  function handleRowClick(order) {
-  if (!order?.id) return;
-  navigate(`/vendor/orders/${order.id}`);
-}
+  const handleRowClick = useCallback(
+    (order) => {
+      if (!order?.id) return;
+      navigate(`/vendor/orders/${order.id}`);
+    },
+    [navigate]
+  );
 
-  async function handleContactClient(order) {
-    if (order.messageThreadId) {
-      navigate(`/mesaje?threadId=${order.messageThreadId}`);
-      return;
-    }
+  const handleCancelClick = useCallback((order) => {
+    setCancelOrder(order);
+  }, []);
 
-    try {
-      setStartingMessageOrderId(order.id);
-
-      const res = await api(`/api/inbox/ensure-thread-from-order/${order.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (!res?.threadId) {
-        alert("Nu am putut crea conversația cu clientul.");
-        return;
-      }
-
-      navigate(`/mesaje?threadId=${res.threadId}`);
-    } catch (e) {
-      console.error("Eroare la pornirea conversației", e);
-      alert("Nu am putut porni conversația cu clientul. Încearcă din nou.");
-    } finally {
-      setStartingMessageOrderId(null);
-    }
-  }
+  const updateOrderInList = useCallback((orderId, patch) => {
+    setData((prev) => ({
+      ...prev,
+      items: prev.items.map((x) =>
+        x.id === orderId ? { ...x, ...patch } : x
+      ),
+    }));
+  }, []);
 
   const hasActiveFilters = !!(status || from || to);
   const activeFiltersLabel = [
@@ -450,6 +961,22 @@ setData({
   </div>
 ) : (
   <div className={styles.card}>
+    {isRefreshing && (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 12,
+          color: "var(--color-muted)",
+          padding: "0 2px 8px",
+        }}
+        aria-live="polite"
+      >
+        <Loader2 className={styles.spin} size={12} /> Se actualizează…
+      </div>
+    )}
+
     <div
       className={styles.tableWrap}
       role="region"
@@ -469,17 +996,26 @@ setData({
                 </thead>
 
                 <tbody>
-                  {loading &&
-                    Array.from({ length: 6 }).map((_, i) => (
+                  {initialLoading &&
+                    data.items.length === 0 &&
+                    Array.from({ length: 8 }).map((_, i) => (
                       <tr key={`sk-${i}`} className={styles.skeletonRow}>
-                        <td colSpan={7}>
-                          <Loader2 className={styles.spin} size={16} /> Se
-                          încarcă…
-                        </td>
+                        {Array.from({ length: 7 }).map((__, col) => (
+                          <td key={col}>
+                            <div
+                              style={{
+                                height: 14,
+                                width: col === 6 ? "60%" : "80%",
+                                borderRadius: 6,
+                                background: "rgba(120,120,120,0.15)",
+                              }}
+                            />
+                          </td>
+                        ))}
                       </tr>
                     ))}
 
-                  {!loading && data.items.length === 0 && (
+                  {!initialLoading && data.items.length === 0 && (
                     <tr>
                       <td colSpan={7} className={styles.emptyCell}>
                         Nu există comenzi pentru filtrele curente.
@@ -487,504 +1023,15 @@ setData({
                     </tr>
                   )}
 
-                  {!loading &&
-                    data.items.map((o) => {
-                      const leadLabel = getLeadStatusLabel(o.leadStatus);
-                      const cancelReasonLabel =
-                        o.cancelReason &&
-                        (CANCEL_REASONS.find(
-                          (r) => r.value === o.cancelReason
-                        )?.label ||
-                          o.cancelReason);
-
-                      const canFinalize = ["confirmed", "preparing"].includes(
-                        o.status
-                      );
-
-                      return (
-                        <tr
-                          key={o.id}
-                          className={styles.orderRow}
-                          onClick={() => handleRowClick(o)}
-                        >
-                          <td>
-                            <code>{o.orderNumber || o.shortId || o.id}</code>
-                          </td>
-
-                          <td>{formatDate(o.createdAt)}</td>
-
-                          <td>
-                            <div className={styles.clientCol}>
-                              <div className={styles.clientName}>
-                                {o.customerName || "—"}
-                              </div>
-
-                              <div className={styles.clientNote}>
-                                {o.storeName || o.eventName || o.address?.city || ""}
-                              </div>
-
-                              {!!leadLabel && (
-                                <div className={styles.inlineChips}>
-                                  <span
-                                    className={`${styles.badge} ${
-                                      styles.badgeLead || ""
-                                    }`}
-                                  >
-                                    {leadLabel}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </td>
-
-                          <td className={styles.hideSm}>
-                            <div className={styles.clientContact}>
-                              {o.customerPhone && (
-                                <a
-                                  href={`tel:${o.customerPhone}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {o.customerPhone}
-                                </a>
-                              )}
-                              {o.customerEmail && (
-                                <a
-                                  href={`mailto:${o.customerEmail}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {o.customerEmail}
-                                </a>
-                              )}
-                            </div>
-                          </td>
-
-                          <td>
-                            <div>
-                              <span
-                                className={`${styles.badge} ${
-                                  o.status === "new"
-  ? styles.badgeNew
-  : o.status === "preparing"
-  ? styles.badgeWarning
-  : o.status === "confirmed"
-  ? styles.badgeConfirmed
-  : o.status === "shipped"
-  ? styles.badgeConfirmed
-  : o.status === "fulfilled"
-  ? styles.badgeFulfilled
-  : o.status === "cancelled"
-  ? styles.badgeCancelled
-  : ""
-                                }`}
-                              >
-                                {STATUS_OPTIONS.find(
-                                  (s) => s.value === o.status
-                                )?.label ||
-                                  o.status ||
-                                  "—"}
-                              </span>
-{o.paymentMethod && (
-  <div
-    className={styles.clientNote}
-    style={{
-      marginTop: 4,
-    }}
-  >
-    {o.paymentMethod === "COD" ? (
-      <>
-        Plată: <strong>Ramburs</strong>
-      </>
-    ) : (
-      <>
-        Plată: <strong>Card online</strong>
-        {" · "}
-        {o.paymentStatus === "PAID" ? (
-          <span>Achitată</span>
-        ) : o.paymentStatus === "PENDING" ? (
-          <span style={{ fontWeight: 700 }}>
-            În așteptarea plății
-          </span>
-        ) : (
-          <span>Card</span>
-        )}
-      </>
-    )}
-  </div>
-)}
-
-{o.waitingForCardPayment && (
-  <div
-    className={styles.clientNote}
-    style={{
-      marginTop: 3,
-      fontWeight: 700,
-    }}
-  >
-    ⏳ Clientul nu a finalizat încă plata
-  </div>
-)}
-           {o.deposit?.status === "PENDING" && (
-  <div
-    style={{
-      marginTop: 6,
-      padding: "6px 9px",
-      borderRadius: 8,
-      background: "#fff7ed",
-      border: "1px solid #fed7aa",
-      color: "#9a3412",
-      fontSize: 12,
-      fontWeight: 600,
-    }}
-  >
-    ⚠ Avans solicitat:{" "}
-    {formatMoney(
-      o.deposit.requestedAmount
-    )}
-  </div>
-)}
-
-{o.deposit?.status === "PAID" && (
-  <div
-    style={{
-      marginTop: 6,
-      padding: "7px 9px",
-      borderRadius: 8,
-      background: "#ecfdf3",
-      border: "1px solid #a7f3d0",
-      color: "#166534",
-      fontSize: 12,
-      lineHeight: 1.5,
-    }}
-  >
-    <strong>
-      ✓ Avans plătit:{" "}
-      {formatMoney(
-        o.deposit.paidAmount
-      )}
-    </strong>
-
-    {o.deposit
-      ?.remainingCodAmount != null && (
-      <>
-        <br />
-
-        Rest de încasat la livrare:{" "}
-        <strong>
-          {formatMoney(
-            o.deposit
-              .remainingCodAmount
-          )}
-        </strong>
-      </>
-    )}
-
-    <br />
-
-    <span
-      style={{
-        fontWeight: 600,
-      }}
-    >
-      Poți începe pregătirea comenzii.
-    </span>
-  </div>
-)}
-
-                              {cancelReasonLabel && (
-                                <div className={styles.clientNote}>
-                                  Motiv anulare:{" "}
-                                  <strong>{cancelReasonLabel}</strong>
-                                  {o.cancelReasonNote && (
-                                    <> – {o.cancelReasonNote}</>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-
-                          <td>{formatMoney(o.total)}</td>
-
-                          <td className={styles.actionsCell}>
-                            <button
-                              type="button"
-                              className={styles.iconActionBtn}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleContactClient(o);
-                              }}
-                              disabled={startingMessageOrderId === o.id}
-                              title={
-                                o.messageThreadId
-                                  ? o.messageUnreadCount > 0
-                                    ? `${o.messageUnreadCount} mesaje necitite`
-                                    : "Deschide conversația cu clientul"
-                                  : "Pornește o conversație cu clientul"
-                              }
-                              aria-label="Mesaje client"
-                            >
-                              {startingMessageOrderId === o.id ? (
-                                <Loader2 size={16} className={styles.spin} />
-                              ) : (
-                                <MessageSquare size={16} />
-                              )}
-                              {o.messageUnreadCount > 0 && (
-                                <span className={styles.unreadDot}>
-                                  {o.messageUnreadCount}
-                                </span>
-                              )}
-                            </button>
-
-                            {["new", "preparing", "confirmed"].includes(
-                              o.status
-                            ) && (
-                              <button
-                                className={`${styles.iconActionBtn} ${styles.dangerBtn}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setCancelOrder(o);
-                                }}
-                                title="Anulează comanda"
-                                aria-label="Anulează comanda"
-                              >
-                                <XCircle size={16} />
-                              </button>
-                            )}
-
-                          {o.status === "new" &&
-  o.paymentMethod === "COD" &&
-  (!o.deposit ||
-    o.deposit.status === "NOT_REQUESTED") && (
-    <button
-      type="button"
-      className={styles.primaryBtn}
-      disabled={requestingDepositOrderId === o.id}
-      onClick={async (e) => {
-        e.stopPropagation();
-
-        const confirmed = window.confirm(
-          "Solicităm clientului un avans de 15% din valoarea produselor?"
-        );
-
-        if (!confirmed) return;
-
-        try {
-          setRequestingDepositOrderId(o.id);
-
-          const result = await api(
-            `/api/vendor/orders/${o.id}/request-deposit`,
-            {
-              method: "POST",
-            }
-          );
-
-          setData((prev) => ({
-            ...prev,
-            items: prev.items.map((item) =>
-              item.id === o.id
-                ? {
-                    ...item,
-                    deposit: result.deposit,
-                  }
-                : item
-            ),
-          }));
-        } catch (error) {
-          const message =
-            error?.data?.message ||
-            error?.response?.data?.message ||
-            error?.message ||
-            "Nu am putut solicita avansul.";
-
-          alert(message);
-        } finally {
-          setRequestingDepositOrderId(null);
-        }
-      }}
-    >
-      {requestingDepositOrderId === o.id ? (
-        <>
-          <Loader2 size={16} className={styles.spin} />
-          Se solicită…
-        </>
-      ) : (
-        "Solicită avans 15%"
-      )}
-    </button>
-  )}
-
-{o.status === "new" &&
-  o.deposit?.status !== "PENDING" && (
-    <button
-      className={styles.secondaryBtn}
-      disabled={o.canProcess === false}
-      title={
-        o.waitingForCardPayment
-          ? "Clientul trebuie să finalizeze plata înainte să începi pregătirea comenzii."
-          : "Începe pregătirea comenzii"
-      }
-      onClick={async (e) => {
-        e.stopPropagation();
-
-        if (o.canProcess === false) {
-          return;
-        }
-
-        try {
-          const ok = await withLockHandling(() =>
-            api(`/api/vendor/orders/${o.id}/status`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                status: "preparing",
-              }),
-            })
-          );
-
-          if (!ok) return;
-
-          setData((prev) => ({
-            ...prev,
-            items: prev.items.map((x) =>
-              x.id === o.id
-                ? {
-                    ...x,
-                    status: "preparing",
-                  }
-                : x
-            ),
-          }));
-        } catch {
-          alert("Nu am putut marca 'În pregătire'.");
-        }
-      }}
-    >
-      {o.waitingForCardPayment
-        ? "Așteaptă plata"
-        : "În pregătire"}
-    </button>
-  )}
-                            {(o.status === "preparing" ||
-                              o.status === "confirmed") && (
-                              <button
-                                className={styles.primaryBtn}
-                                onClick={(e) => e.stopPropagation()}
-                                disabled={
-                                  !COURIER_ENABLED ||
-                                  o.canProcess === false
-                                }
-                                title={
-                                  o.waitingForCardPayment
-                                    ? "Clientul trebuie să finalizeze plata înainte să programezi curierul."
-                                    : "Funcționalitate temporar indisponibilă"
-                                }
-                              >
-                                <PackageCheck size={16} /> Programează curier
-                              </button>
-                            )}
-
-                            {["confirmed", "preparing"].includes(o.status) && (
-                              <button
-                                className={styles.secondaryBtn}
-                                disabled={
-                                  !canFinalize ||
-                                  o.canProcess === false
-                                }
-                                title={
-                                  o.waitingForCardPayment
-                                    ? "Clientul trebuie să finalizeze plata înainte să predai comanda curierului."
-                                    : "Marchează drept finalizată"
-                                }
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-
-                                  if (o.canProcess === false) {
-                                    return;
-                                  }
-                                  try {
-                                    const ok = await withLockHandling(() =>
-                                      api(`/api/vendor/orders/${o.id}/status`, {
-                                        method: "PATCH",
-                                        headers: {
-                                          "Content-Type": "application/json",
-                                        },
-                                        body: JSON.stringify({
-                                          status: "shipped",
-                                        }),
-                                      })
-                                    );
-                                    if (!ok) return;
-
-                                    setData((prev) => ({
-                                      ...prev,
-                                      items: prev.items.map((x) =>
-                                        x.id === o.id
-                                          ? { ...x, status: "shipped", }
-                                          : x
-                                      ),
-                                    }));
-                                  } catch {
-                                    alert("Nu am putut marca predată curierului.");
-                                  }
-                                }}
-                              >
-                                Predată curierului
-                              </button>
-                            )}
-                            {o.status === "shipped" && (
-  <button
-    className={styles.secondaryBtn}
-    disabled={o.canProcess === false}
-    title={
-      o.waitingForCardPayment
-        ? "Clientul trebuie să finalizeze plata înainte să finalizezi comanda."
-        : "Marchează comanda ca finalizată"
-    }
-    onClick={async (e) => {
-      e.stopPropagation();
-
-      if (o.canProcess === false) {
-        return;
-      }
-
-      const okConfirm = window.confirm(
-        "Confirmi că această comandă a fost livrată/finalizată?"
-      );
-      if (!okConfirm) return;
-
-      try {
-        const ok = await withLockHandling(() =>
-          api(`/api/vendor/orders/${o.id}/status`, {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              status: "fulfilled",
-            }),
-          })
-        );
-        if (!ok) return;
-
-        setData((prev) => ({
-          ...prev,
-          items: prev.items.map((x) =>
-            x.id === o.id ? { ...x, status: "fulfilled" } : x
-          ),
-        }));
-      } catch {
-        alert("Nu am putut marca finalizată.");
-      }
-    }}
-  >
-    Marchează finalizată
-  </button>
-)}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                  {data.items.map((o) => (
+                    <OrderRow
+                      key={o.id}
+                      order={o}
+                      onRowClick={handleRowClick}
+                      onCancelClick={handleCancelClick}
+                      onUpdateOrder={updateOrderInList}
+                    />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -1019,37 +1066,41 @@ setData({
         </p>
       )}
           {manualOrderOpen && (
-            <VendorManualOrderModal
-              onClose={() => setManualOrderOpen(false)}
-              onCreated={() => {
-                setManualOrderOpen(false);
-                setPage(1);
-                setReloadToken((t) => t + 1);
-              }}
-            />
+            <Suspense fallback={null}>
+              <VendorManualOrderModal
+                onClose={() => setManualOrderOpen(false)}
+                onCreated={() => {
+                  setManualOrderOpen(false);
+                  setPage(1);
+                  setReloadToken((t) => t + 1);
+                }}
+              />
+            </Suspense>
           )}
 
           {cancelOrder && (
-            <CancelOrderModal
-              order={cancelOrder}
-              onClose={() => setCancelOrder(null)}
-              onCancelled={(payload) => {
-                setData((prev) => ({
-                  ...prev,
-                  items: prev.items.map((x) =>
-                    x.id === cancelOrder.id
-                      ? {
-                          ...x,
-                          status: "cancelled",
-                          cancelReason: payload.cancelReason,
-                          cancelReasonNote: payload.cancelReasonNote,
-                        }
-                      : x
-                  ),
-                }));
-                setCancelOrder(null);
-              }}
-            />
+            <Suspense fallback={null}>
+              <CancelOrderModal
+                order={cancelOrder}
+                onClose={() => setCancelOrder(null)}
+                onCancelled={(payload) => {
+                  setData((prev) => ({
+                    ...prev,
+                    items: prev.items.map((x) =>
+                      x.id === cancelOrder.id
+                        ? {
+                            ...x,
+                            status: "cancelled",
+                            cancelReason: payload.cancelReason,
+                            cancelReasonNote: payload.cancelReasonNote,
+                          }
+                        : x
+                    ),
+                  }));
+                  setCancelOrder(null);
+                }}
+              />
+            </Suspense>
           )}
 
           {filtersOpen && (
@@ -1157,7 +1208,15 @@ setData({
 
       {activeTab === "client" && (
         <div style={{ marginTop: 16 }}>
-          <UserOrdersPage />
+          <Suspense
+            fallback={
+              <div className={styles.muted} style={{ padding: 16 }}>
+                <Loader2 className={styles.spin} size={16} /> Se încarcă…
+              </div>
+            }
+          >
+            <UserOrdersPage />
+          </Suspense>
         </div>
       )}
     </main>

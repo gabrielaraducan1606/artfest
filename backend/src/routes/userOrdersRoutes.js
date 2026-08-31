@@ -609,6 +609,12 @@ router.get(
       ) {
         const rows =
           await prisma.order.findMany({
+            // join: testat A/B cu date reale din DEV, rezultat
+            // identic, 3->1 query-uri. Nu afectează payment/comision -
+            // doar citire, shape identic.
+            relationLoadStrategy:
+              "join",
+
             where,
 
             orderBy: {
@@ -1227,6 +1233,12 @@ router.get(
 
       const order =
         await prisma.order.findFirst({
+          // join: testat A/B cu date reale din DEV, rezultat identic,
+          // 4->1 query-uri. Doar citire - totalurile/calculul de
+          // plată se fac pe rezultatul deja primit, neschimbat.
+          relationLoadStrategy:
+            "join",
+
           where: {
             userId,
 
@@ -2248,6 +2260,8 @@ export async function cancelOwnOrder({
   const id = String(orderId);
 
   const o = await prisma.order.findFirst({
+    // Pin explicit pe "query" - adiacent anulare/refund comandă.
+    relationLoadStrategy: "query",
     where: {
       id,
       userId,
@@ -2505,6 +2519,10 @@ router.post(
 
     const order =
       await prisma.order.findFirst({
+        // Pin explicit pe "query" - feed direct în coș/preț la reorder.
+        relationLoadStrategy:
+          "query",
+
         where: {
           userId,
 

@@ -40,12 +40,26 @@ const EXPLAIN_INTENT_PREFIXES = [
   "unde",
   "ce este",
   "ce inseamna",
+  "ce fac",
+  "ce se intampla",
+  "ce pot face",
   "pot sa",
   "pot",
   "se poate",
   "exista",
   "care este diferenta",
+  "care e diferenta",
+  "care",
+  "cine",
   "de ce",
+  "ma ajuti",
+  "ma poti ajuta",
+  "ma puteti ajuta",
+  "aveti",
+  "puteti",
+  "trebuie sa",
+  "e nevoie sa",
+  "am nevoie sa",
 ];
 
 export function isExplainIntentMessage(normalized) {
@@ -56,4 +70,65 @@ export function isExplainIntentMessage(normalized) {
       normalized === prefix ||
       normalized.startsWith(`${prefix} `)
   );
+}
+
+/*
+ * BUGFIX (audit) - fix SISTEMIC, nu whack-a-mole: o listă de
+ * prefixe, oricât de lungă, tot rămâne finită și pică pentru orice
+ * formulare nouă neanticipată ("Cine vinde produsele de pe
+ * Artfest?", "Artfest are stoc propriu?" - nu încep cu niciun
+ * prefix din listă, deși sunt clar întrebări explicative). Regulă
+ * generală, pe FORMA propoziției: dacă mesajul se termină cu semnul
+ * întrebării și NU începe cu un verb la imperativ/o comandă directă
+ * cunoscută, e o întrebare - trebuie deferată la copilotul general
+ * (clasificare LLM completă), nu interceptată de un regex local de
+ * cuvinte-cheie. Verificat pe textul BRUT (înainte de normalizare -
+ * normalizeForIntentDetection elimină semnul "?").
+ */
+const IMPERATIVE_COMMAND_PREFIXES = [
+  "cauta",
+  "caută",
+  "gaseste",
+  "găsește",
+  "gaseste-mi",
+  "găsește-mi",
+  "arata-mi",
+  "arată-mi",
+  "adauga",
+  "adaugă",
+  "sterge",
+  "șterge",
+  "du-ma",
+  "du-mă",
+  "deschide",
+  "trimite",
+  "creeaza",
+  "creează",
+  "schimba",
+  "schimbă",
+  "muta",
+  "mută",
+  "pune",
+];
+
+export function isLikelyExplainQuestion(rawText = "") {
+  const trimmed = String(rawText || "").trim();
+
+  if (!trimmed.endsWith("?")) {
+    return false;
+  }
+
+  const normalized = normalizeForIntentDetection(trimmed);
+
+  if (!normalized) {
+    return false;
+  }
+
+  const startsWithImperative = IMPERATIVE_COMMAND_PREFIXES.some(
+    (verb) =>
+      normalized === verb ||
+      normalized.startsWith(`${verb} `)
+  );
+
+  return !startsWithImperative;
 }

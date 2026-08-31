@@ -1561,6 +1561,8 @@ pmax: "",
                 onEditProduct={onEditProduct}
                 categoryLabelMap={categoryLabelMap}
                 colorLabelMap={colorLabelMap}
+                priorityImage={idx < 4}
+                autoPrefetch={idx < 4}
               />
             );
           })}

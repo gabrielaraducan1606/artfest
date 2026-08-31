@@ -968,6 +968,12 @@ export default function AdminProductEditForm({
       return;
     }
 
+    /*
+     * BUGFIX (audit) - NU mai forțăm price la 0 la schimbarea
+     * modului - la fel ca la DIRECT/OPTIONS mai sus, nu atingem
+     * `price`, ca prețul orientativ deja completat (sau încărcat de
+     * pe produsul existent) să nu se piardă.
+     */
     patch({
       orderMode:
         "QUOTE_ONLY",
@@ -983,8 +989,6 @@ export default function AdminProductEditForm({
 
       repeatedGroups:
         [],
-
-      price: 0,
 
       availability:
         "MADE_TO_ORDER",
@@ -1003,27 +1007,30 @@ export default function AdminProductEditForm({
       return;
     }
 
+    /*
+     * BUGFIX (audit) - QUOTE_ONLY validează acum prețul orientativ
+     * la fel ca celelalte moduri (nu mai există excepție), inclusiv
+     * pragul > 0 (nu doar >= 0).
+     */
+    const price =
+      Number(
+        form.price
+      );
+
     if (
-      form.orderMode !==
-      "QUOTE_ONLY"
+      !Number.isFinite(
+        price
+      ) ||
+      price <= 0
     ) {
-      const price =
-        Number(
-          form.price
-        );
+      setError(
+        form.orderMode ===
+        "QUOTE_ONLY"
+          ? "Introdu un preț orientativ mai mare decât 0."
+          : "Prețul nu este valid."
+      );
 
-      if (
-        !Number.isFinite(
-          price
-        ) ||
-        price < 0
-      ) {
-        setError(
-          "Prețul nu este valid."
-        );
-
-        return;
-      }
+      return;
     }
 
     try {
@@ -1039,13 +1046,12 @@ export default function AdminProductEditForm({
           form.description ||
           "",
 
-        price:
-          form.orderMode ===
-          "QUOTE_ONLY"
-            ? 0
-            : Number(
-                form.price
-              ),
+        /*
+         * BUGFIX (audit) - trimite prețul orientativ real pentru
+         * QUOTE_ONLY, la fel ca celelalte moduri (deja validat > 0
+         * mai sus).
+         */
+        price,
 
         images:
           asArray(
@@ -1220,17 +1226,21 @@ export default function AdminProductEditForm({
         >
           <label>
             <div>
-              Preț
+              {form.orderMode ===
+              "QUOTE_ONLY"
+                ? "Preț orientativ / de la (RON)"
+                : "Preț"}
             </div>
 
+            {/*
+             * BUGFIX (audit) - inputul nu mai e disabled pentru
+             * QUOTE_ONLY - prețul orientativ se completează la fel
+             * ca prețul normal, doar eticheta diferă.
+             */}
             <input
               type="number"
-              min="0"
+              min="0.01"
               step="0.01"
-              disabled={
-                form.orderMode ===
-                "QUOTE_ONLY"
-              }
               value={
                 form.price
               }

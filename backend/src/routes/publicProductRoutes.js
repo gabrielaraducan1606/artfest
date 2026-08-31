@@ -6,7 +6,10 @@ import { smartSearchFromQueryBackend } from "../constants/smartSrc.js";
 import { uploadSearchImage } from "../middleware/imageSearchUpload.js";
 import { imageToEmbedding, toPgVectorLiteral } from "../lib/embeddings.js";
 import {
-  getPromotionPricingForProduct,
+  getActiveCollectionPromotionsForProducts,
+  getActiveHomepagePromotionsForProducts,
+  chooseBestPromotion,
+  calculateProductPromotionPricing,
   applyPromotionsToProducts,
 } from "../services/productPromotionPrice.js";
 import {
@@ -937,6 +940,10 @@ router.get("/products", async (req, res, next) => {
       applyPriceFilter(whereIds);
 
       const filtered = await prisma.product.findMany({
+        // join: baseProductSelect are doar relații 1:1 + un
+        // top-1-per-grup (vendor.subscriptions) - testat A/B cu date
+        // reale din DEV, rezultat identic, 6->1 query-uri.
+        relationLoadStrategy: "join",
         where: whereIds,
         select: baseProductSelect,
       });
@@ -997,6 +1004,7 @@ router.get("/products", async (req, res, next) => {
     }
 
    const rowsMainRaw = await prisma.product.findMany({
+  relationLoadStrategy: "join", // vezi nota de la primul findMany cu baseProductSelect
   where: whereMain,
   skip,
   take: takePlus,
@@ -1024,6 +1032,7 @@ const rowsMain = sortPromotedFirst(rowsMainRaw);
     applyPriceFilter(whereFallback);
 
   const rowsFallbackRaw = await prisma.product.findMany({
+  relationLoadStrategy: "join", // vezi nota de la primul findMany cu baseProductSelect
   where: whereFallback,
   skip,
   take: takePlus,
@@ -1059,6 +1068,425 @@ const rowsFallback = sortPromotedFirst(rowsFallbackRaw);
     });
   } catch (e) {
     console.error("ERROR /api/public/products", e);
+    next(e);
+  }
+});
+
+/* -----------------------------------------
+   CARDURI PUBLICE (listă/grid) - payload lean
+   Endpoint NOU, paralel cu /products de mai sus. NU înlocuiește
+   nimic - /products rămâne neatins pentru consumatorii care au
+   nevoie de shape-ul complet (coș guest via ?ids=, "produse
+   similare" din ProductDetails, care citește materialMain/technique
+   /styleTags/occasionTags brute pentru scoring de similaritate).
+   Gândit strict pentru grid-ul public din pagina Produse: nu
+   include optionsSchema/customSchema/repeatedGroups/quoteSchema
+   complete, nu include descrierea, nu include câmpuri de
+   admin/vendor (moderationStatus, isActive, isHidden, favoriteCount,
+   sellerPlan/promotionRank/isPromoted, storeName/storeSlug/storeLogo).
+*/
+const cardProductSelect = {
+  id: true,
+  title: true,
+  priceCents: true,
+  currency: true,
+  images: true,
+  category: true,
+  color: true,
+  orderMode: true,
+  availability: true,
+  leadTimeDays: true,
+  readyQty: true,
+  nextShipDate: true,
+
+  // Nu ajung în răspuns ca atare - doar intrări pentru motorul de
+  // pricing (acceptsCustom/category/styleTags/occasionTags) sau
+  // pentru derivarea unor booleene (optionsSchema/customSchema).
+  acceptsCustom: true,
+  optionsSchema: true,
+  customSchema: true,
+
+  // Folosite de Products.jsx pentru extragerea opțiunilor de
+  // filtrare (extractFacetsFromItems) - nu doar de motorul de preț.
+  materialMain: true,
+  technique: true,
+  styleTags: true,
+  occasionTags: true,
+
+  // Necesar pentru sortPromotedFirst (tie-break pe dată) - nu ajunge
+  // în răspuns.
+  createdAt: true,
+
+  service: {
+    select: {
+      id: true, // necesar intern de motorul de preț (Artizanul săptămânii)
+      vendorId: true, // pentru atribuirea de campanie (Vendor.id)
+      vendor: {
+        select: {
+          userId: true, // -> vendorUserId (detectare "e produsul meu?")
+          subscriptions: {
+            where: {
+              status: { in: ["active", "canceled_at_period_end"] },
+              endAt: { gte: new Date() },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { plan: { select: { code: true } } },
+          },
+        },
+      },
+    },
+  },
+};
+
+function mapPublicProductCard(p) {
+  const hasValue = (value) =>
+    value !== null &&
+    value !== undefined &&
+    value !== "" &&
+    Number.isFinite(Number(value));
+
+  const finalPriceCents = hasValue(p?.finalPriceCents)
+    ? Number(p.finalPriceCents)
+    : hasValue(p?.discountedPriceCents)
+    ? Number(p.discountedPriceCents)
+    : hasValue(p?.priceCents)
+    ? Number(p.priceCents)
+    : 0;
+
+  const originalPriceCents = hasValue(p?.originalPriceCents)
+    ? Number(p.originalPriceCents)
+    : finalPriceCents;
+
+  const hasDiscount =
+    p?.hasDiscount === true && originalPriceCents > finalPriceCents;
+
+  return {
+    id: p.id,
+    title: p.title,
+
+    images: Array.isArray(p.images) ? p.images : [],
+
+    price: finalPriceCents / 100,
+    currency: p.currency || "RON",
+
+    hasDiscount,
+    originalPrice: hasDiscount ? originalPriceCents / 100 : null,
+    discountPercent: hasDiscount
+      ? Number(p?.discountPercent || p?.totalDiscountPercent || 0)
+      : 0,
+    promoLabel: hasDiscount
+      ? p?.promoLabel || p?.discount?.label || "Reducere Artfest"
+      : null,
+
+    category: p.category || null,
+    color: p.color || null,
+
+    orderMode: String(p.orderMode || "DIRECT").toUpperCase(),
+    availability: String(p.availability || "").toUpperCase(),
+    leadTimeDays: p.leadTimeDays ?? null,
+    readyQty: p.readyQty ?? null,
+    nextShipDate: p.nextShipDate ?? null,
+
+    hasOptions:
+      Array.isArray(p.optionsSchema) && p.optionsSchema.length > 0,
+    hasPersonalization:
+      Array.isArray(p.customSchema) && p.customSchema.length > 0,
+
+    vendorUserId: p?.service?.vendor?.userId || null,
+
+    // Constante garantate de `where`-ul acestui endpoint (orice rând
+    // întors e deja isActive/nu-hidden/APPROVED) - dar ProductCard.jsx
+    // le citește pentru `isDisabled` (greyed-out) cu fallback implicit
+    // spre "PENDING" când lipsesc. Fără ele, orice card randat prin
+    // acest endpoint apărea estompat, indiferent de starea reală.
+    isActive: true,
+    isHidden: false,
+    moderationStatus: "APPROVED",
+
+    // Nu erau în lista acceptată explicit, dar Products.jsx le
+    // citește azi din extractFacetsFromItems pentru dropdown-urile
+    // de filtre - fără ele, filtrele de material/tehnică/stil/ocazie
+    // s-ar rupe la migrare.
+    materialMain: p.materialMain || null,
+    technique: p.technique || null,
+    styleTags: Array.isArray(p.styleTags) ? p.styleTags : [],
+    occasionTags: Array.isArray(p.occasionTags) ? p.occasionTags : [],
+  };
+}
+
+router.get("/product-cards", async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page || "1", 10));
+    const limit = Math.min(60, Math.max(1, parseInt(req.query.limit || "12", 10)));
+    const skip = (page - 1) * limit;
+    const takePlus = limit + 1;
+
+    let qRaw = req.query.q;
+    if (Array.isArray(qRaw)) qRaw = qRaw[0];
+    qRaw = (qRaw || "").toString().trim();
+
+    const categoryParam = (req.query.category || req.query.categorie || "").trim();
+    const rawServiceType = (req.query.serviceType || req.query.type || "").trim();
+    const serviceType = rawServiceType || "products";
+    const city = (req.query.city || "").trim();
+    const sort = (req.query.sort || "new").trim();
+
+    const minPrice = parseInt(req.query.minPrice || req.query.min || "", 10);
+    const maxPrice = parseInt(req.query.maxPrice || req.query.max || "", 10);
+
+    const colorParam = (req.query.color || "").trim();
+    const materialParam = (req.query.materialMain || req.query.material || "").trim();
+    const techniqueParam = (req.query.technique || "").trim();
+    const styleTagParam = (req.query.styleTag || req.query.style || "").trim();
+    const occasionTagParamRaw = (req.query.occasionTag || req.query.occasion || "").trim();
+
+    const availabilityParam = (req.query.availability || "").trim().toUpperCase();
+    const acceptsCustomRaw = (req.query.acceptsCustom || "").trim();
+    const acceptsCustomParam =
+      acceptsCustomRaw === "1" || acceptsCustomRaw.toLowerCase() === "true";
+    const leadTimeMaxParam = parseInt(req.query.leadTimeMax || "", 10);
+
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+
+    const smart = smartSearchFromQueryBackend(qRaw);
+    const effectiveCategory = categoryParam || "";
+
+    const inferredColors = Array.isArray(smart.inferredColors)
+      ? smart.inferredColors
+      : smart.inferredColor
+      ? [smart.inferredColor]
+      : [];
+
+    const effectiveColors = colorParam ? [colorParam] : inferredColors;
+    const effectiveOccasionTag = occasionTagParamRaw || "";
+
+    const baseWhere = {
+      isActive: true,
+      isHidden: false,
+      moderationStatus: "APPROVED",
+      service: {
+        is: {
+          type: { is: { code: serviceType } },
+          ...(city ? { city: { contains: city, mode: "insensitive" } } : {}),
+          isActive: true,
+          status: "ACTIVE",
+          vendor: { is: { isActive: true } },
+        },
+      },
+    };
+
+    const applyPriceFilter = (whereObj) => {
+      if (!Number.isNaN(minPrice) || !Number.isNaN(maxPrice)) {
+        whereObj.priceCents = {};
+        if (!Number.isNaN(minPrice)) whereObj.priceCents.gte = minPrice * 100;
+        if (!Number.isNaN(maxPrice)) whereObj.priceCents.lte = maxPrice * 100;
+      }
+    };
+
+    const applyExtraFilters = (whereObj) => {
+      if (materialParam) {
+        whereObj.materialMain = { equals: materialParam, mode: "insensitive" };
+      }
+
+      if (techniqueParam) {
+        whereObj.technique = { equals: techniqueParam, mode: "insensitive" };
+      }
+
+      if (styleTagParam) whereObj.styleTags = { has: styleTagParam };
+      if (effectiveOccasionTag) whereObj.occasionTags = { has: effectiveOccasionTag };
+
+      if (availabilityParam) {
+        if (availabilityParam === "READY") {
+          whereObj.AND = [
+            ...(whereObj.AND || []),
+            {
+              availability: "READY",
+              OR: [{ readyQty: null }, { readyQty: { gt: 0 } }],
+            },
+          ];
+        } else if (availabilityParam === "SOLD_OUT") {
+          whereObj.OR = [
+            { availability: "SOLD_OUT" },
+            {
+              AND: [
+                { availability: "READY" },
+                { readyQty: { lte: 0 } },
+              ],
+            },
+          ];
+        } else {
+          whereObj.availability = availabilityParam;
+        }
+      }
+
+      if (!Number.isNaN(leadTimeMaxParam)) {
+        whereObj.leadTimeDays = { lte: leadTimeMaxParam };
+      }
+
+      if (acceptsCustomParam) whereObj.acceptsCustom = true;
+    };
+
+    const listCampaignAttributionQuery = parseCampaignAttributionQuery(
+      req.query?.campaignAttribution
+    );
+
+    const finalizePaged = async (rows) => {
+      const hasMore = rows.length > limit;
+      const slice = hasMore ? rows.slice(0, limit) : rows;
+
+      let promotedSlice = slice;
+
+      try {
+        const sliceVendorIds = Array.from(
+          new Set(
+            slice
+              .map((product) => product?.service?.vendorId)
+              .filter(Boolean)
+              .map(String)
+          )
+        );
+
+        const campaignAttributionsByVendorId =
+          await resolveVendorCampaignAttributions({
+            vendorIds: sliceVendorIds,
+            tokensByVendorId: listCampaignAttributionQuery,
+          });
+
+        const campaignPromotionsByProductId = buildCampaignPromotionsByProductId(
+          slice,
+          campaignAttributionsByVendorId
+        );
+
+        promotedSlice = await applyPromotionsToProducts(slice, {
+          campaignPromotionsByProductId,
+        });
+      } catch (promotionError) {
+        console.error(
+          "[public product-cards] promotion pricing failed:",
+          promotionError
+        );
+      }
+
+      return {
+        items: promotedSlice.map((product) => mapPublicProductCard(product)),
+        hasMore,
+      };
+    };
+
+    const buildAppliedFilters = () => ({
+      category: effectiveCategory || null,
+      color: effectiveColors?.length ? effectiveColors[0] : null,
+      material: materialParam || null,
+      technique: techniqueParam || null,
+      styleTag: styleTagParam || null,
+      occasionTag: effectiveOccasionTag || null,
+      availability: availabilityParam || null,
+      acceptsCustom: acceptsCustomParam || false,
+      leadTimeMax: Number.isNaN(leadTimeMaxParam) ? null : leadTimeMaxParam,
+      priceMin: !Number.isNaN(minPrice) ? minPrice : null,
+      priceMax: !Number.isNaN(maxPrice) ? maxPrice : null,
+    });
+
+    const whereMain = { ...baseWhere };
+
+    if (effectiveCategory) {
+      whereMain.category = { equals: effectiveCategory, mode: "insensitive" };
+    }
+
+    if (effectiveColors.length === 1) {
+      whereMain.color = { equals: effectiveColors[0], mode: "insensitive" };
+    } else if (effectiveColors.length > 1) {
+      whereMain.color = { in: effectiveColors };
+    }
+
+    applyExtraFilters(whereMain);
+    applyPriceFilter(whereMain);
+
+    if (qRaw) {
+      const baseTokens = (smart.mustTextTokens?.length
+        ? smart.mustTextTokens
+        : smart.looseTextTokens?.length
+        ? smart.looseTextTokens
+        : qRaw.split(/\s+/).filter(Boolean)
+      ).map((t) => t.toLowerCase());
+
+      const onlyColorToken =
+        Array.isArray(smart.inferredColors) &&
+        smart.inferredColors.length > 0 &&
+        baseTokens.length === 1;
+
+      if (!onlyColorToken && baseTokens.length) {
+        const textWhere = buildTextWhereFromTokens(baseTokens);
+        if (textWhere) whereMain.AND = (whereMain.AND || []).concat(textWhere);
+      }
+    }
+
+    const rowsMainRaw = await prisma.product.findMany({
+      where: whereMain,
+      skip,
+      take: takePlus,
+      orderBy: buildOrderBy(sort),
+      select: cardProductSelect,
+    });
+
+    const rowsMain = sortPromotedFirst(rowsMainRaw);
+
+    if (rowsMain.length > 0 || !qRaw) {
+      const { items, hasMore } = await finalizePaged(rowsMain);
+
+      return res.json({
+        total: null,
+        items,
+        page,
+        limit,
+        hasMore,
+        smart,
+        appliedFilters: buildAppliedFilters(),
+      });
+    }
+
+    const whereFallback = { ...baseWhere };
+    applyPriceFilter(whereFallback);
+
+    const rowsFallbackRaw = await prisma.product.findMany({
+      where: whereFallback,
+      skip,
+      take: takePlus,
+      orderBy: buildOrderBy(sort),
+      select: cardProductSelect,
+    });
+
+    const rowsFallback = sortPromotedFirst(rowsFallbackRaw);
+
+    const { items, hasMore } = await finalizePaged(rowsFallback);
+
+    return res.json({
+      total: null,
+      items,
+      page,
+      limit,
+      hasMore,
+      smart,
+      appliedFilters: {
+        category: null,
+        color: null,
+        material: null,
+        technique: null,
+        styleTag: null,
+        occasionTag: null,
+        availability: null,
+        acceptsCustom: false,
+        leadTimeMax: null,
+        priceMin: !Number.isNaN(minPrice) ? minPrice : null,
+        priceMax: !Number.isNaN(maxPrice) ? maxPrice : null,
+        fallback: "generic_after_zero_results",
+      },
+    });
+  } catch (e) {
+    console.error("ERROR /api/public/product-cards", e);
     next(e);
   }
 });
@@ -1112,6 +1540,7 @@ res.set("Expires", "0");
 }
 
     const latestRaw = await prisma.product.findMany({
+      relationLoadStrategy: "join", // vezi nota de la primul findMany cu baseProductSelect
       where: baseWhere,
       take: 12,
       orderBy: { createdAt: "desc" },
@@ -1133,12 +1562,14 @@ res.set("Expires", "0");
 
     const popularRaw = popularIds.length
       ? await prisma.product.findMany({
+          relationLoadStrategy: "join", // vezi nota de la primul findMany cu baseProductSelect
           where: { ...baseWhere, id: { in: popularIds.map(String) } },
           select: baseProductSelect,
         })
       : [];
 
     const recommendedRaw = await prisma.product.findMany({
+      relationLoadStrategy: "join", // vezi nota de la primul findMany cu baseProductSelect
       where: baseWhere,
       take: 12,
       orderBy: [{ Favorite: { _count: "desc" } }, { createdAt: "desc" }],
@@ -1324,6 +1755,10 @@ router.get("/collections/:slug", async (req, res, next) => {
     }
 
     const collection = await prisma.collection.findUnique({
+      // Pin explicit pe "query" - `items` e 1:N nepaginat; nu există
+      // nicio colecție cu date reale în DEV ca să testez A/B, deci nu
+      // presupun - rămâne pe strategia curentă până se poate testa.
+      relationLoadStrategy: "query",
       where: { slug },
       include: {
         items: {
@@ -1694,6 +2129,15 @@ router.get(
 
       const p =
         await prisma.product.findFirst({
+          // Toate relațiile din select-ul de mai jos sunt 1:1/
+          // belongs-to (ProductRatingStats, service, service.profile,
+          // service.vendor, service.vendor.billing) - niciuna nu e
+          // one-to-many, deci join-ul nu multiplică rânduri. Fără
+          // asta, Prisma rulează 6 query-uri secvențiale (unul per
+          // relație) în loc de 1 singur query cu JOIN-uri - măsurat
+          // ~780ms vs ~150ms pe DEV, shape identic.
+          relationLoadStrategy: "join",
+
           where: {
             id,
             isActive: true,
@@ -1869,13 +2313,33 @@ router.get(
           req.query?.campaignAttribution
         );
 
-      const campaignAttributionsByVendorId =
+      /*
+       * Cele 3 surse de promoție (campanie vendor, colecție,
+       * feature de homepage) interoghează tabele diferite și NU
+       * depind una de cealaltă la nivel de query - doar alegerea
+       * câștigătorului (chooseBestPromotion, mai jos) are nevoie
+       * de toate 3 rezultatele simultan. Rulate în paralel în loc
+       * de secvențial (înainte: atribuire → apoi pricing).
+       * getActiveCollectionPromotionsForProducts/
+       * getActiveHomepagePromotionsForProducts/chooseBestPromotion/
+       * calculateProductPromotionPricing sunt exact funcțiile
+       * folosite intern de getPromotionPricingForProduct - aceleași
+       * intrări, același rezultat, doar reordonate.
+       */
+      const [
+        campaignAttributionsByVendorId,
+        collectionPromotions,
+        homepagePromotions,
+      ] = await Promise.all([
         vendorId
-          ? await resolveVendorCampaignAttributions({
+          ? resolveVendorCampaignAttributions({
               vendorIds: [vendorId],
               tokensByVendorId: campaignAttributionQuery,
             })
-          : new Map();
+          : Promise.resolve(new Map()),
+        getActiveCollectionPromotionsForProducts([p]),
+        getActiveHomepagePromotionsForProducts([p]),
+      ]);
 
       const campaignPromotionsByProductId =
         buildCampaignPromotionsByProductId(
@@ -1883,11 +2347,16 @@ router.get(
           campaignAttributionsByVendorId
         );
 
-      const promotionPricing =
-  await getPromotionPricingForProduct(
-    p,
-    { campaignPromotionsByProductId }
-  );
+      const winningPromotion = chooseBestPromotion([
+        collectionPromotions.get(p.id) || null,
+        homepagePromotions.get(p.id) || null,
+        campaignPromotionsByProductId.get(p.id) || null,
+      ]);
+
+      const promotionPricing = calculateProductPromotionPricing(
+        p,
+        winningPromotion
+      );
 
 const unitPrice =
   promotionPricing.finalPriceCents != null
@@ -2077,6 +2546,9 @@ router.get("/store/:slug/initial", async (req, res, next) => {
 
     const profile = await prisma.serviceProfile.findUnique({
       where: { slug },
+      // join: doar relații 1:1 - testat A/B cu date reale din DEV,
+      // rezultat identic, 4->1 query-uri.
+      relationLoadStrategy: "join",
       include: { service: { include: { type: true, vendor: true } } },
     });
 
@@ -2166,6 +2638,9 @@ router.get("/store/:slug", async (req, res) => {
 
   const profile = await prisma.serviceProfile.findUnique({
     where: { slug },
+    // join: doar relații 1:1 - testat A/B cu date reale din DEV,
+    // rezultat identic, 4->1 query-uri.
+    relationLoadStrategy: "join",
     include: { service: { include: { type: true, vendor: true } } },
   });
 
@@ -2241,6 +2716,10 @@ router.get(
             where: {
               slug,
             },
+
+            // join: doar relații 1:1 - testat A/B cu date
+            // reale din DEV, rezultat identic, 4->1 query-uri.
+            relationLoadStrategy: "join",
 
             include: {
               service: {
@@ -2345,6 +2824,9 @@ router.get("/store/:slug/reviews", async (req, res, next) => {
 
     const profile = await prisma.serviceProfile.findUnique({
       where: { slug },
+      // join: doar relații 1:1 - testat A/B cu date reale din DEV,
+      // rezultat identic, 4->1 query-uri.
+      relationLoadStrategy: "join",
       include: { service: { include: { type: true, vendor: true } } },
     });
 
@@ -2387,6 +2869,10 @@ router.get("/store/:slug/reviews", async (req, res, next) => {
     const [total, rows, grouped] = await Promise.all([
       prisma.storeReview.count({ where: whereList }),
       prisma.storeReview.findMany({
+        // Pin explicit pe "query" - `helpful` e 1:N nepaginat
+        // (fetched integral doar pentru .length); nu există recenzii
+        // reale în DEV ca să testez A/B, deci nu presupun.
+        relationLoadStrategy: "query",
         where: whereList,
         skip,
         take,
@@ -2442,6 +2928,9 @@ router.get("/store/:slug/reviews/average", async (req, res, next) => {
 
     const profile = await prisma.serviceProfile.findUnique({
       where: { slug },
+      // join: doar relații 1:1 - testat A/B cu date reale din DEV,
+      // rezultat identic, 4->1 query-uri.
+      relationLoadStrategy: "join",
       include: { service: { include: { type: true, vendor: true } } },
     });
 

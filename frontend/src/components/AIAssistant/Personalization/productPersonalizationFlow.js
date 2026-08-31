@@ -1,5 +1,7 @@
 // src/components/AiAssistant/Personalization/productPersonalizationFlow.js
 
+import { humanizeAssistantErrorMessage } from "../assistantErrorMessages.js";
+
 const PERSONALIZATION_FLOW =
   "product-personalization";
 
@@ -370,12 +372,13 @@ async function uploadCustomizationImage(
       "Nu am putut încărca fotografia.";
 
     try {
-      const error =
+      const errorBody =
         await response.json();
 
-      message =
-        error?.message ||
-        message;
+      message = humanizeAssistantErrorMessage(
+        { data: errorBody, status: response.status },
+        message
+      );
     } catch {
       // ignore
     }
@@ -868,8 +871,10 @@ export async function submitProductPersonalizationMessage({
           addMessage(
             createMessage(
               "assistant",
-              error?.message ||
+              humanizeAssistantErrorMessage(
+                error,
                 "Nu am putut atașa fotografia. Te rog să încerci din nou."
+              )
             )
           );
 
@@ -1238,8 +1243,10 @@ ${getQuestionForField(
         addMessage(
           createMessage(
             "assistant",
-            error?.message ||
+            humanizeAssistantErrorMessage(
+              error,
               "Nu am putut atașa fotografia. Te rog să încerci din nou."
+            )
           )
         );
 

@@ -604,3 +604,12 @@
     font-size: 20px;
   }
 }
+
+.infoBox {
+  padding: 12px 14px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.8;
+}

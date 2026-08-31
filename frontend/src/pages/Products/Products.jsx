@@ -22,9 +22,10 @@ import {
   FaCamera,
 } from "react-icons/fa";
 import { useImageSearch } from "../../hooks/useImageSearch";
-import {
-  getProductSearchResults,
-} from "../../components/AIAssistant/Products/assistantProducts.js";
+// Încărcat dinamic doar când e nevoie (căutare vizuală) - fișierul
+// e mare (2000+ linii) și nu are ce căuta în bundle-ul inițial al
+// paginii Produse pentru un vizitator care nu folosește căutarea
+// vizuală.
 
 const SORTS = [
   { v: "new", label: "Cele mai noi" },
@@ -33,7 +34,59 @@ const SORTS = [
   { v: "price_desc", label: "Preț descrescător" },
 ];
 
-const LIMIT = 12;
+// Batch mic - primul rând apare cât mai repede, apoi paginile
+// următoare se încarcă progresiv (prima automat, restul la scroll).
+const LIMIT = 8;
+
+/*
+ * Instrumentare minimă de timing, doar în dev, doar în consolă -
+ * ca să se poată vedea concret unde se duce timpul până la primul
+ * produs vizibil (mount → start request → response → primul render
+ * cu produse reale). Nu înlocuiește un profiling real de browser
+ * (LCP/TTFB exacte) - doar reperele cerute explicit A-D.
+ */
+const PRODUCTS_TIMING_ENABLED =
+  typeof window !== "undefined" &&
+  typeof performance !== "undefined" &&
+  Boolean(import.meta.env?.DEV);
+
+function markProductsTiming(name) {
+  if (!PRODUCTS_TIMING_ENABLED) return;
+  try {
+    performance.mark(name);
+  } catch {
+    // ignore
+  }
+}
+
+function logProductsTimingSummary() {
+  if (!PRODUCTS_TIMING_ENABLED) return;
+  try {
+    const names = [
+      "products:mount",
+      "products:fetch-start",
+      "products:fetch-end",
+      "products:first-items-rendered",
+    ];
+    const entries = names
+      .map((name) => performance.getEntriesByName(name, "mark")[0])
+      .filter(Boolean);
+    if (entries.length < 2) return;
+    const t0 = entries[0].startTime;
+    // eslint-disable-next-line no-console
+    console.info(
+      "[Produse] timing (ms de la mount):",
+      entries
+        .map(
+          (e) =>
+            `${e.name.replace("products:", "")}: ${(e.startTime - t0).toFixed(0)}ms`
+        )
+        .join("  →  ")
+    );
+  } catch {
+    // ignore
+  }
+}
 
 const PRODUCTS_SCROLL_KEY = "productsPageScrollState";
 
@@ -187,6 +240,10 @@ export default function ProductsPage({
 }) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+
+  useEffect(() => {
+    markProductsTiming("products:mount");
+  }, []);
 const goToProductsParams = useCallback(
   (
     nextParams,
@@ -254,6 +311,8 @@ if (forcedCategory) {
   const suggestCacheRef = useRef(new Map());
 
   const shouldRestoreScrollRef = useRef(false);
+  const autoAdvancedQueryKeyRef = useRef(null);
+  const firstItemsMarkedRef = useRef(false);
 
   const {
     searching: imageSearching,
@@ -302,6 +361,15 @@ const currentSeoCategory =
 
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(null);
+
+  useEffect(() => {
+    if (firstItemsMarkedRef.current) return;
+    if (items.length === 0) return;
+
+    firstItemsMarkedRef.current = true;
+    markProductsTiming("products:first-items-rendered");
+    logProductsTimingSummary();
+  }, [items]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -430,10 +498,16 @@ const saveProductsScrollState = useCallback(() => {
       else if (refetchLoad) setRefreshing(true);
       else setIsLoadingMore(true);
 
+      if (firstLoad) markProductsTiming("products:fetch-start");
+
       try {
        let res;
 
 if (visualSearchId) {
+  const { getProductSearchResults } = await import(
+    "../../components/AIAssistant/Products/assistantProducts.js"
+  );
+
   const visualResult =
     await getProductSearchResults({
       searchId: visualSearchId,
@@ -598,12 +672,19 @@ if (visualSearchId) {
       acceptsCustomParam,
     });
 
+  // Endpoint-ul lean (/product-cards) nu suportă ?ids= - folosit
+  // doar la un deep-link explicit (?ids=... în URL), nu la
+  // browsing normal, unde `ids` e mereu gol.
   res = await api(
-    `/api/public/products?${p.toString()}`
+    ids
+      ? `/api/public/products?${p.toString()}`
+      : `/api/public/product-cards?${p.toString()}`
   );
 }
 
         if (requestId !== productsRequestIdRef.current) return;
+
+        if (firstLoad) markProductsTiming("products:fetch-end");
 
         const rawItems =
   Array.isArray(res?.items)
@@ -977,6 +1058,34 @@ if ("requestIdleCallback" in window) {
     if (page === 1) return;
     loadProducts(page, true);
   }, [page, loadProducts]);
+
+  /*
+   * Randare progresivă: imediat ce primul batch mic (LIMIT=8) e pe
+   * ecran, pornim automat al doilea batch, fără să aștepți scroll -
+   * "Request 2" din flow-ul cerut. De la al treilea batch încolo,
+   * preia ștafeta mecanismul normal de scroll (IntersectionObserver
+   * de mai sus) - nu mai adăugăm nimic special.
+   * O singură dată per filtrare/sortare nouă (cheia din
+   * `productsQueryKey`), ca să nu tot avanseze pagina la fiecare
+   * re-render.
+   */
+  useEffect(() => {
+    if (page !== 1) return;
+    if (loading || refreshing) return;
+    if (!hasMore) return;
+    if (items.length === 0) return;
+    if (autoAdvancedQueryKeyRef.current === productsQueryKey) return;
+
+    autoAdvancedQueryKeyRef.current = productsQueryKey;
+    setPage(2);
+  }, [
+    page,
+    loading,
+    refreshing,
+    hasMore,
+    items.length,
+    productsQueryKey,
+  ]);
 
   useEffect(() => {
     const q = deferredQ.trim();
@@ -1667,7 +1776,7 @@ const clearImageSearch =
 );
 
   const productCards = useMemo(() => {
-    return items.map((p) => {
+    return items.map((p, index) => {
       const ownerUserId = p?.service?.vendor?.userId;
       const isOwner =
         !!me &&
@@ -1686,6 +1795,8 @@ const clearImageSearch =
           onAddToCart={doAddToCart}
           onToggleFavorite={toggleFavorite}
           categoryLabelMap={categoryLabelMap}
+          priorityImage={index < 4}
+          autoPrefetch={index < 4}
           vendorActionsOverride={
             isOwner ? (
               <div className={styles.ownerOverrideRow}>
@@ -2563,7 +2674,7 @@ function EmptyState() {
 function ProductsSkeleton() {
   return (
     <div className={styles.grid}>
-      {Array.from({ length: 8 }).map((_, i) => (
+      {Array.from({ length: LIMIT }).map((_, i) => (
         <div key={i} className={styles.cardSkeleton}>
           <div className={styles.skelImage} />
           <div className={styles.skelLine} />

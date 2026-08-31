@@ -541,6 +541,9 @@ required: false,
     const vendorId = meVendor.id;
 
     const servicesPromise = prisma.vendorService.findMany({
+      // join: doar relații 1:1 (type, profile) + _count agregat -
+      // testat A/B cu date reale din DEV, rezultat identic, 3->1 query-uri.
+      relationLoadStrategy: "join",
       where: { vendorId },
       orderBy: { createdAt: "desc" },
       include: {

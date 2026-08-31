@@ -415,6 +415,46 @@
   border-top-left-radius: 5px;
 }
 
+/*
+ * Variantă pe CLASĂ (nu poziție) a bulei de mai sus - necesară doar
+ * pentru mesajele generice unde variantele/butoanele apar acum
+ * ÎNAINTEA textului (ordine cerută), deci div-ul de conținut nu mai
+ * e :first-child. Regulile de mai sus rămân neschimbate pentru toate
+ * celelalte tipuri de mesaj (poziția lor n-a fost atinsă).
+ */
+.artfest-assistant-message > div > .message-bubble {
+  padding: 10px 13px;
+
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: 17px;
+
+  background: var(--surface, #ffffff);
+  color: var(--color-text, #2d2d2d);
+
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
+
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.artfest-assistant-message-user > div > .message-bubble {
+  border-color: transparent;
+  border-top-right-radius: 5px;
+
+  background:
+    linear-gradient(
+      135deg,
+      var(--color-primary, #8b5cf6),
+      var(--color-hover, #7c3aed)
+    );
+
+  color: #ffffff;
+}
+
+.artfest-assistant-message-bot > div > .message-bubble {
+  border-top-left-radius: 5px;
+}
+
 /* Imagine trimisă */
 
 .artfest-assistant-message img {
@@ -978,6 +1018,16 @@
   margin-top: 8px;
 }
 
+/*
+ * Variantele apar ÎNAINTEA textului mesajului (ordine cerută) -
+ * fără spațiu deasupra (e primul element), cu spațiu dedesubt,
+ * înainte de bula de text care urmează.
+ */
+.choiceListLeading {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
 .choiceList button {
   padding: 7px 10px;
   border-radius: 999px;
@@ -1210,14 +1260,14 @@
 
   border-radius: 999px;
 
-  background: #dc2626;
+  background: var(--color-danger, #dc2626);
   color: #ffffff;
 
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
 
-  border: 2px solid #ffffff;
+  border: 2px solid var(--surface, #ffffff);
 
   z-index: 5;
   pointer-events: none;

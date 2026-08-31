@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:guest-intents": "node scripts/testGuestIntentRouter.mjs",
+    "test:guest-intents:hard": "node scripts/testGuestIntentHardSet.mjs",
+    "test:guest-intents:all": "npm run test:guest-intents && npm run test:guest-intents:hard"
   },
   "dependencies": {
     "axios": "^1.11.0",

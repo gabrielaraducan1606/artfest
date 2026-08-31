@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import styles from "../Orders.module.css";
+import { humanizeOptionValue } from "../../../../utils/optionLabels";
 
 const STATUS_LABEL = {
   PENDING: "În așteptare",
@@ -117,7 +118,7 @@ function readableValue(
     typeof value ===
     "object"
   ) {
-    return (
+    return humanizeOptionValue(
       value.label ||
       value.value ||
       value.name ||
@@ -125,7 +126,7 @@ function readableValue(
     );
   }
 
-  return String(value);
+  return humanizeOptionValue(String(value));
 }
 
 function readableLabel(key) {

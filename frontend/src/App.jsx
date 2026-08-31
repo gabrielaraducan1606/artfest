@@ -13,6 +13,8 @@ import {
 import {
   useEffect,
   useState,
+  lazy,
+  Suspense,
 } from "react";
 
 import ScrollToTop from "./components/ScrollToTop.jsx";
@@ -31,7 +33,8 @@ import CookieBanner from "./pages/CookieBanner/CookieBanner";
 
 import PublicCollectionPage from "./pages/Collections/PublicCollections.jsx";
 import PublicCampaignPage from "./pages/Campaigns/PublicCampaignPage.jsx";
-
+import PublicInfluencerCollectionPage
+  from "./pages/Influencer/PublicInfluencerCollectionPage/PublicInfluencerCollectionPage.jsx";
 import Login from "./pages/Auth/Login/Login";
 import Register from "./pages/Auth/Register/Register";
 import ForgotPassword from "./pages/Auth/ForgotPassword";
@@ -43,9 +46,20 @@ import Desktop from "./pages/Dasboard/Desktop";
 import OnboardingServices from "./pages/Vendor/Onboarding/OnBoardingServices/OnBoardingServices";
 import OnboardingDetails from "./pages/Vendor/Onboarding/OnBoardingDetails/OnBoardingDetails";
 
-import ProfilMagazin from "./pages/Vendor/ProfilMagazin/ProfilMagazin";
+// Lazy - profil magazin public, fișier mare; nu are ce căuta în
+// bundle-ul inițial al Products/Home. Prefetch-uit explicit la
+// hover/focus/touch pe cardul magazinului sau pe linkul vânzătorului
+// din ProductDetails.
+const ProfilMagazin = lazy(() =>
+  import("./pages/Vendor/ProfilMagazin/ProfilMagazin")
+);
 import StoreRedirect from "./pages/Vendor/ProfilMagazin/StoreRedirect";
-import DetaliiProdus from "./pages/Vendor/Produse/ProductDetails";
+// Lazy - fișier mare (4700+ linii); nu are ce căuta în bundle-ul
+// inițial al paginii Produse. Prefetch-uit explicit la hover/focus
+// pe ProductCard, ca tranziția să rămână instantă în fluxul normal.
+const DetaliiProdus = lazy(() =>
+  import("./pages/Vendor/Produse/ProductDetails")
+);
 
 import WishlistPage from "./pages/Wishlist/Wishlist";
 import CartPage from "./pages/Cart/Cart";
@@ -67,37 +81,72 @@ import NotificationsPage from "./pages/Vendor/Notifications/Notifications";
 import OrdersPage from "./pages/User/Orders/UserOrders.jsx";
 import MyOrderDetailsPage from "./pages/User/Orders/UserOrderDetails.jsx";
 
-import VendorOrdersPlanningPage from "./pages/Vendor/Orders/VendorOrdersPlaningPage.jsx";
+const VendorOrdersPlanningPage = lazy(() =>
+  import("./pages/Vendor/Orders/VendorOrdersPlaningPage.jsx")
+);
 import ProductsPage from "./pages/Products/Products";
 import StoresPage from "./pages/Stores/StoresPage";
 import AccountPage from "./pages/AccountPage/AccountPage";
 import MobileCategories from "./pages/Categories/MobileCategories";
 
-import ShopPlanner from "./pages/Vendor/Planner/ShopPlanner";
+const ShopPlanner = lazy(() =>
+  import("./pages/Vendor/Planner/ShopPlanner")
+);
 
 import VendorOrdersPage from "./pages/Vendor/Orders/Orders";
-import OrderDetailsPage from "./pages/Vendor/Orders/OrdersDetailsPage";
+// Lazy - fișier mare (2500+ linii); prefetch-uit explicit la
+// hover/focus/touch pe un rând din tabelul de comenzi, ca navigarea
+// efectivă să nu mai aștepte descărcarea codului paginii.
+const OrderDetailsPage = lazy(() =>
+  import("./pages/Vendor/Orders/OrdersDetailsPage")
+);
 
-import VendorHomepagePromotions from "./pages/Vendor/Promotions/VendorPromotions.jsx";
+const VendorHomepagePromotions = lazy(() =>
+  import("./pages/Vendor/Promotions/VendorPromotions.jsx")
+);
 import CatalogProdusePage from "./pages/Vendor/CatalogProduse/CatalogProduse.jsx";
 
-import VendorInvoicesPage from "./pages/Vendor/Invoices/InvoicePage.jsx";
-import CostLibraryPage from "./pages/Vendor/CostsProfit/CostLibraryPage.jsx";
-import ProfitabilityPage from "./pages/Vendor/CostsProfit/ProfitabilityPage.jsx";
-import ProductCostingDetailPage from "./pages/Vendor/CostsProfit/ProductCostingDetailPage.jsx";
-import UserInvoicesPage from "./pages/User/Invoices/UserInvoicesPage";
+const VendorInvoicesPage = lazy(() =>
+  import("./pages/Vendor/Invoices/InvoicePage.jsx")
+);
+const CostLibraryPage = lazy(() =>
+  import("./pages/Vendor/CostsProfit/CostLibraryPage.jsx")
+);
+const ProfitabilityPage = lazy(() =>
+  import("./pages/Vendor/CostsProfit/ProfitabilityPage.jsx")
+);
+const ProductCostingDetailPage = lazy(() =>
+  import("./pages/Vendor/CostsProfit/ProductCostingDetailPage.jsx")
+);
+const UserInvoicesPage = lazy(() =>
+  import("./pages/User/Invoices/UserInvoicesPage")
+);
 
 import UserDesktop from "./pages/User/UserDesktop/UserDesktop.jsx";
 
-import AdminDesktop from "./pages/Admin/AdminDesktop/AdminDesktop.jsx";
-import AdminMarketingPage from "./pages/Admin/AdminMarketing/AdminMarketingPage.jsx";
-import AdminMaintenance from "./pages/Admin/AdminMaintenance/AdminMaintenancePage.jsx";
-import AdminVendorPlansPage from "./pages/Admin/AdminVendorPlansPage/AdminVendorPlansPage.jsx";
-import AdminPickupsPage from "./pages/Admin/AdminPickupsPage/AdminPickupsPage.jsx";
-import AdminBillingToClientPage from "./pages/Admin/AdminBillingToClient/AdminBillingToClient.jsx";
+const AdminDesktop = lazy(() =>
+  import("./pages/Admin/AdminDesktop/AdminDesktop.jsx")
+);
+const AdminMarketingPage = lazy(() =>
+  import("./pages/Admin/AdminMarketing/AdminMarketingPage.jsx")
+);
+const AdminMaintenance = lazy(() =>
+  import("./pages/Admin/AdminMaintenance/AdminMaintenancePage.jsx")
+);
+const AdminVendorPlansPage = lazy(() =>
+  import("./pages/Admin/AdminVendorPlansPage/AdminVendorPlansPage.jsx")
+);
+const AdminPickupsPage = lazy(() =>
+  import("./pages/Admin/AdminPickupsPage/AdminPickupsPage.jsx")
+);
+const AdminBillingToClientPage = lazy(() =>
+  import("./pages/Admin/AdminBillingToClient/AdminBillingToClient.jsx")
+);
 
 import CategoryPage from "./pages/CategoryPage/CategoryPage.jsx";
-import RouteIncidentsPage from "./pages/Admin/AdminIncidentsPage/AdminIncidentsPage.jsx";
+const RouteIncidentsPage = lazy(() =>
+  import("./pages/Admin/AdminIncidentsPage/AdminIncidentsPage.jsx")
+);
 
 import UserSettingsPage from "./pages/User/UserSettings/UserSettingsPage.jsx";
 import UserNotificationsPage from "./pages/User/Notification/UserNotaificationPage.jsx";
@@ -479,6 +528,7 @@ export default function App() {
             "@artfest_ro",
         }}
       >
+        <Suspense fallback={null}>
         <Routes>
           {/* ================= PUBLIC / USER / VENDOR ================= */}
 
@@ -568,7 +618,12 @@ export default function App() {
                 <PublicCampaignPage />
               }
             />
-
+<Route
+  path="/selectii/:slug"
+  element={
+    <PublicInfluencerCollectionPage />
+  }
+/>
             <Route
               path="/confidentialitate"
               element={
@@ -1104,6 +1159,7 @@ export default function App() {
             />
           </Route>
         </Routes>
+        </Suspense>
 
         {/* Banner global, disponibil pe orice rută */}
         <CookieBanner />

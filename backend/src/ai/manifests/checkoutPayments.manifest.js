@@ -25,6 +25,9 @@ export const CHECKOUT_PAYMENTS_MANIFEST = {
     "avans comanda",
     "plata partiala",
     "ramburs",
+    "cos fara cont",
+    "cumpar fara cont",
+    "mai multi vanzatori intr-o comanda",
   ],
 
   aliases: [
@@ -37,6 +40,14 @@ export const CHECKOUT_PAYMENTS_MANIFEST = {
     "cat este avansul",
     "cum primesc avansul",
     "clientul poate plati doar avans",
+    "pot adauga produse in cos fara cont",
+    "pot cumpara fara sa ma inregistrez",
+    "trebuie cont ca sa adaug in cos",
+    "cosul de cumparaturi fara autentificare",
+    "pot cumpara de la mai multi vanzatori intr-o singura comanda",
+    "o comanda cu produse de la mai multi vanzatori",
+    "cos cu produse din magazine diferite",
+    "fiecare vanzator imi trimite coletul separat",
   ],
 
   uiLocations: [
@@ -49,6 +60,21 @@ export const CHECKOUT_PAYMENTS_MANIFEST = {
     cardPayment: { available: true },
     netopiaCheckout: { available: true },
     stripeConnectPayout: { available: true, audience: ["VENDOR"] },
+
+    guestCart: {
+      available: true,
+      audience: ["GUEST"],
+
+      notes:
+        "Coșul unui vizitator neautentificat e păstrat local, în browser (localStorage), fără niciun cont - poate adăuga produse, schimba cantități și le poate elimina la fel ca un cumpărător autentificat. Contul e cerut abia la checkout (plasarea comenzii propriu-zise).",
+    },
+
+    multiVendorCartAndCheckout: {
+      available: true,
+
+      notes:
+        "Coșul poate conține produse de la mai mulți vânzători simultan. La checkout se creează O SINGURĂ comandă (Order), dar cu câte o expediere (Shipment) separată per vânzător - fiecare vânzător își pregătește și expediază doar produsele lui, independent de ceilalți.",
+    },
 
     orderDeposit: {
       available: true,
@@ -142,10 +168,18 @@ export const CHECKOUT_PAYMENTS_MANIFEST = {
       q: "De ce nu apare comisionul corect?",
       a: "Comisionul depinde de planul de abonament activ al vânzătorului (procent din preț) - dacă pare greșit, verifică planul curent din Costuri & Profit sau contactează suportul dacă suspectezi o eroare.",
     },
+    {
+      q: "Pot adăuga produse în coș fără cont?",
+      a: "Da. Coșul unui vizitator neautentificat se ține local, în browser - poți adăuga produse, schimba cantitatea sau elimina un produs fără niciun cont. Ai nevoie de cont abia când plasezi efectiv comanda, la checkout.",
+    },
+    {
+      q: "Pot cumpăra de la mai mulți vânzători într-o singură comandă?",
+      a: "Da. Dacă ai în coș produse de la vânzători diferiți, la finalizare se creează o singură comandă, dar fiecare vânzător primește propria expediere - își pregătește și expediază doar produsele lui, separat de ceilalți.",
+    },
   ],
 
   unavailableFeatures: [],
 
   notes:
-    "Sursă: chekoutRoutes.js, checkoutNetopiaRoutes.js, cartRoutes.js, stripeWebhookRoutes.js, vendors.stripeConnect.js, billingRoutes.js. Comisionul e din SubscriptionPlan.commissionBps, fără endpoint dedicat separat. Avans: vendorOrdersRoutes.js (request-deposit - condiții exacte verificate direct în cod: doar COD, doar status PENDING, Stripe Connect activ, 15% fix, expiră în 24h) + userOrdersRoutes.js (pay-deposit, serializeShipmentDeposit). Adăugat/corectat 2026-08-25.",
+    "Sursă: chekoutRoutes.js, checkoutNetopiaRoutes.js, cartRoutes.js, stripeWebhookRoutes.js, vendors.stripeConnect.js, billingRoutes.js. Comisionul e din SubscriptionPlan.commissionBps, fără endpoint dedicat separat. Avans: vendorOrdersRoutes.js (request-deposit - condiții exacte verificate direct în cod: doar COD, doar status PENDING, Stripe Connect activ, 15% fix, expiră în 24h) + userOrdersRoutes.js (pay-deposit, serializeShipmentDeposit). Adăugat/corectat 2026-08-25. Extins 2026-08-28 (audit GUEST): guestCart.js (100% localStorage - getGuestCart/saveGuestCart/addToGuestCart, fără niciun apel de rețea, deci fără cont) pentru guestCart; chekoutRoutes.js (creare comandă - un singur tx.order.create, apoi `for (const s of quote.shipments) { tx.shipment.create({ vendorId: s.vendorId, ... }) }`, câte un Shipment per vânzător din quote) pentru multiVendorCartAndCheckout.",
 };

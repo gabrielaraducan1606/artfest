@@ -421,6 +421,16 @@ quoteSchema: [],
 export default function useProfilMagazin(slug, opts = {}) {
   const meFromProps = opts.me ?? null;
   const requestIdRef = useRef(0);
+  // Slug-ul pentru care `isOwner` a fost deja confirmat de un fetch
+  // real (nu doar moștenit din starea vizuală a magazinului anterior).
+  // Folosit ca să resetăm isOwner defensiv la schimbarea slug-ului,
+  // înainte să știm ownership-ul real al noului magazin.
+  const confirmedOwnerSlugRef = useRef(null);
+  // Slug-ul pentru care avem deja date vizibile (din cache sau dintr-un
+  // fetch anterior reușit) - folosit ca să decidem, la o eroare de
+  // revalidare, dacă păstrăm pagina cached (nu o ștergem) sau arătăm
+  // eroarea de "magazin negăsit" (doar când chiar nu avem nimic).
+  const shownDataSlugRef = useRef(null);
 
   const [sellerData, setSellerData] = useState(null);
   const [products, setProducts] = useState([]);
@@ -429,6 +439,10 @@ export default function useProfilMagazin(slug, opts = {}) {
 
   const [me, setMe] = useState(meFromProps);
   const [isOwner, setIsOwner] = useState(false);
+  // true dacă datele afișate (din cache sau dintr-un fetch anterior)
+  // nu au putut fi reconfirmate de ultima revalidare reală - NU sunt
+  // garantate actuale pentru preț/discount/stoc/campanie.
+  const [isStale, setIsStale] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
@@ -680,6 +694,43 @@ export default function useProfilMagazin(slug, opts = {}) {
     setReviews([]);
     setFavorites(new Set());
 
+    /*
+     * Defensiv: dacă slug-ul s-a schimbat față de ultimul pentru care
+     * am confirmat ownership-ul printr-un fetch real (navigare directă
+     * magazin propriu -> alt magazin, sau invers), resetăm isOwner
+     * ÎNAINTE de a afișa orice - inclusiv datele publice din cache de
+     * mai jos. Altfel, starea de owner a magazinului anterior ar
+     * rămâne vizibilă (controale de owner/admin) peste datele publice
+     * ale noului magazin, până la finalul fetch-ului real. Pentru
+     * ACELAȘI slug (revalidare de fundal) păstrăm isOwner - e deja
+     * confirmat corect, nu are sens să-l reascundem.
+     */
+    if (confirmedOwnerSlugRef.current !== currentSlug) {
+      setIsOwner(false);
+    }
+
+    /*
+     * Dacă avem deja o versiune (max 5 min vechime) din sessionStorage
+     * pentru acest slug (ex. Products/ProductDetails -> Profil Magazin
+     * -> Back -> Profil Magazin din nou), o afișăm INSTANT - fără
+     * skeleton - în timp ce fetch-ul real de mai jos rulează oricum și
+     * devine sursa finală. NU e folosită pentru pricing - produsele
+     * din `/store/:slug/initial` (mai jos) sunt singura sursă de preț/
+     * atribuire de campanie.
+     */
+    if (cached?.sellerData) {
+      setSellerData(cached.sellerData);
+      setProducts(
+        Array.isArray(cached.products) ? cached.products : []
+      );
+      setRating(Number(cached.rating || 0));
+      setLoading(false);
+      shownDataSlugRef.current = currentSlug;
+      // Nu știm încă dacă e stale sau nu - se confirmă mai jos, la
+      // succesul/eșecul revalidării reale.
+      setIsStale(true);
+    }
+
     try {
       loadCategoriesOnce();
 
@@ -689,21 +740,47 @@ export default function useProfilMagazin(slug, opts = {}) {
 
       let meNow = meFromProps;
 
-      if (!meFromProps) {
+      /*
+       * `/auth/me` și `/store/:slug/initial` sunt independente - al
+       * doilea nu are nevoie de rezultatul primului (doar decizia
+       * owner-vs-public, mai jos, are nevoie de amândouă). Le pornim
+       * simultan în loc de secvențial - economisește un round-trip
+       * întreg pe calea critică a primului paint.
+       */
+      if (typeof performance !== "undefined" && import.meta.env?.DEV) {
         try {
-          const authResponse = await api("/api/auth/me");
-
-          if (!isCurrent()) {
-            return;
-          }
-
-          meNow = authResponse?.user || null;
-          setMe(meNow);
+          performance.mark("store:fetch-start");
         } catch {
-          if (!isCurrent()) {
-            return;
-          }
+          // ignore
+        }
+      }
 
+      const [authSettled, initialSettled] = await Promise.allSettled([
+        meFromProps ? Promise.resolve({ user: meFromProps }) : api("/api/auth/me"),
+        api(
+          `/api/public/store/${encodeURIComponent(
+            currentSlug
+          )}/initial`
+        ),
+      ]);
+
+      if (typeof performance !== "undefined" && import.meta.env?.DEV) {
+        try {
+          performance.mark("store:fetch-end");
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!isCurrent()) {
+        return;
+      }
+
+      if (!meFromProps) {
+        if (authSettled.status === "fulfilled") {
+          meNow = authSettled.value?.user || null;
+          setMe(meNow);
+        } else {
           meNow = null;
           setMe(null);
         }
@@ -713,35 +790,29 @@ export default function useProfilMagazin(slug, opts = {}) {
       let itemsRaw = [];
       let ownerFromPrivateRoute = false;
 
-      try {
-        
-        const initial = await api(
-          `/api/public/store/${encodeURIComponent(
-            currentSlug
-          )}/initial`
-        );
+      let publicError =
+        initialSettled.status === "rejected"
+          ? initialSettled.reason
+          : null;
 
-        if (!isCurrent()) {
-          return;
-        }
+      if (!publicError) {
+        const initial = initialSettled.value;
 
         if (Array.isArray(initial)) {
-          throw { status: 404 };
+          publicError = { status: 404 };
+        } else {
+          normalizedShop =
+            normalizeSellerTypeForProfile(
+              initial?.shop || null
+            );
+
+          itemsRaw = Array.isArray(initial?.products)
+            ? initial.products
+            : [];
         }
+      }
 
-        normalizedShop =
-          normalizeSellerTypeForProfile(
-            initial?.shop || null
-          );
-
-        itemsRaw = Array.isArray(initial?.products)
-          ? initial.products
-          : [];
-      } catch (publicError) {
-        if (!isCurrent()) {
-          return;
-        }
-
+      if (publicError) {
         if (![404, 400].includes(publicError?.status)) {
           throw publicError;
         }
@@ -995,6 +1066,9 @@ if (owner) {
       setSellerData(normalizedShop);
       setProducts(itemsRaw);
       setIsOwner(owner);
+      confirmedOwnerSlugRef.current = currentSlug;
+      shownDataSlugRef.current = currentSlug;
+      setIsStale(false);
       setLoading(false);
 
       writeCache(cacheKey, {
@@ -1086,6 +1160,18 @@ if (owner) {
         "Eroare încărcare profil magazin:",
         error
       );
+
+      /*
+       * Dacă avem deja date vizibile pentru ACEST slug (din cache sau
+       * dintr-un fetch anterior reușit), o eroare de revalidare NU
+       * șterge pagina - doar marcăm starea ca stale. Ștergem/arătăm
+       * eroare de "negăsit" doar când chiar nu avem nimic de arătat.
+       */
+      if (shownDataSlugRef.current === currentSlug) {
+        setIsStale(true);
+        setLoading(false);
+        return;
+      }
 
       setErr("Nu am putut încărca magazinul.");
       setSellerData(null);
@@ -1641,6 +1727,7 @@ repeatedGroups:
     rating,
     me,
     isOwner,
+    isStale,
     viewMode,
     categories,
     favorites,

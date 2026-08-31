@@ -1,10 +1,20 @@
 // src/components/AIAssistant/Vendor/components/VendorProductWizard.jsx
 
 import React, {
+  useEffect,
   useMemo,
+  useRef,
+  useState,
 } from "react";
 
 import ProductVideoField from "../../../../components/ProductVideoField";
+
+import ProductModalWizard from "../../../../pages/Vendor/ProfilMagazin/modals/ProductModal/ProductModalWizard";
+import { useProductEditorController } from "../../../../pages/Vendor/ProfilMagazin/modals/useProductEditorController.js";
+import EditModal from "../../../../pages/Vendor/ProfilMagazin/ui/Modal";
+
+import styles from "./VendorProductWizard.module.css";
+import editStyles from "./VendorProductEditWizard.module.css";
 
 const EMPTY_DRAFT = {
   images: [],
@@ -171,6 +181,64 @@ function getAvailabilityLabel(
   }
 }
 
+/*
+ * Checklist proactiv (audit, cerința #14) - NU dezactivează butonul
+ * de salvare fără explicație, doar arată ce lipsește ÎNAINTE ca
+ * vendorul să apese "Salvează produsul" - validarea reactivă din
+ * handlePublishProductFromWizard (VendorAssistant.jsx) rămâne
+ * neatinsă, ca ultimă plasă de siguranță.
+ */
+export function getMissingFields(
+  safeDraft,
+  images
+) {
+  const missing = [];
+
+  if (
+    !String(
+      safeDraft.title || ""
+    ).trim()
+  ) {
+    missing.push("titlu");
+  }
+
+  if (!images.length) {
+    missing.push("cel puțin o fotografie");
+  }
+
+  /*
+   * BUGFIX (audit) - QUOTE_ONLY cere acum preț orientativ > 0, la fel
+   * ca celelalte moduri (nu doar "necompletat" - un 0 introdus
+   * explicit tot trebuie semnalat, exact ca la READY_TO_BUY/OPTIONS).
+   */
+  const priceNum = Number(
+    safeDraft.price ?? ""
+  );
+
+  if (
+    !Number.isFinite(priceNum) ||
+    priceNum <= 0
+  ) {
+    missing.push("preț");
+  }
+
+  if (!safeDraft.availability) {
+    missing.push("disponibilitate");
+  }
+
+  if (
+    safeDraft.availability ===
+      "MADE_TO_ORDER" &&
+    !String(
+      safeDraft.leadTimeDays ?? ""
+    ).trim()
+  ) {
+    missing.push("timp de realizare");
+  }
+
+  return missing;
+}
+
 function getFieldTypeLabel(
   type
 ) {
@@ -209,26 +277,22 @@ function SchemaFields({
 
   return (
     <div
-      style={{
-        marginTop: 14,
-      }}
+      className={
+        styles.cardSpaced
+      }
     >
       <strong
-        style={{
-          display: "block",
-          marginBottom: 8,
-          fontSize: 13,
-          color: "#493932",
-        }}
+        className={
+          styles.schemaFieldsTitle
+        }
       >
         {title}
       </strong>
 
       <div
-        style={{
-          display: "grid",
-          gap: 8,
-        }}
+        className={
+          styles.schemaFieldsGrid
+        }
       >
         {fields.map(
           (
@@ -241,49 +305,24 @@ function SchemaFields({
                 field?.id ||
                 `field-${index}`
               }
-              style={{
-                border:
-                  "1px solid rgba(70, 45, 35, 0.1)",
-
-                borderRadius:
-                  10,
-
-                padding:
-                  "10px 11px",
-
-                background:
-                  "#ffffff",
-              }}
+              className={
+                styles.schemaField
+              }
             >
               <div
-                style={{
-                  display:
-                    "flex",
-
-                  justifyContent:
-                    "space-between",
-
-                  alignItems:
-                    "center",
-
-                  gap: 10,
-                }}
+                className={
+                  styles.schemaFieldHeader
+                }
               >
-                <strong
-                  style={{
-                    fontSize:
-                      13,
-                  }}
-                >
+                <strong>
                   {field?.label ||
                     "Câmp"}
                 </strong>
 
                 <small
-                  style={{
-                    color:
-                      "#8a6f62",
-                  }}
+                  className={
+                    styles.schemaFieldType
+                  }
                 >
                   {getFieldTypeLabel(
                     field?.type
@@ -292,15 +331,9 @@ function SchemaFields({
               </div>
 
               <small
-                style={{
-                  display:
-                    "block",
-
-                  marginTop: 4,
-
-                  color:
-                    "#75635a",
-                }}
+                className={
+                  styles.schemaFieldMeta
+                }
               >
                 {field?.required
                   ? "Obligatoriu"
@@ -313,16 +346,9 @@ function SchemaFields({
                 field.options.length >
                   0 && (
                   <small
-                    style={{
-                      display:
-                        "block",
-
-                      marginTop:
-                        5,
-
-                      color:
-                        "#75635a",
-                    }}
+                    className={
+                      styles.schemaFieldMeta
+                    }
                   >
                     Variante:{" "}
                     {field.options.join(
@@ -338,7 +364,7 @@ function SchemaFields({
   );
 }
 
-export default function VendorProductWizard({
+function VendorProductCreateWizard({
   draft,
   setDraft,
 
@@ -391,6 +417,33 @@ export default function VendorProductWizard({
       2 &&
     !analyzingOrder;
 
+  const missingFields =
+    useMemo(
+      () =>
+        getMissingFields(
+          safeDraft,
+          images
+        ),
+      [safeDraft, images]
+    );
+
+  /*
+   * Confirmare explicită înainte de publicare (audit, cerința #15) -
+   * "Salvează produsul" nu mai declanșează direct salvarea, cere
+   * întâi confirmare într-un card, nu într-un window.confirm() brut.
+   * Resetăm starea de confirmare dacă vendorul schimbă pasul (ex.
+   * "Modifică informațiile"), ca la revenirea la rezumat să nu vadă
+   * cardul de confirmare rămas deschis dintr-o încercare anterioară.
+   */
+  const [
+    confirmingPublish,
+    setConfirmingPublish,
+  ] = useState(false);
+
+  useEffect(() => {
+    setConfirmingPublish(false);
+  }, [step]);
+
   function updateDraft(
     patch
   ) {
@@ -413,187 +466,21 @@ export default function VendorProductWizard({
     );
   }
 
-  const wrapperStyle = {
-    display: "flex",
-    flexDirection: "column",
-    minHeight: 0,
-    height: "100%",
-    background: "#ffffff",
-  };
-
-  const headerStyle = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent:
-      "space-between",
-    gap: 12,
-    padding: "14px 16px",
-    borderBottom:
-      "1px solid rgba(60, 40, 30, 0.1)",
-  };
-
-  const headerButtonStyle = {
-    border: 0,
-    background:
-      "transparent",
-    cursor: "pointer",
-    fontSize: 14,
-    color: "#5f4a40",
-    padding: 6,
-  };
-
-  const contentStyle = {
-    flex: 1,
-    minHeight: 0,
-    overflowY: "auto",
-    padding: 16,
-  };
-
-  const progressStyle = {
-    fontSize: 12,
-    fontWeight: 700,
-    color: "#8a6f62",
-    marginBottom: 6,
-    textTransform:
-      "uppercase",
-    letterSpacing:
-      "0.04em",
-  };
-
-  const titleStyle = {
-    margin: "0 0 8px",
-    fontSize: 21,
-    lineHeight: 1.25,
-    color: "#2e2521",
-  };
-
-  const textStyle = {
-    margin: "0 0 16px",
-    fontSize: 14,
-    lineHeight: 1.55,
-    color: "#64544c",
-  };
-
-  const primaryButtonStyle = {
-    width: "100%",
-    border: 0,
-    borderRadius: 12,
-    padding:
-      "12px 14px",
-    cursor: "pointer",
-    fontWeight: 700,
-    fontSize: 14,
-    background:
-      "#6f4e43",
-    color: "#ffffff",
-  };
-
-  const disabledButtonStyle = {
-    opacity: 0.55,
-    cursor:
-      "not-allowed",
-  };
-
-  const secondaryButtonStyle = {
-    width: "100%",
-    border:
-      "1px solid rgba(70, 45, 35, 0.18)",
-    borderRadius: 12,
-    padding:
-      "11px 14px",
-    cursor: "pointer",
-    fontWeight: 700,
-    fontSize: 14,
-    background:
-      "#ffffff",
-    color: "#4f3b33",
-  };
-
-  const cardStyle = {
-    border:
-      "1px solid rgba(70, 45, 35, 0.12)",
-    borderRadius: 14,
-    padding: 14,
-    background:
-      "#fcfaf8",
-    marginBottom: 12,
-  };
-
-  /*
-   * Feedback pentru "Salvează produsul" (loading/succes/eroare) -
-   * folosesc STRICT variabilele globale Artfest, nu paleta maro
-   * folosită în restul acestui fișier (pre-existentă, neatinsă
-   * aici - vezi raportul final).
-   */
-  const successCardStyle = {
-    border:
-      "1px solid var(--color-success, #16a34a)",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 12,
-
-    background:
-      "color-mix(in srgb, var(--color-success, #16a34a) 10%, transparent)",
-
-    color: "var(--color-text, #2d2d2d)",
-  };
-
-  const errorTextStyle = {
-    color: "var(--color-danger, #dc2626)",
-    fontSize: 12.5,
-    margin: "8px 0 0",
-  };
-
-  const warningTextStyle = {
-    color: "var(--color-warning, #f59e0b)",
-    fontSize: 12.5,
-    margin: "6px 0 0",
-  };
-
-  const labelStyle = {
-    display: "block",
-    fontWeight: 700,
-    fontSize: 13,
-    marginBottom: 6,
-    color: "#493932",
-  };
-
-  const inputStyle = {
-    width: "100%",
-    boxSizing:
-      "border-box",
-    border:
-      "1px solid rgba(70, 45, 35, 0.18)",
-    borderRadius: 10,
-    padding:
-      "10px 11px",
-    fontSize: 14,
-    outline: "none",
-    background:
-      "#ffffff",
-  };
-
-  const buttonGroupStyle = {
-    display: "grid",
-    gap: 9,
-    marginTop: 16,
-  };
-
   return (
     <section
-      style={
-        wrapperStyle
+      className={
+        styles.wrapper
       }
     >
       <header
-        style={
-          headerStyle
+        className={
+          styles.header
         }
       >
         <button
           type="button"
-          style={
-            headerButtonStyle
+          className={
+            styles.headerButton
           }
           onClick={
             onBack
@@ -602,14 +489,18 @@ export default function VendorProductWizard({
           ← Înapoi
         </button>
 
-        <strong>
+        <strong
+          className={
+            styles.headerTitle
+          }
+        >
           Adaugă produs
         </strong>
 
         <button
           type="button"
-          style={
-            headerButtonStyle
+          className={
+            styles.headerButton
           }
           onClick={
             onClose
@@ -621,32 +512,32 @@ export default function VendorProductWizard({
       </header>
 
       <div
-        style={
-          contentStyle
+        className={
+          styles.content
         }
       >
         {step ===
           "images" && (
           <>
             <div
-              style={
-                progressStyle
+              className={
+                styles.progress
               }
             >
               Pasul 1 din 6
             </div>
 
             <h3
-              style={
-                titleStyle
+              className={
+                styles.title
               }
             >
               Încarcă fotografiile produsului
             </h3>
 
             <p
-              style={
-                textStyle
+              className={
+                styles.text
               }
             >
               Adaugă una sau mai multe fotografii clare. AI-ul va pregăti informațiile de bază ale produsului.
@@ -655,16 +546,9 @@ export default function VendorProductWizard({
             {images.length >
               0 && (
               <div
-                style={{
-                  display:
-                    "grid",
-
-                  gridTemplateColumns:
-                    "repeat(3, minmax(0, 1fr))",
-
-                  gap: 8,
-                  marginBottom: 14,
-                }}
+                className={
+                  styles.imageGrid
+                }
               >
                 {images.map(
                   (
@@ -688,19 +572,9 @@ export default function VendorProductWizard({
                           image?.id ||
                           `${imageUrl}-${index}`
                         }
-                        style={{
-                          aspectRatio:
-                            "1 / 1",
-
-                          overflow:
-                            "hidden",
-
-                          borderRadius:
-                            10,
-
-                          background:
-                            "#f2ece8",
-                        }}
+                        className={
+                          styles.imageThumb
+                        }
                       >
                         <img
                           src={
@@ -710,16 +584,6 @@ export default function VendorProductWizard({
                             index +
                             1
                           }`}
-                          style={{
-                            width:
-                              "100%",
-
-                            height:
-                              "100%",
-
-                            objectFit:
-                              "cover",
-                          }}
                         />
                       </div>
                     );
@@ -729,14 +593,14 @@ export default function VendorProductWizard({
             )}
 
             <div
-              style={
-                buttonGroupStyle
+              className={
+                styles.buttonGroup
               }
             >
               <button
                 type="button"
-                style={
-                  primaryButtonStyle
+                className={
+                  styles.primaryButton
                 }
                 onClick={
                   onUpload
@@ -749,13 +613,9 @@ export default function VendorProductWizard({
                 0 && (
                 <button
                   type="button"
-                  style={{
-                    ...secondaryButtonStyle,
-
-                    ...(!canAnalyze
-                      ? disabledButtonStyle
-                      : {}),
-                  }}
+                  className={
+                    styles.secondaryButton
+                  }
                   disabled={
                     !canAnalyze
                   }
@@ -772,8 +632,10 @@ export default function VendorProductWizard({
 
             <button
               type="button"
+              className={
+                styles.secondaryButton
+              }
               style={{
-                ...secondaryButtonStyle,
                 marginTop: 8,
               }}
               onClick={() =>
@@ -786,12 +648,9 @@ export default function VendorProductWizard({
             </button>
 
             <small
-              style={{
-                display: "block",
-                marginTop: 6,
-                color: "#8a6f62",
-                lineHeight: 1.4,
-              }}
+              className={
+                styles.hint
+              }
             >
               Poți completa titlul,
               descrierea și restul
@@ -827,32 +686,32 @@ export default function VendorProductWizard({
           "analysis" && (
           <>
             <div
-              style={
-                progressStyle
+              className={
+                styles.progress
               }
             >
               Pasul 2 din 6
             </div>
 
             <h3
-              style={
-                titleStyle
+              className={
+                styles.title
               }
             >
               AI-ul pregătește produsul
             </h3>
 
             <p
-              style={
-                textStyle
+              className={
+                styles.text
               }
             >
               Analizăm fotografiile și identificăm informațiile care pot fi completate automat.
             </p>
 
             <div
-              style={
-                cardStyle
+              className={
+                styles.card
               }
             >
               <strong>
@@ -860,19 +719,9 @@ export default function VendorProductWizard({
               </strong>
 
               <ul
-                style={{
-                  margin:
-                    "10px 0 0",
-
-                  paddingLeft:
-                    20,
-
-                  color:
-                    "#64544c",
-
-                  lineHeight:
-                    1.7,
-                }}
+                className={
+                  styles.infoList
+                }
               >
                 <li>
                   tipul produsului;
@@ -902,37 +751,37 @@ export default function VendorProductWizard({
           "details" && (
           <>
             <div
-              style={
-                progressStyle
+              className={
+                styles.progress
               }
             >
               Pasul 3 din 6
             </div>
 
             <h3
-              style={
-                titleStyle
+              className={
+                styles.title
               }
             >
               Verifică informațiile propuse
             </h3>
 
             <p
-              style={
-                textStyle
+              className={
+                styles.text
               }
             >
               AI-ul a completat informațiile pe care le-a putut identifica. Poți modifica orice câmp.
             </p>
 
             <div
-              style={
-                cardStyle
+              className={
+                styles.card
               }
             >
               <label
-                style={
-                  labelStyle
+                className={
+                  styles.label
                 }
               >
                 Titlu
@@ -952,21 +801,21 @@ export default function VendorProductWizard({
                         .value,
                   })
                 }
-                style={
-                  inputStyle
+                className={
+                  styles.input
                 }
                 placeholder="Titlul produsului"
               />
             </div>
 
             <div
-              style={
-                cardStyle
+              className={
+                styles.card
               }
             >
               <label
-                style={
-                  labelStyle
+                className={
+                  styles.label
                 }
               >
                 Descriere
@@ -987,23 +836,19 @@ export default function VendorProductWizard({
                   })
                 }
                 rows={6}
-                style={{
-                  ...inputStyle,
-                  resize:
-                    "vertical",
-                }}
+                className={`${styles.input} ${styles.textarea}`}
                 placeholder="Descrierea produsului"
               />
             </div>
 
             <div
-              style={
-                cardStyle
+              className={
+                styles.card
               }
             >
               <label
-                style={
-                  labelStyle
+                className={
+                  styles.label
                 }
               >
                 Categorie
@@ -1023,8 +868,8 @@ export default function VendorProductWizard({
                         .value,
                   })
                 }
-                style={
-                  inputStyle
+                className={
+                  styles.input
                 }
                 placeholder="Categoria"
               />
@@ -1033,13 +878,13 @@ export default function VendorProductWizard({
             {safeDraft
               .materialMain && (
               <div
-                style={
-                  cardStyle
+                className={
+                  styles.card
                 }
               >
                 <label
-                  style={
-                    labelStyle
+                  className={
+                    styles.label
                   }
                 >
                   Material identificat
@@ -1060,8 +905,8 @@ export default function VendorProductWizard({
                           .value,
                     })
                   }
-                  style={
-                    inputStyle
+                  className={
+                    styles.input
                   }
                 />
               </div>
@@ -1070,13 +915,13 @@ export default function VendorProductWizard({
             {safeDraft
               .color && (
               <div
-                style={
-                  cardStyle
+                className={
+                  styles.card
                 }
               >
                 <label
-                  style={
-                    labelStyle
+                  className={
+                    styles.label
                   }
                 >
                   Culoare identificată
@@ -1096,22 +941,22 @@ export default function VendorProductWizard({
                           .value,
                     })
                   }
-                  style={
-                    inputStyle
+                  className={
+                    styles.input
                   }
                 />
               </div>
             )}
 
             <div
-              style={
-                buttonGroupStyle
+              className={
+                styles.buttonGroup
               }
             >
               <button
                 type="button"
-                style={
-                  primaryButtonStyle
+                className={
+                  styles.primaryButton
                 }
                 onClick={() =>
                   goToStep(
@@ -1124,8 +969,8 @@ export default function VendorProductWizard({
 
               <button
                 type="button"
-                style={
-                  secondaryButtonStyle
+                className={
+                  styles.secondaryButton
                 }
                 onClick={() =>
                   goToStep(
@@ -1143,36 +988,31 @@ export default function VendorProductWizard({
           "order" && (
           <>
             <div
-              style={
-                progressStyle
+              className={
+                styles.progress
               }
             >
               Pasul 4 din 6
             </div>
 
             <h3
-              style={
-                titleStyle
+              className={
+                styles.title
               }
             >
               Cum se comandă produsul?
             </h3>
 
             <p
-              style={
-                textStyle
+              className={
+                styles.text
               }
             >
               Explică simplu ce trebuie să aleagă sau să completeze clientul. AI-ul va transforma explicația într-un formular de comandă.
             </p>
 
             <div
-              style={{
-                ...cardStyle,
-                background: "#eef2ff",
-                borderColor:
-                  "rgba(67, 56, 202, 0.18)",
-              }}
+              className={`${styles.card} ${styles.cardAccentInfo}`}
             >
               <strong
                 style={{
@@ -1186,7 +1026,6 @@ export default function VendorProductWizard({
               <p
                 style={{
                   margin: "0 0 6px",
-                  color: "#3730a3",
                   fontSize: 13,
                   lineHeight: 1.5,
                 }}
@@ -1200,7 +1039,6 @@ export default function VendorProductWizard({
               <p
                 style={{
                   margin: 0,
-                  color: "#3730a3",
                   fontSize: 13,
                   lineHeight: 1.5,
                 }}
@@ -1216,27 +1054,14 @@ export default function VendorProductWizard({
             </div>
 
             <div
-              style={{
-                ...cardStyle,
-
-                background:
-                  "#f8f4f1",
-              }}
+              className={
+                styles.card
+              }
             >
               <small
-                style={{
-                  display:
-                    "block",
-
-                  marginBottom:
-                    5,
-
-                  color:
-                    "#8a6f62",
-
-                  fontWeight:
-                    700,
-                }}
+                className={
+                  styles.cardEyebrow
+                }
               >
                 AI-ul sugerează:
               </small>
@@ -1248,19 +1073,9 @@ export default function VendorProductWizard({
               </strong>
 
               <p
-                style={{
-                  margin:
-                    "7px 0 0",
-
-                  color:
-                    "#64544c",
-
-                  fontSize:
-                    13,
-
-                  lineHeight:
-                    1.5,
-                }}
+                className={
+                  styles.cardSubtext
+                }
               >
                 {getOrderModeDescription(
                   safeDraft.orderMode
@@ -1269,13 +1084,13 @@ export default function VendorProductWizard({
             </div>
 
             <div
-              style={
-                cardStyle
+              className={
+                styles.card
               }
             >
               <label
-                style={
-                  labelStyle
+                className={
+                  styles.label
                 }
               >
                 Cum trebuie să comande clientul?
@@ -1297,29 +1112,14 @@ export default function VendorProductWizard({
                   })
                 }
                 rows={6}
-                style={{
-                  ...inputStyle,
-
-                  resize:
-                    "vertical",
-                }}
+                className={`${styles.input} ${styles.textarea}`}
                 placeholder="Exemplu: Clientul alege membrii familiei, iar pentru fiecare selectează mărimea și textul. Materialul se alege o singură dată pentru întregul set."
               />
 
               <small
-                style={{
-                  display:
-                    "block",
-
-                  marginTop:
-                    7,
-
-                  color:
-                    "#75635a",
-
-                  lineHeight:
-                    1.4,
-                }}
+                className={
+                  styles.hint
+                }
               >
                 Poți scrie normal. Nu trebuie să creezi singur câmpurile sau variantele.
               </small>
@@ -1328,34 +1128,16 @@ export default function VendorProductWizard({
             {safeDraft
               .aiOrderMessage && (
               <div
-                style={{
-                  ...cardStyle,
-
-                  background:
-                    "#f5f8f3",
-
-                  borderColor:
-                    "rgba(70, 110, 65, 0.2)",
-                }}
+                className={`${styles.card} ${styles.cardAccentSuccess}`}
               >
                 <strong>
                   Ce a pregătit AI-ul
                 </strong>
 
                 <p
-                  style={{
-                    margin:
-                      "7px 0 0",
-
-                    color:
-                      "#52604f",
-
-                    lineHeight:
-                      1.5,
-
-                    whiteSpace:
-                      "pre-wrap",
-                  }}
+                  className={
+                    styles.cardSubtextLarge
+                  }
                 >
                   {
                     safeDraft
@@ -1368,8 +1150,8 @@ export default function VendorProductWizard({
             {safeDraft
               .aiOrderReason && (
               <div
-                style={
-                  cardStyle
+                className={
+                  styles.card
                 }
               >
                 <strong>
@@ -1377,19 +1159,9 @@ export default function VendorProductWizard({
                 </strong>
 
                 <p
-                  style={{
-                    margin:
-                      "7px 0 0",
-
-                    color:
-                      "#64544c",
-
-                    fontSize:
-                      13,
-
-                    lineHeight:
-                      1.5,
-                  }}
+                  className={
+                    styles.cardSubtext
+                  }
                 >
                   {
                     safeDraft
@@ -1428,31 +1200,16 @@ export default function VendorProductWizard({
               .length >
               0 && (
               <div
-                style={{
-                  ...cardStyle,
-
-                  marginTop:
-                    14,
-                }}
+                className={`${styles.card} ${styles.cardSpaced}`}
               >
                 <strong>
                   Detalii completate separat pentru fiecare element
                 </strong>
 
                 <p
-                  style={{
-                    margin:
-                      "7px 0 0",
-
-                    color:
-                      "#64544c",
-
-                    fontSize:
-                      13,
-
-                    lineHeight:
-                      1.5,
-                  }}
+                  className={
+                    styles.cardSubtext
+                  }
                 >
                   AI-ul a detectat că produsul conține mai multe elemente sau persoane care trebuie configurate separat. Clientul va putea adăuga mai mulți membri și, pentru fiecare, va completa:
                 </p>
@@ -1461,8 +1218,6 @@ export default function VendorProductWizard({
                   style={{
                     margin:
                       "6px 0 0",
-                    color:
-                      "#493932",
                     fontSize:
                       13,
                     fontWeight: 700,
@@ -1489,37 +1244,16 @@ export default function VendorProductWizard({
               .length >
               0 && (
               <div
-                style={{
-                  ...cardStyle,
-
-                  background:
-                    "#fffaf0",
-
-                  borderColor:
-                    "rgba(175, 130, 35, 0.2)",
-
-                  marginTop:
-                    14,
-                }}
+                className={`${styles.card} ${styles.cardAccentWarning} ${styles.cardSpaced}`}
               >
                 <strong>
                   AI-ul mai are nevoie de câteva informații
                 </strong>
 
                 <ul
-                  style={{
-                    margin:
-                      "9px 0 0",
-
-                    paddingLeft:
-                      20,
-
-                    color:
-                      "#6f5c32",
-
-                    lineHeight:
-                      1.6,
-                  }}
+                  className={
+                    styles.infoList
+                  }
                 >
                   {safeDraft
                     .aiQuestions
@@ -1540,16 +1274,9 @@ export default function VendorProductWizard({
                 </ul>
 
                 <small
-                  style={{
-                    display:
-                      "block",
-
-                    marginTop:
-                      8,
-
-                    color:
-                      "#756943",
-                  }}
+                  className={
+                    styles.hint
+                  }
                 >
                   Poți include răspunsurile direct în explicația de mai sus și apoi să apeși din nou butonul AI.
                 </small>
@@ -1557,8 +1284,8 @@ export default function VendorProductWizard({
             )}
 
             <div
-              style={
-                buttonGroupStyle
+              className={
+                styles.buttonGroup
               }
             >
               <button
@@ -1566,13 +1293,9 @@ export default function VendorProductWizard({
                 disabled={
                   !canAnalyzeOrder
                 }
-                style={{
-                  ...primaryButtonStyle,
-
-                  ...(!canAnalyzeOrder
-                    ? disabledButtonStyle
-                    : {}),
-                }}
+                className={
+                  styles.primaryButton
+                }
                 onClick={
                   onAnalyzeOrder
                 }
@@ -1584,8 +1307,8 @@ export default function VendorProductWizard({
 
               <button
                 type="button"
-                style={
-                  secondaryButtonStyle
+                className={
+                  styles.secondaryButton
                 }
                 onClick={() =>
                   goToStep(
@@ -1598,8 +1321,8 @@ export default function VendorProductWizard({
 
               <button
                 type="button"
-                style={
-                  secondaryButtonStyle
+                className={
+                  styles.secondaryButton
                 }
                 onClick={() =>
                   goToStep(
@@ -1617,103 +1340,105 @@ export default function VendorProductWizard({
           "commercial" && (
           <>
             <div
-              style={
-                progressStyle
+              className={
+                styles.progress
               }
             >
               Pasul 5 din 6
             </div>
 
             <h3
-              style={
-                titleStyle
+              className={
+                styles.title
               }
             >
               Preț și disponibilitate
             </h3>
 
-            {safeDraft.orderMode !==
-              "QUOTE_ONLY" && (
-              <div
-                style={
-                  cardStyle
-                }
-              >
-                <label
-                  style={
-                    labelStyle
-                  }
-                >
-                  Preț
-                </label>
-
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={
-                    safeDraft.price
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    updateDraft({
-                      price:
-                        event
-                          .target
-                          .value,
-                    })
-                  }
-                  style={
-                    inputStyle
-                  }
-                  placeholder="Ex: 120"
-                />
-              </div>
-            )}
-
-            {safeDraft.orderMode ===
-              "QUOTE_ONLY" && (
-              <div
-                style={{
-                  ...cardStyle,
-
-                  background:
-                    "#fffaf0",
-                }}
-              >
-                <strong>
-                  Produs cu cerere de ofertă
-                </strong>
-
-                <p
-                  style={{
-                    margin:
-                      "7px 0 0",
-
-                    color:
-                      "#64544c",
-
-                    fontSize:
-                      13,
-
-                    lineHeight:
-                      1.5,
-                  }}
-                >
-                  Prețul nu este afișat deoarece va fi stabilit după ce clientul trimite cerințele.
-                </p>
-              </div>
-            )}
-
             <div
-              style={
-                cardStyle
+              className={
+                styles.card
               }
             >
               <label
-                style={
-                  labelStyle
+                className={
+                  styles.label
+                }
+              >
+                {safeDraft.orderMode ===
+                "QUOTE_ONLY"
+                  ? "Preț orientativ / de la (RON)"
+                  : "Preț"}
+              </label>
+
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={
+                  safeDraft.price
+                }
+                onChange={(
+                  event
+                ) =>
+                  updateDraft({
+                    price:
+                      event
+                        .target
+                        .value,
+                  })
+                }
+                className={
+                  styles.input
+                }
+                placeholder={
+                  safeDraft.orderMode ===
+                  "QUOTE_ONLY"
+                    ? "Ex: 150"
+                    : "Ex: 120"
+                }
+              />
+
+              {/*
+               * BUGFIX (audit) - QUOTE_ONLY cere acum un preț
+               * orientativ real, ca și celelalte moduri - nu mai
+               * ascundem inputul, doar explicăm ce înseamnă.
+               */}
+              {safeDraft.orderMode ===
+                "QUOTE_ONLY" && (
+                <p
+                  className={
+                    styles.cardSubtext
+                  }
+                >
+                  Prețul final poate varia în funcție de cerințele clientului și va fi stabilit în urma cererii de ofertă.
+                </p>
+              )}
+
+              <a
+                href="/vendor/costs-profit"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={
+                  styles.hint
+                }
+                style={{
+                  textDecoration:
+                    "underline",
+                }}
+              >
+                Vezi calculatorul de cost și profit (se deschide într-o filă nouă - draftul rămâne aici)
+              </a>
+            </div>
+
+            <div
+              className={
+                styles.card
+              }
+            >
+              <label
+                className={
+                  styles.label
                 }
               >
                 Disponibilitate
@@ -1734,8 +1459,8 @@ export default function VendorProductWizard({
                         .value,
                   })
                 }
-                style={
-                  inputStyle
+                className={
+                  styles.input
                 }
               >
                 <option value="">
@@ -1764,13 +1489,13 @@ export default function VendorProductWizard({
               .availability ===
               "READY" && (
               <div
-                style={
-                  cardStyle
+                className={
+                  styles.card
                 }
               >
                 <label
-                  style={
-                    labelStyle
+                  className={
+                    styles.label
                   }
                 >
                   Cantitate disponibilă
@@ -1794,8 +1519,8 @@ export default function VendorProductWizard({
                           .value,
                     })
                   }
-                  style={
-                    inputStyle
+                  className={
+                    styles.input
                   }
                 />
               </div>
@@ -1805,13 +1530,13 @@ export default function VendorProductWizard({
               .availability ===
               "MADE_TO_ORDER" && (
               <div
-                style={
-                  cardStyle
+                className={
+                  styles.card
                 }
               >
                 <label
-                  style={
-                    labelStyle
+                  className={
+                    styles.label
                   }
                 >
                   Timp de realizare în zile
@@ -1835,22 +1560,22 @@ export default function VendorProductWizard({
                           .value,
                     })
                   }
-                  style={
-                    inputStyle
+                  className={
+                    styles.input
                   }
                 />
               </div>
             )}
 
             <div
-              style={
-                buttonGroupStyle
+              className={
+                styles.buttonGroup
               }
             >
               <button
                 type="button"
-                style={
-                  primaryButtonStyle
+                className={
+                  styles.primaryButton
                 }
                 onClick={() =>
                   goToStep(
@@ -1863,8 +1588,8 @@ export default function VendorProductWizard({
 
               <button
                 type="button"
-                style={
-                  secondaryButtonStyle
+                className={
+                  styles.secondaryButton
                 }
                 onClick={() =>
                   goToStep(
@@ -1882,16 +1607,16 @@ export default function VendorProductWizard({
           "summary" && (
           <>
             <div
-              style={
-                progressStyle
+              className={
+                styles.progress
               }
             >
               Pasul 6 din 6
             </div>
 
             <h3
-              style={
-                titleStyle
+              className={
+                styles.title
               }
             >
               Verifică produsul
@@ -1899,25 +1624,9 @@ export default function VendorProductWizard({
 
             {images[0] && (
               <div
-                style={{
-                  width:
-                    "100%",
-
-                  aspectRatio:
-                    "16 / 10",
-
-                  overflow:
-                    "hidden",
-
-                  borderRadius:
-                    14,
-
-                  marginBottom:
-                    12,
-
-                  background:
-                    "#f2ece8",
-                }}
+                className={
+                  styles.summaryImage
+                }
               >
                 <img
                   src={
@@ -1929,23 +1638,13 @@ export default function VendorProductWizard({
                     safeDraft.title ||
                     "Produs"
                   }
-                  style={{
-                    width:
-                      "100%",
-
-                    height:
-                      "100%",
-
-                    objectFit:
-                      "cover",
-                  }}
                 />
               </div>
             )}
 
             <div
-              style={
-                cardStyle
+              className={
+                styles.card
               }
             >
               <strong>
@@ -1954,37 +1653,18 @@ export default function VendorProductWizard({
               </strong>
 
               <p
-                style={{
-                  margin:
-                    "8px 0",
-
-                  color:
-                    "#64544c",
-
-                  whiteSpace:
-                    "pre-wrap",
-
-                  lineHeight:
-                    1.5,
-                }}
+                className={
+                  styles.cardSubtextLarge
+                }
               >
                 {safeDraft.description ||
                   "Descrierea nu este completată."}
               </p>
 
               <div
-                style={{
-                  display:
-                    "grid",
-
-                  gap: 6,
-
-                  fontSize:
-                    13,
-
-                  color:
-                    "#64544c",
-                }}
+                className={
+                  styles.summaryMetaGrid
+                }
               >
                 <span>
                   Categorie:{" "}
@@ -1995,14 +1675,19 @@ export default function VendorProductWizard({
                 </span>
 
                 <span>
-                  Preț:{" "}
+                  {safeDraft.orderMode ===
+                  "QUOTE_ONLY"
+                    ? "Preț orientativ:"
+                    : "Preț:"}{" "}
                   <strong>
-                    {safeDraft.orderMode ===
-                    "QUOTE_ONLY"
-                      ? "Se stabilește prin ofertă"
-                      : safeDraft.price
-                        ? `${safeDraft.price} ${safeDraft.currency}`
-                        : "Necompletat"}
+                    {safeDraft.price
+                      ? `${
+                          safeDraft.orderMode ===
+                          "QUOTE_ONLY"
+                            ? "De la "
+                            : ""
+                        }${safeDraft.price} ${safeDraft.currency}`
+                      : "Necompletat"}
                   </strong>
                 </span>
 
@@ -2071,8 +1756,38 @@ export default function VendorProductWizard({
               </div>
             </div>
 
+            {!publishSuccess &&
+              missingFields.length >
+                0 && (
+                <div
+                  className={`${styles.card} ${styles.cardAccentWarning}`}
+                >
+                  <strong>
+                    Mai ai de completat:
+                  </strong>
+
+                  <ul
+                    className={
+                      styles.infoList
+                    }
+                  >
+                    {missingFields.map(
+                      (field) => (
+                        <li
+                          key={
+                            field
+                          }
+                        >
+                          {field}
+                        </li>
+                      )
+                    )}
+                  </ul>
+                </div>
+              )}
+
             {publishSuccess ? (
-              <div style={successCardStyle}>
+              <div className={styles.successCard}>
                 <strong>
                   Produsul „
                   {publishSuccess.title}
@@ -2096,8 +1811,8 @@ export default function VendorProductWizard({
 
                 {publishSuccess.costingWarning && (
                   <p
-                    style={
-                      warningTextStyle
+                    className={
+                      styles.warningText
                     }
                   >
                     Nu am putut salva
@@ -2109,16 +1824,16 @@ export default function VendorProductWizard({
                 )}
 
                 <div
-                  style={
-                    buttonGroupStyle
+                  className={
+                    styles.buttonGroup
                   }
                 >
                   <a
                     href={`/produs/${publishSuccess.productId}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={
-                      secondaryButtonStyle
+                    className={
+                      styles.secondaryButton
                     }
                   >
                     Vezi produsul
@@ -2128,8 +1843,8 @@ export default function VendorProductWizard({
                     href="/vendor/catalog"
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={
-                      secondaryButtonStyle
+                    className={
+                      styles.secondaryButton
                     }
                   >
                     Vezi în catalog
@@ -2138,35 +1853,92 @@ export default function VendorProductWizard({
               </div>
             ) : (
               <div
-                style={
-                  buttonGroupStyle
+                className={
+                  styles.buttonGroup
                 }
               >
-                <button
-                  type="button"
-                  style={{
-                    ...primaryButtonStyle,
+                {confirmingPublish ? (
+                  <div
+                    className={`${styles.card} ${styles.cardAccentInfo}`}
+                  >
+                    <strong>
+                      Confirmă salvarea
+                    </strong>
 
-                    ...(publishing
-                      ? disabledButtonStyle
-                      : {}),
-                  }}
-                  disabled={
-                    publishing
-                  }
-                  onClick={() =>
-                    onPublish?.()
-                  }
-                >
-                  {publishing
-                    ? "Se salvează..."
-                    : "Salvează produsul"}
-                </button>
+                    <p
+                      style={{
+                        margin:
+                          "6px 0 0",
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      Produsul va fi trimis spre moderare Artfest înainte să apară public. Continui?
+                    </p>
+
+                    <div
+                      className={
+                        styles.buttonGroup
+                      }
+                    >
+                      <button
+                        type="button"
+                        disabled={
+                          publishing
+                        }
+                        className={
+                          styles.primaryButton
+                        }
+                        onClick={() =>
+                          onPublish?.()
+                        }
+                      >
+                        {publishing
+                          ? "Se salvează..."
+                          : "Da, salvează produsul"}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={
+                          publishing
+                        }
+                        className={
+                          styles.secondaryButton
+                        }
+                        onClick={() =>
+                          setConfirmingPublish(
+                            false
+                          )
+                        }
+                      >
+                        Renunță
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={
+                      publishing
+                    }
+                    className={
+                      styles.primaryButton
+                    }
+                    onClick={() =>
+                      setConfirmingPublish(
+                        true
+                      )
+                    }
+                  >
+                    Salvează produsul
+                  </button>
+                )}
 
                 {publishError && (
                   <p
-                    style={
-                      errorTextStyle
+                    className={
+                      styles.errorText
                     }
                   >
                     {publishError}
@@ -2175,15 +1947,11 @@ export default function VendorProductWizard({
 
                 <button
                   type="button"
-                  style={{
-                    ...secondaryButtonStyle,
-
-                    ...(publishing
-                      ? disabledButtonStyle
-                      : {}),
-                  }}
                   disabled={
                     publishing
+                  }
+                  className={
+                    styles.secondaryButton
                   }
                   onClick={() =>
                     goToStep(
@@ -2196,15 +1964,11 @@ export default function VendorProductWizard({
 
                 <button
                   type="button"
-                  style={{
-                    ...secondaryButtonStyle,
-
-                    ...(publishing
-                      ? disabledButtonStyle
-                      : {}),
-                  }}
                   disabled={
                     publishing
+                  }
+                  className={
+                    styles.secondaryButton
                   }
                   onClick={() =>
                     goToStep(
@@ -2221,4 +1985,323 @@ export default function VendorProductWizard({
       </div>
     </section>
   );
+}
+
+/*
+ * VendorProductEditWizard - mode="edit" real (audit: wizard-ul de
+ * mai sus e un flow de CREARE asistat de AI din poze, nu un editor
+ * manual - nu are reorder/ștergere imagini, categorie cu sugestii,
+ * sau builder manual de variante/personalizare/repeated-groups/
+ * quote-only).
+ *
+ * NU rescrie acele capabilități - le reutilizează STRICT prin
+ * ProductModalWizard + useProductEditorController (aceleași
+ * ProductImagesSection/ProductDetailsSection/ProductOrderModeSection/
+ * ProductClientPreviewModal ca vechiul ProductModal), astfel încât
+ * editarea unui produs existent să fie echivalentă funcțional cu
+ * ProductModal - nu un editor nou, mai sărac.
+ *
+ * Adaugă STRICT ce lipsea din ProductModal pentru acest task: dirty
+ * state, protecție la ieșire cu modificări nesalvate, retry la
+ * eșecul salvării, guard de double-submit (delegat apelantului -
+ * vezi handleSaveProductFromWizard din CatalogProduse.jsx) și
+ * actualizare locală a listei fără reload complet.
+ */
+function VendorProductEditWizard({
+  editingProduct,
+  draft,
+  setDraft,
+
+  categories = [],
+  storeSlug,
+  uploadFile,
+
+  onSave,
+  saving = false,
+  saveError = "",
+  saveSuccess = null,
+
+  onClose,
+  onBack,
+}) {
+  const controller = useProductEditorController({
+    editingProduct,
+    form: draft,
+    setForm: setDraft,
+    categories,
+    onSave,
+    onClose,
+    uploadFile,
+    storeSlug,
+
+    /*
+     * Nu pornim flow-ul de la poze/AI ca la crearea unui produs nou -
+     * un produs existent se deschide direct pe detalii.
+     */
+    initialStep: "details",
+  });
+
+  /*
+   * Dirty state: snapshot-ul e luat o SINGURĂ dată, la montare -
+   * componenta se montează din nou de fiecare dată când vendorul
+   * deschide un alt produs (CatalogProduse randează
+   * VendorProductWizard mode="edit" condiționat de editProductOpen),
+   * deci fiecare sesiune de editare pornește cu propriul baseline.
+   */
+  const [snapshot, setSnapshot] = useState(
+    () => JSON.stringify(draft)
+  );
+
+  const draftRef = useRef(draft);
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  const isDirty =
+    JSON.stringify(draft) !== snapshot;
+
+  const [confirmingExit, setConfirmingExit] =
+    useState(null); // null | "close" | "back"
+
+  function requestExit(kind) {
+    if (saving) {
+      return;
+    }
+
+    const action =
+      kind === "back" ? onBack : onClose;
+
+    if (!isDirty) {
+      action?.();
+      return;
+    }
+
+    setConfirmingExit(kind);
+  }
+
+  function confirmExit() {
+    const kind = confirmingExit;
+
+    setConfirmingExit(null);
+
+    (kind === "back" ? onBack : onClose)?.();
+  }
+
+  function cancelExit() {
+    setConfirmingExit(null);
+  }
+
+  async function handleFormSubmit(event) {
+    event?.preventDefault?.();
+
+    if (controller.uploadingImages > 0) {
+      alert(
+        "Te rog așteaptă să se termine încărcarea pozelor."
+      );
+      return;
+    }
+
+    if (
+      (draft?.images || []).some((image) =>
+        String(image).startsWith("blob:")
+      )
+    ) {
+      alert(
+        "Mai există imagini care nu s-au încărcat complet."
+      );
+      return;
+    }
+
+    const ok = await onSave?.(event);
+
+    if (ok) {
+      setSnapshot(
+        JSON.stringify(draftRef.current)
+      );
+    }
+  }
+
+  return (
+    <EditModal
+      open
+      onClose={() => requestExit("close")}
+      maxWidth={760}
+    >
+    <section className={editStyles.wrapper}>
+      <header className={editStyles.header}>
+        {onBack && (
+          <button
+            type="button"
+            className={editStyles.headerButton}
+            onClick={() => requestExit("back")}
+            disabled={saving}
+          >
+            ← Înapoi
+          </button>
+        )}
+
+        <strong className={editStyles.headerTitle}>
+          Editează produs
+          {draft?.title ? `: ${draft.title}` : ""}
+        </strong>
+
+        <button
+          type="button"
+          className={editStyles.headerButton}
+          onClick={() => requestExit("close")}
+          disabled={saving}
+          aria-label="Închide"
+        >
+          ✕
+        </button>
+      </header>
+
+      <div className={editStyles.body}>
+        {confirmingExit && (
+          <div className={editStyles.exitConfirm}>
+            <strong>
+              Ai modificări nesalvate.
+            </strong>
+
+            <p>
+              Vrei să ieși fără să salvezi?
+            </p>
+
+            <div className={editStyles.exitConfirmActions}>
+              <button
+                type="button"
+                className={editStyles.dangerButton}
+                onClick={confirmExit}
+              >
+                Da, ieși
+              </button>
+
+              <button
+                type="button"
+                className={editStyles.secondaryButton}
+                onClick={cancelExit}
+              >
+                Rămân și continui editarea
+              </button>
+            </div>
+          </div>
+        )}
+
+        {saveSuccess && (
+          <div className={editStyles.successBanner}>
+            <strong>Produs actualizat.</strong>
+
+            <div className={editStyles.successActions}>
+              <a
+                href={`/produs/${saveSuccess.productId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={editStyles.secondaryButton}
+              >
+                Vezi produsul
+              </a>
+            </div>
+          </div>
+        )}
+
+        {saveError && (
+          <div className={editStyles.errorBanner}>
+            <strong>
+              Nu am putut salva modificările.
+            </strong>
+
+            <p>{saveError}</p>
+
+            <button
+              type="button"
+              className={editStyles.primaryButton}
+              disabled={saving}
+              onClick={handleFormSubmit}
+            >
+              {saving
+                ? "Se reîncearcă..."
+                : "Reîncearcă"}
+            </button>
+          </div>
+        )}
+
+        <ProductModalWizard
+          form={draft}
+          setForm={setDraft}
+          quoteSchema={
+            Array.isArray(draft?.quoteSchema)
+              ? draft.quoteSchema
+              : []
+          }
+          addQuoteField={controller.addQuoteField}
+          updateQuoteField={controller.updateQuoteField}
+          removeQuoteField={controller.removeQuoteField}
+          addQuoteFieldOption={controller.addQuoteFieldOption}
+          updateQuoteFieldOption={controller.updateQuoteFieldOption}
+          removeQuoteFieldOption={controller.removeQuoteFieldOption}
+          saving={saving}
+          editingProduct={editingProduct}
+          activeStep={controller.activeStep}
+          setActiveStep={controller.setActiveStep}
+          handleSubmit={handleFormSubmit}
+          onClose={() => requestExit("close")}
+          draftKey={controller.draftKey}
+          getLabelFor={controller.getLabelFor}
+          options={controller.options}
+          aiImagePreview={controller.aiImagePreview}
+          aiImageLoading={controller.aiImageLoading}
+          aiLoading={controller.aiLoading}
+          uploadInfo={controller.uploadInfo}
+          allImagesReadyForAi={controller.allImagesReadyForAi}
+          mainImageReadyForAi={controller.mainImageReadyForAi}
+          resolveProductImageUrl={controller.resolveProductImageUrl}
+          onPasteImages={controller.onPasteImages}
+          onFilesPicked={controller.onFilesPicked}
+          onDragStart={controller.onDragStart}
+          onDragOver={controller.onDragOver}
+          onDrop={controller.onDrop}
+          setMainImage={controller.setMainImage}
+          removeImage={controller.removeImage}
+          handleAiAnalyze={controller.handleAiAnalyze}
+          handleAiEnhanceImage={controller.handleAiEnhanceImage}
+          useAiImage={controller.useAiImage}
+          updateField={controller.updateField}
+          materialOptions={controller.materialOptions}
+          techniqueOptions={controller.techniqueOptions}
+          styleOptions={controller.styleOptions}
+          occasionOptions={controller.occasionOptions}
+          careOptions={controller.careOptions}
+          colorOptions={controller.colorOptions}
+          uploadingImages={controller.uploadingImages}
+          hasPriceWarning={controller.hasPriceWarning}
+          priceSuggestion={controller.priceSuggestion}
+          priceWarningConfirmed={controller.priceWarningConfirmed}
+          onGoToCostsProfit={controller.goToCostsProfit}
+          setAiImagePreview={controller.setAiImagePreview}
+          setPriceSuggestion={controller.setPriceSuggestion}
+          setPriceWarningConfirmed={controller.setPriceWarningConfirmed}
+        />
+      </div>
+    </section>
+    </EditModal>
+  );
+}
+
+/*
+ * Dispatcher - păstrează VendorProductCreateWizard (flow-ul de
+ * creare din chat, neatins) ca implicit, și rutează explicit
+ * mode="edit" către VendorProductEditWizard. Niciun hook nu e apelat
+ * aici, deci alegerea condiționată e sigură (fiecare ramură e o
+ * componentă separată, cu propria secvență de hook-uri stabilă).
+ */
+export default function VendorProductWizard({
+  mode = "create",
+  ...props
+}) {
+  if (mode === "edit") {
+    return <VendorProductEditWizard {...props} />;
+  }
+
+  return <VendorProductCreateWizard {...props} />;
 }

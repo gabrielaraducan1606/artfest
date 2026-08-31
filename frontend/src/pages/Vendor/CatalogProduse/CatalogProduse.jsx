@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -11,7 +12,18 @@ import {
 
 import styles from "./CatalogProduse.module.css";
 import CatalogImports from "./imports/CatalogImports.jsx";
-import ProductModal from "../ProfilMagazin/modals/ProductModal.jsx";
+/*
+ * ProductModal (vechiul editor, cu propriul <Modal>) rămâne intact
+ * ca fallback - nu mai e montat de mai jos (înlocuit de
+ * VendorProductWizard mode="edit", care reutilizează STRICT
+ * aceleași componente prin useProductEditorController) - fișierul
+ * lui NU a fost șters, doar dezactivat aici.
+ */
+import VendorProductWizard from "../../../components/AIAssistant/VendorAIAssistant/components/VendorProductWizard.jsx";
+import {
+  fetchProductEditDraft,
+  buildProductSavePayload,
+} from "../../../components/AIAssistant/VendorAIAssistant/services/productEditMapping.js";
 import CampaignsTab from "./VendorCampaigns/CampaignsTab.jsx";
 import {
   useAnnounceCurrentEntity,
@@ -265,6 +277,26 @@ const [
     savingProduct,
     setSavingProduct,
   ] = useState(false);
+
+  /*
+   * Guard sincron pentru double-submit la salvarea din
+   * VendorProductWizard (mode="edit") - verificat ÎNAINTE de orice
+   * await, ca să nu depindă de timing-ul re-render-ului React pe
+   * `savingProduct` (care e suficient pentru UI, dar nu garantează
+   * că un al doilea click chiar nu apucă să pornească un al doilea
+   * fetch înainte ca butonul să devină disabled).
+   */
+  const savingEditRef = useRef(false);
+
+  const [
+    editSaveError,
+    setEditSaveError,
+  ] = useState("");
+
+  const [
+    editSaveSuccess,
+    setEditSaveSuccess,
+  ] = useState(null);
 
   const [
     productCategories,
@@ -1245,121 +1277,22 @@ async function openNewProduct() {
     }
 
     try {
-      const [response] = await Promise.all([
-        fetch(
-          `/api/vendors/products/${encodeURIComponent(id)}`,
-          {
-            method: "GET",
-            credentials: "include",
-            headers: {
-              Accept: "application/json",
-            },
-          }
-        ),
+      const [{ full, draft }] = await Promise.all([
+        fetchProductEditDraft(id),
         loadProductCategories(),
       ]);
 
-      let full = null;
-
-      try {
-        full = await response.json();
-      } catch {
-        full = null;
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          full?.message ||
-            full?.error ||
-            "Nu am putut încărca produsul pentru editare."
-        );
-      }
-
-      setProdForm({
-        id: full.id || full._id || "",
-        title: full.title || "",
-        description: full.description || "",
-        price:
-          typeof full.price === "number"
-            ? full.price
-            : Number.isFinite(Number(full.priceCents))
-              ? Number(full.priceCents) / 100
-              : "",
-        currency: full.currency || "RON",
-        images: Array.isArray(full.images) ? full.images : [],
-        videoUrl: full.videoUrl || null,
-        videoMuted: !!full.videoMuted,
-        category: full.category || "",
-        color: full.color || "",
-        isActive: full.isActive !== false,
-        isHidden: !!full.isHidden,
-        availability: String(
-          full.availability || "READY"
-        ).toUpperCase(),
-        leadTimeDays: Number.isFinite(Number(full.leadTimeDays))
-          ? String(Number(full.leadTimeDays))
-          : "",
-        readyQty:
-          full.readyQty === null || full.readyQty === undefined
-            ? ""
-            : Number.isFinite(Number(full.readyQty))
-              ? String(Number(full.readyQty))
-              : "",
-        nextShipDate: full.nextShipDate
-          ? String(full.nextShipDate).slice(0, 10)
-          : "",
-        acceptsCustom: !!full.acceptsCustom,
-        orderMode:
-          full.orderMode === "DIRECT"
-            ? "READY_TO_BUY"
-            : full.orderMode === "CUSTOMIZABLE"
-              ? "OPTIONS"
-              : full.orderMode || "READY_TO_BUY",
-        optionsSchema: Array.isArray(full.optionsSchema)
-          ? full.optionsSchema
-          : Array.isArray(full.optionsSchema?.fields)
-            ? full.optionsSchema.fields
-            : [],
-        customSchema: Array.isArray(full.customSchema)
-          ? full.customSchema
-          : Array.isArray(full.customSchema?.fields)
-            ? full.customSchema.fields
-            : [],
-        repeatedGroups: Array.isArray(full.repeatedGroups)
-          ? full.repeatedGroups
-          : [],
-        quoteSchema: Array.isArray(full.quoteSchema)
-          ? full.quoteSchema
-          : Array.isArray(full.quoteSchema?.fields)
-            ? full.quoteSchema.fields
-            : [],
-        materialMain: full.materialMain || "",
-        technique: full.technique || "",
-        styleTags: Array.isArray(full.styleTags)
-          ? full.styleTags.join(", ")
-          : full.styleTags || "",
-        occasionTags: Array.isArray(full.occasionTags)
-          ? full.occasionTags.join(", ")
-          : full.occasionTags || "",
-        dimensions: full.dimensions || "",
-        careInstructions: full.careInstructions || "",
-        specialNotes: full.specialNotes || "",
-        aiVisionAnalysis: full.aiVisionAnalysis || null,
-        aiOrderAnalysis: full.aiOrderAnalysis || null,
-        aiGeneratedFields: Array.isArray(full.aiGeneratedFields)
-          ? full.aiGeneratedFields
-          : [],
-        aiSourceImages: Array.isArray(full.aiSourceImages)
-          ? full.aiSourceImages
-          : [],
-        aiAnalysisVersion: full.aiAnalysisVersion || null,
-        aiConfidence: full.aiConfidence ?? null,
-        aiAnalyzedAt: full.aiAnalyzedAt || null,
-        aiManuallyEdited: full.aiManuallyEdited === true,
-      });
+      setProdForm(draft);
 
       setEditingProduct(full);
       setEditProductOpen(true);
+
+      /*
+       * Sesiune nouă de editare - fără eroare/succes rămase dintr-o
+       * încercare anterioară pe alt produs.
+       */
+      setEditSaveError("");
+      setEditSaveSuccess(null);
     } catch (error) {
       console.error(
         "[CatalogProduse] openEditProduct:",
@@ -1382,17 +1315,14 @@ async function openNewProduct() {
     setEditingProduct(null);
   }
 
-  function splitTags(value) {
-    if (Array.isArray(value)) {
-      return value;
-    }
-
-    return String(value || "")
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-
+  /*
+   * Neapelată de mai jos de când editarea a fost mutată pe
+   * VendorProductWizard (mode="edit") / handleSaveProductFromWizard -
+   * păstrată intenționat, NEȘTEARSĂ, ca revenirea la <ProductModal>
+   * să fie un revert de o linie (schimbă onSave înapoi pe aceasta),
+   * fără să reconstruim payload-ul de la zero.
+   */
+  // eslint-disable-next-line no-unused-vars
  async function handleSaveProduct(event) {
   event?.preventDefault?.();
 
@@ -1445,260 +1375,10 @@ async function openNewProduct() {
     return;
   }
 
-  const availability = String(
-    prodForm.availability ||
-      "READY"
-  ).toUpperCase();
-
-  const payload = {
-    title,
-
-    description,
-
-    price:
-      prodForm.orderMode ===
-      "QUOTE_ONLY"
-        ? 0
-        : numericPrice,
-
-    currency:
-      prodForm.currency ||
-      "RON",
-
-    images:
-      Array.isArray(
-        prodForm.images
-      )
-        ? prodForm.images
-        : [],
-
-    videoUrl:
-      prodForm.videoUrl || null,
-
-    videoMuted:
-      prodForm.videoUrl
-        ? !!prodForm.videoMuted
-        : false,
-
-    category:
-      String(
-        prodForm.category ||
-          ""
-      ).trim(),
-
-    color:
-      String(
-        prodForm.color ||
-          ""
-      ).trim() ||
-      null,
-
-    materialMain:
-      String(
-        prodForm.materialMain ||
-          ""
-      ).trim() ||
-      null,
-
-    technique:
-      String(
-        prodForm.technique ||
-          ""
-      ).trim() ||
-      null,
-
-    styleTags:
-      splitTags(
-        prodForm.styleTags
-      ),
-
-    occasionTags:
-      splitTags(
-        prodForm.occasionTags
-      ),
-
-    dimensions:
-      String(
-        prodForm.dimensions ||
-          ""
-      ).trim() ||
-      null,
-
-    careInstructions:
-      String(
-        prodForm.careInstructions ||
-          ""
-      ).trim() ||
-      null,
-
-    specialNotes:
-      String(
-        prodForm.specialNotes ||
-          ""
-      ).trim() ||
-      null,
-
-    aiVisionAnalysis:
-      prodForm.aiVisionAnalysis ||
-      null,
-
-    aiOrderAnalysis:
-      prodForm.aiOrderAnalysis ||
-      null,
-
-    aiGeneratedFields:
-      Array.isArray(
-        prodForm.aiGeneratedFields
-      )
-        ? prodForm.aiGeneratedFields
-        : [],
-
-    aiSourceImages:
-      Array.isArray(
-        prodForm.aiSourceImages
-      )
-        ? prodForm.aiSourceImages
-        : [],
-
-    aiAnalysisVersion:
-      prodForm.aiAnalysisVersion ||
-      null,
-
-    aiConfidence:
-      prodForm.aiConfidence ??
-      null,
-
-    aiAnalyzedAt:
-      prodForm.aiAnalyzedAt ||
-      null,
-
-    aiManuallyEdited:
-      prodForm.aiManuallyEdited ===
-      true,
-
-    isActive:
-      prodForm.isActive !==
-      false,
-
-    isHidden:
-      !!prodForm.isHidden,
-
-    acceptsCustom:
-      !!prodForm.acceptsCustom,
-
-    availability,
-
-    orderMode:
-      prodForm.orderMode ||
-      "READY_TO_BUY",
-
-    optionsSchema:
-      prodForm.orderMode ===
-        "OPTIONS" &&
-      Array.isArray(
-        prodForm.optionsSchema
-      )
-        ? prodForm.optionsSchema
-        : [],
-
-    customSchema:
-      prodForm.orderMode ===
-        "OPTIONS" &&
-      Array.isArray(
-        prodForm.customSchema
-      )
-        ? prodForm.customSchema
-        : [],
-
-    repeatedGroups:
-      prodForm.orderMode ===
-        "OPTIONS" &&
-      Array.isArray(
-        prodForm.repeatedGroups
-      )
-        ? prodForm.repeatedGroups
-        : [],
-
-    quoteSchema:
-      prodForm.orderMode ===
-        "QUOTE_ONLY" &&
-      Array.isArray(
-        prodForm.quoteSchema
-      )
-        ? prodForm.quoteSchema
-        : [],
-  };
-
-  /*
-   * Disponibilitate
-   */
-  if (
-    availability ===
-    "READY"
-  ) {
-    payload.readyQty =
-      prodForm.readyQty ===
-        "" ||
-      prodForm.readyQty ===
-        null ||
-      prodForm.readyQty ===
-        undefined
-        ? null
-        : Math.max(
-            0,
-            Number(
-              prodForm.readyQty
-            ) || 0
-          );
-
-    payload.leadTimeDays =
-      null;
-
-    payload.nextShipDate =
-      null;
-  } else if (
-    availability ===
-    "MADE_TO_ORDER"
-  ) {
-    payload.readyQty = 0;
-
-    payload.leadTimeDays =
-      Math.max(
-        1,
-        Number(
-          prodForm.leadTimeDays
-        ) || 1
-      );
-
-    payload.nextShipDate =
-      null;
-  } else if (
-    availability ===
-    "PREORDER"
-  ) {
-    payload.readyQty = 0;
-
-    payload.leadTimeDays =
-      null;
-
-    payload.nextShipDate =
-      prodForm.nextShipDate
-        ? new Date(
-            `${prodForm.nextShipDate}T12:00:00`
-          ).toISOString()
-        : null;
-  } else if (
-    availability ===
-    "SOLD_OUT"
-  ) {
-    payload.readyQty = 0;
-
-    payload.leadTimeDays =
-      null;
-
-    payload.nextShipDate =
-      null;
-  }
+  const payload = buildProductSavePayload(
+    prodForm,
+    { title, description, numericPrice }
+  );
 
   try {
     setSavingProduct(true);
@@ -1877,7 +1557,173 @@ async function openNewProduct() {
     );
   }
 }
-  
+
+/*
+ * Salvare din VendorProductWizard (mode="edit") - editare STRICT
+ * (fără crearea unui produs nou aici). Diferă de handleSaveProduct
+ * (calea veche, ProductModal) prin:
+ * - guard sincron de double-submit (savingEditRef, verificat înainte
+ *   de orice await);
+ * - draftul (prodForm) nu e atins la eșec, ca vendorul să poată
+ *   apăsa direct "Reîncearcă" din wizard fără să reintroducă nimic;
+ * - actualizare LOCALĂ a listei de produse, fără loadProducts() (nu
+ *   mai facem reload complet al catalogului);
+ * - erori/succes expuse prin stare (editSaveError/editSaveSuccess),
+ *   citite direct de VendorProductWizard.
+ */
+async function handleSaveProductFromWizard(event) {
+  event?.preventDefault?.();
+
+  if (savingEditRef.current) {
+    return false;
+  }
+
+  const id =
+    editingProduct?.id ||
+    editingProduct?._id ||
+    prodForm.id;
+
+  if (!id) {
+    setEditSaveError(
+      "Produsul nu a fost identificat."
+    );
+
+    return false;
+  }
+
+  const title = String(
+    prodForm.title || ""
+  ).trim();
+
+  const description =
+    prodForm.description || "";
+
+  const numericPrice = Number(
+    String(
+      prodForm.price ?? ""
+    ).replace(",", ".")
+  );
+
+  if (!title) {
+    setEditSaveError(
+      "Titlul produsului este obligatoriu."
+    );
+
+    return false;
+  }
+
+  if (
+    prodForm.orderMode !== "QUOTE_ONLY" &&
+    (
+      !Number.isFinite(
+        numericPrice
+      ) ||
+      numericPrice < 0
+    )
+  ) {
+    setEditSaveError(
+      "Introdu un preț valid."
+    );
+
+    return false;
+  }
+
+  savingEditRef.current = true;
+  setSavingProduct(true);
+  setEditSaveError("");
+
+  try {
+    const payload = buildProductSavePayload(
+      prodForm,
+      { title, description, numericPrice }
+    );
+
+    const response = await fetch(
+      `/api/vendors/products/${encodeURIComponent(id)}`,
+      {
+        method: "PUT",
+
+        credentials: "include",
+
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+
+        body: JSON.stringify(payload),
+      }
+    );
+
+    let saved = null;
+
+    try {
+      saved = await response.json();
+    } catch {
+      saved = null;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        saved?.message ||
+          saved?.error ||
+          "Nu am putut salva produsul."
+      );
+    }
+
+    setProducts((current) =>
+      current.map((product) =>
+        (product.id || product._id) === id
+          ? { ...product, ...saved }
+          : product
+      )
+    );
+
+    try {
+      window.dispatchEvent(
+        new CustomEvent(
+          "vendor:productUpdated",
+          {
+            detail: {
+              product: saved,
+            },
+          }
+        )
+      );
+    } catch {
+      // noop
+    }
+
+    /*
+     * Păstrăm editingProduct la zi (nu-l ștergem, nu închidem
+     * editorul) - vendorul poate continua să editeze imediat după
+     * salvare, iar noul snapshot devine baseline pentru dirty state.
+     */
+    setEditingProduct(saved);
+
+    setEditSaveSuccess({
+      productId: id,
+      title: saved?.title || title,
+    });
+
+    return true;
+  } catch (error) {
+    console.error(
+      "[CatalogProduse] save product (wizard):",
+      error
+    );
+
+    setEditSaveError(
+      error?.message ||
+        "Nu am putut salva produsul."
+    );
+
+    return false;
+  } finally {
+    setSavingProduct(false);
+    savingEditRef.current = false;
+  }
+}
+
 
   /* =======================================================
      TAB PRODUSE
@@ -2357,10 +2203,23 @@ async function openNewProduct() {
                       </td>
 
                       <td>
-                        {product.price !==
-                          null &&
-                        product.price !==
-                          undefined
+                        {product.orderMode ===
+                          "QUOTE_ONLY" &&
+                        (!product.price ||
+                          product.price <=
+                            0) ? (
+                          <span
+                            className={
+                              styles.warningBadge
+                            }
+                            title="Pentru ca acest produs cu cerere de ofertă să poată fi trimis corect către Google, adaugă un preț orientativ."
+                          >
+                            Fără preț orientativ
+                          </span>
+                        ) : product.price !==
+                            null &&
+                          product.price !==
+                            undefined
                           ? `${product.price} lei`
                           : "La ofertă"}
                       </td>
@@ -2860,44 +2719,50 @@ async function openNewProduct() {
           </div>
         </div>
       )}
-     <ProductModal
-  open={
-    editProductOpen
-  }
-  onClose={
-    closeEditProduct
-  }
-  saving={
-    savingProduct
-  }
-  editingProduct={
-    editingProduct
-  }
-  form={
-    prodForm
-  }
-  setForm={
-    setProdForm
-  }
-  categories={
-    productCategories
-  }
-  onSave={
-    handleSaveProduct
-  }
-  storeSlug={
-    editingProduct
-      ?.service
-      ?.profile
-      ?.slug ||
-    editingProduct
-      ?.store
-      ?.slug ||
-    defaultStoreSlug ||
-    productStores[0]?.slug ||
-    ""
-  }
-/>
+     {editProductOpen && (
+  <VendorProductWizard
+    mode="edit"
+    editingProduct={
+      editingProduct
+    }
+    draft={
+      prodForm
+    }
+    setDraft={
+      setProdForm
+    }
+    categories={
+      productCategories
+    }
+    onSave={
+      handleSaveProductFromWizard
+    }
+    saving={
+      savingProduct
+    }
+    saveError={
+      editSaveError
+    }
+    saveSuccess={
+      editSaveSuccess
+    }
+    onClose={
+      closeEditProduct
+    }
+    storeSlug={
+      editingProduct
+        ?.service
+        ?.profile
+        ?.slug ||
+      editingProduct
+        ?.store
+        ?.slug ||
+      defaultStoreSlug ||
+      productStores[0]?.slug ||
+      ""
+    }
+  />
+)}
     </div>
   );
 }

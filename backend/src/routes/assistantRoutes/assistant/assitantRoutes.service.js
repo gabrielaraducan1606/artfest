@@ -798,9 +798,14 @@ Reguli:
 
 - Păstrează criteriile existente dacă instrucțiunea nu le modifică.
 - „mai ieftine” și „arată-mi variante mai ieftine”
-  trebuie să folosească sort = "price_asc".
+  trebuie să folosească sort = "price_asc" - NU modifica
+  minPriceCents/maxPriceCents pentru asta, păstrează-le EXACT ca în
+  filtrele curente (o narrowire suplimentară de preț poate duce la
+  0 rezultate, chiar dacă tocmai au fost găsite produse - "mai
+  ieftine" înseamnă doar re-sortare, nu un prag nou de preț).
 - „mai premium” și „arată-mi produse mai premium”
-  trebuie să folosească sort = "price_desc".
+  trebuie să folosească sort = "price_desc", la fel fără să modifice
+  minPriceCents/maxPriceCents.
 - „doar produse personalizabile”,
   „arată-mi produse personalizabile” și
   „arată-mi produse personalizate”

@@ -34,6 +34,14 @@ export const SHIPPING_AWB_MANIFEST = {
     "cine vine sa ridice coletul",
     "cum generez awb",
     "cum descarc eticheta awb",
+    "cum functioneaza livrarea",
+    "cine imi livreaza comanda",
+    "cine expediaza comanda mea",
+    "cat costa livrarea",
+    "cand aflu costul de livrare",
+    "ce metode de livrare exista",
+    "livrare prin curier sau locker",
+    "cat dureaza livrarea",
   ],
 
   uiLocations: [
@@ -145,6 +153,18 @@ export const SHIPPING_AWB_MANIFEST = {
       q: "Cum trimit o comandă?",
       a: "Programezi ridicarea din pagina comenzii (zi + interval orar + dimensiuni colet), predai coletul curierului tău, apoi marchezi comanda ca predată curierului - clientul e notificat automat.",
     },
+    {
+      q: "Cum funcționează livrarea, din perspectiva cumpărătorului?",
+      a: "Fiecare vânzător își organizează singur livrarea produselor lui - Artfest nu are propria flotă de curieri. La checkout alegi metoda de livrare disponibilă (curier sau, unde e cazul, locker), iar costul de livrare e calculat și afișat înainte să confirmi și să plătești comanda, nu ulterior. Dacă ai produse de la mai mulți vânzători într-o comandă, fiecare își expediază separat partea lui, deci pot ajunge în colete diferite, în momente diferite.",
+    },
+    {
+      q: "Cine îmi livrează efectiv comanda?",
+      a: "Vânzătorul de la care ai cumpărat produsul, prin propriul curier - nu Artfest. Platforma te ajută să vezi statusul livrării și eticheta AWB (dacă există deja generată), dar predarea coletului o face vânzătorul.",
+    },
+    {
+      q: "Cât durează livrarea?",
+      a: "Depinde de fiecare vânzător și de curierul folosit de el - nu există un termen unic, fix, garantat de platformă. Pentru produsele realizate la comandă, se adaugă și timpul de realizare (lead time) afișat pe pagina produsului, înainte de a cumpăra.",
+    },
   ],
 
   unavailableFeatures: [
@@ -153,5 +173,5 @@ export const SHIPPING_AWB_MANIFEST = {
   ],
 
   notes:
-    "Sursă: vendorOrdersRoutes.js (schedule-pickup, label, mark-picked-up - toate vendor-facing, verificate ca reale și funcționale), adminPickupsRoutes.js (curier/AWB - STRICT admin, nu vendor), samedayRoutes.js (doar lookup adrese pentru checkout). Corectat 2026-08-25 după confirmare directă: vendorii își organizează curieratul pe cont propriu, platforma NU cheamă automat un curier.",
+    "Sursă: vendorOrdersRoutes.js (schedule-pickup, label, mark-picked-up - toate vendor-facing, verificate ca reale și funcționale), adminPickupsRoutes.js (curier/AWB - STRICT admin, nu vendor), samedayRoutes.js (doar lookup adrese pentru checkout). Corectat 2026-08-25 după confirmare directă: vendorii își organizează curieratul pe cont propriu, platforma NU cheamă automat un curier. Extins 2026-08-28 (audit GUEST) cu FAQ din perspectiva cumpărătorului - verificat în chekoutRoutes.js: `quote.shipments` (preț + metodă COURIER/LOCKER per vânzător) există deja, cu preț calculat, ÎNAINTE de tx.order.create (deci costul e cunoscut/afișat înainte de confirmarea plății); expediere separată per vânzător confirmată de bucla `for (const s of quote.shipments) tx.shipment.create({ vendorId: s.vendorId, ... })`. Nu există în cod un termen de livrare fix/garantat de platformă (distinct de leadTimeDays, care e timpul de REALIZARE al produsului, nu de transport).",
 };

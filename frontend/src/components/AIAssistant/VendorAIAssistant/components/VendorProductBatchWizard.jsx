@@ -2,15 +2,17 @@
 
 import React, {
   useMemo,
+  useState,
 } from "react";
 
-function getImageUrl(
-  image
-) {
-  if (
-    typeof image ===
-    "string"
-  ) {
+import styles from "./VendorProductBatchWizard.module.css";
+
+import { getMissingFields } from "./VendorProductWizard.jsx";
+
+import ProductClientPreviewModal from "../../../../pages/Vendor/ProfilMagazin/modals/ProductModal/components/ProductClientPreviewModal.jsx";
+
+function getImageUrl(image) {
+  if (typeof image === "string") {
     return image;
   }
 
@@ -23,377 +25,798 @@ function getImageUrl(
   );
 }
 
-function createInitialGroup(
-  images = []
-) {
-  return {
-    id:
-      `group-${Date.now()}`,
+/* =========================================================
+   Un grup - imagini editabile + acțiuni de corectare
+========================================================= */
 
-    title:
-      "Produs identificat",
+function GroupCard({
+  group,
+  otherGroups,
+  selectedImageIds,
+  onToggleSelect,
+  onChooseMoveTarget,
+  moveTarget,
+  onConfirmMove,
+  onChooseMergeTarget,
+  mergeTarget,
+  onConfirmMerge,
+  onSetGroupTitle,
+  onSetPrimaryImage,
+  onRemoveImage,
+  onRemoveGroup,
+}) {
+  const needsReview =
+    group.status === "NEEDS_REVIEW";
 
-    confidence:
-      null,
+  const hasSelection =
+    selectedImageIds.size > 0;
 
-    images,
+  return (
+    <div
+      className={`${styles.groupCard} ${
+        needsReview
+          ? styles.groupCardNeedsReview
+          : ""
+      }`}
+    >
+      <div className={styles.groupHeader}>
+        <div>
+          <strong>
+            {group.title ||
+              "Produs fără titlu"}
+          </strong>
 
-    status:
-      "NEEDS_REVIEW",
+          <div
+            className={
+              styles.groupHeaderMeta
+            }
+          >
+            <span
+              className={
+                styles.groupImageCount
+              }
+            >
+              {group.images.length}{" "}
+              {group.images.length === 1
+                ? "fotografie"
+                : "fotografii"}
+            </span>
 
-    productDraft: {
-      images,
-      title: "",
-      description: "",
-      category: "",
-      price: "",
-      currency: "RON",
+            {needsReview && (
+              <span
+                className={`${styles.badge} ${styles.badgeWarning}`}
+              >
+                Verifică această grupare
+              </span>
+            )}
 
-      availability: "",
-      readyQty: "",
-      leadTimeDays: "",
+            {group.boundaryHint && (
+              <span
+                className={`${styles.badge} ${styles.badgeInfo}`}
+              >
+                Ar putea fi „
+                {group.boundaryHint.title}
+                "
+              </span>
+            )}
+          </div>
+        </div>
 
-      orderMode:
-        "READY_TO_BUY",
+        <button
+          type="button"
+          className={styles.headerButton}
+          onClick={() =>
+            onRemoveGroup(group.id)
+          }
+        >
+          Elimină
+        </button>
+      </div>
 
-      optionsSchema: [],
-      customSchema: [],
-      repeatedGroups: [],
-      quoteSchema: [],
+      <div className={styles.groupImageGrid}>
+        {group.images.map(
+          (image, index) => {
+            const url = getImageUrl(image);
 
-      orderInstructions:
-        "",
-    },
+            if (!url) {
+              return null;
+            }
 
-    missingFields: [],
-    questions: [],
-  };
+            const isPrimary =
+              index === 0;
+
+            const isSelected =
+              selectedImageIds.has(
+                image.id
+              );
+
+            return (
+              <div
+                key={image.id}
+                className={`${styles.imageChip} ${
+                  isPrimary
+                    ? styles.imageChipPrimary
+                    : ""
+                } ${
+                  isSelected
+                    ? styles.imageChipSelected
+                    : ""
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className={
+                    styles.imageChipCheckbox
+                  }
+                  checked={isSelected}
+                  onChange={() =>
+                    onToggleSelect(
+                      image.id
+                    )
+                  }
+                  aria-label="Selectează fotografia"
+                />
+
+                <img
+                  src={url}
+                  alt=""
+                />
+
+                <button
+                  type="button"
+                  className={
+                    styles.imageChipButton
+                  }
+                  onClick={() =>
+                    onSetPrimaryImage(
+                      image.id
+                    )
+                  }
+                  aria-label="Fă imagine principală"
+                />
+
+                {isPrimary && (
+                  <span
+                    className={
+                      styles.imageChipPrimaryMark
+                    }
+                  >
+                    Principală
+                  </span>
+                )}
+
+                <button
+                  type="button"
+                  className={
+                    styles.imageChipRemove
+                  }
+                  onClick={() =>
+                    onRemoveImage(image.id)
+                  }
+                  aria-label="Elimină fotografia"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          }
+        )}
+      </div>
+
+      <input
+        value={group.title || ""}
+        onChange={(event) =>
+          onSetGroupTitle(
+            event.target.value
+          )
+        }
+        placeholder="Titlul provizoriu al produsului"
+        className={styles.groupTitleInput}
+      />
+
+      <div className={styles.groupActionsRow}>
+        <select
+          className={styles.select}
+          value={moveTarget || "__new__"}
+          disabled={!hasSelection}
+          onChange={(event) =>
+            onChooseMoveTarget(
+              event.target.value
+            )
+          }
+        >
+          <option value="__new__">
+            Grup nou
+          </option>
+
+          {otherGroups.map((other) => (
+            <option
+              key={other.id}
+              value={other.id}
+            >
+              {other.title ||
+                "Produs fără titlu"}
+            </option>
+          ))}
+        </select>
+
+        <button
+          type="button"
+          className={styles.smallButton}
+          disabled={!hasSelection}
+          onClick={onConfirmMove}
+        >
+          Mută selecția
+        </button>
+
+        {otherGroups.length > 0 && (
+          <>
+            <select
+              className={styles.select}
+              value={
+                mergeTarget ||
+                otherGroups[0]?.id ||
+                ""
+              }
+              onChange={(event) =>
+                onChooseMergeTarget(
+                  event.target.value
+                )
+              }
+            >
+              {otherGroups.map((other) => (
+                <option
+                  key={other.id}
+                  value={other.id}
+                >
+                  {other.title ||
+                    "Produs fără titlu"}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              className={styles.smallButton}
+              onClick={onConfirmMerge}
+            >
+              Combină cu
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
+
+/* =========================================================
+   Card produs - pasul de review (editare/validare/preview/salvare)
+========================================================= */
+
+function ProductReviewCard({
+  group,
+  onEdit,
+  onRemove,
+  onRetryAnalysis,
+  onPublish,
+  onPreview,
+}) {
+  const draft = group.productDraft || {};
+
+  const images = Array.isArray(
+    draft.images
+  )
+    ? draft.images
+    : group.images;
+
+  /*
+   * getMissingFields e o verificare ieftină (câteva câmpuri) - nu
+   * merită complexitatea unui useMemo (draft/images sunt oricum
+   * obiecte noi la fiecare render venit din props).
+   */
+  const missingFields = getMissingFields(
+    draft,
+    images
+  );
+
+  const url = getImageUrl(images[0]);
+
+  const title =
+    draft.title ||
+    group.title ||
+    "Produs fără titlu";
+
+  const isAnalysisFailed =
+    group.status === "ANALYSIS_FAILED";
+
+  const isPublished =
+    group.saveStatus === "published";
+
+  const isSaving =
+    group.saveStatus === "saving";
+
+  const isSaveFailed =
+    group.saveStatus === "failed";
+
+  let statusIcon = "⚠";
+  let statusLabel = "Mai ai de completat";
+  let statusClass = styles.badgeWarning;
+
+  if (isAnalysisFailed) {
+    statusIcon = "✕";
+    statusLabel = "Analiza a eșuat";
+    statusClass = styles.badgeDanger;
+  } else if (isPublished) {
+    statusIcon = "✓";
+    statusLabel = "Publicat";
+    statusClass = styles.badgeSuccess;
+  } else if (isSaveFailed) {
+    statusIcon = "✕";
+    statusLabel = "Nu a putut fi salvat";
+    statusClass = styles.badgeDanger;
+  } else if (missingFields.length === 0) {
+    statusIcon = "✓";
+    statusLabel = "Pregătit";
+    statusClass = styles.badgeSuccess;
+  }
+
+  return (
+    <div className={styles.reviewCard}>
+      <div
+        className={
+          styles.reviewCardImage
+        }
+      >
+        {url && <img src={url} alt="" />}
+      </div>
+
+      <div
+        className={styles.reviewCardBody}
+      >
+        <p
+          className={
+            styles.reviewCardTitle
+          }
+        >
+          {title}
+        </p>
+
+        <p
+          className={
+            styles.reviewCardMeta
+          }
+        >
+          {draft.category ||
+            "Categorie nedetectată"}
+        </p>
+
+        <span
+          className={`${styles.badge} ${statusClass}`}
+        >
+          {statusIcon} {statusLabel}
+        </span>
+
+        {isAnalysisFailed && (
+          <p
+            className={styles.errorText}
+          >
+            {group.analysisError ||
+              "Analiza a eșuat pentru acest produs."}
+          </p>
+        )}
+
+        {isSaveFailed && (
+          <p
+            className={styles.errorText}
+          >
+            {group.saveError ||
+              "Produsul nu a putut fi salvat."}
+          </p>
+        )}
+
+        {!isAnalysisFailed &&
+          !isPublished &&
+          missingFields.length > 0 && (
+            <ul
+              className={
+                styles.infoList
+              }
+            >
+              {missingFields.map(
+                (field) => (
+                  <li key={field}>
+                    {field}
+                  </li>
+                )
+              )}
+            </ul>
+          )}
+
+        {isPublished && (
+          <a
+            href={`/produs/${group.publishedProduct?.productId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.hint}
+            style={{
+              textDecoration:
+                "underline",
+            }}
+          >
+            Vezi produsul publicat
+          </a>
+        )}
+
+        <div
+          className={
+            styles.reviewCardActions
+          }
+        >
+          {isAnalysisFailed && (
+            <button
+              type="button"
+              className={
+                styles.smallButton
+              }
+              onClick={onRetryAnalysis}
+            >
+              Reîncearcă analiza
+            </button>
+          )}
+
+          {isSaveFailed && (
+            <button
+              type="button"
+              className={
+                styles.smallButton
+              }
+              onClick={onPublish}
+            >
+              Reîncearcă salvarea
+            </button>
+          )}
+
+          {!isPublished && (
+            <button
+              type="button"
+              className={
+                styles.smallButton
+              }
+              disabled={isSaving}
+              onClick={onEdit}
+            >
+              Editează
+            </button>
+          )}
+
+          {!isAnalysisFailed && (
+            <button
+              type="button"
+              className={
+                styles.smallButton
+              }
+              onClick={onPreview}
+            >
+              Vezi cum va arăta
+            </button>
+          )}
+
+          {!isPublished && (
+            <button
+              type="button"
+              className={`${styles.smallButton} ${styles.smallButtonDanger}`}
+              disabled={isSaving}
+              onClick={onRemove}
+            >
+              Elimină din import
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   Componentă principală
+========================================================= */
 
 export default function VendorProductBatchWizard({
   images = [],
   groups = [],
-  setGroups,
 
   step = "images",
   setStep,
 
   onUpload,
+  onCapturePhoto,
   onAnalyzeGroups,
+  onAnalyzeGroupProducts,
+
+  onMoveImage,
+  onRemoveImage,
+  onSplitGroup,
+  onMergeGroups,
+  onSetGroupTitle,
+  onSetPrimaryImage,
+  onRemoveGroup,
+
+  onEditGroup,
+  onPublishGroup,
+  onPublishReadyGroups,
+  bulkPublishing = false,
+  bulkPublishSummary = null,
+  onDismissBulkSummary,
+  onResetBatch,
+
   onBack,
   onClose,
 
   analyzing = false,
+  progress = null,
+  groupingError = "",
 }) {
-  const safeImages =
-    useMemo(
-      () =>
-        Array.isArray(
-          images
-        )
-          ? images
-          : [],
-      [images]
-    );
+  const [
+    previewGroupId,
+    setPreviewGroupId,
+  ] = useState(null);
+  const safeImages = useMemo(
+    () =>
+      Array.isArray(images)
+        ? images
+        : [],
+    [images]
+  );
 
-  const safeGroups =
-    useMemo(
-      () =>
-        Array.isArray(
-          groups
-        )
-          ? groups
-          : [],
-      [groups]
-    );
+  const safeGroups = useMemo(
+    () =>
+      Array.isArray(groups)
+        ? groups
+        : [],
+    [groups]
+  );
 
-  function goToStep(
-    nextStep
-  ) {
-    setStep?.(
-      nextStep
-    );
+  /*
+   * Stare pur de UI (selecție per grup + țintă aleasă pentru
+   * mutare/combinare) - nu e nevoie să existe pe VendorAssistant,
+   * se resetează natural la schimbarea listei de grupuri.
+   */
+  const [
+    selectionByGroup,
+    setSelectionByGroup,
+  ] = useState({});
+
+  const [
+    moveTargetByGroup,
+    setMoveTargetByGroup,
+  ] = useState({});
+
+  const [
+    mergeTargetByGroup,
+    setMergeTargetByGroup,
+  ] = useState({});
+
+  function goToStep(nextStep) {
+    setStep?.(nextStep);
   }
 
-  function ensureTemporaryGroup() {
-    if (
-      safeGroups.length ||
-      !safeImages.length
-    ) {
+  function toggleSelect(groupId, imageId) {
+    setSelectionByGroup((current) => {
+      const currentSet = new Set(
+        current[groupId] || []
+      );
+
+      if (currentSet.has(imageId)) {
+        currentSet.delete(imageId);
+      } else {
+        currentSet.add(imageId);
+      }
+
+      return {
+        ...current,
+        [groupId]: currentSet,
+      };
+    });
+  }
+
+  function clearSelection(groupId) {
+    setSelectionByGroup((current) => ({
+      ...current,
+      [groupId]: new Set(),
+    }));
+  }
+
+  function handleConfirmMove(groupId) {
+    const selected = Array.from(
+      selectionByGroup[groupId] || []
+    );
+
+    if (!selected.length) {
       return;
     }
 
-    setGroups?.([
-      createInitialGroup(
-        safeImages
-      ),
-    ]);
+    const target =
+      moveTargetByGroup[groupId] ||
+      "__new__";
+
+    if (target === "__new__") {
+      onSplitGroup?.(groupId, selected);
+    } else {
+      for (const imageId of selected) {
+        onMoveImage?.(imageId, target);
+      }
+    }
+
+    clearSelection(groupId);
   }
 
-  function updateGroup(
+  function handleConfirmMerge(
     groupId,
-    patch
+    otherGroups
   ) {
-    setGroups?.(
-      (current) =>
-        (
-          Array.isArray(
-            current
-          )
-            ? current
-            : []
-        ).map(
-          (group) =>
-            group.id ===
-            groupId
-              ? {
-                  ...group,
-                  ...patch,
-                }
-              : group
-        )
-    );
+    const target =
+      mergeTargetByGroup[groupId] ||
+      otherGroups[0]?.id;
+
+    if (!target) {
+      return;
+    }
+
+    onMergeGroups?.(groupId, target);
   }
 
-  function removeGroup(
-    groupId
-  ) {
-    setGroups?.(
-      (current) =>
-        (
-          Array.isArray(
-            current
-          )
-            ? current
-            : []
-        ).filter(
-          (group) =>
-            group.id !==
-            groupId
-        )
-    );
-  }
+  /*
+   * Status global (cerința #10) - folosește EXACT aceeași funcție
+   * de checklist ca single-product (getMissingFields), nu o
+   * reimplementare.
+   */
+  const reviewSummary = useMemo(() => {
+    let readyCount = 0;
+    let incompleteCount = 0;
+    let publishedCount = 0;
+    let analysisFailedCount = 0;
 
-  const wrapperStyle = {
-    display: "flex",
-    flexDirection:
-      "column",
-    minHeight: 0,
-    height: "100%",
-    background:
-      "#ffffff",
-  };
+    for (const group of safeGroups) {
+      if (group.status === "ANALYSIS_FAILED") {
+        analysisFailedCount += 1;
+        continue;
+      }
 
-  const headerStyle = {
-    display: "flex",
-    alignItems:
-      "center",
-    justifyContent:
-      "space-between",
-    gap: 12,
-    padding:
-      "14px 16px",
-    borderBottom:
-      "1px solid rgba(60, 40, 30, 0.1)",
-  };
+      if (group.saveStatus === "published") {
+        publishedCount += 1;
+        continue;
+      }
 
-  const headerButtonStyle = {
-    border: 0,
-    background:
-      "transparent",
-    cursor:
-      "pointer",
-    fontSize: 14,
-    color:
-      "#5f4a40",
-    padding: 6,
-  };
+      const draft = group.productDraft || {};
 
-  const contentStyle = {
-    flex: 1,
-    minHeight: 0,
-    overflowY:
-      "auto",
-    padding: 16,
-  };
+      const images = Array.isArray(
+        draft.images
+      )
+        ? draft.images
+        : group.images;
 
-  const progressStyle = {
-    fontSize: 12,
-    fontWeight: 700,
-    color:
-      "#8a6f62",
-    marginBottom: 6,
-    textTransform:
-      "uppercase",
-    letterSpacing:
-      "0.04em",
-  };
+      const missing = getMissingFields(
+        draft,
+        images
+      );
 
-  const titleStyle = {
-    margin:
-      "0 0 8px",
-    fontSize: 21,
-    lineHeight: 1.25,
-    color:
-      "#2e2521",
-  };
+      if (missing.length === 0) {
+        readyCount += 1;
+      } else {
+        incompleteCount += 1;
+      }
+    }
 
-  const textStyle = {
-    margin:
-      "0 0 16px",
-    fontSize: 14,
-    lineHeight: 1.55,
-    color:
-      "#64544c",
-  };
+    return {
+      readyCount,
+      incompleteCount,
+      publishedCount,
+      analysisFailedCount,
+    };
+  }, [safeGroups]);
 
-  const cardStyle = {
-    border:
-      "1px solid rgba(70, 45, 35, 0.12)",
-    borderRadius: 14,
-    padding: 14,
-    background:
-      "#fcfaf8",
-    marginBottom: 12,
-  };
+  const readyGroupIds = useMemo(
+    () =>
+      new Set(
+        safeGroups
+          .filter((group) => {
+            if (
+              group.status ===
+                "ANALYSIS_FAILED" ||
+              group.saveStatus ===
+                "published" ||
+              group.saveStatus ===
+                "saving"
+            ) {
+              return false;
+            }
 
-  const primaryButtonStyle = {
-    width: "100%",
-    border: 0,
-    borderRadius: 12,
-    padding:
-      "12px 14px",
-    cursor:
-      "pointer",
-    fontWeight: 700,
-    fontSize: 14,
-    background:
-      "#6f4e43",
-    color:
-      "#ffffff",
-  };
+            const draft =
+              group.productDraft || {};
 
-  const secondaryButtonStyle = {
-    width: "100%",
-    border:
-      "1px solid rgba(70, 45, 35, 0.18)",
-    borderRadius: 12,
-    padding:
-      "11px 14px",
-    cursor:
-      "pointer",
-    fontWeight: 700,
-    fontSize: 14,
-    background:
-      "#ffffff",
-    color:
-      "#4f3b33",
-  };
+            const images = Array.isArray(
+              draft.images
+            )
+              ? draft.images
+              : group.images;
 
-  const buttonGroupStyle = {
-    display:
-      "grid",
-    gap: 9,
-    marginTop: 16,
-  };
+            return (
+              getMissingFields(
+                draft,
+                images
+              ).length === 0
+            );
+          })
+          .map((group) => group.id)
+      ),
+    [safeGroups]
+  );
+
+  const previewGroup = safeGroups.find(
+    (group) => group.id === previewGroupId
+  );
 
   return (
-    <section
-      style={
-        wrapperStyle
-      }
-    >
-      <header
-        style={
-          headerStyle
-        }
-      >
+    <section className={styles.wrapper}>
+      <header className={styles.header}>
         <button
           type="button"
-          style={
-            headerButtonStyle
-          }
-          onClick={
-            onBack
-          }
+          className={styles.headerButton}
+          onClick={onBack}
         >
           ← Înapoi
         </button>
 
-        <strong>
+        <strong
+          className={styles.headerTitle}
+        >
           Adaugă mai multe produse
         </strong>
 
         <button
           type="button"
-          style={
-            headerButtonStyle
-          }
-          onClick={
-            onClose
-          }
+          className={styles.headerButton}
+          onClick={onClose}
           aria-label="Închide"
         >
           ✕
         </button>
       </header>
 
-      <div
-        style={
-          contentStyle
-        }
-      >
-        {step ===
-          "images" && (
+      <div className={styles.content}>
+        {step === "images" && (
           <>
-            <div
-              style={
-                progressStyle
-              }
-            >
-              Pasul 1 din 4
+            <div className={styles.progress}>
+              Pasul 1 din 3
             </div>
 
-            <h3
-              style={
-                titleStyle
-              }
-            >
+            <h3 className={styles.title}>
               Încarcă toate fotografiile
             </h3>
 
-            <p
-              style={
-                textStyle
-              }
-            >
-              Poți încărca fotografii pentru mai multe produse. AI-ul le va analiza și va încerca să identifice ce imagini aparțin aceluiași produs.
+            <p className={styles.text}>
+              Încarcă toate fotografiile
+              produselor, iar AI-ul le va
+              grupa și îți va pregăti
+              produsele.
             </p>
 
-            {safeImages.length >
-              0 && (
+            {groupingError && (
+              <p
+                className={styles.errorText}
+              >
+                {groupingError}
+              </p>
+            )}
+
+            {safeImages.length > 0 && (
               <div
-                style={{
-                  display:
-                    "grid",
-
-                  gridTemplateColumns:
-                    "repeat(3, minmax(0, 1fr))",
-
-                  gap: 8,
-                  marginBottom:
-                    14,
-                }}
+                className={styles.imageGrid}
               >
                 {safeImages.map(
-                  (
-                    image,
-                    index
-                  ) => {
+                  (image, index) => {
                     const url =
-                      getImageUrl(
-                        image
-                      );
+                      getImageUrl(image);
 
                     if (!url) {
                       return null;
@@ -405,39 +828,31 @@ export default function VendorProductBatchWizard({
                           image?.id ||
                           `${url}-${index}`
                         }
-                        style={{
-                          aspectRatio:
-                            "1 / 1",
-
-                          overflow:
-                            "hidden",
-
-                          borderRadius:
-                            10,
-
-                          background:
-                            "#f2ece8",
-                        }}
+                        className={
+                          styles.imageThumb
+                        }
                       >
                         <img
-                          src={
-                            url
-                          }
+                          src={url}
                           alt={`Fotografie ${
-                            index +
-                            1
+                            index + 1
                           }`}
-                          style={{
-                            width:
-                              "100%",
-
-                            height:
-                              "100%",
-
-                            objectFit:
-                              "cover",
-                          }}
                         />
+
+                        <button
+                          type="button"
+                          className={
+                            styles.imageChipRemove
+                          }
+                          onClick={() =>
+                            onRemoveImage?.(
+                              image.id
+                            )
+                          }
+                          aria-label="Elimină fotografia"
+                        >
+                          ✕
+                        </button>
                       </div>
                     );
                   }
@@ -446,399 +861,311 @@ export default function VendorProductBatchWizard({
             )}
 
             <div
-              style={
-                buttonGroupStyle
-              }
+              className={styles.buttonGroup}
             >
-              <button
-                type="button"
-                style={
-                  primaryButtonStyle
-                }
-                onClick={
-                  onUpload
-                }
-              >
-                + Adaugă fotografii
-              </button>
-
-              {safeImages.length >
-                0 && (
+              {safeImages.length > 0 && (
                 <button
                   type="button"
-                  style={
-                    secondaryButtonStyle
+                  className={
+                    styles.primaryButton
                   }
-                  disabled={
-                    analyzing
-                  }
-                  onClick={
-                    onAnalyzeGroups
-                  }
+                  disabled={analyzing}
+                  onClick={onAnalyzeGroups}
                 >
-                  {analyzing
-                    ? "AI-ul grupează fotografiile..."
-                    : "Identifică produsele cu AI"}
+                  Identifică produsele cu
+                  AI
+                </button>
+              )}
+
+              <button
+                type="button"
+                className={
+                  styles.secondaryButton
+                }
+                onClick={onUpload}
+              >
+                Alege fotografii
+              </button>
+
+              <button
+                type="button"
+                className={
+                  styles.secondaryButton
+                }
+                onClick={onCapturePhoto}
+              >
+                Fă poze
+              </button>
+
+              <button
+                type="button"
+                className={
+                  styles.headerButton
+                }
+                onClick={onBack}
+              >
+                Anulează
+              </button>
+
+              {safeImages.length > 0 && (
+                <button
+                  type="button"
+                  className={
+                    styles.headerButton
+                  }
+                  onClick={onResetBatch}
+                >
+                  Șterge tot și începe
+                  din nou
                 </button>
               )}
             </div>
           </>
         )}
 
-        {step ===
-          "analysis" && (
+        {step === "analysis" && (
           <>
-            <div
-              style={
-                progressStyle
-              }
-            >
-              Pasul 2 din 4
+            <div className={styles.progress}>
+              Pasul 2 din 3
             </div>
 
-            <h3
-              style={
-                titleStyle
-              }
-            >
+            <h3 className={styles.title}>
               AI-ul identifică produsele
             </h3>
 
-            <p
-              style={
-                textStyle
-              }
-            >
-              Comparăm fotografiile și pregătim câte un grup pentru fiecare produs posibil.
+            <p className={styles.text}>
+              Comparăm fotografiile și
+              pregătim câte un grup pentru
+              fiecare produs posibil.
             </p>
 
-            <div
-              style={
-                cardStyle
-              }
-            >
-              <strong>
-                Se analizează:
-              </strong>
+            {progress && (
+              <>
+                <div
+                  className={
+                    styles.progressBarTrack
+                  }
+                >
+                  <div
+                    className={
+                      styles.progressBarFill
+                    }
+                    style={{
+                      width: progress.total
+                        ? `${Math.round(
+                            (progress.done /
+                              progress.total) *
+                              100
+                          )}%`
+                        : "0%",
+                    }}
+                  />
+                </div>
+
+                <span
+                  className={
+                    styles.progressLabel
+                  }
+                >
+                  Lot {Math.min(
+                    progress.done + 1,
+                    progress.total
+                  )}{" "}
+                  din {progress.total}
+                </span>
+              </>
+            )}
+
+            <div className={styles.card}>
+              <strong>Se analizează:</strong>
 
               <ul
-                style={{
-                  margin:
-                    "10px 0 0",
-
-                  paddingLeft:
-                    20,
-
-                  lineHeight:
-                    1.7,
-
-                  color:
-                    "#64544c",
-                }}
+                className={styles.infoList}
               >
                 <li>
-                  obiectul principal din fotografie;
+                  obiectul principal din
+                  fotografie;
                 </li>
-
                 <li>
-                  forma, culoarea și materialele;
+                  forma, culoarea și
+                  materialele;
                 </li>
-
                 <li>
-                  unghiurile diferite ale aceluiași produs;
+                  unghiurile diferite ale
+                  aceluiași produs;
                 </li>
-
                 <li>
-                  diferențele dintre produse asemănătoare.
+                  diferențele dintre produse
+                  asemănătoare.
                 </li>
               </ul>
             </div>
           </>
         )}
 
-        {step ===
-          "groups" && (
+        {step === "groups" && (
           <>
-            <div
-              style={
-                progressStyle
-              }
-            >
-              Pasul 3 din 4
+            <div className={styles.progress}>
+              Pasul 2 din 3
             </div>
 
-            <h3
-              style={
-                titleStyle
-              }
-            >
-              Verifică produsele identificate
+            <h3 className={styles.title}>
+              {safeGroups.length === 1
+                ? "AI-ul a detectat 1 produs"
+                : `AI-ul a detectat ${safeGroups.length} produse`}
             </h3>
 
-            <p
-              style={
-                textStyle
-              }
-            >
-              Confirmă dacă fotografiile au fost grupate corect. Mai târziu adăugăm mutarea fotografiilor între grupuri.
+            <p className={styles.text}>
+              Verifică dacă fotografiile au
+              fost grupate corect. Poți muta
+              poze între produse, separa sau
+              combina grupuri, ori elimina o
+              fotografie.
             </p>
 
             {!safeGroups.length && (
               <div
-                style={
-                  cardStyle
-                }
+                className={styles.emptyState}
               >
-                <p
-                  style={{
-                    margin: 0,
-                    color:
-                      "#64544c",
-                  }}
-                >
-                  Nu există încă grupuri.
-                </p>
-
-                <button
-                  type="button"
-                  style={{
-                    ...secondaryButtonStyle,
-                    marginTop:
-                      12,
-                  }}
-                  onClick={
-                    ensureTemporaryGroup
-                  }
-                >
-                  Creează un grup temporar
-                </button>
+                Nu există încă grupuri.
+                Întoarce-te la fotografii.
               </div>
             )}
 
-            {safeGroups.map(
-              (
-                group,
-                groupIndex
-              ) => (
-                <div
-                  key={
-                    group.id
+            {safeGroups.map((group) => {
+              const otherGroups =
+                safeGroups.filter(
+                  (other) =>
+                    other.id !== group.id
+                );
+
+              return (
+                <GroupCard
+                  key={group.id}
+                  group={group}
+                  otherGroups={otherGroups}
+                  selectedImageIds={
+                    selectionByGroup[
+                      group.id
+                    ] || new Set()
                   }
-                  style={
-                    cardStyle
+                  onToggleSelect={(
+                    imageId
+                  ) =>
+                    toggleSelect(
+                      group.id,
+                      imageId
+                    )
                   }
-                >
-                  <div
-                    style={{
-                      display:
-                        "flex",
-
-                      justifyContent:
-                        "space-between",
-
-                      alignItems:
-                        "flex-start",
-
-                      gap: 10,
-                    }}
-                  >
-                    <div>
-                      <strong>
-                        {group.title ||
-                          `Produs ${
-                            groupIndex +
-                            1
-                          }`}
-                      </strong>
-
-                      <small
-                        style={{
-                          display:
-                            "block",
-
-                          marginTop:
-                            4,
-
-                          color:
-                            "#75635a",
-                        }}
-                      >
-                        {
-                          (
-                            group.images ||
-                            []
-                          ).length
-                        }{" "}
-                        fotografii
-                      </small>
-                    </div>
-
-                    <button
-                      type="button"
-                      style={
-                        headerButtonStyle
-                      }
-                      onClick={() =>
-                        removeGroup(
-                          group.id
-                        )
-                      }
-                    >
-                      Elimină
-                    </button>
-                  </div>
-
-                  <div
-                    style={{
-                      display:
-                        "grid",
-
-                      gridTemplateColumns:
-                        "repeat(4, minmax(0, 1fr))",
-
-                      gap: 6,
-                      marginTop:
-                        10,
-                    }}
-                  >
-                    {(
-                      group.images ||
-                      []
-                    ).map(
-                      (
-                        image,
-                        index
-                      ) => {
-                        const url =
-                          getImageUrl(
-                            image
-                          );
-
-                        if (
-                          !url
-                        ) {
-                          return null;
-                        }
-
-                        return (
-                          <div
-                            key={
-                              image?.id ||
-                              `${group.id}-${index}`
-                            }
-                            style={{
-                              aspectRatio:
-                                "1 / 1",
-
-                              overflow:
-                                "hidden",
-
-                              borderRadius:
-                                8,
-
-                              background:
-                                "#f2ece8",
-                            }}
-                          >
-                            <img
-                              src={
-                                url
-                              }
-                              alt=""
-                              style={{
-                                width:
-                                  "100%",
-
-                                height:
-                                  "100%",
-
-                                objectFit:
-                                  "cover",
-                              }}
-                            />
-                          </div>
-                        );
-                      }
-                    )}
-                  </div>
-
-                  <input
-                    value={
-                      group.title ||
-                      ""
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      updateGroup(
-                        group.id,
-                        {
-                          title:
-                            event
-                              .target
-                              .value,
-                        }
-                      )
-                    }
-                    placeholder="Titlul provizoriu al produsului"
-                    style={{
-                      width:
-                        "100%",
-
-                      boxSizing:
-                        "border-box",
-
-                      marginTop:
-                        10,
-
-                      border:
-                        "1px solid rgba(70, 45, 35, 0.18)",
-
-                      borderRadius:
-                        10,
-
-                      padding:
-                        "10px 11px",
-
-                      fontSize:
-                        14,
-                    }}
-                  />
-                </div>
-              )
-            )}
+                  moveTarget={
+                    moveTargetByGroup[
+                      group.id
+                    ]
+                  }
+                  onChooseMoveTarget={(
+                    value
+                  ) =>
+                    setMoveTargetByGroup(
+                      (current) => ({
+                        ...current,
+                        [group.id]: value,
+                      })
+                    )
+                  }
+                  onConfirmMove={() =>
+                    handleConfirmMove(
+                      group.id
+                    )
+                  }
+                  mergeTarget={
+                    mergeTargetByGroup[
+                      group.id
+                    ]
+                  }
+                  onChooseMergeTarget={(
+                    value
+                  ) =>
+                    setMergeTargetByGroup(
+                      (current) => ({
+                        ...current,
+                        [group.id]: value,
+                      })
+                    )
+                  }
+                  onConfirmMerge={() =>
+                    handleConfirmMerge(
+                      group.id,
+                      otherGroups
+                    )
+                  }
+                  onSetGroupTitle={(
+                    title
+                  ) =>
+                    onSetGroupTitle?.(
+                      group.id,
+                      title
+                    )
+                  }
+                  onSetPrimaryImage={(
+                    imageId
+                  ) =>
+                    onSetPrimaryImage?.(
+                      group.id,
+                      imageId
+                    )
+                  }
+                  onRemoveImage={(
+                    imageId
+                  ) =>
+                    onRemoveImage?.(
+                      imageId
+                    )
+                  }
+                  onRemoveGroup={() =>
+                    onRemoveGroup?.(
+                      group.id
+                    )
+                  }
+                />
+              );
+            })}
 
             <div
-              style={
-                buttonGroupStyle
-              }
+              className={styles.buttonGroup}
             >
               <button
                 type="button"
-                style={
-                  primaryButtonStyle
+                className={
+                  styles.primaryButton
                 }
                 disabled={
-                  !safeGroups.length
+                  !safeGroups.length ||
+                  analyzing
                 }
                 onClick={() =>
-                  goToStep(
-                    "review"
-                  )
+                  onAnalyzeGroupProducts?.()
                 }
               >
-                Continuă cu produsele identificate
+                {analyzing &&
+                progress?.phase ===
+                  "analyzing"
+                  ? `Pregătim produsul ${Math.min(
+                      progress.done + 1,
+                      progress.total
+                    )} din ${
+                      progress.total
+                    }...`
+                  : "Continuă cu produsele identificate"}
               </button>
 
               <button
                 type="button"
-                style={
-                  secondaryButtonStyle
+                className={
+                  styles.secondaryButton
                 }
+                disabled={analyzing}
                 onClick={() =>
-                  goToStep(
-                    "images"
-                  )
+                  goToStep("images")
                 }
               >
                 Înapoi la fotografii
@@ -847,111 +1174,193 @@ export default function VendorProductBatchWizard({
           </>
         )}
 
-        {step ===
-          "review" && (
+        {step === "review" && (
           <>
-            <div
-              style={
-                progressStyle
-              }
-            >
-              Pasul 4 din 4
+            <div className={styles.progress}>
+              Pasul 3 din 3
             </div>
 
-            <h3
-              style={
-                titleStyle
-              }
-            >
-              Produse pregătite
+            <h3 className={styles.title}>
+              {safeGroups.length}{" "}
+              {safeGroups.length === 1
+                ? "produs detectat"
+                : "produse detectate"}
             </h3>
 
-            <p
-              style={
-                textStyle
-              }
+            <div
+              className={styles.summaryBar}
             >
-              În etapa următoare, fiecare grup va fi analizat și transformat automat într-un draft complet de produs.
-            </p>
+              <span
+                className={
+                  styles.summaryBarText
+                }
+              >
+                {reviewSummary.readyCount}{" "}
+                {reviewSummary.readyCount ===
+                1
+                  ? "pregătit"
+                  : "pregătite"}
 
-            {safeGroups.map(
-              (
-                group,
-                index
-              ) => (
-                <div
-                  key={
-                    group.id
-                  }
-                  style={
-                    cardStyle
-                  }
-                >
-                  <strong>
-                    {group.title ||
-                      `Produs ${
-                        index +
-                        1
-                      }`}
-                  </strong>
+                {reviewSummary.incompleteCount >
+                  0 &&
+                  ` · ${reviewSummary.incompleteCount} mai ${
+                    reviewSummary.incompleteCount ===
+                    1
+                      ? "are"
+                      : "au"
+                  } de completat`}
 
+                {reviewSummary.analysisFailedCount >
+                  0 &&
+                  ` · ${reviewSummary.analysisFailedCount} ${
+                    reviewSummary.analysisFailedCount ===
+                    1
+                      ? "a eșuat"
+                      : "au eșuat"
+                  }`}
+
+                {reviewSummary.publishedCount >
+                  0 &&
+                  ` · ${reviewSummary.publishedCount} ${
+                    reviewSummary.publishedCount ===
+                    1
+                      ? "publicat"
+                      : "publicate"
+                  }`}
+              </span>
+            </div>
+
+            {bulkPublishSummary && (
+              <div
+                className={
+                  styles.successCard
+                }
+              >
+                <strong>
+                  {
+                    bulkPublishSummary.publishedCount
+                  }{" "}
+                  {bulkPublishSummary.publishedCount ===
+                  1
+                    ? "produs a fost publicat"
+                    : "produse au fost publicate"}
+                </strong>
+
+                {bulkPublishSummary.pendingCount >
+                  0 && (
                   <p
-                    style={{
-                      margin:
-                        "7px 0 0",
-
-                      color:
-                        "#64544c",
-
-                      fontSize:
-                        13,
-                    }}
+                    className={
+                      styles.reviewCardMeta
+                    }
                   >
                     {
-                      (
-                        group.images ||
-                        []
-                      ).length
+                      bulkPublishSummary.pendingCount
                     }{" "}
-                    fotografii pregătite pentru analiză.
+                    {bulkPublishSummary.pendingCount ===
+                    1
+                      ? "produs mai are nevoie de modificări"
+                      : "produse mai au nevoie de modificări"}
                   </p>
+                )}
+
+                <div
+                  className={
+                    styles.buttonGroup
+                  }
+                >
+                  <button
+                    type="button"
+                    className={
+                      styles.secondaryButton
+                    }
+                    onClick={
+                      onDismissBulkSummary
+                    }
+                  >
+                    Continuă editarea
+                  </button>
                 </div>
-              )
+              </div>
             )}
 
+            {safeGroups.map((group) => (
+              <ProductReviewCard
+                key={group.id}
+                group={group}
+                onEdit={() =>
+                  onEditGroup?.(group.id)
+                }
+                onRemove={() =>
+                  onRemoveGroup?.(group.id)
+                }
+                onRetryAnalysis={() =>
+                  onAnalyzeGroupProducts?.(
+                    [group.id]
+                  )
+                }
+                onPublish={() =>
+                  onPublishGroup?.(group.id)
+                }
+                onPreview={() =>
+                  setPreviewGroupId(
+                    group.id
+                  )
+                }
+              />
+            ))}
+
             <div
-              style={
-                buttonGroupStyle
-              }
+              className={styles.buttonGroup}
             >
               <button
                 type="button"
-                style={
-                  primaryButtonStyle
+                className={
+                  styles.primaryButton
                 }
-                onClick={() => {
-                  window.alert(
-                    "Analiza fiecărui produs va fi conectată în pasul următor."
-                  );
-                }}
+                disabled={
+                  bulkPublishing ||
+                  !readyGroupIds.size
+                }
+                onClick={
+                  onPublishReadyGroups
+                }
               >
-                Pregătește toate produsele cu AI
+                {bulkPublishing
+                  ? "Se publică..."
+                  : readyGroupIds.size
+                    ? `Publică produsele pregătite (${readyGroupIds.size})`
+                    : "Publică produsele pregătite"}
               </button>
 
               <button
                 type="button"
-                style={
-                  secondaryButtonStyle
+                className={
+                  styles.secondaryButton
                 }
+                disabled={bulkPublishing}
                 onClick={() =>
-                  goToStep(
-                    "groups"
-                  )
+                  goToStep("groups")
                 }
               >
-                Modifică grupurile
+                Înapoi la grupare
               </button>
             </div>
+
+            {previewGroup && (
+              <ProductClientPreviewModal
+                open
+                onClose={() =>
+                  setPreviewGroupId(null)
+                }
+                form={
+                  previewGroup.productDraft ||
+                  {}
+                }
+                resolveProductImageUrl={
+                  getImageUrl
+                }
+              />
+            )}
           </>
         )}
       </div>

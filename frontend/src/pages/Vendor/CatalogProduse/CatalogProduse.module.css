@@ -466,6 +466,33 @@
   color: #991b1b;
 }
 
+/*
+ * QUOTE_ONLY fără preț orientativ (priceCents <= 0) - produsul rămâne
+ * activ/vizibil, doar arătăm vendorului că îi lipsește prețul necesar
+ * pentru eligibilitatea Google (vezi googleShoppingFeed.js, filtrul
+ * priceCents > 0). Aceeași formă ca .activeBadge/.inactiveBadge, doar
+ * culoarea vine din tokenul global de atenționare.
+ */
+.warningBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+  background: color-mix(
+    in srgb,
+    var(--color-warning) 18%,
+    var(--surface)
+  );
+  color: color-mix(
+    in srgb,
+    var(--color-warning) 70%,
+    var(--color-text)
+  );
+}
+
 .rowActions {
   display: flex;
   align-items: center;

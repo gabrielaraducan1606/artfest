@@ -3443,19 +3443,30 @@ export async function sendVendorDepositPaidEmail({
 
 /* ============================================================
    INFLUENCER INVITATION (sender: no-reply@)
+
+   Invitația NU afișează:
+   - referralCode
+   - cod influencer
+   - remunerație
+   - comision
+
+   Condițiile comerciale pot fi stabilite ulterior
+   din admin după activarea contului.
 ============================================================ */
 
 export async function sendInfluencerInviteEmail({
   to,
   name,
   inviteUrl,
-  referralCode,
-  commissionPercent,
   expiresAt,
 }) {
   if (!to || !inviteUrl) {
     return;
   }
+
+  /* =========================================================
+     HELPERS
+  ========================================================= */
 
   function escapeHtml(value = "") {
     return String(value)
@@ -3477,22 +3488,9 @@ export async function sendInfluencerInviteEmail({
       inviteUrl
     );
 
-  const safeReferralCode =
-    escapeHtml(
-      referralCode ||
-        ""
-    );
-
-  const safeCommission =
-    Number(
-      commissionPercent ||
-        0
-    ).toLocaleString(
-      "ro-RO",
-      {
-        maximumFractionDigits: 2,
-      }
-    );
+  /* =========================================================
+     EXPIRARE
+  ========================================================= */
 
   let expiresLabel =
     "";
@@ -3505,6 +3503,7 @@ export async function sendInfluencerInviteEmail({
           {
             dateStyle:
               "long",
+
             timeStyle:
               "short",
           }
@@ -3519,8 +3518,16 @@ export async function sendInfluencerInviteEmail({
     }
   }
 
+  /* =========================================================
+     SUBJECT
+  ========================================================= */
+
   const subject =
     `Invitația ta în programul de influenceri ${BRAND_NAME}`;
+
+  /* =========================================================
+     HTML
+  ========================================================= */
 
   const html = `
 <div
@@ -3602,12 +3609,25 @@ export async function sendInfluencerInviteEmail({
     <p
       style="
         color:#374151;
+        margin:0 0 14px;
+        line-height:1.65;
+      "
+    >
+      Ne dorim să construim colaborări prin care creatorii de conținut
+      să poată descoperi și promova produse și creatori din comunitatea
+      ${BRAND_NAME}.
+    </p>
+
+    <p
+      style="
+        color:#374151;
         margin:0 0 18px;
         line-height:1.65;
       "
     >
-      Prin contul tău vei putea urmări linkul de recomandare,
-      clickurile, comenzile generate și comisioanele tale.
+      După activarea contului vei avea acces la dashboardul tău,
+      unde vei putea găsi linkul personal de promovare,
+      activitatea generată și informațiile relevante despre colaborarea ta.
     </p>
 
     <div
@@ -3619,30 +3639,16 @@ export async function sendInfluencerInviteEmail({
         margin:18px 0;
       "
     >
-      ${
-        safeReferralCode
-          ? `
-            <p
-              style="
-                margin:0 0 8px;
-                color:#374151;
-              "
-            >
-              <strong>Codul tău:</strong>
-              ${safeReferralCode}
-            </p>
-          `
-          : ""
-      }
-
       <p
         style="
           margin:0;
           color:#374151;
+          line-height:1.65;
         "
       >
-        <strong>Comision inițial:</strong>
-        ${safeCommission}% din vânzările atribuite contului tău
+        <strong>Cum începi?</strong><br>
+        Deschide invitația de mai jos și creează-ți contul de influencer.
+        După activare vei putea accesa spațiul tău dedicat din ${BRAND_NAME}.
       </p>
     </div>
 
@@ -3653,7 +3659,7 @@ export async function sendInfluencerInviteEmail({
         line-height:1.65;
       "
     >
-      Pentru a începe, creează-ți contul folosind invitația privată de mai jos.
+      Pentru a începe, folosește invitația privată de mai jos.
     </p>
 
     <p
@@ -3687,10 +3693,15 @@ export async function sendInfluencerInviteEmail({
               color:#6b7280;
               text-align:center;
               font-size:13px;
+              line-height:1.5;
             "
           >
             Invitația este valabilă până la
-            <strong>${escapeHtml(expiresLabel)}</strong>.
+            <strong>
+              ${escapeHtml(
+                expiresLabel
+              )}
+            </strong>.
           </p>
         `
         : ""
@@ -3753,25 +3764,34 @@ export async function sendInfluencerInviteEmail({
 </div>
 `.trim();
 
+  /* =========================================================
+     TEXT FALLBACK
+  ========================================================= */
+
   const text = [
     `Bună, ${name || "creator"}!`,
     "",
+
     `Ai fost invitată să faci parte din programul de influenceri ${BRAND_NAME}.`,
     "",
-    referralCode
-      ? `Codul tău: ${referralCode}`
-      : "",
-    `Comision inițial: ${safeCommission}% din vânzările atribuite contului tău.`,
+
+    `După activarea contului vei avea acces la dashboardul tău, unde vei găsi linkul personal de promovare și informațiile despre colaborarea ta.`,
     "",
-    "Creează-ți contul folosind invitația privată:",
+
+    "Pentru a începe, creează-ți contul folosind invitația privată:",
     inviteUrl,
     "",
+
     expiresLabel
       ? `Invitația este valabilă până la ${expiresLabel}.`
       : "",
   ]
     .filter(Boolean)
     .join("\n");
+
+  /* =========================================================
+     SEND
+  ========================================================= */
 
   return sendMailLogged({
     senderKey:

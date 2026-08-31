@@ -110,6 +110,36 @@ const OWN_ENTITY_ACTION_RE =
  *    vânzători" - în niciun caz nu trebuie arătate rezultate de
  *    marketplace pentru "Ce produse am sub cost?".
  */
+/*
+ * BUGFIX (audit) - un preț menționat în text liber ("ceva sub 100
+ * lei", "produse până în 100 lei", "cadou sub 100 lei", "ce găsesc
+ * cu 100 lei") NU ajungea niciodată la un filtru REAL de preț -
+ * runTextSearch/searchByText (backend) aplică doar minPriceCents/
+ * maxPriceCents primite explicit ca parametri, niciodată extrase
+ * din "query" - iar submitProductMessage nu trimitea niciodată acei
+ * parametri. Rezultatul era o căutare semantică simplă, fără
+ * garanția reală a pragului de preț cerut. Regex gated pe un cuvânt
+ * de prag explicit ("sub"/"pana"/"până"/"maxim"/"max"/"cu") urmat de
+ * un număr + "lei"/"ron" - suficient de restrictiv să nu confunde
+ * un preț menționat din alt motiv ("produs de 500 lei" fără cuvânt
+ * de prag nu se potrivește, intenționat - ambiguu dacă e prag sau
+ * doar o mențiune).
+ */
+const MAX_PRICE_LEI_RE =
+  /\b(?:sub|pana(?: in| la)?|până(?: în| la)?|maxim|max|cu)\s+(\d+(?:[.,]\d+)?)\s*(?:lei|ron)\b/i;
+
+export function detectMaxPriceCentsFromText(text = "") {
+  const match = MAX_PRICE_LEI_RE.exec(String(text || ""));
+
+  if (!match) return null;
+
+  const lei = Number(match[1].replace(",", "."));
+
+  if (!Number.isFinite(lei) || lei <= 0) return null;
+
+  return Math.round(lei * 100);
+}
+
 const CREATION_INTENT_RE =
   /\b(adaug|adauga|creez|creeaza|creaza|listez|listeaza|public|publica)\b[\s\w]{0,25}\bprodus/;
 
@@ -782,6 +812,7 @@ export async function submitProductMessage({
   activeFlow,
   value,
   visualSearchId = null,
+  maxPriceCents = null,
   addMessage,
   removeMessage,
   createMessage,
@@ -799,6 +830,7 @@ export async function submitProductMessage({
   ) {
     await runTextSearch({
       query,
+      maxPriceCents,
       addMessage,
       removeMessage,
       createMessage,
@@ -1343,6 +1375,7 @@ export async function getProductSearchResults({
 
 async function runTextSearch({
   query,
+  maxPriceCents = null,
   addMessage,
   removeMessage,
   createMessage,
@@ -1359,6 +1392,7 @@ async function runTextSearch({
     const result =
       await searchProducts({
         query,
+        maxPriceCents,
       });
 
     removeMessage?.(
@@ -1399,7 +1433,16 @@ async function runTextSearch({
   }
 }
 
-async function runProductSearchRefinement({
+/*
+ * Exportat (audit) - reutilizat direct din AiAssistant.jsx pentru
+ * follow-up-uri tastate liber într-o căutare activă ("mai ieftine",
+ * "roșii", "sub 50 lei"...), NU doar din click-ul pe butoanele fixe
+ * (handleProductChoice, mai jos) - ACEEAȘI funcție, niciun cod
+ * duplicat. `instruction` acceptă orice text liber - refineProductSearch
+ * (backend, analyzeRefinement) interpretează instrucțiunea prin LLM,
+ * nu doar cele 2 fraze fixe ale butoanelor.
+ */
+export async function runProductSearchRefinement({
   searchId,
   instruction,
   addMessage,

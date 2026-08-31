@@ -28,6 +28,7 @@ import {
 import {
   api,
 } from "../../../lib/api.js";
+import { humanizeOptionValue } from "../../../utils/optionLabels.js";
 
 /* =========================================================
    Helpers
@@ -177,7 +178,7 @@ function readableValue(value) {
   }
 
   if (typeof value === "object") {
-    return (
+    return humanizeOptionValue(
       value.label ||
       value.value ||
       value.name ||
@@ -185,7 +186,7 @@ function readableValue(value) {
     );
   }
 
-  return String(value);
+  return humanizeOptionValue(String(value));
 }
 
 function readableLabel(key) {

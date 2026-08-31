@@ -74,6 +74,28 @@ export const PRODUCTS_MANIFEST = {
     "camp obligatoriu la produs",
     "adauga in cos este blocat",
     "ce mesaj vede clientul daca nu completeaza o varianta",
+    "cum aflu daca produsul este disponibil",
+    "produsul e pe stoc",
+    "produsul e epuizat",
+    "ce inseamna produs la comanda",
+    "ce inseamna made to order",
+    "ce se intampla daca produsul e realizat la comanda",
+    "trebuie sa fiu logat ca sa vad daca e la comanda",
+    "pot modifica personalizarea dupa ce adaug in cos",
+    "pot schimba optiunile din cos",
+    "editez personalizarea din cos",
+    "am gresit personalizarea in cos",
+    "ce fac daca produsul nu are optiunea de personalizare",
+    "produsul nu se poate personaliza",
+    "produsul nu are varianta pe care o vreau",
+    "nu gasesc culoarea pe care o vreau la produs",
+    "pot cere produsul in alta culoare sau marime",
+    "pot intreba vanzatorul daca poate face alta varianta",
+    "vanzatorul poate face produsul altfel decat in poza",
+    "produs pentru mai multe persoane",
+    "set personalizat pentru mai multi invitati",
+    "trebuie cont ca sa completez personalizarea",
+    "produs doar la cerere de oferta necesita cont",
   ],
 
   uiLocations: [
@@ -184,6 +206,30 @@ export const PRODUCTS_MANIFEST = {
       q: "Ce se întâmplă dacă clientul uită să completeze o variantă sau un câmp obligatoriu?",
       a: "„Adaugă în coș” este blocat automat - clientul primește un mesaj clar sub câmpul respectiv („Alege {opțiune}.” pentru o variantă, „Completează {câmp}.” pentru personalizare), câmpul se marchează vizual cu eroare, iar pagina derulează automat până la primul câmp incomplet. Doar câmpurile marcate explicit „obligatoriu” la configurare blochează trimiterea - cele opționale pot rămâne necompletate.",
     },
+    {
+      q: "Cum aflu dacă un produs este disponibil?",
+      a: "Fiecare produs are un status de disponibilitate afișat pe pagina lui: „gata de livrare” (are stoc pregătit), „la comandă” sau „precomandă” (se realizează după ce comanzi, de obicei cu un timp de realizare estimat afișat), sau „epuizat” (nu poate fi comandat momentan). Nu trebuie să fii autentificat ca să vezi această informație.",
+    },
+    {
+      q: "Ce se întâmplă dacă produsul este realizat la comandă?",
+      a: "Vânzătorul îl realizează după ce plasezi comanda, în intervalul de timp estimat (timpul de realizare/lead time), afișat pe pagina produsului înainte să cumperi - apoi este expediat, la fel ca un produs gata pregătit. Nu ai nevoie de cont doar ca să afli asta - autentificarea se cere abia când chiar plasezi comanda.",
+    },
+    {
+      q: "Pot modifica personalizarea după ce adaug produsul în coș?",
+      a: "Nu direct din coș - poți doar schimba cantitatea sau elimina produsul. Dacă vrei altă variantă/personalizare, elimini produsul din coș și revii pe pagina lui ca să-l adaugi din nou cu noile opțiuni.",
+    },
+    {
+      q: "Ce fac dacă produsul nu are opțiunea de personalizare pe care o vreau (altă culoare/mărime/configurație)?",
+      a: "Dacă produsul nu are varianta dorită printre opțiunile deja definite de vânzător, poți să-l întrebi direct dacă poate fi realizat în altă culoare, mărime sau configurație, sau poți cere o ofertă personalizată pentru exact ce îți dorești - vânzătorul îți poate confirma dacă e posibil și la ce preț/termen.",
+    },
+    {
+      q: "Cum funcționează un produs personalizat pentru mai multe persoane (ex. mărturii pentru toți invitații)?",
+      a: "Unele produse au grupuri repetate de personalizare - completezi câte persoane/seturi ai nevoie, apoi răspunzi la câmpurile de personalizare pentru fiecare în parte (ex. numele fiecărui invitat). Se configurează la aceeași etapă ca restul personalizării, înainte de a adăuga în coș.",
+    },
+    {
+      q: "Trebuie cont ca să completez opțiunile de personalizare ale unui produs?",
+      a: "Nu - poți vedea și completa toate opțiunile/câmpurile de personalizare fără cont. Contul devine necesar abia dacă produsul e „doar la cerere de ofertă” (nu are preț fix) - în acel caz, trimiterea cererii de ofertă chiar cere autentificare.",
+    },
   ],
 
   unavailableFeatures: [
@@ -192,5 +238,5 @@ export const PRODUCTS_MANIFEST = {
   ],
 
   notes:
-    "Sursă: vendorProductRoutes.js (normalizeOrderModePayload/normalizeOrderConfiguration - enumul REAL are doar DIRECT/OPTIONS/QUOTE_ONLY; 'READY_TO_BUY' și 'CUSTOMIZABLE' sunt doar etichete UI acceptate ca sinonime pentru DIRECT/OPTIONS, nu valori separate), schema.prisma (ProductOrderMode, ProductAvailability, câmpurile optionsSchema/customSchema/repeatedGroups/quoteSchema), vendorAssistantCommandsRoutes.js/vendorAssistantCommandService.js (editare conversațională). Corectat 2026-08-25: audience-ul endpoint-ului updateOwnProduct era greșit (ADMIN în loc de VENDOR); archiveProduct nu există ca status real. Adăugat 2026-08-26, verificat direct din cod: upload poză la personalizare (ProductOrderModeSection.jsx CUSTOM_FIELDS preset 'poza'/type:'file'; ProductDetails.jsx randează <input type=\"file\" accept=\"image/*\"> pentru câmpuri image/photo/file, upload real prin uploadCustomizationFile) - funcțional, nu limitare parțială. Validare câmp obligatoriu: ProductDetails.jsx, funcția onAddToCart - blochează efectiv trimiterea (return devreme) dacă lipsește o variantă/personalizare marcată required, afișează mesaj per câmp și scroll la primul invalid.",
+    "Sursă: vendorProductRoutes.js (normalizeOrderModePayload/normalizeOrderConfiguration - enumul REAL are doar DIRECT/OPTIONS/QUOTE_ONLY; 'READY_TO_BUY' și 'CUSTOMIZABLE' sunt doar etichete UI acceptate ca sinonime pentru DIRECT/OPTIONS, nu valori separate), schema.prisma (ProductOrderMode, ProductAvailability, câmpurile optionsSchema/customSchema/repeatedGroups/quoteSchema), vendorAssistantCommandsRoutes.js/vendorAssistantCommandService.js (editare conversațională). Corectat 2026-08-25: audience-ul endpoint-ului updateOwnProduct era greșit (ADMIN în loc de VENDOR); archiveProduct nu există ca status real. Adăugat 2026-08-26, verificat direct din cod: upload poză la personalizare (ProductOrderModeSection.jsx CUSTOM_FIELDS preset 'poza'/type:'file'; ProductDetails.jsx randează <input type=\"file\" accept=\"image/*\"> pentru câmpuri image/photo/file, upload real prin uploadCustomizationFile) - funcțional, nu limitare parțială. Validare câmp obligatoriu: ProductDetails.jsx, funcția onAddToCart - blochează efectiv trimiterea (return devreme) dacă lipsește o variantă/personalizare marcată required, afișează mesaj per câmp și scroll la primul invalid. Extins 2026-08-28 (audit GUEST): enum ProductAvailability confirmat în schema.prisma (READY | MADE_TO_ORDER | PREORDER | SOLD_OUT, + leadTimeDays/readyQty/nextShipDate) pentru FAQ de disponibilitate; editarea personalizării din coș verificată în Cart.jsx - handlerele existente (commitQty/removeFromGuestCart etc., cheie `productId:configurationKey`) ating doar cantitatea și ștergerea, fără niciun handler care modifică selectedOptions/customAnswers după adăugare - singurul link din rândul de coș duce către /produs/:id, nu spre un editor inline. Extins din nou 2026-08-28: ProductDetails.jsx confirmă `onRequestQuote` (produs QUOTE_ONLY) - `if (!me) navigate('/autentificare?redirect=...')` - un guest nu poate trimite o cerere de ofertă fără cont, dar poate configura complet formularul de personalizare/opțiuni fără restricție (nicio verificare `me` pe randarea/completarea câmpurilor în sine, doar la trimitere).",
 };

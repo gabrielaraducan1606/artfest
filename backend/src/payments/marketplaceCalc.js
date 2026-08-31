@@ -323,6 +323,12 @@ export async function computeOrderSplits(
 ) {
   const order =
     await prisma.order.findUnique({
+      // Pin explicit pe "query": cod de calcul comision/payout -
+      // păstrăm strategia actuală, verificată în producție, chiar
+      // dacă relațiile în sine (shipments -> items, fără paginare
+      // nested) nu par riscante mecanic sub join.
+      relationLoadStrategy: "query",
+
       where: {
         id:
           orderId,

@@ -1,0 +1,656 @@
+/*
+ * Stiluri pentru wizard-ul "Adaugă mai multe produse cu AI" -
+ * reutilizează STRICT aceiași tokeni globali (variabile CSS) și
+ * aceleași clase de bază ca VendorProductWizard.module.css (fluxul
+ * single-product deja aliniat la design system). Fișierul anterior
+ * folosea stiluri inline, cu o paletă maro hardcodată, complet ruptă
+ * de restul aplicației - de asta există acum acest modul separat.
+ */
+
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+
+  background: var(--surface, #ffffff);
+  color: var(--color-text, #2d2d2d);
+  font-family: var(--font-body, "Inter", ui-sans-serif, system-ui, sans-serif);
+}
+
+/* Header */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border, #e5e5e5);
+}
+
+.headerTitle {
+  font-family: var(--font-title, "Inter", ui-sans-serif, system-ui, sans-serif);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.headerButton {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+
+  font-size: 0.9rem;
+  color: var(--color-muted, #6b7280);
+
+  padding: 6px;
+  border-radius: var(--radius, 10px);
+
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.headerButton:hover {
+  background: color-mix(in srgb, var(--color-primary, #8b5cf6) 8%, transparent);
+  color: var(--color-primary, #8b5cf6);
+}
+
+.headerButton:focus-visible {
+  outline: 2px solid var(--color-primary, #8b5cf6);
+  outline-offset: 2px;
+}
+
+/* Content */
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.progress {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-primary, #8b5cf6);
+  margin-bottom: 6px;
+
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-family: var(--font-title, "Inter", ui-sans-serif, system-ui, sans-serif);
+  font-size: 1.3rem;
+  line-height: 1.25;
+  color: var(--color-text, #2d2d2d);
+}
+
+.text {
+  margin: 0 0 16px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--color-muted, #6b7280);
+}
+
+.hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--color-muted, #6b7280);
+}
+
+/* Carduri */
+
+.card {
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: calc(var(--radius, 10px) + 4px);
+  padding: 14px;
+  margin-bottom: 12px;
+
+  background: var(--color-bg, #fafafa);
+}
+
+.cardAccentWarning {
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 10%, var(--surface, #ffffff));
+  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 35%, var(--color-border, #e5e5e5));
+}
+
+.successCard {
+  border: 1px solid var(--color-success, #16a34a);
+  border-radius: calc(var(--radius, 10px) + 4px);
+  padding: 14px;
+  margin-bottom: 12px;
+
+  background: color-mix(in srgb, var(--color-success, #16a34a) 10%, transparent);
+  color: var(--color-text, #2d2d2d);
+}
+
+.errorText {
+  color: var(--color-danger, #dc2626);
+  font-size: 0.8rem;
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
+.warningText {
+  color: color-mix(in srgb, var(--color-warning, #f59e0b) 70%, var(--color-text, #2d2d2d));
+  font-size: 0.78rem;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.infoList {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  color: var(--color-muted, #6b7280);
+  line-height: 1.7;
+}
+
+/* Câmpuri */
+
+.label {
+  display: block;
+  font-weight: 700;
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+  color: var(--color-text, #2d2d2d);
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: var(--radius, 10px);
+  background: var(--surface, #ffffff);
+
+  padding: 10px 12px;
+  font: 500 0.9rem/1.4 var(--font-body, "Inter", ui-sans-serif, system-ui, sans-serif);
+  color: var(--color-text, #2d2d2d);
+
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.input::placeholder {
+  color: var(--color-muted, #6b7280);
+}
+
+.input:hover {
+  border-color: color-mix(in srgb, var(--color-primary, #8b5cf6) 35%, var(--color-border, #e5e5e5));
+}
+
+.input:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary, #8b5cf6) 65%, var(--color-border, #e5e5e5));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary, #8b5cf6) 25%, transparent);
+  background: color-mix(in srgb, var(--surface, #ffffff) 97%, var(--color-primary, #8b5cf6) 3%);
+}
+
+.select {
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: var(--radius, 10px);
+  background: var(--surface, #ffffff);
+
+  padding: 7px 9px;
+  font: 500 0.78rem/1.3 var(--font-body, "Inter", ui-sans-serif, system-ui, sans-serif);
+  color: var(--color-text, #2d2d2d);
+
+  outline: none;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.select:hover,
+.select:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary, #8b5cf6) 45%, var(--color-border, #e5e5e5));
+}
+
+.select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Butoane */
+
+.buttonGroup {
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.primaryButton {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 14px;
+  cursor: pointer;
+
+  font-weight: 600;
+  font-size: 0.9rem;
+  font-family: inherit;
+
+  background: var(--color-primary, #8b5cf6);
+  color: #ffffff;
+
+  transition: background-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: var(--color-hover, #7c3aed);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.primaryButton:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.primaryButton:focus-visible {
+  outline: 2px solid var(--color-primary, #8b5cf6);
+  outline-offset: 2px;
+}
+
+.primaryButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.secondaryButton {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: 999px;
+  padding: 11px 14px;
+  cursor: pointer;
+
+  font-weight: 600;
+  font-size: 0.9rem;
+  font-family: inherit;
+
+  background: var(--surface, #ffffff);
+  color: var(--color-text, #2d2d2d);
+
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.secondaryButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary, #8b5cf6) 5%, var(--surface, #ffffff));
+  border-color: color-mix(in srgb, var(--color-primary, #8b5cf6) 35%, var(--color-border, #e5e5e5));
+}
+
+.secondaryButton:focus-visible {
+  outline: 2px solid var(--color-primary, #8b5cf6);
+  outline-offset: 2px;
+}
+
+.secondaryButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.smallButton {
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: 999px;
+  background: var(--surface, #ffffff);
+  color: var(--color-text, #2d2d2d);
+
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.smallButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary, #8b5cf6) 6%, var(--surface, #ffffff));
+  border-color: color-mix(in srgb, var(--color-primary, #8b5cf6) 35%, var(--color-border, #e5e5e5));
+}
+
+.smallButtonDanger {
+  color: var(--color-danger, #dc2626);
+  border-color: color-mix(in srgb, var(--color-danger, #dc2626) 30%, var(--color-border, #e5e5e5));
+}
+
+.smallButtonDanger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger, #dc2626) 8%, var(--surface, #ffffff));
+  border-color: var(--color-danger, #dc2626);
+}
+
+/* Imagini (pasul 1 - toate fotografiile) */
+
+.imageGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.imageThumb {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: var(--radius, 10px);
+  background: var(--color-bg, #fafafa);
+}
+
+.imageThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Grupuri (pasul 2 - verificare grupare) */
+
+.groupCard {
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: calc(var(--radius, 10px) + 4px);
+  padding: 14px;
+  margin-bottom: 12px;
+  background: var(--surface, #ffffff);
+}
+
+.groupCardNeedsReview {
+  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 45%, var(--color-border, #e5e5e5));
+}
+
+.groupHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.groupHeaderMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.groupImageCount {
+  color: var(--color-muted, #6b7280);
+  font-size: 0.78rem;
+}
+
+/* Etichete de stare */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badgeWarning {
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 16%, transparent);
+  color: color-mix(in srgb, var(--color-warning, #f59e0b) 75%, var(--color-text, #2d2d2d));
+}
+
+.badgeInfo {
+  background: color-mix(in srgb, var(--color-primary, #8b5cf6) 12%, transparent);
+  color: var(--color-primary, #8b5cf6);
+}
+
+.badgeSuccess {
+  background: color-mix(in srgb, var(--color-success, #16a34a) 14%, transparent);
+  color: var(--color-success, #16a34a);
+}
+
+.badgeDanger {
+  background: color-mix(in srgb, var(--color-danger, #dc2626) 12%, transparent);
+  color: var(--color-danger, #dc2626);
+}
+
+/* Grilă de imagini editabilă în interiorul unui grup */
+
+.groupImageGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.imageChip {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: var(--radius, 10px);
+  background: var(--color-bg, #fafafa);
+  border: 2px solid transparent;
+}
+
+.imageChip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.imageChipPrimary {
+  border-color: var(--color-primary, #8b5cf6);
+}
+
+.imageChipSelected {
+  border-color: var(--color-danger, #dc2626);
+}
+
+.imageChipCheckbox {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.imageChipRemove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 0;
+  cursor: pointer;
+
+  background: rgba(20, 15, 12, 0.6);
+  color: #ffffff;
+  font-size: 0.7rem;
+  line-height: 1;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.imageChipRemove:hover {
+  background: color-mix(in srgb, var(--color-danger, #dc2626) 85%, black);
+}
+
+.imageChipPrimaryMark {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-primary, #8b5cf6);
+  color: #ffffff;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.imageChipButton {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Rând de acțiuni per grup */
+
+.groupActionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.groupTitleInput {
+  composes: input;
+  margin-top: 10px;
+}
+
+/* Bară de progres */
+
+.progressBarTrack {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-border, #e5e5e5);
+  overflow: hidden;
+  margin: 10px 0 6px;
+}
+
+.progressBarFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-primary, #8b5cf6);
+  transition: width 200ms ease;
+}
+
+.progressLabel {
+  font-size: 0.78rem;
+  color: var(--color-muted, #6b7280);
+}
+
+/* Pasul 3 - review produse pregătite */
+
+.reviewCard {
+  display: flex;
+  gap: 12px;
+
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: calc(var(--radius, 10px) + 4px);
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--surface, #ffffff);
+}
+
+.reviewCardImage {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius, 10px);
+  overflow: hidden;
+  background: var(--color-bg, #fafafa);
+}
+
+.reviewCardImage img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.reviewCardBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.reviewCardTitle {
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin: 0 0 2px;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reviewCardMeta {
+  color: var(--color-muted, #6b7280);
+  font-size: 0.78rem;
+  margin: 0 0 6px;
+}
+
+.reviewCardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* Sumar contorizat, sus pe pasul de review */
+
+.summaryBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+
+  padding: 10px 12px;
+  border-radius: var(--radius, 10px);
+  background: var(--color-bg, #fafafa);
+  margin-bottom: 14px;
+}
+
+.summaryBarText {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* Ecran gol */
+
+.emptyState {
+  text-align: center;
+  padding: 24px 12px;
+  color: var(--color-muted, #6b7280);
+}
+
+/* Mobil */
+
+@media (max-width: 420px) {
+  .groupImageGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .imageGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .groupActionsRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .reviewCard {
+    flex-direction: column;
+  }
+
+  .reviewCardImage {
+    width: 100%;
+    height: 140px;
+  }
+}

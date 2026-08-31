@@ -267,24 +267,12 @@ export async function handleVendorChoice({
     };
   }
 
-  if (
-    activeFlow ===
-      VENDOR_PRODUCT_FLOWS.EDIT_PRODUCT &&
-    choice ===
-      "Vezi produsele mele"
-  ) {
-    addMessage(
-      createMessage(
-        "assistant",
-        "Lista produselor tale va fi conectată în etapa următoare."
-      )
-    );
-
-    return {
-      handled: true,
-      shouldOpenUpload: false,
-    };
-  }
+  /*
+   * BUGFIX: "Vezi produsele mele" e interceptat ÎNAINTE de acest
+   * handler, direct în VendorAssistant.jsx (vezi openEditProductSelector) -
+   * niciun placeholder aici, ca să nu mai existe două căi divergente
+   * pentru aceeași alegere.
+   */
 
   if (
     activeFlow ===

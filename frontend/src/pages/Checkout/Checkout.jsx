@@ -10,6 +10,7 @@ import {
   clearGuestCart,
 } from "../../utils/guestCart";
 import { getAttributionsForCheckout } from "../../utils/campaignAttribution.js";
+import { humanizeOptionValue } from "../../utils/optionLabels.js";
 import styles from "./Checkout.module.css";
 
 const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
@@ -515,15 +516,15 @@ function getReadableConfigValue(value) {
   }
 
   if (typeof value === "object") {
-    return (
+    return humanizeOptionValue(
       value.label ||
-      value.value ||
-      value.name ||
-      JSON.stringify(value)
+        value.value ||
+        value.name ||
+        JSON.stringify(value)
     );
   }
 
-  return String(value);
+  return humanizeOptionValue(String(value));
 }
 
 function isCustomizationImage(value) {

@@ -2177,6 +2177,13 @@ router.post(
         await prisma
           .messageThread
           .findFirst({
+            // Pin explicit pe "query": relația `offers` are aici
+            // orderBy+take(1) nested (top-1-per-grup) - zona
+            // documentată ca posibil diferită sub strategia "join"
+            // (LATERAL+LIMIT). Nu am verificat echivalența, deci
+            // păstrăm comportamentul actual în mod explicit.
+            relationLoadStrategy: "query",
+
             where: {
               userId,
 

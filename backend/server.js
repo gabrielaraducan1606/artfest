@@ -111,6 +111,8 @@ import metaCatalogFeedRoutes from "./src/routes/metaCatalogFeedRoutes.js";
 import vendorCatalogImportRoutes from "./src/routes/vendorCatalogImportRoutes.js";
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
+// 🔔 JOB: preț orientativ lipsă la produse QUOTE_ONLY
+import { runQuotePriceReminderJob } from "./src/jobs/quotePriceReminderJob.js";
 import vendorCatalogProductsRoutes
   from "./src/routes/vendorCatalogProductsRoutes.js";
 import customerRequestsRouter
@@ -120,6 +122,9 @@ import vendorCampaignRoutes
   import publicCampaignRoutes
   from "./src/routes/publicCampaignRoutes.js";
   import influencerRoutes from "./src/routes/influencerRoutes.js";
+  import influencerDiscountCodesRoutes
+  from "./src/routes/influencerDiscountCodesRoutes.js";
+  import influencerCollectionsRoutes from "./src/routes/influencerCollectionRoutes.js";
 // Încarcă .env DOAR în development
 if (process.env.NODE_ENV !== "production") {
   dotenv.config(); // fără override
@@ -455,6 +460,16 @@ app.use(
 );
 
 app.use(adminEmailLogsRoutes);
+
+app.use("/api/admin/influencers", adminInfluencersRoutes);
+app.use(
+  "/api/influencer/collections",
+  influencerCollectionsRoutes
+);
+app.use(
+  "/api/influencer/discount-codes",
+  influencerDiscountCodesRoutes
+);
 app.use("/api/ambassadors", ambassadorRoutes);
 app.use("/api/admin/maintenance", adminMaintenanceRoutes);
 app.use("/api/admin", adminRoutes);
@@ -474,7 +489,6 @@ app.use("/api/admin", adminPickupsRoutes);
 app.use("/api/admin", adminInvoicesRoutes);
 app.use("/api/admin", adminProductsRoutes);
 app.use("/api/admin", adminCollectionsRoutes);
-app.use("/api/admin/influencers", adminInfluencersRoutes);
 app.use("/api/influencer", influencerRoutes);
 app.use("/api", platformBillingRouter);
 app.use("/api/ai", aiRoutes);
@@ -684,6 +698,23 @@ setInterval(() => {
     console.error("followUpNotificationJob (interval) failed:", err)
   );
 }, intervalMs);
+
+/*
+ * dedupeKey stabil + badge deja vizibil în catalog - nu are nevoie
+ * de verificare la fiecare 10 minute, doar un semnal suplimentar,
+ * o dată pe zi e suficient.
+ */
+runQuotePriceReminderJob().catch((err) =>
+  console.error("quotePriceReminderJob (startup) failed:", err)
+);
+
+const quotePriceReminderIntervalMs = 24 * 60 * 60 * 1000;
+
+setInterval(() => {
+  runQuotePriceReminderJob().catch((err) =>
+    console.error("quotePriceReminderJob (interval) failed:", err)
+  );
+}, quotePriceReminderIntervalMs);
 
 });
 

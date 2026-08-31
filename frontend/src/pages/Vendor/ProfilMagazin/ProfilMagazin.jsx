@@ -1,4 +1,4 @@
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./ProfilMagazin.module.css";
 import { SEO } from "../../../components/Seo/SeoProvider.jsx";
@@ -25,10 +25,81 @@ import { extractCode, extractHttpStatus } from "./utils/activationErrors";
 
 import { useAnnounceCurrentEntity } from "../../../components/AIAssistant/CurrentEntityContext.jsx";
 
+/*
+ * Instrumentare minimă de timing, doar în dev, doar în consolă - ca
+ * să se poată vedea concret unde se duce timpul de la click pe
+ * magazin/vânzător până la primul produs vizibil. Nu înlocuiește un
+ * profiling real de browser - doar reperele cerute explicit.
+ */
+const PM_TIMING_ENABLED =
+  typeof window !== "undefined" &&
+  typeof performance !== "undefined" &&
+  Boolean(import.meta.env?.DEV);
+
+function markPmTiming(name) {
+  if (!PM_TIMING_ENABLED) return;
+  try {
+    performance.mark(name);
+  } catch {
+    // ignore
+  }
+}
+
+function logPmTimingSummary() {
+  if (!PM_TIMING_ENABLED) return;
+  try {
+    const names = [
+      "store:route-click",
+      "store:chunk-evaluated",
+      "store:mount",
+      "store:fetch-start",
+      "store:fetch-end",
+      "store:first-paint",
+      "store:first-product-visible",
+      "store:secondary-content-loaded",
+    ];
+    const entries = names
+      .map((name) => performance.getEntriesByName(name, "mark")[0])
+      .filter(Boolean);
+    if (entries.length < 2) return;
+    const t0 = entries[0].startTime;
+    // eslint-disable-next-line no-console
+    console.info(
+      "[ProfilMagazin] timing (ms de la primul reper):",
+      entries
+        .map(
+          (e) =>
+            `${e.name.replace("store:", "")}: ${(e.startTime - t0).toFixed(0)}ms`
+        )
+        .join("  →  ")
+    );
+  } catch {
+    // ignore
+  }
+}
+
+// Se evaluează o singură dată, când chunk-ul lazy e efectiv descărcat
+// și executat de browser.
+markPmTiming("store:chunk-evaluated");
+
 export default function ProfilMagazinPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  /*
+   * Summary trimis de un card/link (StoresPage, ProductDetails "Vândut
+   * de") la click - DOAR pentru primul paint instant al skeleton-ului
+   * (nume/logo), cât timp cache-ul de sesiune sau fetch-ul real e în
+   * curs. Nu e folosit ca sursă de date reale - `useProfilMagazin`
+   * pornește oricum fetch-ul necondiționat.
+   */
+  const storeSummary = useMemo(() => {
+    const summary = location.state?.storeSummary;
+    if (!summary || summary.slug !== slug) return null;
+    return summary;
+  }, [location.state, slug]);
 
   const onboardingProducts = searchParams.get("onboarding") === "products";
   const [showAddProductHint, setShowAddProductHint] = useState(false);
@@ -65,6 +136,61 @@ const heroActionsRef = useRef(null);
     setProdForm,
     openNewProduct,
   } = useProfilMagazin(slug, { me });
+
+  const firstPaintMarkedRef = useRef(false);
+  const firstProductMarkedRef = useRef(false);
+  const secondaryMarkedRef = useRef(false);
+
+  useEffect(() => {
+    markPmTiming("store:mount");
+  }, []);
+
+  useEffect(() => {
+    if (!_sellerData || firstPaintMarkedRef.current) return;
+    firstPaintMarkedRef.current = true;
+    markPmTiming("store:first-paint");
+    logPmTimingSummary();
+  }, [_sellerData]);
+
+  useEffect(() => {
+    if (!products?.length || firstProductMarkedRef.current) return;
+    firstProductMarkedRef.current = true;
+    markPmTiming("store:first-product-visible");
+    logPmTimingSummary();
+  }, [products]);
+
+  /*
+   * Câmpanii/colecții - secțiune secundară, nu e necesară pentru
+   * primul paint (cover/avatar/nume/rating/descriere/primele produse).
+   * Amânată până browserul e liber, ca să nu concureze cu request-ul
+   * principal /store/:slug/initial pe lățimea de bandă disponibilă.
+   */
+  const [deferredSectionsReady, setDeferredSectionsReady] = useState(false);
+
+  useEffect(() => {
+    if (!_sellerData) return undefined;
+
+    const run = () => {
+      setDeferredSectionsReady(true);
+      if (!secondaryMarkedRef.current) {
+        secondaryMarkedRef.current = true;
+        markPmTiming("store:secondary-content-loaded");
+        logPmTimingSummary();
+      }
+    };
+
+    if ("requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(run, { timeout: 700 });
+      return () => {
+        if ("cancelIdleCallback" in window) {
+          window.cancelIdleCallback(idleId);
+        }
+      };
+    }
+
+    const t = setTimeout(run, 100);
+    return () => clearTimeout(t);
+  }, [_sellerData]);
 
   /*
    * PAGE-AWARE / ENTITY-AWARE: pe /magazin/:slug, entitatea relevantă
@@ -872,7 +998,7 @@ quoteSchema: Array.isArray(full.quoteSchema)
   );
 
   if (loading && !hasData) {
-    return <ProfilMagazinSkeleton />;
+    return <ProfilMagazinSkeleton preview={storeSummary} />;
   }
 
   if (owner.shouldShowOnboardingGate) {
@@ -999,11 +1125,13 @@ quoteSchema: Array.isArray(full.quoteSchema)
   trackCTA={trackCTA}
 />
 
-<StoreCampaignCollections
-  storeSlug={storeSlug}
-  isOwner={isOwner}
-  onOpenCampaign={handleOpenPublicCampaign}
-/>
+{deferredSectionsReady && (
+  <StoreCampaignCollections
+    storeSlug={storeSlug}
+    isOwner={isOwner}
+    onOpenCampaign={handleOpenPublicCampaign}
+  />
+)}
 <div className={styles.card}>
 
           <StoreSections

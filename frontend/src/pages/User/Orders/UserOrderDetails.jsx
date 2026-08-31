@@ -6,6 +6,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { api } from "../../../lib/api";
+import { humanizeOptionValue } from "../../../utils/optionLabels";
 import {
   ArrowLeft,
   Loader2,
@@ -203,7 +204,7 @@ function readableValue(
     typeof value ===
     "object"
   ) {
-    return (
+    return humanizeOptionValue(
       value.label ||
       value.value ||
       value.name ||
@@ -213,7 +214,7 @@ function readableValue(
     );
   }
 
-  return String(value);
+  return humanizeOptionValue(String(value));
 }
 
 function readableLabel(

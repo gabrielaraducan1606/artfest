@@ -24,9 +24,132 @@ import styles from "./HeroSection.module.css";
 import imageMain from "../../../assets/heroSectionImage.jpg";
 
 import NewsletterModal from "../NewsletterModal/NewsletterModal.jsx";
+import { prefetchData, getPrefetchedData } from "../../../lib/smartPrefetch.js";
 
 const STORE_PAGE_PREFIX =
   "/magazin";
+
+/* =========================================================
+   CACHE SCURT PENTRU "PRODUSUL ZILEI" / "ARTIZANUL SĂPTĂMÂNII"
+   =========================================================
+   Product of the day se schimbă o dată pe zi, Artisan of the week o
+   dată pe săptămână (confirmat din backend: dateKey = zi, respectiv
+   săptămână) - un TTL de 15 minute e sigur din perspectiva
+   frecvenței reale de schimbare, dar rămas conservator (nu maxim
+   posibil) ca să nu depindem de asta. NU e sursă finală - fetch-ul
+   real de mai jos rulează întotdeauna, indiferent de cache.
+========================================================= */
+const HOMEPAGE_FEATURE_CACHE_TTL_MS = 15 * 60 * 1000;
+
+function readHomepageFeatureCache(key) {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.t || !parsed?.item) return null;
+    if (Date.now() - parsed.t > HOMEPAGE_FEATURE_CACHE_TTL_MS) return null;
+    return parsed.item;
+  } catch {
+    return null;
+  }
+}
+
+function writeHomepageFeatureCache(key, item) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), item }));
+  } catch {
+    // sessionStorage indisponibil - ignorăm.
+  }
+}
+
+/*
+ * Instrumentare minimă de timing, doar în dev, doar în consolă.
+ */
+const HP_TIMING_ENABLED =
+  typeof window !== "undefined" &&
+  typeof performance !== "undefined" &&
+  Boolean(import.meta.env?.DEV);
+
+function markHpTiming(name) {
+  if (!HP_TIMING_ENABLED) return;
+  try {
+    performance.mark(name);
+  } catch {
+    // ignore
+  }
+}
+
+function logHpTimingSummary() {
+  if (!HP_TIMING_ENABLED) return;
+  try {
+    const names = [
+      "homepage:mount",
+      "homepage:product-fetch-start",
+      "homepage:product-fetch-end",
+      "homepage:artisan-fetch-start",
+      "homepage:artisan-fetch-end",
+      "homepage:first-spotlight-paint",
+      "homepage:main-image-loaded",
+      "homepage:both-features-ready",
+    ];
+    const entries = names
+      .map((name) => performance.getEntriesByName(name, "mark")[0])
+      .filter(Boolean);
+    if (entries.length < 2) return;
+    const t0 = entries[0].startTime;
+    console.info(
+      "[Homepage] timing (ms de la primul reper):",
+      entries
+        .map(
+          (e) =>
+            `${e.name.replace("homepage:", "")}: ${(e.startTime - t0).toFixed(0)}ms`
+        )
+        .join("  →  ")
+    );
+  } catch {
+    // ignore
+  }
+}
+
+/*
+ * Bootstrap prefetch: "Homepage" e cea mai probabilă primă rută a
+ * unei sesiuni noi, deci pornim cele două fetch-uri cât mai devreme
+ * posibil (idle time scurt după ce acest chunk s-a evaluat), înainte
+ * ca HeroSection să apuce să se monteze. Reutilizează serviciul
+ * central (max 3 prefetch-uri concurente, dedup, gating pe
+ * saveData/2g) - mode "auto", nu blochează nimic altceva.
+ */
+function bootstrapPrefetchHomepageFeatures() {
+  const run = () => {
+    prefetchData(
+      "homepage:product-of-day",
+      () =>
+        fetch("/api/public/homepage/product-of-the-day", {
+          headers: { Accept: "application/json" },
+        }).then((r) => (r.ok ? r.json() : null)),
+      { mode: "auto", url: "/api/public/homepage/product-of-the-day" }
+    );
+
+    prefetchData(
+      "homepage:artisan-of-week",
+      () =>
+        fetch("/api/public/homepage/artisan-of-the-week", {
+          headers: { Accept: "application/json" },
+        }).then((r) => (r.ok ? r.json() : null)),
+      { mode: "auto", url: "/api/public/homepage/artisan-of-the-week" }
+    );
+  };
+
+  if (typeof window === "undefined") return;
+
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(run, { timeout: 500 });
+  } else {
+    window.setTimeout(run, 50);
+  }
+}
+
+bootstrapPrefetchHomepageFeatures();
 
 /* =========================================================
    UTILITARE
@@ -374,25 +497,39 @@ function useHomepageFeature({
   endpoint,
   fallback,
   normalize,
+  cacheKey,
 }) {
   /*
-   * Pornim cu null, nu cu fallback.
-   *
-   * Astfel nu mai apare întâi reclama
-   * generică și apoi produsul real.
+   * Dacă avem deja ceva din prefetch-ul de bootstrap (smartPrefetch,
+   * declanșat la evaluarea acestui modul) sau din sessionStorage
+   * (revenire/refresh, cache de max 15 min), îl folosim ca stare
+   * INIȚIALĂ - nu mai pornim cu null și nu mai arătăm skeleton pentru
+   * el. NU e sursă finală - fetch-ul real de mai jos rulează oricum,
+   * necondiționat, și rămâne singura sursă de adevăr pentru preț/
+   * discount/stoc/campanie.
    */
+  const seedRef = useRef(undefined);
+  if (seedRef.current === undefined) {
+    const prefetchedRaw = cacheKey ? getPrefetchedData(cacheKey) : null;
+    const cachedItem = cacheKey ? readHomepageFeatureCache(cacheKey) : null;
+
+    seedRef.current = prefetchedRaw
+      ? normalize(prefetchedRaw, fallback)
+      : cachedItem || null;
+  }
+
   const [
     item,
     setItem,
   ] = useState(
-    null
+    seedRef.current
   );
 
   const [
     loading,
     setLoading,
   ] = useState(
-    true
+    !seedRef.current
   );
 
   const [
@@ -400,6 +537,13 @@ function useHomepageFeature({
     setError,
   ] = useState(
     null
+  );
+
+  // true dacă am afișat deja ceva (din prefetch/cache sau dintr-un
+  // fetch anterior reușit) - folosit ca să NU coborâm la fallback
+  // generic pe o eroare de revalidare când avem deja ceva real vizibil.
+  const hasShownRealDataRef = useRef(
+    !!seedRef.current
   );
 
   useEffect(() => {
@@ -417,15 +561,28 @@ function useHomepageFeature({
         7000
       );
 
+    const timingLabel =
+      cacheKey === "homepage:product-of-day"
+        ? "product"
+        : cacheKey === "homepage:artisan-of-week"
+        ? "artisan"
+        : null;
+
     async function load() {
       try {
-        setLoading(
-          true
-        );
+        if (!hasShownRealDataRef.current) {
+          setLoading(
+            true
+          );
+        }
 
         setError(
           null
         );
+
+        if (timingLabel) {
+          markHpTiming(`homepage:${timingLabel}-fetch-start`);
+        }
 
         const response =
           await fetch(
@@ -440,14 +597,21 @@ function useHomepageFeature({
               },
 
               /*
-               * Nu folosim cache-ul browserului,
-               * deoarece backendul are deja
-               * propriul cache.
+               * Fetch-ul real rulează întotdeauna, indiferent de
+               * cache - preț/discount/stoc/campanie nu vin niciodată
+               * doar din cache. Backend-ul nu are cache-control
+               * propriu (verificat direct - niciun header de cache),
+               * deci `no-store` aici e corect: browserul n-ar avea
+               * de unde să știe cât e valid oricum.
                */
               cache:
                 "no-store",
             }
           );
+
+        if (timingLabel) {
+          markHpTiming(`homepage:${timingLabel}-fetch-end`);
+        }
 
         if (
           !response.ok
@@ -477,6 +641,12 @@ function useHomepageFeature({
         setItem(
           normalized
         );
+
+        hasShownRealDataRef.current = true;
+
+        if (cacheKey) {
+          writeHomepageFeatureCache(cacheKey, normalized);
+        }
       } catch (loadError) {
         if (!mounted) {
           return;
@@ -497,12 +667,16 @@ function useHomepageFeature({
         );
 
         /*
-         * Folosim fallback-ul doar dacă
-         * backendul nu a răspuns.
+         * Dacă avem deja date reale vizibile (din prefetch/cache sau
+         * dintr-un fetch anterior reușit), o eroare de revalidare NU
+         * le înlocuiește cu fallback-ul generic - le păstrăm. Folosim
+         * fallback-ul doar când chiar nu avem nimic real de arătat.
          */
-        setItem(
-          fallback
-        );
+        if (!hasShownRealDataRef.current) {
+          setItem(
+            fallback
+          );
+        }
       } finally {
         if (mounted) {
           setLoading(
@@ -532,6 +706,7 @@ function useHomepageFeature({
     endpoint,
     fallback,
     normalize,
+    cacheKey,
   ]);
 
   return {
@@ -713,6 +888,13 @@ function SpotlightProductGallery({
     0
   );
 
+  const mainImageMarkedRef = useRef(false);
+  const handleMainImageLoad = () => {
+    if (mainImageMarkedRef.current) return;
+    mainImageMarkedRef.current = true;
+    markHpTiming("homepage:main-image-loaded");
+  };
+
   const touchStartX =
     useRef(
       null
@@ -859,6 +1041,7 @@ function SpotlightProductGallery({
           className={
             styles.spotlightImage
           }
+          onLoad={handleMainImageLoad}
           loading="eager"
           decoding="async"
           fetchPriority="high"
@@ -945,14 +1128,51 @@ function FeaturedSpotlight({
   artisan,
   onAnalytics,
 }) {
+  /*
+   * Produsul zilei e tabul inițial preferat - dar dacă la montare
+   * doar Artizanul e gata (cazul rar în care product-of-the-day
+   * întârzie), pornim direct pe "artisan" ca să nu arătăm un tab gol.
+   */
   const [
     activeTab,
     setActiveTab,
   ] = useState(
-    "product"
+    () => (product ? "product" : "artisan")
   );
 
+  const bothReady = Boolean(product) && Boolean(artisan);
+  const rotationStartedRef = useRef(false);
+
+  /*
+   * Dacă am pornit pe "artisan" (product încă nu era gata) și
+   * între timp product-ul a sosit, iar rotația nu a apucat încă să
+   * pornească, comutăm pe "product" - rămâne tabul inițial real, nu
+   * doar cel disponibil primul.
+   */
   useEffect(() => {
+    if (
+      product &&
+      activeTab === "artisan" &&
+      !rotationStartedRef.current
+    ) {
+      setActiveTab("product");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product]);
+
+  /*
+   * Rotația Produs <-> Artizan pornește DOAR când ambele sunt
+   * disponibile - nu rotim niciodată pe un tab gol/fallback lipsă.
+   * Dacă unul dintre ele nu ajunge vreodată (eroare reală), rămânem
+   * pe cel disponibil.
+   */
+  useEffect(() => {
+    if (!bothReady) {
+      return undefined;
+    }
+
+    rotationStartedRef.current = true;
+
     const intervalId =
       window.setInterval(
         () => {
@@ -972,7 +1192,7 @@ function FeaturedSpotlight({
         intervalId
       );
     };
-  }, []);
+  }, [bothReady]);
 
   const isProduct =
     activeTab ===
@@ -1201,6 +1421,7 @@ const artisanHasDiscount =
                 }
                 loading="eager"
                 decoding="async"
+                fetchPriority="high"
               />
             </Link>
           </div>
@@ -1621,6 +1842,10 @@ function PartnerBar({
 ========================================================= */
 
 export default function HeroSection() {
+  useEffect(() => {
+    markHpTiming("homepage:mount");
+  }, []);
+
   const [
     ambassador,
     setAmbassador,
@@ -1701,9 +1926,6 @@ export default function HeroSection() {
   const {
     item:
       productOfTheDay,
-
-    loading:
-      productLoading,
   } = useHomepageFeature({
     endpoint:
       "/api/public/homepage/product-of-the-day",
@@ -1713,14 +1935,14 @@ export default function HeroSection() {
 
     normalize:
       normalizeProductPayload,
+
+    cacheKey:
+      "homepage:product-of-day",
   });
 
   const {
     item:
       featuredArtisan,
-
-    loading:
-      artisanLoading,
   } = useHomepageFeature({
     endpoint:
       "/api/public/homepage/artisan-of-the-week",
@@ -1730,13 +1952,44 @@ export default function HeroSection() {
 
     normalize:
       normalizeArtisanPayload,
+
+    cacheKey:
+      "homepage:artisan-of-week",
   });
 
+  /*
+   * Skeleton complet DOAR dacă niciunul din cele două nu e încă gata -
+   * dacă unul e disponibil (din prefetch, cache, sau fetch real),
+   * randăm spotlight-ul imediat cu ce avem; celălalt se adaugă când
+   * vine, fără să mai blocheze primul.
+   */
   const homepageFeatureLoading =
-    productLoading ||
-    artisanLoading ||
-    !productOfTheDay ||
+    !productOfTheDay &&
     !featuredArtisan;
+
+  const firstPaintMarkedRef = useRef(false);
+  const bothReadyMarkedRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      (productOfTheDay || featuredArtisan) &&
+      !firstPaintMarkedRef.current
+    ) {
+      firstPaintMarkedRef.current = true;
+      markHpTiming("homepage:first-spotlight-paint");
+      logHpTimingSummary();
+    }
+
+    if (
+      productOfTheDay &&
+      featuredArtisan &&
+      !bothReadyMarkedRef.current
+    ) {
+      bothReadyMarkedRef.current = true;
+      markHpTiming("homepage:both-features-ready");
+      logHpTimingSummary();
+    }
+  }, [productOfTheDay, featuredArtisan]);
 
   useEffect(() => {
     fetch(

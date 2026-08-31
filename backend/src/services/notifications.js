@@ -1084,42 +1084,29 @@ export async function notifyVendorOnHomepageFeatureCreated(
   };
 
   /*
-   * Verificăm manual notificarea existentă.
-   * Astfel, butonul „Retrimite” chiar o readuce
-   * în dashboardul vendorului.
+   * Upsert atomic pe dedupeKey (unic) - evită race condition-ul
+   * findFirst -> create ("Retrimite" apăsat de două ori aproape
+   * simultan putea trece de findFirst în ambele apeluri înainte
+   * ca vreun create să se termine, iar al doilea create arunca
+   * P2002 necaptat). Astfel, butonul „Retrimite" chiar readuce
+   * notificarea în dashboardul vendorului, ca necitită.
    */
-  const existingNotification =
-    await prisma.notification.findFirst({
-      where: {
-        dedupeKey,
-      },
+  return prisma.notification.upsert({
+    where: {
+      dedupeKey,
+    },
 
-      select: {
-        id: true,
-      },
-    });
-
-  if (existingNotification) {
-    return prisma.notification.update({
-      where: {
-        id:
-          existingNotification.id,
-      },
-
-      data: {
-        ...notificationData,
-
-        /*
-         * Păstrăm aceeași cheie unică.
-         */
-        dedupeKey,
-      },
-    });
-  }
-
-  return prisma.notification.create({
-    data: {
+    create: {
       ...notificationData,
+      dedupeKey,
+    },
+
+    update: {
+      ...notificationData,
+
+      /*
+       * Păstrăm aceeași cheie unică.
+       */
       dedupeKey,
     },
   });

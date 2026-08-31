@@ -16,6 +16,7 @@ import {
 
 import {
   sendCopilotAsk,
+  sendAssistantChat,
 } from "./copilotApi.js";
 /* =========================================================
    Produse
@@ -30,6 +31,8 @@ import {
   getProductImageUploadResponse,
   getProductInputPlaceholder,
   runImageSearchFlow,
+  detectMaxPriceCentsFromText,
+  runProductSearchRefinement,
 } from "./Products/assistantProducts.js";
 
 import {
@@ -131,14 +134,33 @@ import {
 
 import {
   useLocation,
+  useNavigate,
 } from "react-router-dom";
 
 import { derivePageContext } from "./derivePageContext.js";
 
+/*
+ * Taxonomie generală de intenții GUEST (7 bucket-uri stabile,
+ * reguli determinste + mapare a categoriilor LLM din backend) -
+ * vezi header-ul guestIntentTaxonomy.js pentru arhitectura completă.
+ */
 import {
-  normalizeForIntentDetection,
-  isExplainIntentMessage,
-} from "./explainIntent.js";
+  GUEST_INTENTS,
+  CHAT_SMALLTALK,
+  classifyGuestIntentDeterministic,
+  mapBackendCategoryToGuestIntent,
+  isQuestionLike,
+  isVendorSignupInterest,
+} from "./guestIntentTaxonomy.js";
+
+import {
+  ASSISTANT_ROLES,
+  ASSISTANT_ACTION_TYPES,
+  resolveAssistantAction,
+} from "./assistantActionRegistry.js";
+
+import { prefetchChunk } from "../../lib/smartPrefetch.js";
+import { humanizeAssistantErrorMessage } from "./assistantErrorMessages.js";
 /* =========================================================
    Configurare
 ========================================================= */
@@ -319,6 +341,94 @@ function normalizeIntentText(value) {
     .trim();
 }
 
+/*
+ * BUGFIX (audit) - follow-up scurt \u00eentr-o c\u0103utare de produse activ\u0103
+ * ("mai ieftine", "ro\u0219ii", "sub 50 lei", "de la alt creator") tastat
+ * LIBER (nu prin click pe butonul de sugestie) pornea o c\u0103utare NOU\u0102,
+ * literal\u0103, pierz\u00e2nd contextul c\u0103ut\u0103rii anterioare - butoanele de
+ * sugestie (handleProductChoice, runProductSearchRefinement) foloseau
+ * deja corect searchId-ul, dar text liber nu ajungea niciodat\u0103 acolo.
+ *
+ * MAX_FOLLOWUP_WORDS - acoper\u0103 exact exemplele cerute ("de la alt
+ * creator" = 4 cuvinte, cel mai lung) - un mesaj mai lung e, cel mai
+ * probabil, o cerere nou\u0103 \u0219i complet\u0103, nu o rafinare.
+ */
+const MAX_FOLLOWUP_WORDS = 4;
+
+function countWords(text) {
+  return String(text || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+/*
+ * Caut\u0103 \u00eenapoi, \u00een istoricul conversa\u021biei, ultimul mesaj care are un
+ * searchId de c\u0103utare de produse ata\u0219at (setat de addSearchResultMessage
+ * din assistantProducts.js, pe orice rezultat de c\u0103utare textual\u0103 -
+ * ACELA\u0218I searchId pe care handleProductChoice \u00eel cite\u0219te deja din
+ * sourceMessage.searchId la click pe buton). Text liber nu vine cu un
+ * sourceMessage, deci avem nevoie de propriul "cel mai recent" lookup.
+ */
+function findActiveProductSearchId(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const candidate = messages[i]?.searchId;
+
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+/*
+ * O inten\u021bie deja RECUNOSCUT\u0102 determinist ca fiind altceva dec\u00e2t
+ * "produs"/"nimic clar" (suport, cont/login, cerere de ofert\u0103,
+ * navigare, clarificare) NU trebuie tratat\u0103 ca rafinare de c\u0103utare,
+ * chiar dac\u0103 e scurt\u0103 - protejeaz\u0103 exact flow-urile cerute explicit
+ * ("nu strica PLATFORM_KNOWLEDGE, cereri ofert\u0103, login").
+ * PLATFORM_KNOWLEDGE/PRODUCT_DISCOVERY/null r\u0103m\u00e2n eligibile pentru
+ * rafinare - sunt exact "zona slab\u0103" \u00een care cade un follow-up scurt,
+ * f\u0103r\u0103 cuv\u00e2nt-cheie puternic (vezi \u0219i isQuestionLike mai jos, care
+ * exclude separat o \u00eentrebare real\u0103 ca "Cum func\u021bioneaz\u0103
+ * personalizarea?").
+ */
+const NON_REFINEMENT_INTENTS = new Set([
+  GUEST_INTENTS.SUPPORT,
+  GUEST_INTENTS.ACCOUNT_ACTION,
+  GUEST_INTENTS.QUOTE_DISCOVERY,
+  GUEST_INTENTS.NAVIGATION,
+  GUEST_INTENTS.CLARIFY,
+]);
+
+function isEligibleActiveSearchFollowUp(value) {
+  if (countWords(value) > MAX_FOLLOWUP_WORDS) {
+    return false;
+  }
+
+  if (isQuestionLike(value)) {
+    return false;
+  }
+
+  const classification = classifyGuestIntentDeterministic(value);
+
+  return !NON_REFINEMENT_INTENTS.has(classification.intent);
+}
+
+/*
+ * BUGFIX (audit) - generalizare sistemică: acest fișier avea propriul
+ * lanț de regexuri ad-hoc, extins cu câte un patch per bug raportat
+ * (vezi istoricul git). Înlocuit cu delegarea la
+ * guestIntentTaxonomy.js - un tabel MIC de reguli determinste
+ * (7 intenții stabile: PLATFORM_KNOWLEDGE/PRODUCT_DISCOVERY/
+ * QUOTE_DISCOVERY/NAVIGATION/ACCOUNT_ACTION/SUPPORT/CLARIFY), testat
+ * automat (frontend/scripts/testGuestIntentRouter.mjs, 280+ formulări
+ * generate din teme x stiluri de parafrazare). Funcția asta rămâne
+ * doar un ADAPTOR subțire, care traduce rezultatul taxonomiei în
+ * forma așteptată de dispatch-ul existent din handleSubmit - nu mai
+ * conține nicio logică de clasificare proprie.
+ */
 function detectAssistantIntent(
   value,
   isVendor = false
@@ -330,30 +440,10 @@ function detectAssistantIntent(
     return null;
   }
 
-  /*
-   * EXPLAIN-guard (comun cu vendorIntent.js, vezi explainIntent.js):
-   * o întrebare explicativă ("cum funcționează AWB-ul?", "ce înseamnă
-   * comanda finalizată?", "cum contactez suportul dacă am o
-   * problemă?") NU trebuie să deschidă direct un flow determinist
-   * de suport/tracking/căutare/ofertă doar pentru că menționează un
-   * cuvânt din regexurile de mai jos - trebuie deferată la
-   * copilotul general (knowledge retrieval + clasificare LLM), care
-   * distinge EXPLAIN de EXECUTE/QUERY_LIVE_DATA la nivel semantic.
-   * Fără acest guard, "Cum contactez suportul dacă am o problemă?"
-   * deschidea direct fluxul de suport, fără nicio încercare de
-   * răspuns din knowledge (încalcă regula "nu deschide tichet
-   * înainte să încerci rezolvare").
-   */
-  if (
-    isExplainIntentMessage(
-      normalizeForIntentDetection(value)
-    )
-  ) {
-    return null;
-  }
-
 /* =========================
    VENDOR - AJUTOR PLATFORMĂ
+   (specific widget-ului de VÂNZĂTOR, în afara taxonomiei GUEST -
+   verificat ÎNAINTEA delegării, exact ca înainte)
 ========================= */
 
 if (
@@ -367,97 +457,90 @@ if (
   };
 }
 
-  /* =========================
-     CĂUTARE DUPĂ FOTOGRAFIE
-  ========================= */
+  const classification =
+    classifyGuestIntentDeterministic(value);
 
-  if (
-    /(poza|fotografie|imagine)/.test(
-      text
-    ) &&
-    /(gas|caut|similar|asemanator|dupa)/.test(
-      text
-    )
-  ) {
-    return {
-      type: "action",
-      actionId: "image-search",
-    };
+  if (!classification.intent) {
+    /*
+     * Nici regulile determinste, nici small-talk-ul nu au decis -
+     * apelantul continuă la copilotul backend (PASUL 2, LLM), exact
+     * ca înainte.
+     */
+    return null;
   }
 
- /* =========================
-   COMENZI - LIVRARE
-========================= */
+  const extracted = classification.extracted || {};
 
-if (
-  /(awb|curier|livrare|colet|tracking)/.test(
-    text
-  )
-) {
-  return {
-    type: "action",
-    actionId: "order-delivery",
-  };
-}
+  switch (classification.intent) {
+    case CHAT_SMALLTALK:
+      /*
+       * Small talk gol ("salut", "mulțumesc") - nu deschide niciun
+       * flow determinist, dar nici nu merită un apel LLM. Lăsăm
+       * copilotul general să răspundă scurt (categoria lui
+       * GENERAL_CONVERSATION acoperă exact asta).
+       */
+      return null;
 
-/* =========================
-   COMENZI - STATUS
-========================= */
+    case GUEST_INTENTS.PRODUCT_DISCOVERY:
+      if (extracted.subtype === "image") {
+        return { type: "action", actionId: "image-search" };
+      }
 
-if (
-  /(comanda|comenzi|unde este|status comanda)/.test(
-    text
-  )
-) {
-  return {
-    type: "action",
-    actionId: "track-order",
-  };
-}
+      return {
+        type: "product-search",
+        maxPriceCents: extracted.maxPriceCents ?? null,
+      };
 
-/* =========================
-   CERERI OFERTĂ
-========================= */
+    case GUEST_INTENTS.QUOTE_DISCOVERY:
+      return { type: "menu", menuId: "personalization" };
 
-if (
-  /(oferta|personalizat|personalizare|mai multe bucati|cantitate)/.test(
-    text
-  )
-) {
-  return {
-    type: "menu",
-    menuId: "personalization",
-  };
-}
+    case GUEST_INTENTS.NAVIGATION:
+      return {
+        type: "navigate",
+        target: extracted.target || null,
+      };
 
-/* =========================
-   SUPORT
-========================= */
+    case GUEST_INTENTS.ACCOUNT_ACTION:
+      /*
+       * "comanda mea"/"comenzile mele"/"coletul meu" rămân pe
+       * flow-ul EXISTENT de tracking (funcționează și pentru guest,
+       * prin număr de comandă - vezi GuestOrder.jsx), nu forțează
+       * login degeaba. Restul (login/cont/favorite/cererile mele/
+       * mesaje/profil) trece prin registrul central de acțiuni.
+       */
+      if (extracted.orderActionId) {
+        return {
+          type: "action",
+          actionId: extracted.orderActionId,
+        };
+      }
 
-if (
-  /(ajutor|suport|problema|eroare|nu merge|nu functioneaza)/.test(
-    text
-  )
-) {
-  return {
-    type: "support",
-  };
-}
-  /* =========================
-     PRODUSE
-  ========================= */
+      return {
+        type: "navigate",
+        target: extracted.target || null,
+      };
 
-  if (
-    /(caut|vreau|gaseste|recomanda|cadou|produs|produse|marturie|invitatie|lumanare|bijuterie)/.test(
-      text
-    )
-  ) {
-    return {
-      type: "product-search",
-    };
+    case GUEST_INTENTS.SUPPORT:
+      return { type: "support" };
+
+    case GUEST_INTENTS.CLARIFY:
+      /*
+       * Pasul 3 (clarify, nu ghici) - determinist, pentru cazurile
+       * unde regula de mai jos deja ȘTIE că mesajul e prea scurt/
+       * ambiguu (ex. "personalizare" fără alt context), fără să mai
+       * fie nevoie de un apel LLM doar ca să afle asta.
+       */
+      return { type: "clarify" };
+
+    case GUEST_INTENTS.PLATFORM_KNOWLEDGE:
+    default:
+      /*
+       * PLATFORM_KNOWLEDGE (și orice altceva neacoperit determinist)
+       * - deferă la copilotul backend, exact ca înainte pentru
+       * EXPLAIN-guard.
+       */
+      return null;
   }
-
-  return null;
 }
 
 function getChoiceLabel(choice) {
@@ -624,9 +707,24 @@ function clampPosition(
 
 export default function AiAssistant({
   isVendor = false,
+  isAuthenticated = false,
 }) {
+  /*
+   * Widget-ul ăsta nu e montat deloc pentru VENDOR (vezi AppLayout.jsx
+   * - VendorAssistant separat, isVendor mereu false aici) - rolul
+   * pentru rezolvarea de acțiuni (assistantActionRegistry.js) e deci
+   * strict GUEST sau USER, derivat din starea reală de autentificare
+   * primită de la AppLayout (useAuth().me), NU dintr-un apel API nou.
+   */
+  const currentRole = isAuthenticated
+    ? ASSISTANT_ROLES.USER
+    : ASSISTANT_ROLES.GUEST;
+
   const location =
   useLocation();
+
+  const navigate =
+  useNavigate();
 
   /*
    * PAGE-AWARE: doar pentru boost de knowledge retrieval (vezi
@@ -651,6 +749,19 @@ export default function AiAssistant({
 
     const quoteRefreshRef =
   useRef(false);
+
+/*
+ * SELF-RECOVERY (audit) - gardă anti-buclă explicită: cel mult O
+ * reîncercare prin routerul general per mesaj trimis. Resetat la
+ * începutul fiecărui handleSubmit, setat pe true chiar înainte de
+ * reîncercare - dacă din orice motiv codul ar ajunge a doua oară în
+ * același punct pentru ACELAȘI mesaj, garda blochează o a doua
+ * reîncercare (nu doar structura de control, care oricum nu
+ * bucla - dublă protecție, cerută explicit).
+ */
+const selfRecoveryAttemptedRef =
+  useRef(false);
+
 const messagesRef =
   useRef(
     INITIAL_MESSAGES
@@ -1300,10 +1411,10 @@ const shouldOpenVendorQuote =
       addMessage(
         createMessage(
           "assistant",
-          error?.data
-            ?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Nu am putut deschide conversația cererii de ofertă."
+          )
         )
       );
     }
@@ -2025,6 +2136,38 @@ function startNewTopic() {
 ) {
   setShowMenu(false);
 
+  addMessage(
+    createMessage(
+      "assistant",
+      "Aici vezi cererile de ofertă pe care le-ai trimis, conversațiile cu vânzătorii și ofertele primite."
+    )
+  );
+
+  /*
+   * BUGFIX (audit) - pentru GUEST NU mai apelăm fetchMyQuotes() deloc
+   * (endpoint-ul e authRequired - vezi backend/src/api/auth.js -
+   * întorcea codul tehnic brut "unauthenticated", afișat ca atare de
+   * openMyQuotes). Verificăm autentificarea ÎNAINTE de orice apel API
+   * și cerem login cu redirect păstrat spre ruta reală (USER_REQUESTS
+   * din assistantActionRegistry.js - un singur punct de adevăr pentru
+   * rută, nu inventăm alta aici).
+   */
+  if (!isAuthenticated) {
+    addMessage(
+      createMessage(
+        "assistant",
+        "Pentru a vedea cererile tale trebuie să fii autentificat.",
+        {
+          type: "choices",
+          choiceStep: "my-quotes-login-cta",
+          choices: ["Autentifică-te"],
+        }
+      )
+    );
+
+    return;
+  }
+
   await openMyQuotes({
     addMessage,
     createMessage,
@@ -2254,6 +2397,197 @@ Pentru început, de câte bucăți ai nevoie?`
      * startNewTopic() - același reset ca la butonul din header,
      * păstrează istoricul, adaugă separatorul vizual.
      */
+    /*
+     * Răspuns la clarificarea determinstă pentru "personalizare"
+     * (mesaj gol, ambiguu - vezi guestIntentTaxonomy.js,
+     * clarify-bare-personalization).
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep === "clarify-personalization"
+    ) {
+      addMessage(createMessage("user", choice));
+
+      if (choice === "Caut un produs personalizat") {
+        setCurrentMenu("shopping");
+        setActiveFlow("product-search");
+        setShowMenu(false);
+
+        await submitProductMessage({
+          activeFlow: "product-search",
+          value: "produs personalizat",
+          visualSearchId: null,
+          addMessage,
+          removeMessage,
+          createMessage,
+        });
+
+        return;
+      }
+
+      const wasHandled = await askCopilot(
+        "Cum funcționează personalizarea pe Artfest?"
+      );
+
+      if (!wasHandled) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Nu am putut verifica informațiile despre platformă."
+          )
+        );
+      }
+
+      return;
+    }
+
+    /*
+     * CTA "Autentifică-te" din "Cererile mele de ofertă" pentru GUEST
+     * (vezi handleAction, QUOTE_FLOWS.MY_QUOTES) - redirect păstrat
+     * spre ruta reală (USER_REQUESTS din assistantActionRegistry.js),
+     * ca după login userul să ajungă direct acolo, nu înapoi la
+     * punctul de plecare.
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep === "my-quotes-login-cta"
+    ) {
+      addMessage(createMessage("user", choice));
+
+      const resolution = resolveAssistantAction("USER_REQUESTS", {
+        role: currentRole,
+        isAuthenticated,
+      });
+
+      const url = new URL(window.location.href);
+
+      url.searchParams.set("auth", "login");
+
+      url.searchParams.set(
+        "redirect",
+        resolution?.entry?.route ||
+          window.location.pathname + window.location.search
+      );
+
+      navigate(url.pathname + url.search, { replace: false });
+
+      return;
+    }
+
+    /*
+     * CTA "Creează cont de vânzător" (vezi askCopilot -
+     * isVendorSignupInterest) - aceeași rezolvare/navigare OPEN_MODAL
+     * ca la target-ul VENDOR_SIGNUP prin comandă directă de navigare
+     * ("du-mă la crearea unui cont de vânzător"), un singur punct de
+     * adevăr pentru ruta reală (assistantActionRegistry.js).
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep === "vendor-signup-cta"
+    ) {
+      addMessage(createMessage("user", choice));
+
+      const resolution = resolveAssistantAction("VENDOR_SIGNUP", {
+        role: currentRole,
+        isAuthenticated,
+      });
+
+      if (
+        resolution.status !== "ok" ||
+        resolution.entry.action !== ASSISTANT_ACTION_TYPES.OPEN_MODAL
+      ) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Nu am putut deschide crearea contului de vânzător chiar acum. Poți încerca din nou în câteva momente."
+          )
+        );
+
+        return;
+      }
+
+      const url = new URL(window.location.href);
+
+      for (const [key, val] of Object.entries(
+        resolution.entry.modalParams || {}
+      )) {
+        url.searchParams.set(key, val);
+      }
+
+      navigate(url.pathname + url.search, { replace: false });
+
+      return;
+    }
+
+    /*
+     * SELF-RECOVERY (audit) - click pe una dintre sugestiile din
+     * clarify-ul activ afișat după reîncercarea eșuată prin routerul
+     * general (vezi handleSubmit, blocul "SELF-RECOVERY").
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep === "self-recovery-clarify"
+    ) {
+      addMessage(createMessage("user", choice));
+
+      if (choice === "Caut un produs") {
+        setCurrentMenu("shopping");
+        setActiveFlow(null);
+        setShowMenu(true);
+
+        addMessage(
+          createMessage(
+            "assistant",
+            "Sigur. Descrie-mi ce cauți (ocazie, buget, tip de produs) sau alege o opțiune din meniu."
+          )
+        );
+
+        return;
+      }
+
+      if (choice === "Vreau să cer o ofertă") {
+        setCurrentMenu("personalization");
+        setActiveFlow(null);
+        setShowMenu(true);
+
+        addMessage(
+          createMessage(
+            "assistant",
+            "Sigur. Te ajut cu cererea de ofertă. Alege cum dorești să continuăm."
+          )
+        );
+
+        return;
+      }
+
+      if (choice === "Vreau ajutor") {
+        setCurrentMenu("help");
+
+        await startSupportFlow({
+          actionId: SUPPORT_FLOWS.NEW_REQUEST,
+
+          addConversation: (
+            _userText,
+            assistantText,
+            extra = {}
+          ) => {
+            addMessage(
+              createMessage("assistant", assistantText, extra)
+            );
+          },
+
+          addMessage,
+          removeMessage,
+          createMessage,
+          setActiveFlow,
+        });
+
+        return;
+      }
+
+      return;
+    }
+
     if (
       sourceMessage?.type === "choices" &&
       sourceMessage?.choiceStep === "topic-suggestion"
@@ -2777,8 +3111,10 @@ if (
       addMessage(
         createMessage(
           "assistant",
-          error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Nu am putut prelua fotografia pentru personalizare."
+          )
         )
       );
 
@@ -2918,9 +3254,10 @@ if (
       addMessage(
         createMessage(
           "assistant",
-          error?.data?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Fotografia nu a putut fi trimisă."
+          )
         )
       );
 
@@ -3251,14 +3588,96 @@ if (
           return true;
         }
 
+        /*
+         * BUGFIX (audit) - "semantic fallback" formalizat (cerința
+         * #2/#6 din audit): mapBackendCategoryToGuestIntent traduce
+         * ORICE categorie întoarsă de copilotRouter.js înapoi în
+         * taxonomia fixă de 7 intenții - un guard de compilare, nu
+         * doar convenție (funcția are un switch STRICT, cu default
+         * CLARIFY - nu poate "inventa" o intenție liberă).
+         *
+         * Țintă "nu știu" < 5%: dacă e PLATFORM_KNOWLEDGE dar
+         * retrieval-ul n-a găsit NICIUN manifest relevant
+         * (manifestIds gol - semnal determinist, din backend, nu o
+         * presupunere), afișăm o clarificare ACTIVĂ (cere o
+         * reformulare concretă) în loc de răspunsul pasiv "Nu am
+         * suficiente informații" - un dead-end nu mai e ultima
+         * opțiune, e doar fallback-ul final dacă userul tot nu
+         * poate reformula (vezi mai jos, mesajul rămâne disponibil).
+         */
+        const mappedIntent = mapBackendCategoryToGuestIntent(
+          result.category,
+          result.intentMode
+        );
+
+        const hasNoKnowledgeMatch =
+          mappedIntent === GUEST_INTENTS.PLATFORM_KNOWLEDGE &&
+          Array.isArray(result.manifestIds) &&
+          result.manifestIds.length === 0;
+
+        if (hasNoKnowledgeMatch) {
+          addMessage(
+            createMessage(
+              "assistant",
+
+              "Nu sunt sigur ce anume vrei să știi despre asta. Poți reformula mai concret? De exemplu: „cum funcționează livrarea”, „pot cumpăra fără cont” sau „cum caut un produs”."
+            )
+          );
+
+          return true;
+        }
+
+        const suggestionLines =
+          Array.isArray(result.suggestions) &&
+          result.suggestions.length
+            ? `\n\n${result.suggestions
+                .slice(0, 3)
+                .map((s) => `• ${s}`)
+                .join("\n")}`
+            : "";
+
         addMessage(
           createMessage(
             "assistant",
 
-            result.message ||
-              "Nu am suficiente informații pentru a răspunde."
+            (result.message ||
+              "Nu am suficiente informații pentru a răspunde.") +
+              suggestionLines
           )
         );
+
+        /*
+         * CTA "Creează cont de vânzător" (Problema 1, cerința A+B) -
+         * mesajul de explicație de mai sus a răspuns deja la "cum
+         * devin vânzător?"; dacă mesajul userului a semnalat clar
+         * interes de a deveni vânzător, adăugăm și butonul de
+         * navigare directă, ca userul să nu mai trebuiască să
+         * reformuleze ca să ajungă la înregistrare. resolveAssistantAction
+         * e sursa de adevăr (nu presupunem GUEST - un USER autentificat
+         * n-ar avea acces la acest target, vezi allowedRoles din
+         * assistantActionRegistry.js).
+         */
+        if (
+          isVendorSignupInterest(value) &&
+          resolveAssistantAction("VENDOR_SIGNUP", {
+            role: currentRole,
+            isAuthenticated,
+          }).status === "ok"
+        ) {
+          addMessage(
+            createMessage(
+              "assistant",
+
+              "",
+
+              {
+                type: "choices",
+                choiceStep: "vendor-signup-cta",
+                choices: ["Creează cont de vânzător"],
+              }
+            )
+          );
+        }
 
         /*
          * Sugestie discretă, separată de răspunsul propriu-zis -
@@ -3381,8 +3800,41 @@ if (
 
 setInputValue("");
 setIsSubmitting(true);
+selfRecoveryAttemptedRef.current = false;
 
     try {
+      /*
+       * ===================================================
+       * FOLLOW-UP SCURT ÎNTR-O CĂUTARE DE PRODUSE ACTIVĂ
+       * (text liber, nu click pe buton - vezi
+       * isEligibleActiveSearchFollowUp/findActiveProductSearchId
+       * mai sus) - verificat ÎNAINTEA oricărui alt dispatch, exact
+       * cum cere regula: "dacă există context activ ȘI mesajul e o
+       * rafinare scurtă, folosește căutarea anterioară ca bază;
+       * altfel, mesajul normal prin router".
+       * ===================================================
+       */
+      if (
+        activeFlow === "product-search" &&
+        isEligibleActiveSearchFollowUp(value)
+      ) {
+        const activeSearchId = findActiveProductSearchId(
+          messagesRef.current
+        );
+
+        if (activeSearchId) {
+          await runProductSearchRefinement({
+            searchId: activeSearchId,
+            instruction: value,
+            addMessage,
+            removeMessage,
+            createMessage,
+          });
+
+          return;
+        }
+      }
+
       /*
        * ===================================================
        * PRODUSE
@@ -3514,9 +3966,10 @@ if (isSwitchingFlow) {
       addMessage(
         createMessage(
           "assistant",
-          error?.data?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Nu am putut verifica informațiile despre platformă."
+          )
         )
       );
 
@@ -3746,6 +4199,195 @@ Poți ajunge acolo din meniul principal, secțiunea Cereri, sau direct la /cerer
   }
 
   /* ======================================
+     CLARIFY (taxonomie GUEST) - determinist, Pasul 3 fără LLM
+  ====================================== */
+
+  if (directIntent.type === "clarify") {
+    addMessage(
+      createMessage(
+        "assistant",
+
+        "Vrei să cauți un produs personalizat, sau întrebi cum funcționează personalizarea pe Artfest?",
+
+        {
+          type: "choices",
+          choiceStep: "clarify-personalization",
+
+          choices: [
+            "Caut un produs personalizat",
+            "Cum funcționează personalizarea",
+          ],
+        }
+      )
+    );
+
+    return;
+  }
+
+  /* ======================================
+     NAVIGATION (taxonomie GUEST)
+  ====================================== */
+
+  if (directIntent.type === "navigate") {
+    const target = directIntent.target;
+
+    /*
+     * Verb de navigare recunoscut, dar fără target cunoscut - nu
+     * inventăm un URL, cerem copilotul general să explice unde se
+     * găsește (PLATFORM_KNOWLEDGE) - neschimbat față de înainte.
+     */
+    if (!target) {
+      const wasHandled = await askCopilot(value);
+
+      if (!wasHandled) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Nu știu exact la ce pagină te referi. Poți reformula?"
+          )
+        );
+      }
+
+      return;
+    }
+
+    const resolution = resolveAssistantAction(target, {
+      role: currentRole,
+      isAuthenticated,
+    });
+
+    /*
+     * "not_found"/"unavailable" - target cunoscut de taxonomie, dar
+     * fără o rută reală în registru (ex. COLLECTIONS, care nu are
+     * pagină-listă) - nu navigăm orb, lăsăm copilotul să explice din
+     * knowledge (manifeste), consecvent cu politica "nu inventa URL".
+     */
+    if (
+      resolution.status === "not_found" ||
+      resolution.status === "unavailable"
+    ) {
+      const wasHandled = await askCopilot(value);
+
+      if (!wasHandled) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Nu știu exact la ce pagină te referi. Poți reformula?"
+          )
+        );
+      }
+
+      return;
+    }
+
+    /*
+     * Cerința #6/#9 - login PĂSTRÂND target-ul exact (redirect la
+     * ruta cerută, nu la pagina curentă), ca după autentificare
+     * userul să ajungă direct unde a cerut, nu înapoi la punctul de
+     * plecare. Același tipar de modal global (?auth=login) folosit
+     * deja de restul aplicației (Products.jsx, Navbar.jsx).
+     */
+    if (resolution.status === "needs_auth") {
+      addMessage(
+        createMessage(
+          "assistant",
+          `Pentru asta trebuie să fii autentificat. Te ajut să te autentifici — după login te duc direct la ${resolution.entry.label}.`
+        )
+      );
+
+      const url = new URL(window.location.href);
+
+      url.searchParams.set("auth", "login");
+
+      url.searchParams.set(
+        "redirect",
+        resolution.entry.route ||
+          window.location.pathname + window.location.search
+      );
+
+      navigate(url.pathname + url.search, { replace: false });
+
+      return;
+    }
+
+    /*
+     * Cerința #6 - rol autentificat, dar fără acces (singurul caz
+     * real posibil din ACEST widget: un USER cerând un target
+     * VENDOR - widget-ul de VENDOR e complet separat, vezi
+     * AppLayout.jsx). Explicăm scurt, nu blocăm conversația.
+     */
+    if (resolution.status === "role_forbidden") {
+      const forVendorOnly =
+        resolution.entry.allowedRoles.includes(
+          ASSISTANT_ROLES.VENDOR
+        ) &&
+        !resolution.entry.allowedRoles.includes(ASSISTANT_ROLES.USER);
+
+      addMessage(
+        createMessage(
+          "assistant",
+          forVendorOnly
+            ? `${resolution.entry.label} ține de contul de vânzător, nu de cel de cumpărător. Dacă ai și un magazin pe Artfest, accesează-l din contul tău de vânzător.`
+            : `Nu ai acces la ${resolution.entry.label} din contul curent.`
+        )
+      );
+
+      return;
+    }
+
+    /*
+     * status === "ok" - LOGIN/SIGNUP cerute EXPLICIT ("vreau să mă
+     * autentific") sunt OPEN_MODAL, nu NAVIGATE - același modal
+     * global, dar fără mesajul de "ai nevoie de cont" (aici userul
+     * chiar a cerut asta).
+     */
+    if (resolution.entry.action === ASSISTANT_ACTION_TYPES.OPEN_MODAL) {
+      addMessage(
+        createMessage(
+          "assistant",
+          `Sigur — te ajut cu ${resolution.entry.label}.`
+        )
+      );
+
+      const url = new URL(window.location.href);
+
+      for (const [key, val] of Object.entries(
+        resolution.entry.modalParams || {}
+      )) {
+        url.searchParams.set(key, val);
+      }
+
+      navigate(url.pathname + url.search, { replace: false });
+
+      return;
+    }
+
+    /*
+     * Navigare directă, sigură (cerința #6) - fără răspuns lung
+     * (cerința #12). Prefetch scurt, opțional, ÎNAINTE de navigate -
+     * nu blochează (prefetchChunk e fire-and-forget), doar pornește
+     * chunk-ul rutei mai devreme (cerința #13).
+     */
+    addMessage(
+      createMessage(
+        "assistant",
+        `Sigur — te duc la ${resolution.entry.label}.`
+      )
+    );
+
+    if (resolution.entry.prefetch) {
+      prefetchChunk(target, resolution.entry.prefetch, {
+        mode: "intent",
+      });
+    }
+
+    closeAssistant();
+    navigate(resolution.entry.route);
+
+    return;
+  }
+
+  /* ======================================
      CĂUTARE PRODUS DIRECTĂ
   ====================================== */
 
@@ -3772,6 +4414,18 @@ Poți ajunge acolo din meniul principal, secțiunea Cereri, sau direct la /cerer
 
         visualSearchId:
           null,
+
+        /*
+         * BUGFIX (audit) - un preț menționat în text liber ("caută-mi
+         * ceva sub 100 lei") nu ajungea niciodată la un filtru real
+         * de preț. directIntent.maxPriceCents vine deja extras de
+         * guestIntentTaxonomy.js - detectMaxPriceCentsFromText rămâne
+         * doar fallback, pentru orice cale care ar ajunge aici fără
+         * să treacă prin taxonomie.
+         */
+        maxPriceCents:
+          directIntent.maxPriceCents ??
+          detectMaxPriceCentsFromText(value),
 
         addMessage,
         removeMessage,
@@ -3897,9 +4551,10 @@ if (
       addMessage(
         createMessage(
           "assistant",
-          error?.data?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Nu am putut verifica informațiile despre platformă."
+          )
         )
       );
 
@@ -3908,8 +4563,180 @@ if (
   }
 
   /*
-   * Pentru client păstrăm comportamentul actual (fallback final,
-   * neschimbat).
+   * BUGFIX (audit) - bridge documentat, dar niciodată legat: pentru
+   * category EXISTING_FLOW/GENERAL_CONVERSATION, copilotRouter.js
+   * întoarce explicit { handled:false, delegateTo:
+   * "assistantChatRoutes" } - clasificatorul mai vechi din
+   * assistantChatRoutes.js (POST /api/assistant/chat) știe să
+   * extragă maxPrice/culoare/ocazie din text liber ("Mă ajuți să
+   * găsesc ceva sub 100 lei?", care nu se potrivește cu niciun regex
+   * local determinist) - dar niciun client nu-l apela efectiv, deci
+   * userul primea direct mesajul generic de mai jos chiar și pentru
+   * căutări valide de produs. Aceleași 4 tipuri simple pe care le
+   * tratează deja detectAssistantIntent (product-search/action/
+   * support/menu-personalization), plus chat/clarify - un răspuns
+   * simplu, afișat ca atare.
+   */
+  try {
+    const chatHistory = messagesRef.current
+      .filter(
+        (message) =>
+          message?.type === "text" &&
+          (message?.role === "user" ||
+            message?.role === "assistant")
+      )
+      .slice(-10)
+      .map((message) => ({
+        role: message.role,
+        content: String(message.content || ""),
+      }));
+
+    const chatResult = await sendAssistantChat({
+      message: value,
+      conversation: chatHistory,
+      currentPage: location.pathname,
+      isVendor,
+    });
+
+    if (chatResult?.type === "product-search") {
+      setCurrentMenu("shopping");
+      setActiveFlow("product-search");
+      setShowMenu(false);
+
+      /*
+       * BUGFIX (audit) - preferăm maxPrice-ul STRUCTURAT deja extras
+       * de assistantChatRoutes.js (câmp dedicat în JSON, per mesaj
+       * complet, nu doar un regex de cue-word) - regexul local
+       * (detectMaxPriceCentsFromText) rămâne fallback pentru cazul
+       * în care clasificatorul nu l-a completat.
+       */
+      const maxPriceCents = Number.isFinite(
+        Number(chatResult.maxPrice)
+      )
+        ? Math.round(Number(chatResult.maxPrice) * 100)
+        : detectMaxPriceCentsFromText(value);
+
+      const handled = await submitProductMessage({
+        activeFlow: "product-search",
+        value: chatResult.query || value,
+        visualSearchId: null,
+        maxPriceCents,
+        addMessage,
+        removeMessage,
+        createMessage,
+      });
+
+      if (!handled) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Nu am putut porni căutarea. Încearcă să descrii produsul puțin diferit."
+          )
+        );
+      }
+
+      return;
+    }
+
+    if (chatResult?.type === "action") {
+      const actionId = chatResult.actionId;
+
+      if (actionId === "image-search") {
+        setCurrentMenu("shopping");
+        setActiveFlow("image-search");
+
+        await startProductFlow({
+          actionId: "image-search",
+
+          addConversation: (
+            _userText,
+            assistantText,
+            extra = {}
+          ) => {
+            addMessage(
+              createMessage("assistant", assistantText, extra)
+            );
+          },
+        });
+
+        return;
+      }
+
+      if (
+        actionId === "track-order" ||
+        actionId === "order-delivery"
+      ) {
+        closeAssistant();
+
+        const handled = await startOrderFlow({ actionId });
+
+        if (handled) {
+          return;
+        }
+      }
+    }
+
+    if (chatResult?.type === "support") {
+      setCurrentMenu("help");
+
+      await startSupportFlow({
+        actionId: SUPPORT_FLOWS.NEW_REQUEST,
+
+        addConversation: (
+          _userText,
+          assistantText,
+          extra = {}
+        ) => {
+          addMessage(
+            createMessage("assistant", assistantText, extra)
+          );
+        },
+
+        addMessage,
+        removeMessage,
+        createMessage,
+        setActiveFlow,
+      });
+
+      return;
+    }
+
+    if (
+      chatResult?.type === "menu" &&
+      chatResult.menuId === "personalization"
+    ) {
+      setCurrentMenu("personalization");
+      setShowMenu(true);
+
+      addMessage(
+        createMessage(
+          "assistant",
+          chatResult.message ||
+            "Sigur. Te ajut cu cererea de ofertă. Alege cum dorești să continuăm."
+        )
+      );
+
+      return;
+    }
+
+    if (chatResult?.message) {
+      addMessage(
+        createMessage("assistant", chatResult.message)
+      );
+
+      return;
+    }
+  } catch (error) {
+    console.error(
+      "[AiAssistant] chat fallback:",
+      error
+    );
+  }
+
+  /*
+   * Fallback final - dacă nici assistantChatRoutes n-a putut oferi
+   * un răspuns util (eroare de rețea sau clasificare "clarify" fără
+   * mesaj).
    */
   addMessage(
     createMessage(
@@ -4034,7 +4861,7 @@ if (personalizationHandled) {
        * ===================================================
        */
 
-     const response =
+     const namedTemporaryResponse =
   getProductTemporaryResponse(
     activeFlow
   ) ||
@@ -4046,12 +4873,87 @@ if (personalizationHandled) {
   ) ||
   getOrderTemporaryResponse(
     activeFlow
-  ) ||
-  (
-    !activeFlow
-      ? "Nu sunt sigur ce ai vrut să spui. Poți reformula sau poți alege una dintre opțiunile de mai jos."
-      : "Nu am înțeles exact mesajul. Poți încerca să îl reformulezi?"
   );
+
+      /*
+       * ===================================================
+       * SELF-RECOVERY (auto-reset) - niciun handler specific
+       * (produse/suport/personalizare/ofertă) și niciun răspuns
+       * temporar DEDICAT unui flow cunoscut nu s-a putut potrivi -
+       * exact cazul "blocat într-un activeFlow/intenție care nu mai
+       * poate continua". NU rămânem blocați: resetăm DOAR starea
+       * internă a conversației (flow-ul activ + draft-urile lui),
+       * la fel cum face deja schimbarea de flow mai sus (a se vedea
+       * "isSwitchingFlow"), și reprocesăm mesajul O SINGURĂ DATĂ prin
+       * routerul general (askCopilot). Istoricul mesajelor, coșul și
+       * datele userului NU sunt atinse - fără reload de pagină.
+       * Gardă anti-buclă: selfRecoveryAttemptedRef (max o reîncercare
+       * per mesaj trimis, resetat la începutul lui handleSubmit).
+       */
+      if (
+        !namedTemporaryResponse &&
+        !selfRecoveryAttemptedRef.current
+      ) {
+        selfRecoveryAttemptedRef.current = true;
+
+        const hadActiveFlow = Boolean(activeFlow);
+
+        setActiveFlow(null);
+        setVisualSearchId(null);
+        setQuoteContext(null);
+        setPersonalizationContext(null);
+        setSupportTroubleshootContext(null);
+
+        if (activeFlow === "image-search") {
+          clearUploadedImage();
+        }
+
+        const recovered = await askCopilot(value);
+
+        if (recovered) {
+          return;
+        }
+
+        /*
+         * Tot nu știm ce vrea - CLARIFY activ (nu mesajul pasiv "Nu
+         * am suficiente informații"), cu 2-3 sugestii concrete de
+         * continuare, ca userul să nu rămână într-un dead-end.
+         */
+        addMessage(
+          createMessage(
+            "assistant",
+
+            hadActiveFlow
+              ? "Nu sunt sigur ce vrei să faci acum. Poți să-mi spui puțin mai concret, sau alegi mai jos:"
+              : "Nu sunt sigur ce vrei să faci. Poți să-mi spui puțin mai concret, sau alegi mai jos:",
+
+            {
+              type: "choices",
+              choiceStep: "self-recovery-clarify",
+              choices: [
+                "Caut un produs",
+                "Vreau să cer o ofertă",
+                "Vreau ajutor",
+              ],
+            }
+          )
+        );
+
+        return;
+      }
+
+      /*
+       * Plasă de siguranță - în structura actuală de cod acest punct
+       * nu e atins niciodată (blocul de mai sus fie reîncearcă și
+       * întoarce, fie afișează clarify-ul activ și întoarce); rămâne
+       * doar ca ultim fallback, netăcut, dacă vreo modificare
+       * viitoare ar ajunge totuși aici cu garda deja consumată.
+       */
+      const response =
+        namedTemporaryResponse ||
+        (!activeFlow
+          ? "Nu sunt sigur ce ai vrut să spui. Poți reformula sau poți alege una dintre opțiunile de mai jos."
+          : "Nu am înțeles exact mesajul. Poți încerca să îl reformulezi?");
 
       if (response) {
         window.setTimeout(
@@ -4072,9 +4974,10 @@ if (personalizationHandled) {
       addMessage(
         createMessage(
           "assistant",
-          error?.data?.message ||
-            error?.message ||
+          humanizeAssistantErrorMessage(
+            error,
             "Mesajul nu a putut fi trimis. Te rog să încerci din nou."
+          )
         )
       );
     } finally {

@@ -271,13 +271,22 @@ function normalizeProductContext(
    Upload fotografii
 ========================================================= */
 
+/*
+ * maxImages implicit 10 - păstrează EXACT comportamentul de
+ * dinainte pentru fluxul single-product (deja limitat separat la
+ * MAX_IMAGES=10 în VendorAssistant.jsx). Fluxul de import în bulk
+ * (batch) permite până la 50 de fotografii per import - fără acest
+ * parametru, imaginile 11-50 ar fi fost trunchiate SILENȚIOS aici,
+ * pierzând fotografii încărcate deja de vendor.
+ */
 export async function uploadVendorProductImages(
-  images = []
+  images = [],
+  { maxImages = 10 } = {}
 ) {
   const safeImages =
     normalizeImages(
       images
-    ).slice(0, 10);
+    ).slice(0, maxImages);
 
   if (
     !safeImages.length
@@ -308,6 +317,89 @@ export async function uploadVendorProductImages(
       uploadedUrls
     )
   );
+}
+
+/* =========================================================
+   Grupare AI (import în bulk)
+========================================================= */
+
+/*
+ * Trebuie ținută manual în sincron cu MAX_BATCH_CLUSTER_IMAGES din
+ * backend/src/constants/aiLimits.js - frontend-ul e cel care împarte
+ * un batch mare în loturi succesive de această dimensiune înainte
+ * de a apela /product-batch-group (vezi handleAnalyzeBatchGroups din
+ * VendorAssistant.jsx), iar backend-ul respinge explicit orice
+ * request peste limită (nu trunchiază silențios).
+ */
+export const MAX_BATCH_CLUSTER_IMAGES = 20;
+
+/*
+ * STRICT clustering - primește imagini deja încărcate (cu url real,
+ * vezi uploadVendorProductImages) și întoarce doar grupurile
+ * (imageIds) + confidence + label scurt. NU generează descriere/
+ * categorie/preț - asta rămâne la analyzeVendorProduct, apelat
+ * separat per grup, după confirmarea vendorului.
+ */
+export async function clusterVendorProductImages({
+  images = [],
+}) {
+  const safeImages = images
+    .filter(
+      (image) =>
+        image?.id && image?.url
+    )
+    .map((image) => ({
+      id: String(image.id),
+      url: String(image.url),
+    }));
+
+  if (!safeImages.length) {
+    throw new Error(
+      "Nu am nicio fotografie încărcată de grupat."
+    );
+  }
+
+  const response = await fetch(
+    "/api/ai/product-batch-group",
+    {
+      method: "POST",
+
+      credentials: "include",
+
+      headers: {
+        "Content-Type":
+          "application/json",
+      },
+
+      body: JSON.stringify({
+        images: safeImages,
+      }),
+    }
+  );
+
+  const data =
+    await readApiResponse(
+      response
+    );
+
+  if (!response.ok) {
+    throw new Error(
+      data?.message ||
+        data?.error ||
+        "Nu am putut grupa fotografiile."
+    );
+  }
+
+  if (
+    !data ||
+    !Array.isArray(data.groups)
+  ) {
+    throw new Error(
+      "Gruparea AI a returnat un răspuns invalid."
+    );
+  }
+
+  return data.groups;
 }
 
 /* =========================================================

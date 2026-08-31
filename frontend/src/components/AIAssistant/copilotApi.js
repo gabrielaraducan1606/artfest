@@ -72,6 +72,78 @@ export async function sendCopilotAsk({
 }
 
 /*
+ * BUGFIX (audit): POST /api/assistant/chat (backend/src/ai/../
+ * assistantChatRoutes.js) e clasificatorul MAI VECHI, cu propriile
+ * intenții (product_search cu maxPrice/color/occasion, image_search,
+ * order_status, order_delivery, support, quote, chat, clarify).
+ * copilotRouter.js îl menționează explicit ca fallback pentru
+ * category EXISTING_FLOW/GENERAL_CONVERSATION (routeCopilotMessage
+ * întoarce handled:false + delegateTo:"assistantChatRoutes" exact
+ * pentru asta) - dar niciun client nu-l apela efectiv până acum,
+ * ceea ce lăsa formulări libere de căutare (ex. "Mă ajuți să găsesc
+ * ceva sub 100 lei?", care nu se potrivește cu regexurile locale
+ * determinstice și pe care copilotul o clasifică drept
+ * MARKETPLACE_SEARCH -> EXISTING_FLOW, handled:false) fără niciun
+ * răspuns real - widget-ul arăta direct mesajul generic "Nu sunt
+ * sigur ce ai vrut să spui". Acest wrapper închide bucla documentată,
+ * dar niciodată legată în UI.
+ */
+export async function sendAssistantChat({
+  message,
+  conversation = [],
+  activeFlow = null,
+  currentPage = null,
+  isVendor = false,
+}) {
+  const response = await fetch(
+    "/api/assistant/chat",
+    {
+      method: "POST",
+      credentials: "include",
+
+      headers: {
+        "Content-Type": "application/json",
+      },
+
+      body: JSON.stringify({
+        message: String(message || "").trim(),
+
+        conversation: Array.isArray(conversation)
+          ? conversation.slice(-12)
+          : [],
+
+        ...(activeFlow ? { activeFlow } : {}),
+        ...(currentPage ? { currentPage } : {}),
+
+        isVendor: Boolean(isVendor),
+      }),
+    }
+  );
+
+  let data = null;
+
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    const error = new Error(
+      data?.message ||
+        data?.error ||
+        "Asistentul AI nu a putut răspunde."
+    );
+
+    error.data = data;
+
+    throw error;
+  }
+
+  return data?.result || null;
+}
+
+/*
  * PROACTIVE COPILOT - insight-uri calculate live pentru vendorul
  * autentificat (GET /api/assistant/copilot/insights, STRICT
  * read-only, vezi backend/src/ai/insightsService.js). Folosit doar

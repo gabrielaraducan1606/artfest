@@ -1,0 +1,250 @@
+/*
+ * Stiluri pentru VendorProductEditWizard (mode="edit") - DOAR pentru
+ * chrome-ul nou (header/bannere de dirty-exit, succes, eroare).
+ * Corpul editorului (ProductModalWizard + secțiunile lui) își
+ * păstrează stilurile proprii din ProductModal.module.css - nu le
+ * duplicăm și nu le suprascriem aici.
+ */
+
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  max-height: min(88vh, 920px);
+
+  background: var(--surface, #ffffff);
+  color: var(--color-text, #2d2d2d);
+  font-family: var(--font-body, "Inter", ui-sans-serif, system-ui, sans-serif);
+}
+
+/* Header */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  flex: 0 0 auto;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border, #e5e5e5);
+}
+
+.headerTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  font-family: var(--font-title, "Inter", ui-sans-serif, system-ui, sans-serif);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.headerButton {
+  flex: 0 0 auto;
+  min-height: 40px;
+
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+
+  font-size: 0.9rem;
+  color: var(--color-muted, #6b7280);
+
+  padding: 8px 10px;
+  border-radius: var(--radius, 10px);
+
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.headerButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary, #8b5cf6) 8%, transparent);
+  color: var(--color-primary, #8b5cf6);
+}
+
+.headerButton:focus-visible {
+  outline: 2px solid var(--color-primary, #8b5cf6);
+  outline-offset: 2px;
+}
+
+.headerButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Body - singurul container cu scroll */
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Bannere: ieșire cu modificări nesalvate / succes / eroare cu retry */
+
+.exitConfirm,
+.successBanner,
+.errorBanner {
+  border-radius: calc(var(--radius, 10px) + 4px);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.exitConfirm {
+  border: 1px solid color-mix(in srgb, var(--color-warning, #f59e0b) 40%, var(--color-border, #e5e5e5));
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 10%, var(--surface, #ffffff));
+}
+
+.exitConfirm p {
+  margin: 6px 0 10px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--color-text, #2d2d2d);
+}
+
+.exitConfirmActions {
+  display: grid;
+  gap: 8px;
+}
+
+.successBanner {
+  border: 1px solid var(--color-success, #16a34a);
+  background: color-mix(in srgb, var(--color-success, #16a34a) 10%, transparent);
+}
+
+.successActions {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.errorBanner {
+  border: 1px solid color-mix(in srgb, var(--color-danger, #dc2626) 45%, var(--color-border, #e5e5e5));
+  background: color-mix(in srgb, var(--color-danger, #dc2626) 8%, var(--surface, #ffffff));
+}
+
+.errorBanner p {
+  margin: 6px 0 10px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--color-text, #2d2d2d);
+}
+
+/*
+ * Butoane - aceleași proporții ca VendorProductWizard.module.css
+ * (flow-ul de creare), ca cele două suprafețe să nu pară sisteme
+ * de design diferite. min-height 44px = CTA accesibil pe mobil.
+ */
+
+.primaryButton,
+.secondaryButton,
+.dangerButton {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  text-align: center;
+  text-decoration: none;
+
+  border-radius: 999px;
+  padding: 12px 14px;
+  cursor: pointer;
+
+  font-weight: 600;
+  font-size: 0.9rem;
+  font-family: inherit;
+
+  transition: background-color 120ms ease, box-shadow 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+
+.primaryButton {
+  border: 0;
+  background: var(--color-primary, #8b5cf6);
+  color: #ffffff;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: var(--color-hover, #7c3aed);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.primaryButton:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.primaryButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.secondaryButton {
+  border: 1px solid var(--color-border, #e5e5e5);
+  background: var(--surface, #ffffff);
+  color: var(--color-text, #2d2d2d);
+}
+
+.secondaryButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary, #8b5cf6) 5%, var(--surface, #ffffff));
+  border-color: color-mix(in srgb, var(--color-primary, #8b5cf6) 35%, var(--color-border, #e5e5e5));
+}
+
+.dangerButton {
+  border: 0;
+  background: var(--color-danger, #dc2626);
+  color: #ffffff;
+}
+
+.dangerButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger, #dc2626) 85%, black 15%);
+}
+
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.dangerButton:focus-visible {
+  outline: 2px solid var(--color-primary, #8b5cf6);
+  outline-offset: 2px;
+}
+
+/*
+ * Mobile - 320 / 375 / 390 / 430px. Nu există bottom navbar pe
+ * /vendor/catalog azi (verificat în cod), dar păstrăm
+ * safe-area-inset-bottom pe .body ca marjă de siguranță indiferent
+ * de device (home indicator iOS etc). max-height în dvh evită ca
+ * bara de adrese mobilă să acopere butonul Salvează.
+ */
+@media (max-width: 480px) {
+  .wrapper {
+    max-height: min(92dvh, 92vh);
+  }
+
+  .header {
+    padding: 12px;
+  }
+
+  .headerTitle {
+    font-size: 0.88rem;
+  }
+
+  .body {
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (max-width: 340px) {
+  .headerButton {
+    padding: 8px;
+    font-size: 0.85rem;
+  }
+
+  .headerTitle {
+    font-size: 0.82rem;
+  }
+}

@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
@@ -93,10 +94,11 @@ model User {
 
   vendor Vendor?
 
-  influencerProfile InfluencerProfile?
-
-  acceptedInfluencerInvites InfluencerInvite[] @relation("InfluencerInviteAcceptedUser")
-  createdInfluencerInvites  InfluencerInvite[] @relation("InfluencerInviteCreatedBy")
+  influencerProfile         InfluencerProfile?
+  createdDiscountCodes      DiscountCode[]           @relation("DiscountCodeCreatedBy")
+  discountCodeRedemptions   DiscountCodeRedemption[] @relation("DiscountCodeRedemptionUser")
+  acceptedInfluencerInvites InfluencerInvite[]       @relation("InfluencerInviteAcceptedUser")
+  createdInfluencerInvites  InfluencerInvite[]       @relation("InfluencerInviteCreatedBy")
 
   orders              Order[]
   handedOverShipments Shipment[]      @relation("ShipmentHandedOverBy")
@@ -352,6 +354,7 @@ model Vendor {
   stats              VendorStats?
   subscriptions      VendorSubscription[]
   campaigns          VendorCampaign[]
+  discountCodes      DiscountCode[]
   visitors           Visitor[]
   earningEntries     VendorEarningEntry[]
   payouts            VendorPayout[]
@@ -705,63 +708,41 @@ model Product {
 
   colorVariants Json?
 
-  // ==================== Mod de comandă ====================
-
   orderMode ProductOrderMode @default(DIRECT)
 
-  // Variante selectabile:
-  // culoare, aromă, mărime, material etc.
   optionsSchema Json?
 
-  // Date completate de client:
-  // nume, mesaj, fotografie, instrucțiuni etc.
   customSchema   Json?
   repeatedGroups Json?
-  // Formular pentru cererea de ofertă.
   quoteSchema    Json?
 
-  // ==================== Analiză AI ====================
-
-  // Rezultatul complet al analizei imaginilor.
   aiVisionAnalysis Json?
+  aiOrderAnalysis  Json?
 
-  // Ultima configurație de comandă propusă de AI.
-  aiOrderAnalysis Json?
-
-  // Câmpurile completate sau sugerate de AI.
-  // Ex: ["title", "category", "materialMain"].
   aiGeneratedFields String[] @default([])
+  aiSourceImages    String[] @default([])
 
-  // Imaginile folosite pentru analiza vizuală.
-  aiSourceImages String[] @default([])
+  aiAnalysisVersion String?   @db.VarChar(80)
+  aiConfidence      Float?
+  aiAnalyzedAt      DateTime?
+  aiManuallyEdited  Boolean   @default(false)
 
-  // Versiunea promptului/modelului folosit.
-  aiAnalysisVersion String? @db.VarChar(80)
+  reviewedBy                User?                      @relation("ProductReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  cartItems                 CartItem[]
+  comments                  Comment[]
+  Favorite                  Favorite[]
+  service                   VendorService              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  ProductRatingStats        ProductRatingStats?
+  reviews                   Review[]
+  product_image_embeddings  product_image_embeddings[]
+  collectionItems           CollectionItem[]
+  influencerCollectionItems InfluencerCollectionItem[]
+  discountCodeProducts      DiscountCodeProduct[]
+  homepageFeatures          HomepageFeature[]
+  quoteRequests             QuoteRequest[]
+  importItems               ProductImportItem[]
+  campaignProducts          VendorCampaignProduct[]
 
-  // Încredere generală între 0 și 1.
-  aiConfidence Float?
-
-  // Data ultimei analize.
-  aiAnalyzedAt DateTime?
-
-  // Devine true dacă vânzătorul modifică manual sugestiile AI.
-  aiManuallyEdited Boolean @default(false)
-
-  reviewedBy               User?                      @relation("ProductReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
-  cartItems                CartItem[]
-  comments                 Comment[]
-  Favorite                 Favorite[]
-  service                  VendorService              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  ProductRatingStats       ProductRatingStats?
-  reviews                  Review[]
-  product_image_embeddings product_image_embeddings[]
-  collectionItems          CollectionItem[]
-  homepageFeatures         HomepageFeature[]
-  quoteRequests            QuoteRequest[]
-  importItems              ProductImportItem[]
-  campaignProducts         VendorCampaignProduct[]
-
-  // ==================== Costuri & Profit ====================
   costing ProductCosting?
 
   @@index([serviceId, isActive, createdAt])
@@ -1429,10 +1410,11 @@ model Order {
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  shipments            Shipment[]
-  vendorEarningEntries VendorEarningEntry[]
-  returnRequests       ReturnRequest[]
-  quoteRequest         QuoteRequest?
+  shipments               Shipment[]
+  vendorEarningEntries    VendorEarningEntry[]
+  returnRequests          ReturnRequest[]
+  quoteRequest            QuoteRequest?
+  discountCodeRedemptions DiscountCodeRedemption[]
 
   @@index([stripePaymentIntentId])
   @@index([stripeCheckoutSessionId])
@@ -1589,6 +1571,17 @@ model ShipmentItem {
   homepageFeatureId String?
   discountSource    String?
 
+  /**
+   * Snapshot cod de reducere.
+   * Păstrăm informația chiar dacă acel cod este
+   * dezactivat sau șters ulterior.
+   */
+  discountCodeId            String?
+  discountCodeText          String?  @db.VarChar(64)
+  discountCodePercent       Int?
+  discountCodeAmount        Decimal? @db.Decimal(10, 2)
+  discountCodeFundingSource String?
+
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@index([shipmentId])
@@ -1597,6 +1590,7 @@ model ShipmentItem {
   @@index([promoCollectionId])
   @@index([homepageFeatureId])
   @@index([discountSource])
+  @@index([discountCodeId])
 }
 
 model SupportTicket {
@@ -3164,10 +3158,9 @@ model InfluencerProfile {
   userId String @unique
 
   displayName  String?
-  referralCode String @unique
+  referralCode String  @unique
 
-  // 300 = 3%
-  commissionBps Int @default(300)
+  commissionBps Int @default(0)
 
   status InfluencerStatus @default(ACTIVE)
 
@@ -3181,9 +3174,10 @@ model InfluencerProfile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  clicks InfluencerClick[]
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clicks        InfluencerClick[]
+  collections   InfluencerCollection[]
+  discountCodes DiscountCode[]
 
   @@index([referralCode])
   @@index([status])
@@ -3198,7 +3192,7 @@ model InfluencerInvite {
 
   referralCode String @unique
 
-  commissionBps Int @default(300)
+  commissionBps Int @default(0)
 
   tokenHash String @unique
 
@@ -3221,6 +3215,7 @@ model InfluencerInvite {
   @@index([createdByUserId])
   @@index([createdAt])
 }
+
 model InfluencerClick {
   id String @id @default(cuid())
 
@@ -3247,4 +3242,172 @@ model InfluencerClick {
 enum InfluencerStatus {
   ACTIVE
   DISABLED
+}
+
+model InfluencerCollection {
+  id String @id @default(cuid())
+
+  influencerId String
+
+  title       String  @db.VarChar(160)
+  slug        String  @unique @db.VarChar(180)
+  description String?
+  coverImage  String?
+
+  isActive Boolean @default(true)
+
+  sort String @default("curated") @db.VarChar(32)
+
+  visits Int @default(0)
+  clicks Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  influencer    InfluencerProfile          @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  items         InfluencerCollectionItem[]
+  discountCodes DiscountCode[]
+
+  @@index([influencerId, createdAt])
+  @@index([influencerId, isActive])
+  @@index([isActive, createdAt])
+}
+
+model InfluencerCollectionItem {
+  collectionId String
+  productId    String
+  position     Int?
+
+  createdAt DateTime @default(now())
+
+  collection InfluencerCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  product    Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([collectionId, productId])
+  @@index([productId])
+  @@index([collectionId, position])
+}
+
+enum DiscountCodeOwnerType {
+  PLATFORM
+  VENDOR
+  INFLUENCER
+}
+
+enum DiscountCodeScope {
+  ALL_PRODUCTS
+  VENDOR_ALL_PRODUCTS
+  SELECTED_PRODUCTS
+  INFLUENCER_COLLECTION
+}
+
+enum DiscountCodeType {
+  PERCENT
+  FIXED_AMOUNT
+}
+
+enum DiscountCodeFundingSource {
+  PLATFORM
+  VENDOR
+  SHARED
+}
+
+enum DiscountCodeStatus {
+  ACTIVE
+  DISABLED
+}
+
+model DiscountCode {
+  id String @id @default(cuid())
+
+  code        String  @unique @db.VarChar(64)
+  name        String? @db.VarChar(160)
+  description String?
+
+  ownerType DiscountCodeOwnerType
+
+  vendorId     String?
+  influencerId String?
+
+  scope                  DiscountCodeScope
+  influencerCollectionId String?
+
+  discountType        DiscountCodeType @default(PERCENT)
+  discountPercent     Int?
+  discountAmountCents Int?
+  currency            String           @default("RON") @db.VarChar(8)
+
+  minimumOrderCents Int?
+  maxDiscountCents  Int?
+
+  fundingSource      DiscountCodeFundingSource
+  platformFundingBps Int                       @default(0)
+  vendorFundingBps   Int                       @default(0)
+
+  status   DiscountCodeStatus @default(ACTIVE)
+  isActive Boolean            @default(true)
+
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  usageLimit        Int?
+  usageLimitPerUser Int?
+  usedCount         Int  @default(0)
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor               Vendor?               @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  influencer           InfluencerProfile?    @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  influencerCollection InfluencerCollection? @relation(fields: [influencerCollectionId], references: [id], onDelete: SetNull)
+  createdByUser        User?                 @relation("DiscountCodeCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  products    DiscountCodeProduct[]
+  redemptions DiscountCodeRedemption[]
+
+  @@index([code, isActive])
+  @@index([ownerType, isActive])
+  @@index([vendorId, isActive])
+  @@index([influencerId, isActive])
+  @@index([influencerCollectionId])
+  @@index([startsAt, endsAt])
+  @@index([createdByUserId])
+}
+
+model DiscountCodeProduct {
+  discountCodeId String
+  productId      String
+  createdAt      DateTime @default(now())
+
+  discountCode DiscountCode @relation(fields: [discountCodeId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([discountCodeId, productId])
+  @@index([productId])
+}
+
+model DiscountCodeRedemption {
+  id String @id @default(cuid())
+
+  discountCodeId String
+  orderId        String
+  userId         String?
+
+  customerEmail String? @db.VarChar(320)
+
+  discountAmountCents Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  discountCode DiscountCode @relation(fields: [discountCodeId], references: [id], onDelete: Cascade)
+  order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user         User?        @relation("DiscountCodeRedemptionUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([discountCodeId, orderId])
+  @@index([discountCodeId, createdAt])
+  @@index([userId, createdAt])
+  @@index([customerEmail, createdAt])
+  @@index([orderId])
 }

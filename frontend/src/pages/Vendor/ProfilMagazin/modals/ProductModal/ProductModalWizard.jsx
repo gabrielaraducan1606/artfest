@@ -118,18 +118,19 @@ export default function ProductModalWizard({
     Array.isArray(form.images) &&
     form.images.length > 0;
 
+  /*
+   * BUGFIX (audit) - QUOTE_ONLY cere acum preț orientativ > 0, la fel
+   * ca celelalte moduri (nu mai există bypass) - UI-ul îl numește
+   * "preț orientativ", dar validarea e identică.
+   */
   const hasValidPrice =
-    normalizedOrderMode ===
-      "QUOTE_ONLY" ||
-    (
-      form.price !== "" &&
-      form.price !== null &&
-      form.price !== undefined &&
-      Number.isFinite(
-        Number(form.price)
-      ) &&
-      Number(form.price) > 0
-    );
+    form.price !== "" &&
+    form.price !== null &&
+    form.price !== undefined &&
+    Number.isFinite(
+      Number(form.price)
+    ) &&
+    Number(form.price) > 0;
 
   const hasValidStock =
     form.readyQty !== "" &&
@@ -203,6 +204,7 @@ const hasOrderFields =
         "QUOTE_ONLY"
       ) {
         return (
+          hasValidPrice &&
           hasValidLeadTime &&
           hasQuoteFields
         );
@@ -286,6 +288,8 @@ const hasOrderFields =
         "QUOTE_ONLY"
       ) {
         return [
+          !hasValidPrice &&
+            "Completează prețul orientativ al produsului.",
           !hasValidLeadTime &&
             "Completează timpul estimat de realizare.",
           !hasQuoteFields &&

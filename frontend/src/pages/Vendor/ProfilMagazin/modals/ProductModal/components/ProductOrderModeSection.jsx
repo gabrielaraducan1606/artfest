@@ -384,7 +384,7 @@ function applyOrderModeRules(
     acceptsCustom: true,
     availability: "MADE_TO_ORDER",
 
-    price: "",
+    price: next.price ?? "",
     readyQty: 0,
     nextShipDate: "",
 
@@ -1926,59 +1926,56 @@ return (
             )}
           </div>
 
-          <div
+         <div
   id="manual-section-price"
   className={styles.fieldGroup}
 >
-            <strong
-              className={
-                styles.orderConfigTitle
-              }
-            >
-              Preț
-            </strong>
+  <strong
+    className={
+      styles.orderConfigTitle
+    }
+  >
+    {value === "QUOTE_ONLY"
+      ? "Preț orientativ"
+      : "Preț"}
+  </strong>
 
-            {value ===
-            "QUOTE_ONLY" ? (
-              <div
-                className={styles.tip}
-              >
-                Prețul va fi stabilit
-                după ce clientul trimite
-                cererea.
-              </div>
-            ) : (
-              <>
-                <label
-                  className={
-                    styles.label
-                  }
-                  htmlFor="product-order-price"
-                >
-                  Preț produs (RON)
-                </label>
+  <label
+    className={styles.label}
+    htmlFor="product-order-price"
+  >
+    {value === "QUOTE_ONLY"
+      ? "Preț orientativ / de la (RON)"
+      : "Preț produs (RON)"}
+  </label>
 
-                <input
-                  id="product-order-price"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  className={
-                    styles.input
-                  }
-                  value={
-                    form.price ?? ""
-                  }
-                  onChange={(event) =>
-                    setPrice(
-                      event.target.value
-                    )
-                  }
-                  placeholder="Ex: 89"
-                />
-              </>
-            )}
-          </div>
+  <input
+    id="product-order-price"
+    type="number"
+    min={0.01}
+    step="0.01"
+    className={styles.input}
+    value={form.price ?? ""}
+    onChange={(event) =>
+      setPrice(event.target.value)
+    }
+    placeholder={
+      value === "QUOTE_ONLY"
+        ? "Ex: 150"
+        : "Ex: 89"
+    }
+  />
+
+  {value === "QUOTE_ONLY" && (
+    <div className={styles.tip}>
+      Introdu un preț orientativ de la care
+      poate porni acest produs. Prețul final
+      poate varia în funcție de cerințele
+      clientului și va fi stabilit în urma
+      cererii de ofertă.
+    </div>
+  )}
+</div>
 
           <div
   id="manual-section-delivery"

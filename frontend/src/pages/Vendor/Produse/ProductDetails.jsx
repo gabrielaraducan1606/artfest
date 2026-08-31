@@ -7,9 +7,10 @@ import React, {
   lazy,
   Suspense,
 } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { api } from "../../../lib/api.js";
 import { SEO } from "../../../components/Seo/SeoProvider";
+import { humanizeOptionValue } from "../../../utils/optionLabels.js";
 import styles from "./ProductDetails.module.css";
 import {
   FaChevronLeft,
@@ -34,6 +35,12 @@ import { getHasStructuredDetails } from "./hooks/detailsUtils.js";
 import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
 import { addToGuestCart } from "../../../utils/guestCart";
 import { getAttributionsForCheckout } from "../../../utils/campaignAttribution.js";
+import {
+  getPrefetchedData,
+  getSmartPrefetchStats,
+  productPrefetchKey,
+} from "../../../lib/smartPrefetch.js";
+import { useSmartPrefetchItem } from "../../../hooks/useSmartPrefetch.js";
 import {
   trackViewContent,
   trackAddToCart,
@@ -65,6 +72,82 @@ const ImageZoom = lazy(() =>
     default: m.ImageZoom,
   }))
 );
+
+/*
+ * Instrumentare minimă de timing, doar în dev, doar în consolă - ca
+ * să se poată vedea concret unde se duce timpul de la click pe card
+ * până la primul produs vizibil (chunk evaluat → request produs
+ * pornit → response → primul render cu produs real → imaginea
+ * principală încărcată → conținut secundar încărcat). Nu înlocuiește
+ * un profiling real de browser (LCP/TTFB exacte) - doar reperele
+ * cerute explicit.
+ */
+const PD_TIMING_ENABLED =
+  typeof window !== "undefined" &&
+  typeof performance !== "undefined" &&
+  Boolean(import.meta.env?.DEV);
+
+function markPdTiming(name) {
+  if (!PD_TIMING_ENABLED) return;
+  try {
+    performance.mark(name);
+  } catch {
+    // ignore
+  }
+}
+
+function logPdTimingSummary() {
+  if (!PD_TIMING_ENABLED) return;
+  try {
+    const names = [
+      "productdetails:route-click",
+      "productdetails:chunk-evaluated",
+      "productdetails:mount",
+      "productdetails:fetch-start",
+      "productdetails:fetch-end",
+      "productdetails:first-product-paint",
+      "productdetails:main-image-loaded",
+      "productdetails:secondary-content-loaded",
+    ];
+    const entries = names
+      .map((name) => performance.getEntriesByName(name, "mark")[0])
+      .filter(Boolean);
+    if (entries.length < 2) return;
+    const t0 = entries[0].startTime;
+    // eslint-disable-next-line no-console
+    console.info(
+      "[ProductDetails] timing (ms de la primul reper):",
+      entries
+        .map(
+          (e) =>
+            `${e.name.replace("productdetails:", "")}: ${(e.startTime - t0).toFixed(0)}ms`
+        )
+        .join("  →  ")
+    );
+    // eslint-disable-next-line no-console
+    console.info("[ProductDetails] smart prefetch:", getSmartPrefetchStats());
+  } catch {
+    // ignore
+  }
+}
+
+// Se evaluează o singură dată, când chunk-ul lazy e efectiv descărcat
+// și executat de browser - cel mai apropiat reper posibil de
+// "ProductDetails chunk loaded" fără să înfășurăm manual import().
+markPdTiming("productdetails:chunk-evaluated");
+
+// Prefetch pentru "Vândut de" / cardul vânzătorului - la hover/focus/
+// touch pe linkul spre profilul magazinului, ca navigarea efectivă să
+// nu mai aștepte nici chunk-ul, nici /store/:slug/initial.
+const sellerStorePrefetchDescriptor = {
+  getKey: (seller) => `store:${seller.slug}`,
+  routeChunk: () => import("../ProfilMagazin/ProfilMagazin.jsx"),
+  fetchData: (seller) =>
+    api(`/api/public/store/${encodeURIComponent(seller.slug)}/initial`),
+  getDataUrl: (seller) =>
+    `/api/public/store/${encodeURIComponent(seller.slug)}/initial`,
+  getImageUrl: (seller) => seller.logoUrl || null,
+};
 
 const dateOnlyToISO = (yyyyMmDd) => {
   if (!yyyyMmDd) return null;
@@ -107,7 +190,46 @@ const emptyProdForm = {
   specialNotes: "",
 };
 
-function ProductDetailsSkeleton() {
+/*
+ * Label vizual pentru o valoare de variantă (ex. "brown_light").
+ * Respectă un label explicit setat de vendor pe opțiune; altfel
+ * folosește humanizarea generică. Nu atinge valoarea reală stocată
+ * în selectedOptions.
+ */
+function getOptionDisplayLabel(field, rawValue) {
+  const value = rawValue === null || rawValue === undefined ? "" : String(rawValue);
+  if (!value) return "";
+
+  const values = Array.isArray(field?.options)
+    ? field.options
+    : Array.isArray(field?.values)
+      ? field.values
+      : [];
+
+  for (const rawOption of values) {
+    if (typeof rawOption === "string") {
+      if (rawOption === value) return humanizeOptionValue(rawOption);
+      continue;
+    }
+
+    const optionValue = String(
+      rawOption?.value || rawOption?.key || rawOption?.label || ""
+    );
+
+    if (optionValue === value) {
+      return rawOption?.label
+        ? String(rawOption.label)
+        : humanizeOptionValue(optionValue);
+    }
+  }
+
+  return humanizeOptionValue(value);
+}
+
+function ProductDetailsSkeleton({ preview }) {
+  const previewImage = preview?.images?.[0];
+  const previewPriceCurrency = preview?.currency || "RON";
+
   return (
     <div className={styles.pageWrap}>
       <div className={styles.breadcrumbs}>
@@ -117,25 +239,58 @@ function ProductDetailsSkeleton() {
       </div>
 
       <div className={styles.grid}>
-        <div
-          style={{
-            width: "100%",
-            aspectRatio: "4 / 3",
-            borderRadius: 16,
-            background: "rgba(255,255,255,0.06)",
-          }}
-        />
-
-        <div className={styles.infoCard}>
-          <div
+        {previewImage ? (
+          <img
+            src={previewImage}
+            alt={preview?.title || ""}
+            loading="eager"
+            fetchPriority="high"
+            decoding="async"
+            width={1000}
+            height={750}
             style={{
-              height: 34,
-              width: "70%",
-              borderRadius: 10,
+              width: "100%",
+              aspectRatio: "4 / 3",
+              borderRadius: 16,
+              objectFit: "contain",
               background: "rgba(255,255,255,0.06)",
-              marginBottom: 12,
+              display: "block",
             }}
           />
+        ) : (
+          <div
+            style={{
+              width: "100%",
+              aspectRatio: "4 / 3",
+              borderRadius: 16,
+              background: "rgba(255,255,255,0.06)",
+            }}
+          />
+        )}
+
+        <div className={styles.infoCard}>
+          {preview?.title ? (
+            <h1
+              style={{
+                fontSize: "1.5rem",
+                lineHeight: 1.3,
+                margin: "0 0 12px",
+              }}
+            >
+              {preview.title}
+            </h1>
+          ) : (
+            <div
+              style={{
+                height: 34,
+                width: "70%",
+                borderRadius: 10,
+                background: "rgba(255,255,255,0.06)",
+                marginBottom: 12,
+              }}
+            />
+          )}
+
           <div
             style={{
               height: 18,
@@ -145,15 +300,38 @@ function ProductDetailsSkeleton() {
               marginBottom: 18,
             }}
           />
-          <div
-            style={{
-              height: 28,
-              width: 120,
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.08)",
-              marginBottom: 18,
-            }}
-          />
+
+          {typeof preview?.price === "number" ? (
+            <div style={{ marginBottom: 18 }}>
+              {preview.hasDiscount &&
+                typeof preview.originalPrice === "number" && (
+                  <div
+                    style={{
+                      textDecoration: "line-through",
+                      opacity: 0.6,
+                      fontSize: "0.9rem",
+                    }}
+                  >
+                    {preview.originalPrice.toFixed(2)} {previewPriceCurrency}
+                  </div>
+                )}
+
+              <div style={{ fontSize: "1.6rem", fontWeight: 800 }}>
+                {preview.price.toFixed(2)} {previewPriceCurrency}
+              </div>
+            </div>
+          ) : (
+            <div
+              style={{
+                height: 28,
+                width: 120,
+                borderRadius: 10,
+                background: "rgba(255,255,255,0.08)",
+                marginBottom: 18,
+              }}
+            />
+          )}
+
           <div
             style={{
               height: 44,
@@ -180,6 +358,19 @@ function ProductDetailsSkeleton() {
 export default function ProductDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  /*
+   * Summary trimis de ProductCard la click (poză principală, titlu,
+   * preț) - DOAR pentru primul paint instant, cât timp fetch-ul real
+   * e în curs. Nu e folosit ca sursă pentru pricing/personalizare -
+   * `loadProduct()` de mai jos pornește oricum, necondiționat.
+   */
+  const productSummary = useMemo(() => {
+    const summary = location.state?.productSummary;
+    if (!summary || summary.id !== id) return null;
+    return summary;
+  }, [location.state, id]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -307,9 +498,30 @@ useEffect(() => {
 
   const mountedRef = useRef(true);
 const requestSeqRef = useRef(0);
+// Id-ul pentru care avem deja un produs randat cu succes. Folosit
+// ca să distingem "produs nou" (id diferit, arată skeleton) de
+// "revalidare în fundal" (același id, ex. isOwner se rezolvă mai
+// târziu decât produsul) - în al doilea caz produsul deja vizibil
+// nu trebuie ascuns/înlocuit cu skeleton.
+const loadedForIdRef = useRef(null);
+// Marchează primul render cu produs real o singură dată per montare
+// a paginii - nu la fiecare revalidare de fundal ulterioară.
+const firstProductPaintMarkedRef = useRef(false);
+const secondaryContentMarkedRef = useRef(false);
 
 const trackedViewContentRef =
   useRef(null);
+
+  useEffect(() => {
+    markPdTiming("productdetails:mount");
+  }, []);
+
+  useEffect(() => {
+    if (!product || firstProductPaintMarkedRef.current) return;
+    firstProductPaintMarkedRef.current = true;
+    markPdTiming("productdetails:first-product-paint");
+    logPdTimingSummary();
+  }, [product]);
 
   const touchStartX = useRef(null);
   const touchEndX = useRef(null);
@@ -324,7 +536,20 @@ const trackedViewContentRef =
   useEffect(() => {
     setActiveIdx(0);
     setQty(1);
-    setMe(null);
+    /*
+     * BUGFIX (flash produs PENDING la navigare): `me` NU e legat de
+     * produs - e identitatea utilizatorului autentificat, aceeași
+     * indiferent pe ce produs navighează. Resetarea ei aici forța
+     * `isVendorUser` (folosit de loadProduct - vezi mai jos) să
+     * treacă mereu prin `false` la fiecare navigare, chiar și
+     * pentru un vendor deja cunoscut, ducând la un prim request pe
+     * endpointul public (și un flash de eroare) pentru propriul
+     * produs PENDING. `me` se revalidează oricum, în fundal, la
+     * fiecare schimbare de `id` (vezi efectul loadUserContext mai
+     * jos) - acolo am adăugat acum și ramura care golește `me`
+     * dacă acea revalidare EȘUEAZĂ (sesiune expirată/logout), ca
+     * să nu rămână date stale.
+     */
 setFavorites(new Set());
     setZoomOpen(false);
 
@@ -823,6 +1048,25 @@ const hasOrderOptions =
   topLevelCustomSchema.length > 0 ||
   repeatedGroups.length > 0;
 
+/*
+ * Un client care nu deschide manual "Completează manual" nu vede
+ * niciodată câmpurile de personalizare - asta a cauzat cel puțin un
+ * abandon real (produs personalizabil, dar clientul nu găsea unde
+ * introduce personalizarea). Dacă produsul chiar are câmpuri de
+ * personalizare, le arătăm deschise din start; se închid doar dacă
+ * userul apasă explicit pe toggle.
+ */
+const autoOpenedCustomizationRef = useRef(null);
+
+useEffect(() => {
+  if (!product?.id) return;
+  if (topLevelCustomSchema.length === 0) return;
+  if (autoOpenedCustomizationRef.current === product.id) return;
+
+  autoOpenedCustomizationRef.current = product.id;
+  setCustomizationOpen(true);
+}, [product?.id, topLevelCustomSchema.length]);
+
   const createEmptyRepeatedItem =
   useCallback((group) => {
     const item = {};
@@ -1041,6 +1285,19 @@ const updateRepeatedItemField =
   const myVendorId = me?.vendor?.id ?? null;
   const myUserId = me?.id ?? me?.sub ?? null;
 
+  /*
+   * BUGFIX (deadlock produs PENDING): semnal "e vendor autentificat",
+   * calculat STRICT din `me` (independent de `product`) - spre
+   * deosebire de `isOwner` mai jos (care are nevoie de `product`
+   * deja încărcat ca să știe cine e proprietarul). Folosit DOAR de
+   * loadProduct() ca să aleagă endpointul la primul fetch, ca un
+   * produs încă neaprobat de admin să nu rămână inaccesibil pentru
+   * propriul vendor (endpointul public îl exclude din query, nu
+   * doar îl ascunde - deci `product` nu s-ar seta niciodată, iar
+   * `isOwner`, calculat din `product`, n-ar deveni niciodată true).
+   */
+  const isVendorUser = Boolean(myVendorId);
+
 const missingRequiredSelection = useMemo(() => {
   const missingOption =
     topLevelOptionsSchema.some((field) => {
@@ -1135,6 +1392,54 @@ const missingRequiredSelection = useMemo(() => {
 
   const viewMode = isOwner ? "vendor" : me ? "user" : "guest";
 
+  // Prefetch pentru profilul magazinului - vezi "Vândut de" mai jos.
+  const sellerPrefetchItem = useMemo(() => {
+    const slug = product?.service?.profile?.slug;
+    if (!slug) return null;
+
+    return {
+      slug,
+      shopName:
+        product?.service?.profile?.displayName ||
+        product?.vendor?.displayName ||
+        null,
+      logoUrl:
+        product?.service?.profile?.logoUrl ||
+        product?.vendor?.logoUrl ||
+        null,
+    };
+  }, [product]);
+
+  const triggerSellerPrefetch = useSmartPrefetchItem(
+    sellerPrefetchItem,
+    sellerStorePrefetchDescriptor
+  );
+
+  const sellerLinkState = sellerPrefetchItem
+    ? {
+        storeSummary: {
+          slug: sellerPrefetchItem.slug,
+          shopName: sellerPrefetchItem.shopName,
+          profileImageUrl: sellerPrefetchItem.logoUrl,
+        },
+      }
+    : undefined;
+
+  const sellerLinkHandlers = {
+    onMouseEnter: () => triggerSellerPrefetch("intent"),
+    onFocus: () => triggerSellerPrefetch("intent"),
+    onTouchStart: () => triggerSellerPrefetch("intent"),
+    onClick: () => {
+      if (import.meta.env?.DEV && typeof performance !== "undefined") {
+        try {
+          performance.mark("store:route-click");
+        } catch {
+          // ignore
+        }
+      }
+    },
+  };
+
   const requireAuth = useCallback(
     (fn) => (...args) => {
       if (!me) {
@@ -1208,6 +1513,13 @@ const onRequestQuote = useCallback(() => {
           quoteSchema:
             product.quoteSchema ||
             [],
+
+          // Ce a completat deja clientul pe pagină (variante,
+          // personalizare, seturi) - ca să nu-l punem să repete
+          // aceleași informații în chat-ul de ofertă.
+          selectedOptions,
+          customAnswers,
+          repeatedGroupAnswers,
         },
       }
     )
@@ -1217,6 +1529,9 @@ const onRequestQuote = useCallback(() => {
   isOwner,
   me,
   navigate,
+  selectedOptions,
+  customAnswers,
+  repeatedGroupAnswers,
 ]);
 
 const onStartPersonalizationAssistant =
@@ -1888,48 +2203,121 @@ alert(
 const loadProduct = useCallback(async () => {
   const seq = ++requestSeqRef.current;
 
-  setLoading(true);
+  // Dacă avem deja un produs randat pentru ACELAȘI id, acest apel e
+  // o revalidare de fundal (ex. isOwner s-a rezolvat abia acum) -
+  // nu ascundem produsul deja vizibil sub un skeleton.
+  const alreadyRenderedSameId = loadedForIdRef.current === id;
+  let seededFromPrefetch = false;
+
+  /*
+   * Date reale, prefetched din lista de produse (hover/focus/touch
+   * sau primul rând vizibil - vezi src/lib/smartPrefetch.js). Doar
+   * pentru non-owner: cardurile de listă nu prefetch-uiesc niciodată
+   * produsul propriu al unui vendor, deci un hit aici e sigur din
+   * endpoint-ul public. Le folosim ca stare inițială instant, dar
+   * fetch-ul de mai jos tot rulează necondiționat imediat după -
+   * NU sunt sursă finală pentru pricing/personalizare.
+   */
+  if (!alreadyRenderedSameId && !isOwner) {
+    const prefetched = getPrefetchedData(productPrefetchKey(id));
+    if (prefetched) {
+      setProduct(prefetched);
+      setLoading(false);
+      loadedForIdRef.current = id;
+      seededFromPrefetch = true;
+    }
+  }
+
+  const isBackgroundRevalidation = alreadyRenderedSameId || seededFromPrefetch;
+
+  if (!isBackgroundRevalidation) {
+    setLoading(true);
+  }
+  markPdTiming("productdetails:fetch-start");
   setError(null);
 
   try {
     let productData;
 
-    if (isOwner) {
-      productData = await api(
-        `/api/vendors/products/${encodeURIComponent(id)}`
-      );
-    } else {
-      /*
-       * Reducerea de campanie e una dintre cele 4 surse comparate
-       * de motorul comun de pricing - trebuie trimisă și aici,
-       * la fel ca la coș/checkout, altfel un vizitator care intră
-       * prin /c/:slug vede reducerea de campanie pe cardul
-       * campaniei dar nu și pe pagina produsului.
-       */
-      const attributions = getAttributionsForCheckout();
-      const attributionQuery =
-        attributions && Object.keys(attributions).length
-          ? `?campaignAttribution=${encodeURIComponent(
-              JSON.stringify(attributions)
-            )}`
-          : "";
+    /*
+     * Reducerea de campanie e una dintre cele 4 surse comparate de
+     * motorul comun de pricing - trebuie trimisă și aici, la fel ca
+     * la coș/checkout, altfel un vizitator care intră prin /c/:slug
+     * vede reducerea de campanie pe cardul campaniei dar nu și pe
+     * pagina produsului. Calculată o singură dată - o folosim
+     * indiferent dacă endpointul public e apelat direct sau ca
+     * fallback după endpointul de vendor.
+     */
+    const attributions = getAttributionsForCheckout();
+    const attributionQuery =
+      attributions && Object.keys(attributions).length
+        ? `?campaignAttribution=${encodeURIComponent(
+            JSON.stringify(attributions)
+          )}`
+        : "";
 
-      productData = await api(
+    const fetchPublicProduct = () =>
+      api(
         `/api/public/products/${encodeURIComponent(id)}${attributionQuery}`
       );
+
+    /*
+     * BUGFIX (deadlock produs PENDING): NU mai folosim `isOwner`
+     * (calculat din `product`, deci inaccesibil pentru un produs
+     * încă neaprobat - endpointul public îl exclude din query, deci
+     * `product` nu s-ar seta niciodată, iar `isOwner` n-ar deveni
+     * niciodată true). Folosim `isVendorUser`, calculat STRICT din
+     * `me`, independent de `product`. Dacă știm deja că userul e
+     * vendor, încercăm ÎNTÂI endpointul lui (fără filtru de
+     * moderare, doar proprietate) - vede propriul produs indiferent
+     * de moderationStatus. Dacă produsul nu e al lui (403/404),
+     * cădem pe endpointul public, exact ca înainte.
+     */
+    if (isVendorUser) {
+      try {
+        productData = await api(
+          `/api/vendors/products/${encodeURIComponent(id)}`
+        );
+      } catch (vendorError) {
+        if (
+          vendorError?.status === 403 ||
+          vendorError?.status === 404
+        ) {
+          productData = await fetchPublicProduct();
+        } else {
+          throw vendorError;
+        }
+      }
+    } else {
+      productData = await fetchPublicProduct();
     }
 
     if (!mountedRef.current || requestSeqRef.current !== seq) return;
 
+    markPdTiming("productdetails:fetch-end");
     setProduct(productData);
     setLoading(false);
+    loadedForIdRef.current = id;
   } catch (e) {
     if (!mountedRef.current || requestSeqRef.current !== seq) return;
 
-    setError(e?.message || "Nu am putut încărca produsul.");
+    // La o revalidare de fundal eșuată, păstrăm produsul deja
+    // vizibil - nu-l înlocuim cu un mesaj de eroare peste tot ecranul.
+    if (!isBackgroundRevalidation) {
+      setError(e?.message || "Nu am putut încărca produsul.");
+    }
     setLoading(false);
   }
-}, [id, isOwner]);
+  /*
+   * `isOwner` folosit doar în seed-ul de prefetch de mai sus (nu
+   * pentru alegerea endpointului) - NU e adăugat aici intenționat:
+   * ar reintroduce un al doilea fetch la fiecare recalculare a lui
+   * `isOwner` (ex. imediat după ce `product` se setează), ceea ce
+   * NU e ce vrem. `isVendorUser` (independent de `product`) rămâne
+   * singurul semnal folosit pentru a decide endpointul.
+   */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [id, isVendorUser]);
 
 useEffect(() => {
   loadProduct();
@@ -1961,6 +2349,15 @@ useEffect(() => {
     null;
 
   setMe(currentUser);
+} else {
+  /*
+   * BUGFIX: `me` nu se mai golește sincron la fiecare schimbare de
+   * `id` (vezi efectul de reset de mai sus) - dacă revalidarea de
+   * aici EȘUEAZĂ (401 - sesiune expirată/logout, sau orice altă
+   * eroare), golim explicit `me`, ca datele vechi de utilizator să
+   * nu rămână stale la nesfârșit pe un produs nou.
+   */
+  setMe(null);
 }
 
     if (
@@ -2001,8 +2398,16 @@ useEffect(() => {
 
   useEffect(() => {
     if (!product || !deferredSections) return;
-    loadStoreProducts(product);
-    loadSimilarProducts(product);
+
+    Promise.allSettled([
+      loadStoreProducts(product),
+      loadSimilarProducts(product),
+    ]).then(() => {
+      if (secondaryContentMarkedRef.current) return;
+      secondaryContentMarkedRef.current = true;
+      markPdTiming("productdetails:secondary-content-loaded");
+      logPdTimingSummary();
+    });
   }, [product, deferredSections, loadStoreProducts, loadSimilarProducts]);
 
   useEffect(() => {
@@ -2206,7 +2611,20 @@ useEffect(() => {
     }
   }, [product?.availability]);
 
-  const displayPriceForLd = displayPrice ?? undefined;
+  /*
+   * BUGFIX (audit) - QUOTE_ONLY cu priceCents<=0 nu trebuie să emită
+   * `price: "0"` în JSON-LD (Google poate interpreta asta ca preț
+   * real/produs gratuit). displayPrice tratează 0 ca valoare
+   * numerică validă (hasNumericValue(0) === true), deci `?? undefined`
+   * NU îl prindea - 0 nu e null/undefined. Nu atinge produsul în DB,
+   * doar câmpul `price` din schema publicată în pagină.
+   */
+  const isQuoteOnlyWithoutPrice =
+    isQuoteOnly && (!displayPrice || displayPrice <= 0);
+
+  const displayPriceForLd = isQuoteOnlyWithoutPrice
+    ? undefined
+    : displayPrice ?? undefined;
 
   const storeName =
   product?.service?.profile?.displayName ||
@@ -3029,7 +3447,7 @@ const uploadCustomizationFile = useCallback(
   );
 
   if (loading) {
-    return <ProductDetailsSkeleton />;
+    return <ProductDetailsSkeleton preview={productSummary} />;
   }
 
   if (error || !product) {
@@ -3077,6 +3495,8 @@ const uploadCustomizationFile = useCallback(
           <Link
             className={styles.link}
             to={`/magazin/${product.service.profile.slug}`}
+            state={sellerLinkState}
+            {...sellerLinkHandlers}
           >
             <FaStore style={{ marginRight: 6 }} />{" "}
             {product.service?.profile?.displayName ||
@@ -3111,6 +3531,28 @@ const uploadCustomizationFile = useCallback(
             <h1 className={styles.title}>{product.title}</h1>
           </div>
 
+          {isOwner &&
+            product?.moderationStatus &&
+            product.moderationStatus !== "APPROVED" && (
+              <p
+                style={{
+                  margin: "0 0 14px",
+                  padding: "8px 12px",
+                  borderRadius: 10,
+
+                  background:
+                    "color-mix(in srgb, var(--color-warning, #f59e0b) 14%, transparent)",
+
+                  color: "var(--color-warning, #f59e0b)",
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                Produsul este în curs de verificare și nu este încă
+                vizibil public.
+              </p>
+            )}
+
           {(product.vendor?.displayName ||
             product?.service?.profile?.displayName) && (
             <div className={styles.vendorRow}>
@@ -3118,6 +3560,8 @@ const uploadCustomizationFile = useCallback(
                 <Link
                   to={`/magazin/${product.service.profile.slug}`}
                   className={styles.vendorLink}
+                  state={sellerLinkState}
+                  {...sellerLinkHandlers}
                 >
                   {product.service.profile.displayName ||
                     product.vendor?.displayName}
@@ -3264,6 +3708,16 @@ const uploadCustomizationFile = useCallback(
 
     {topLevelOptionsSchema.length > 0 && (
       <div className={styles.configuratorOptions}>
+        <div>
+          <h4 className={styles.configuratorSectionTitle}>
+            Alege varianta
+          </h4>
+
+          <p className={styles.configuratorSectionHint}>
+            Sunt opțiuni fixe ale produsului - nu personalizare.
+          </p>
+        </div>
+
         {topLevelOptionsSchema.map((field) => {
           const rawValues = Array.isArray(field?.options)
             ? field.options
@@ -3299,7 +3753,7 @@ const uploadCustomizationFile = useCallback(
 
                 {selectedValue && (
                   <span className={styles.configuratorSelected}>
-                    {selectedValue}
+                    {getOptionDisplayLabel(field, selectedValue)}
                   </span>
                 )}
               </div>
@@ -3314,7 +3768,7 @@ const uploadCustomizationFile = useCallback(
                     typeof rawOption === "string"
                       ? {
                           value: rawOption,
-                          label: rawOption,
+                          label: humanizeOptionValue(rawOption),
                           colorHex: null,
                           imageUrl: null,
                           imageIndex: null,
@@ -3327,12 +3781,11 @@ const uploadCustomizationFile = useCallback(
                               rawOption?.label ||
                               ""
                           ),
-                          label: String(
-                            rawOption?.label ||
-                              rawOption?.value ||
-                              rawOption?.key ||
-                              ""
-                          ),
+                          label: rawOption?.label
+                            ? String(rawOption.label)
+                            : humanizeOptionValue(
+                                rawOption?.value || rawOption?.key || ""
+                              ),
                           colorHex:
                             rawOption?.colorHex ||
                             rawOption?.color ||
@@ -3444,7 +3897,7 @@ const uploadCustomizationFile = useCallback(
       </div>
     )}
 
-   {hasOrderOptions && (
+   {topLevelCustomSchema.length > 0 && (
   <div className={styles.customizationCard}>
 
     <div
@@ -3473,9 +3926,10 @@ const uploadCustomizationFile = useCallback(
             style={{
               display: "block",
               marginBottom: 4,
+              fontSize: 16,
             }}
           >
-            Acest produs este personalizabil
+            Personalizează produsul
           </strong>
 
           <span
@@ -3485,9 +3939,7 @@ const uploadCustomizationFile = useCallback(
               lineHeight: 1.45,
             }}
           >
-            Te putem ajuta să alegi și să
-            completezi toate detaliile
-            necesare pentru comandă.
+            Spune-ne exact cum îl dorești.
           </span>
         </div>
       </div>
@@ -3652,9 +4104,13 @@ const isUploading =
             }
           );
         } catch (error) {
-          alert(
-            error?.message ||
-              "Nu am putut încărca poza."
+          setValidationErrors(
+            (current) => ({
+              ...current,
+              [`custom:${field.key}`]:
+                error?.message ||
+                "Nu am putut încărca poza.",
+            })
           );
         }
       }}
@@ -4171,7 +4627,7 @@ const isUploading =
                 className={styles.selectionPill}
               >
                 {field.label && <span>{field.label}:</span>}
-                <strong>{value}</strong>
+                <strong>{getOptionDisplayLabel(field, value)}</strong>
               </span>
             );
           })}
@@ -4222,7 +4678,11 @@ const isUploading =
       )}
 
       <button
-        className={styles.primaryBtn}
+        className={
+          isQuoteOnly
+            ? styles.primaryBtn
+            : styles.secondaryQuoteBtn
+        }
         onClick={onRequestQuote}
         type="button"
       >
@@ -4339,7 +4799,12 @@ const isUploading =
             </div>
           </div>
 
-          <div className={styles.shopCard}>
+          <div
+            className={styles.shopCard}
+            onMouseEnter={() => triggerSellerPrefetch("intent")}
+            onFocus={() => triggerSellerPrefetch("intent")}
+            onTouchStart={() => triggerSellerPrefetch("intent")}
+          >
             <div className={styles.shopAvatarWrap}>
               <img
                 src={
@@ -4370,6 +4835,8 @@ const isUploading =
                   <Link
                     to={`/magazin/${product.service.profile.slug}`}
                     className={styles.vendorLink}
+                    state={sellerLinkState}
+                    onClick={sellerLinkHandlers.onClick}
                   >
                     {product.service.profile.displayName ||
                       product.vendor?.displayName}
@@ -4387,6 +4854,11 @@ const isUploading =
                   {product.service.vendor.city}
                 </div>
               )}
+
+              <div className={styles.shopTrustNote}>
+                Realizat și expediat de creator · Artfest este platforma prin
+                care comanzi
+              </div>
             </div>
           </div>
 
