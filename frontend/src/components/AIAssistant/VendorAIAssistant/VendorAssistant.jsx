@@ -3483,12 +3483,31 @@ if (resetBatch) {
   function processCostingCommandResult(result) {
     clearCostingCommandUiState();
 
+    /*
+     * ACTIONABLE RECOMMENDATIONS (VENDOR_INSIGHTS) - prezent DOAR
+     * pe rezultate cu `insights` (handleVendorInsightsQuery/
+     * handleInsightFollowUp din copilotRouter.js) - orice alt tip
+     * de rezultat nu are acest câmp, deci insightChoices rămâne gol
+     * și mesajul se creează exact ca înainte (text simplu).
+     */
+    const insightChoices = buildVendorInsightChoices(
+      result?.insights
+    );
+
     addMessage(
       createMessage(
         "assistant",
 
         result?.message ||
-          "Am procesat cererea."
+          "Am procesat cererea.",
+
+        insightChoices.length
+          ? {
+              type: "choices",
+              choiceStep: "vendor-insight-action",
+              choices: insightChoices,
+            }
+          : {}
       )
     );
 

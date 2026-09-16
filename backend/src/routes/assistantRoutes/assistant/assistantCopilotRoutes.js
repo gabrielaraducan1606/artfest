@@ -512,6 +512,18 @@ const ACTIVE_INSIGHT_TYPES = new Set([
   "QUOTE_REQUEST_UNANSWERED",
   "CUSTOMER_REQUEST_UNANSWERED",
   "HOMEPAGE_FEATURE_PENDING_RESPONSE",
+
+  /*
+   * Extindere audit "recomandări magazin" (insightsService.js) -
+   * fără astea, "arată-mi toate"/"da" pe unul din insight-urile noi
+   * ar fi respinse silențios de whitelist-ul de mai jos, deși
+   * insight-ul însuși apare corect în text.
+   */
+  "PRODUCT_NO_VIDEO",
+  "CATALOG_LOW_SIZE",
+  "STORE_PROFILE_INCOMPLETE",
+  "NO_ACTIVE_COLLECTIONS",
+  "NO_ACTIVE_DISCOUNT_CODES",
 ]);
 
 const ACTIVE_INSIGHT_ACTIONS = new Set([
@@ -526,9 +538,12 @@ const ACTIVE_INSIGHT_ACTIONS = new Set([
  */
 const ACTIVE_INSIGHT_SCOPES = new Set([
   "urgent",
+  "today",
   "costs",
   "products",
   "orders",
+  "profile",
+  "promotion",
   "all",
 ]);
 

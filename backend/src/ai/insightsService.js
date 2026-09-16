@@ -508,6 +508,255 @@ async function buildProductIncompleteListingInsight(vendorId) {
   };
 }
 
+/* ======================================================
+   VIDEO LIPSĂ (produse active/vizibile fără videoUrl) - extindere
+   audit "recomandări magazin" (vezi VendorAssistant, întrebări
+   de tip "ce aș putea îmbunătăți?"/"ce îmi recomanzi?").
+====================================================== */
+async function buildProductVideoInsight(vendorId) {
+  const items = await prisma.product.findMany({
+    where: {
+      service: { vendorId },
+      isActive: true,
+      isHidden: false,
+      videoUrl: null,
+    },
+
+    select: { id: true, title: true },
+    take: 500,
+  });
+
+  if (!items.length) return null;
+
+  const single = items.length === 1;
+
+  return {
+    id: "product-no-video",
+    type: "PRODUCT_NO_VIDEO",
+    severity: "INFO",
+    domain: "products",
+
+    title: "Produse fără video",
+
+    message: single
+      ? `„${items[0].title}” nu are video - un scurt video crește șansele să atragă atenția, mai ales la produsele personalizate.`
+      : `${items.length} ${pluralize(
+          items.length,
+          "produs activ nu are",
+          "produse active nu au"
+        )} video - un scurt video crește șansele să atragă atenția, mai ales la produsele personalizate.`,
+
+    entityType: single ? "PRODUCT" : null,
+    entityId: single ? items[0].id : null,
+
+    suggestedAction: null,
+    actionParams: null,
+
+    actionPhrase: single
+      ? `adaugă un video la „${items[0].title}”`
+      : "adaugă video la produsele care nu au",
+  };
+}
+
+/* ======================================================
+   CATALOG CU PUȚINE PRODUSE ACTIVE - prag documentat explicit,
+   NU un scor ascuns. Sub acest prag e doar o sugestie de
+   creștere, nu o "problemă" (severitate INFO, WARNING doar
+   quando magazinul e complet gol).
+====================================================== */
+const MIN_ACTIVE_PRODUCTS_SUGGESTED = 10;
+
+async function buildLowCatalogSizeInsight(vendorId) {
+  const activeCount = await prisma.product.count({
+    where: {
+      service: { vendorId },
+      isActive: true,
+      isHidden: false,
+    },
+  });
+
+  if (activeCount >= MIN_ACTIVE_PRODUCTS_SUGGESTED) return null;
+
+  return {
+    id: "catalog-low-size",
+    type: "CATALOG_LOW_SIZE",
+    severity: activeCount === 0 ? "WARNING" : "INFO",
+    domain: "products",
+
+    title: "Catalog cu puține produse active",
+
+    message:
+      activeCount === 0
+        ? "Nu ai niciun produs activ momentan - un magazin fără produse vizibile nu poate primi comenzi."
+        : `Ai ${activeCount} ${pluralize(
+            activeCount,
+            "produs activ",
+            "produse active"
+          )} - un catalog mai variat (măcar ${MIN_ACTIVE_PRODUCTS_SUGGESTED}-15) dă cumpărătorilor mai multe motive să răsfoiască și să cumpere.`,
+
+    entityType: null,
+    entityId: null,
+
+    suggestedAction: null,
+    actionParams: null,
+
+    actionPhrase:
+      activeCount === 0
+        ? "adaugă primul tău produs"
+        : "adaugă 2-3 produse noi în catalog",
+  };
+}
+
+/* ======================================================
+   PROFIL DE MAGAZIN INCOMPLET (ServiceProfile - logo, copertă,
+   descriere, rețele sociale). Praguri documentate explicit, la
+   fel ca describeIncompleteReasons pentru produs.
+====================================================== */
+const MIN_STORE_ABOUT_LENGTH = 40;
+
+function describeStoreProfileReasons(profile) {
+  const reasons = [];
+
+  if (!profile?.logoUrl) {
+    reasons.push("fără logo");
+  }
+
+  if (!profile?.coverUrl) {
+    reasons.push("fără copertă/banner");
+  }
+
+  const about = String(
+    profile?.about || profile?.shortDescription || ""
+  ).trim();
+
+  if (!about || about.length < MIN_STORE_ABOUT_LENGTH) {
+    reasons.push("descriere foarte scurtă sau lipsă");
+  }
+
+  const socials =
+    profile?.socials && typeof profile.socials === "object"
+      ? profile.socials
+      : null;
+
+  const hasSocial =
+    socials &&
+    Object.values(socials).some((value) => String(value || "").trim());
+
+  if (!hasSocial) {
+    reasons.push("fără rețele sociale");
+  }
+
+  return reasons;
+}
+
+async function buildStoreProfileInsight(vendorId) {
+  const service = await prisma.vendorService.findFirst({
+    where: { vendorId },
+    orderBy: { createdAt: "asc" },
+
+    select: {
+      profile: {
+        select: {
+          logoUrl: true,
+          coverUrl: true,
+          about: true,
+          shortDescription: true,
+          socials: true,
+        },
+      },
+    },
+  });
+
+  const reasons = describeStoreProfileReasons(service?.profile);
+
+  if (!reasons.length) return null;
+
+  return {
+    id: "store-profile-incomplete",
+    type: "STORE_PROFILE_INCOMPLETE",
+    severity: reasons.length >= 3 ? "WARNING" : "INFO",
+    domain: "store-profile",
+
+    title: "Profil de magazin incomplet",
+
+    message: `Profilul magazinului tău este incomplet (${reasons.join(
+      ", "
+    )}) - un profil complet inspiră mai multă încredere cumpărătorilor. Îl editezi din Setări → Profil magazin.`,
+
+    entityType: null,
+    entityId: null,
+
+    suggestedAction: null,
+    actionParams: null,
+
+    actionPhrase:
+      "completează profilul magazinului (logo, copertă, descriere)",
+  };
+}
+
+/* ======================================================
+   PROMOVARE - lipsă colecții / coduri de reducere active.
+   Doar semnal informativ (nu orice magazin are nevoie de
+   ele), STRICT INFO.
+====================================================== */
+async function buildPromotionSetupInsights(vendorId) {
+  const insights = [];
+
+  const activeCollections = await prisma.vendorCollection.count({
+    where: { vendorId, isActive: true },
+  });
+
+  if (activeCollections === 0) {
+    insights.push({
+      id: "no-active-collections",
+      type: "NO_ACTIVE_COLLECTIONS",
+      severity: "INFO",
+      domain: "promotion",
+
+      title: "Nicio colecție activă",
+
+      message:
+        "Nu ai nicio colecție de produse activă - o colecție tematică (5-8 produse) e utilă pentru distribuit pe social media sau într-o campanie.",
+
+      entityType: null,
+      entityId: null,
+
+      suggestedAction: null,
+      actionParams: null,
+
+      actionPhrase: "creează o colecție cu 5-8 produse",
+    });
+  }
+
+  const activeCodes = await prisma.discountCode.count({
+    where: { vendorId, isActive: true, status: "ACTIVE" },
+  });
+
+  if (activeCodes === 0) {
+    insights.push({
+      id: "no-active-discount-codes",
+      type: "NO_ACTIVE_DISCOUNT_CODES",
+      severity: "INFO",
+      domain: "promotion",
+
+      title: "Niciun cod de reducere activ",
+
+      message:
+        "Nu ai niciun cod de reducere activ - un cod poate ajuta la o primă comandă sau la promovarea unei colecții. Îl creezi din Catalog → Coduri de reducere.",
+
+      entityType: null,
+      entityId: null,
+
+      suggestedAction: null,
+      actionParams: null,
+
+      actionPhrase: "creează un cod de reducere",
+    });
+  }
+
+  return insights;
+}
+
 /*
  * Detaliul din spatele unui insight (secțiunea "arată-mi produsele"
  * din cerință) - reutilizează EXACT aceleași filtre/interogări ca
@@ -569,6 +818,21 @@ export async function getInsightItemsList(vendorId, type) {
         where: {
           service: { vendorId },
           OR: [{ isActive: false }, { isHidden: true }],
+        },
+        select: { id: true, title: true },
+        take: 15,
+      });
+
+      return items.map((p) => ({ id: p.id, title: p.title }));
+    }
+
+    case "PRODUCT_NO_VIDEO": {
+      const items = await prisma.product.findMany({
+        where: {
+          service: { vendorId },
+          isActive: true,
+          isHidden: false,
+          videoUrl: null,
         },
         select: { id: true, title: true },
         take: 15,
@@ -664,6 +928,84 @@ export async function getInsightItemsList(vendorId, type) {
   }
 }
 
+/* ======================================================
+   NAVIGARE SIGURĂ (ACTIONABLE RECOMMENDATIONS) - STRICT navigațional
+   sau reluarea fluxului "arată-mi produsele" deja existent
+   (getInsightItemsList mai sus, folosit deja de SHOW_DETAIL_RE din
+   copilotRouter.js) - NICIO acțiune de-aici modifică vreun produs.
+   Doar rute REALE (verificate în frontend/src/components/AIAssistant/
+   assistantActionRegistry.js și în VendorAssistant.jsx) intră aici.
+
+   Colecțiile NU au încă o pagină/flow real de CREARE pentru vendor
+   (doar un dropdown de SELECTAT o colecție deja existentă, în tab-ul
+   de coduri de reducere) - NO_ACTIVE_COLLECTIONS rămâne DELIBERAT
+   fără navAction, ca să nu trimitem vendorul spre un buton
+   inexistent (cerință explicită: "dacă o recomandare nu are
+   destinație sigură, păstrează doar textul").
+====================================================== */
+const NAV_ACTION_BY_INSIGHT_TYPE = {
+  PRODUCT_NO_VIDEO: {
+    kind: "items",
+    label: "Arată-mi produsele fără video",
+  },
+
+  PRODUCT_INCOMPLETE_LISTING: {
+    kind: "items",
+    label: "Arată-mi produsele de îmbunătățit",
+  },
+
+  PRODUCT_OUT_OF_STOCK: {
+    kind: "items",
+    label: "Arată-mi produsele cu probleme de stoc",
+  },
+
+  PRODUCT_HIDDEN_OR_INACTIVE: {
+    kind: "items",
+    label: "Arată-mi produsele ascunse",
+  },
+
+  /*
+   * Deschide wizardul de adăugare produs DEJA existent în chat
+   * (openAddProductWizard, VendorAssistant.jsx) - vendorul completează
+   * el însuși totul, nicio generare/publicare automată.
+   */
+  CATALOG_LOW_SIZE: {
+    kind: "add-product",
+    label: "Adaugă un produs",
+  },
+
+  /*
+   * Rută reală, verificată: frontend/src/components/AIAssistant/
+   * assistantActionRegistry.js -> STORE_PROFILE ("/setari?tab=profile",
+   * "profilul magazinului tău (nume, descriere, logo, adresă)").
+   */
+  STORE_PROFILE_INCOMPLETE: {
+    kind: "route",
+    route: "/setari?tab=profile",
+    label: "Completează profilul",
+  },
+
+  /*
+   * Rută reală, verificată: CatalogProduse.jsx randează
+   * VendorDiscountCodesTab la tab==="codes" - formularul de creare
+   * cod există deja acolo.
+   */
+  NO_ACTIVE_DISCOUNT_CODES: {
+    kind: "route",
+    route: "/vendor/catalog?tab=codes",
+    label: "Creează un cod",
+  },
+};
+
+function attachNavAction(insight) {
+  if (!insight) return insight;
+
+  return {
+    ...insight,
+    navAction: NAV_ACTION_BY_INSIGHT_TYPE[insight.type] || null,
+  };
+}
+
 /**
  * Punctul de intrare - toate insight-urile relevante pentru un
  * vendor, calculate live, sortate după severitate (IMPORTANT ->
@@ -679,6 +1021,10 @@ export async function getVendorInsights(vendorId) {
     ordersInsight,
     quoteInsights,
     homepageFeatureInsight,
+    videoInsight,
+    lowCatalogSizeInsight,
+    storeProfileInsight,
+    promotionSetupInsights,
   ] = await Promise.all([
     buildCostingInsights(vendorId),
     buildStockInsight(vendorId),
@@ -687,6 +1033,10 @@ export async function getVendorInsights(vendorId) {
     buildOrdersInsight(vendorId),
     buildQuoteInsights(vendorId),
     buildHomepageFeatureInsight(vendorId),
+    buildProductVideoInsight(vendorId),
+    buildLowCatalogSizeInsight(vendorId),
+    buildStoreProfileInsight(vendorId),
+    buildPromotionSetupInsights(vendorId),
   ]);
 
   const all = [
@@ -697,9 +1047,15 @@ export async function getVendorInsights(vendorId) {
     ordersInsight,
     ...quoteInsights,
     homepageFeatureInsight,
+    videoInsight,
+    lowCatalogSizeInsight,
+    storeProfileInsight,
+    ...promotionSetupInsights,
   ].filter(Boolean);
 
-  return all.sort(
-    (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]
-  );
+  return all
+    .sort(
+      (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]
+    )
+    .map(attachNavAction);
 }

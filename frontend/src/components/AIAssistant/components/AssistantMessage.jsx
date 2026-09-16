@@ -2877,6 +2877,50 @@ export default function AssistantMessage({
   }
 
   /* =======================================================
+     VENDOR INSIGHTS - ACTIONABLE RECOMMENDATIONS
+
+     Recomandare (text, cu cifre reale) + cel mult un buton "CTA"
+     per recomandare afișată - NUMELE tehnic al acțiunii
+     (navAction.kind/route) nu apare niciodată în UI, doar
+     choice.label (ex. "Vezi produsele", "Completează profilul").
+     Aceeași structură vizuală ca InfluencerLiveDataMessage (text +
+     rând de butoane dedesubt), reutilizată direct.
+  ======================================================= */
+
+  if (
+    message?.type === "choices" &&
+    message?.choiceStep === "vendor-insight-action"
+  ) {
+    const insightChoices = Array.isArray(message.choices)
+      ? message.choices
+      : [];
+
+    return (
+      <div
+        className={`${styles["artfest-assistant-message"]} ${styles["artfest-assistant-message-bot"]}`}
+      >
+        <div>
+          {message.content && (
+            <div>{message.content}</div>
+          )}
+
+          {insightChoices.length > 0 && (
+            <div className={styles.influencerCtaRow}>
+              {insightChoices.map((choice, index) => (
+                <InfluencerCtaButton
+                  key={choice.id || index}
+                  choice={choice}
+                  onChoice={handleChoice}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  /* =======================================================
      Mesaje generice
   ======================================================= */
 

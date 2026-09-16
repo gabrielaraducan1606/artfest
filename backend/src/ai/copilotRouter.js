@@ -264,6 +264,8 @@ Categorii posibile:
   ATENȚIE la o confuzie posibilă: "recomandări"/"recomand" pentru VENDOR_INSIGHTS înseamnă sugestii despre CONTUL propriu al vânzătorului - e un cuvânt DIFERIT de "programul de recomandare"/"cod de recomandare"/"invit alți vânzători" (acela e programul de ambasadori, PLATFORM_KNOWLEDGE, alt subiect complet). Alege PLATFORM_KNOWLEDGE pentru recomandare/ambasadori DOAR dacă mesajul menționează EXPLICIT invitarea altor vânzători, cod/link de recomandare sau programul de ambasadori - altfel, orice "recomandare" despre ce ar trebui să facă VÂNZĂTORUL ÎNSUȘI e VENDOR_INSIGHTS, inclusiv "Cum funcționează recomandările [pentru mine]?" (nu există o pagină statică despre asta, cel mai util e să arăți recomandările reale, nu să explici mecanismul).
   ACELAȘI tipar, pentru un INFLUENCER (privire de ansamblu proactivă asupra propriului cont de influencer, nu al unui magazin) - tot VENDOR_INSIGHTS: "Ce fac azi?", "Ce să postez?", "Ce ar trebui să postez azi?", "Ce am de repostat?", "Ce n-am mai promovat?", "Care este produsul zilei?", "Care este artizanul săptămânii?", "Ce produse noi sunt azi?", "Ce vânzători noi sunt?", "Care este codul meu [de reducere]?", "Care este linkul meu?", "Ce colecții am?", "Cât am câștigat?" (câștigul influencerului, NU comisionul de vânzător).
   EXCEPȚIE explicită de la regula generală "NAVIGARE explicită spre o pagină = PLATFORM_KNOWLEDGE" (vezi mai jos, secțiunea Reguli): "Deschide produsul zilei"/"Deschide artizanul săptămânii" (formă IMPERATIVĂ, nu întrebare) rămân TOT VENDOR_INSIGHTS, la fel ca "Care este produsul zilei?" - userul vrea resursa REALĂ (cu link, dacă există), nu o explicație despre unde e pagina. Nu confunda cu o navigare generică fără subiect ("du-mă la resurse", "deschide comenzile") - acelea rămân PLATFORM_KNOWLEDGE, neschimbat.
+  EXTINDERE (audit "recomandări magazin", suplimentar față de exemplele de mai sus, TOT VENDOR_INSIGHTS): "Ce aș putea îmbunătăți?", "Ce ai schimba tu la magazinul meu?", "Ce produse ar trebui să mai adaug?", "Ce produse ar trebui să promovez?", "Cum arată magazinul meu?", "Ce lipsește din profilul meu?", "Ce să fac azi ca să am mai multe șanse de vânzare?" - toate cer o privire proactivă asupra contului, nu un fapt punctual. "Ce lipsește din profilul meu?"/"Ce ar trebui să completez la profil?" (menționează explicit profilul/descrierea/logo-ul magazinului) rămâne VENDOR_INSIGHTS, nu PLATFORM_KNOWLEDGE, chiar dacă "profil" apare și ca navigare generică în altă parte - aici vânzătorul vrea ce lipsește REAL, nu unde e pagina de setări.
+  CARVE-OUT explicit: "De ce nu am comenzi?"/"De ce nu vând?"/"De ce nu am vânzări?" (o întrebare CAUZALĂ, "de ce", despre lipsa comenzilor/vânzărilor) este VENDOR_INSIGHTS, NU EXISTING_FLOW, chiar dacă menționează "comenzi" - vânzătorul nu cere o listă/număr de comenzi (acela ar fi "Câte comenzi am?", tot EXISTING_FLOW ca înainte), cere o explicație/recomandare despre STAREA magazinului care ar putea influența vânzările (catalog mic, profil incomplet, listări slabe etc.) - exact ce oferă privirea de ansamblu VENDOR_INSIGHTS, nu un număr brut.
 
 - ACCOUNT_HELP: probleme sau întrebări legate de cont, autentificare, parolă, email de verificare.
 
@@ -773,17 +775,42 @@ async function handlePlatformAction({
  * un LLM) direct din array-ul de insight-uri - modelul nu inventează
  * nimic aici, doar clasifică mesajul ca aparținând acestei categorii.
  */
-const URGENT_HINT_RE = /urgent|azi|acum|imediat/i;
+/*
+ * "azi"/"astăzi" NU mai înseamnă "urgent" - extras separat mai jos
+ * (TODAY_HINT_RE) pentru scope-ul "today" (plan de azi), distinct
+ * de "urgent"/"acum"/"imediat" (filtrare STRICT după severitate
+ * IMPORTANT). Înainte, "Ce să fac azi?" pentru un magazin fără
+ * nimic IMPORTANT primea "nu ai nimic urgent" - inutil pentru un
+ * vânzător care chiar vrea un plan, nu doar urgențele.
+ */
+const URGENT_HINT_RE = /urgent|acum|imediat/i;
+const TODAY_HINT_RE = /\bazi\b|\bastăzi\b/i;
 const COSTS_DOMAIN_HINT_RE = /cost|profit/i;
 const PRODUCT_DOMAIN_HINT_RE = /produs/i;
 const ORDER_DOMAIN_HINT_RE = /comand|comenz|cerer|ofert/i;
 
+/*
+ * Extindere audit "recomandări magazin" - profilul magazinului
+ * (logo/copertă/descriere/social) și promovarea (colecții/coduri
+ * de reducere), câte un scop dedicat fiecare, ca vânzătorul să
+ * poată întreba țintit ("ce lipsește din profilul meu?", "ce
+ * produse ar trebui să promovez?") fără să primească tot amestecat.
+ */
+const STORE_PROFILE_DOMAIN_HINT_RE =
+  /profil(ul)?\s*(magazin|meu)|logo|copert|banner|despre\s+magazin/i;
+
+const PROMOTION_DOMAIN_HINT_RE =
+  /promov|colec[țt]i|cod(uri)?\s*(de\s*)?reducere/i;
+
 const INSIGHT_SCOPE_DOMAINS = {
   urgent: null,
+  today: null,
 
   costs: ["costs-profit"],
   products: ["products", "costs-profit", "homepage-features"],
   orders: ["orders", "quotes"],
+  profile: ["store-profile"],
+  promotion: ["promotion", "homepage-features"],
 
   all: null,
 };
@@ -806,7 +833,21 @@ const INSIGHT_SCOPE_DOMAINS = {
  * menționat explicit. Domeniul specific are prioritate - "urgent"
  * rămâne doar fallback-ul pentru când NU e menționat niciun domeniu.
  */
+/*
+ * "De ce nu am comenzi?"/"De ce nu vând?" - deși menționează
+ * "comenzi"/"vând" (ar nimeri altfel scope-ul îngust "orders", care
+ * ar răspunde doar cu insight-uri din domeniul comenzi/oferte - de
+ * regulă gol, deci un răspuns inutil "nu am nimic de semnalat la
+ * comenzi"), întrebarea CAUZALĂ vrea explicația mai largă (catalog
+ * mic, profil incomplet, listări slabe) - verificată ÎNAINTEA
+ * oricărui alt scope de domeniu.
+ */
+const WHY_NO_ORDERS_RE =
+  /de\s*ce\s*nu\s*(am|vand|vând|primesc)/i;
+
 function detectInsightScope(message) {
+  if (WHY_NO_ORDERS_RE.test(message)) return "all";
+
   if (COSTS_DOMAIN_HINT_RE.test(message)) return "costs";
 
   const wantsOrders =
@@ -816,6 +857,15 @@ function detectInsightScope(message) {
   if (wantsOrders) return "orders";
   if (PRODUCT_DOMAIN_HINT_RE.test(message)) return "products";
 
+  if (STORE_PROFILE_DOMAIN_HINT_RE.test(message)) return "profile";
+  if (PROMOTION_DOMAIN_HINT_RE.test(message)) return "promotion";
+
+  /*
+   * "today" ÎNAINTEA "urgent" - "Ce să fac azi?" fără alt domeniu
+   * numit vrea un plan (vezi composeTodayPlanAnswer), nu doar
+   * filtrarea severă IMPORTANT-only a lui "urgent".
+   */
+  if (TODAY_HINT_RE.test(message)) return "today";
   if (URGENT_HINT_RE.test(message)) return "urgent";
 
   return "all";
@@ -856,9 +906,12 @@ function scopeInsights(insights, scope) {
 
 const SCOPE_EMPTY_MESSAGE = {
   urgent: "Nu ai nimic urgent chiar acum.",
+  today: "Magazinul tău arată bine momentan - nu am niciun punct concret de adăugat la planul de azi.",
   costs: "Nu am nimic de semnalat la costuri/profit chiar acum.",
   products: "Nu am nimic de semnalat la produse chiar acum.",
   orders: "Nu am nimic de semnalat la comenzi chiar acum.",
+  profile: "Profilul magazinului tău arată complet - logo, copertă, descriere și social sunt completate.",
+  promotion: "Ai deja cel puțin o colecție și un cod de reducere active - nu am nimic de semnalat aici.",
   all: "Momentan nu văd nimic important care să necesite atenția ta.",
 };
 
@@ -892,6 +945,32 @@ function composeInsightsAnswer(scope, scoped) {
       : "";
 
   return `${intro}\n\n${lines.join("\n")}${outro}`;
+}
+
+/*
+ * "Ce să fac azi?" - plan scurt, numerotat, imperativ, DIN aceleași
+ * insight-uri reale (nicio sursă de date nouă) - doar altă formă,
+ * potrivită unui mini-plan în loc de o listă de probleme. Fiecare
+ * insight are un `actionPhrase` scurt, imperativ (setat explicit la
+ * insight-urile noi din insightsService.js); pentru cele mai vechi,
+ * fără actionPhrase, cădem pe title (tot un fapt real, doar mai puțin
+ * imperativ formulat).
+ */
+const TODAY_PLAN_CAP = 4;
+
+function composeTodayPlanAnswer(scoped) {
+  if (!scoped.length) {
+    return SCOPE_EMPTY_MESSAGE.today;
+  }
+
+  const shown = scoped.slice(0, TODAY_PLAN_CAP);
+
+  const lines = shown.map(
+    (insight, index) =>
+      `${index + 1}. ${insight.actionPhrase || insight.title}`
+  );
+
+  return `Azi aș face:\n\n${lines.join("\n")}`;
 }
 
 /*
@@ -1061,7 +1140,7 @@ function buildHelpOverviewAnswer(
     );
 
     lines.push(
-      `- Recomandări live pentru magazinul tău (produse fără costing, sub prețul minim, comenzi care așteaptă acțiune) - întreabă "ce ar trebui să verific azi?".`
+      `- Recomandări live pentru magazinul tău (produse fără costing/video, catalog mic, profil de magazin incomplet, fără colecții/coduri de reducere, comenzi care așteaptă acțiune) - întreabă "ce îmi recomanzi?" sau "ce ar trebui să fac azi?".`
     );
   }
 
@@ -1589,12 +1668,29 @@ async function handleVendorInsightsQuery({
   const scope = detectInsightScope(message);
   const scoped = scopeInsights(insights, scope);
 
+  /*
+   * ACTIONABLE RECOMMENDATIONS - `insights` trimis către client
+   * trebuie să fie EXACT ce apare în text (ca butoanele de sub
+   * mesaj să corespundă 1:1 cu recomandările numerotate), nu tot
+   * scope-ul complet - de-aia tăiem aici la același cap folosit de
+   * formatter (today: TODAY_PLAN_CAP, altfel: INSIGHTS_SHOWN_CAP).
+   */
+  const shown = scoped.slice(
+    0,
+    scope === "today" ? TODAY_PLAN_CAP : INSIGHTS_SHOWN_CAP
+  );
+
   return {
     resultType: "answer",
-    message: composeInsightsAnswer(scope, scoped),
-    insights: scoped,
 
-    insightContext: buildActiveInsightContext(scope, scoped),
+    message:
+      scope === "today"
+        ? composeTodayPlanAnswer(scoped)
+        : composeInsightsAnswer(scope, scoped),
+
+    insights: shown,
+
+    insightContext: buildActiveInsightContext(scope, scoped, shown),
   };
 }
 
@@ -2378,6 +2474,13 @@ async function handleInsightFollowUp({
     return {
       resultType: "answer",
       message: list,
+
+      /*
+       * ACTIONABLE RECOMMENDATIONS - la fel ca la interogarea
+       * inițială, trimitem lista completă ca să poată apărea câte
+       * un CTA sub fiecare recomandare afișată.
+       */
+      insights: scoped,
 
       /*
        * "arată-mi toate" arată lista COMPLETĂ (scoped), nu doar
