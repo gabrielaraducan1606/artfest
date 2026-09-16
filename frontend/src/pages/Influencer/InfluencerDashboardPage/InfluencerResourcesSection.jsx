@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { FiHelpCircle, FiX } from "react-icons/fi";
+
 import styles from "./InfluencerDashboardPage.module.css";
 
 /* =========================================================
@@ -251,6 +253,7 @@ export default function InfluencerResourcesSection({
     );
   }, [initialFilters]);
   const [copiedGeneratedId, setCopiedGeneratedId] = useState("");
+  const [helpResource, setHelpResource] = useState(null);
 
   const newProductsToday =
     generatedContent?.newProductsToday || [];
@@ -546,6 +549,9 @@ export default function InfluencerResourcesSection({
                       markingPosted={
                         markingPostedId === resource.id
                       }
+                      onShowHelp={() =>
+                        setHelpResource(resource)
+                      }
                     />
                   ))}
                 </div>
@@ -554,7 +560,88 @@ export default function InfluencerResourcesSection({
           )}
         </>
       )}
+
+      {helpResource && (
+        <ResourceHelpModal
+          resource={helpResource}
+          onClose={() => setHelpResource(null)}
+        />
+      )}
     </section>
+  );
+}
+
+/* =========================================================
+   MODAL "?" - INFORMAȚII SUPLIMENTARE
+
+   Text introdus de admin (helpText), afișat influencerului la
+   apăsarea butonului "?" de pe card - NU navighează, NU descarcă
+   nimic. Nu vine hardcodat - vine din datele resursei.
+========================================================= */
+
+function ResourceHelpModal({ resource, onClose }) {
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () =>
+      document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      role="presentation"
+      className={styles.helpModalBackdrop}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resource-help-title"
+        className={styles.helpModal}
+      >
+        <div className={styles.helpModalHeader}>
+          <h3
+            id="resource-help-title"
+            className={styles.helpModalTitle}
+          >
+            Despre această resursă
+          </h3>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Închide"
+            className={styles.helpModalCloseButton}
+          >
+            <FiX size={20} />
+          </button>
+        </div>
+
+        <div className={styles.helpModalBody}>
+          {resource.helpText}
+        </div>
+
+        <div className={styles.helpModalFooter}>
+          <button
+            type="button"
+            onClick={onClose}
+            className={styles.primaryButton}
+          >
+            Am înțeles
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -600,8 +687,10 @@ function ResourceCompactCard({
   copied,
   onMarkPosted,
   markingPosted,
+  onShowHelp,
 }) {
   const hasMedia = Boolean(resource.mediaUrl);
+  const hasHelpText = Boolean(resource.helpText);
 
   const typeLabel =
     RESOURCE_TYPE_LABELS[resource.type] || "Resursă";
@@ -679,12 +768,33 @@ function ResourceCompactCard({
         )}
       </div>
 
-      <h3
-        className={styles.resourceTitle}
-        style={{ fontSize: 15, margin: "4px 0" }}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 6,
+        }}
       >
-        {resource.title}
-      </h3>
+        <h3
+          className={styles.resourceTitle}
+          style={{ fontSize: 15, margin: "4px 0" }}
+        >
+          {resource.title}
+        </h3>
+
+        {hasHelpText && (
+          <button
+            type="button"
+            onClick={onShowHelp}
+            className={styles.resourceHelpButton}
+            aria-label="Mai multe informații despre această resursă"
+            title="Mai multe informații"
+          >
+            <FiHelpCircle size={16} />
+          </button>
+        )}
+      </div>
 
       {resource.description && (
         <p

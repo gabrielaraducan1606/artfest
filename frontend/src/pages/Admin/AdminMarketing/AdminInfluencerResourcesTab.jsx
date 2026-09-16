@@ -89,12 +89,15 @@ const INITIAL_FORM = {
   type: "GENERIC",
   title: "",
   description: "",
+  helpText: "",
   mediaType: null,
   mediaUrl: "",
   targetUrl: "",
   status: "DRAFT",
   expiresAt: "",
 };
+
+const HELP_TEXT_MAX_LENGTH = 2000;
 
 /* =========================================================
    FORMATTERS
@@ -233,6 +236,7 @@ export default function AdminInfluencerResourcesTab() {
       type: resource.type || "GENERIC",
       title: resource.title || "",
       description: resource.description || "",
+      helpText: resource.helpText || "",
       mediaType: resource.mediaType || null,
       mediaUrl: resource.mediaUrl || "",
       targetUrl: resource.targetUrl || "",
@@ -350,6 +354,7 @@ export default function AdminInfluencerResourcesTab() {
         type: form.type,
         title,
         description: form.description.trim() || null,
+        helpText: form.helpText.trim() || null,
         mediaType: form.mediaUrl ? form.mediaType : null,
         mediaUrl: form.mediaUrl || null,
         targetUrl: form.targetUrl.trim() || null,
@@ -422,6 +427,7 @@ export default function AdminInfluencerResourcesTab() {
             type: resource.type,
             title: resource.title,
             description: resource.description,
+            helpText: resource.helpText,
             mediaType: resource.mediaUrl
               ? resource.mediaType
               : null,
@@ -737,6 +743,33 @@ export default function AdminInfluencerResourcesTab() {
               </FormField>
 
               <FormField
+                label="Informații suplimentare"
+                hint="Acest text va fi afișat influencerilor când apasă pe butonul ?."
+              >
+                <textarea
+                  value={form.helpText}
+                  placeholder="Ex: Ce produs este, de ce l-am ales, cum îl poți folosi în conținutul tău..."
+                  maxLength={HELP_TEXT_MAX_LENGTH}
+                  onChange={(event) =>
+                    updateField(
+                      "helpText",
+                      event.target.value
+                    )
+                  }
+                  className={styles.input}
+                  rows={4}
+                  style={{ resize: "vertical" }}
+                />
+
+                <div
+                  className={styles.fieldHint}
+                  style={{ textAlign: "right" }}
+                >
+                  {form.helpText.length}/{HELP_TEXT_MAX_LENGTH}
+                </div>
+              </FormField>
+
+              <FormField
                 label="Media (imagine sau video)"
                 hint="Opțional - de ex. o idee de postare poate avea doar text."
               >
@@ -971,7 +1004,38 @@ function ResourceCard({
         {RESOURCE_TYPE_LABELS[resource.type] || resource.type}
       </div>
 
-      <div style={{ fontWeight: 700 }}>{resource.title}</div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        <div style={{ fontWeight: 700 }}>{resource.title}</div>
+
+        {Boolean(resource.helpText) && (
+          <span
+            title="Are informații suplimentare pentru influenceri"
+            aria-label="Are informații suplimentare pentru influenceri"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 18,
+              height: 18,
+              flexShrink: 0,
+              borderRadius: "50%",
+              border: "1px solid #ddd6fe",
+              background: "#f5f3ff",
+              color: "#6d28d9",
+              fontSize: 11,
+              fontWeight: 800,
+            }}
+          >
+            ?
+          </span>
+        )}
+      </div>
 
       <span
         className={`${styles.status} ${

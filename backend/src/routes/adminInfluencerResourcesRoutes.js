@@ -234,6 +234,17 @@ const ResourcePayloadSchema = z.object({
     .optional()
     .nullable(),
 
+  /*
+   * Text opțional afișat influencerului la apăsarea butonului
+   * "?" de pe card - separat de `description`.
+   */
+  helpText: z
+    .string()
+    .trim()
+    .max(2000)
+    .optional()
+    .nullable(),
+
   mediaType: z
     .enum(RESOURCE_MEDIA_TYPES)
     .optional()
@@ -283,6 +294,7 @@ function normalizePayload(data) {
     type: data.type,
     title: data.title,
     description: data.description || null,
+    helpText: data.helpText || null,
 
     /*
      * mediaUrl obligă mediaType (și invers) - o resursă tip

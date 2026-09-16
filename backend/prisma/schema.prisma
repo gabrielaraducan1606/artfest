@@ -3578,6 +3578,13 @@ model InfluencerResource {
   title       String
   description String?
 
+  /*
+   * Text opțional afișat influencerului la apăsarea butonului
+   * "?" de pe card - separat de `description` (care e caption-ul
+   * de copiat în postare), nu se suprapune cu el.
+   */
+  helpText String?
+
   mediaType InfluencerResourceMediaType?
   mediaUrl  String?
 

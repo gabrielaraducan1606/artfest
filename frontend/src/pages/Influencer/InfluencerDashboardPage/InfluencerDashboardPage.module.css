@@ -2738,3 +2738,178 @@
       1 !important;
   }
 }
+
+/* =========================================================
+   RESURSE - BUTON "?" (informații suplimentare)
+========================================================= */
+
+.resourceHelpButton {
+  width: 26px;
+  height: 26px;
+
+  flex-shrink: 0;
+
+  display: grid;
+  place-items: center;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 999px;
+
+  background: var(--surface, #ffffff);
+  color: var(--color-muted, #6b7280);
+
+  cursor: pointer;
+}
+
+.resourceHelpButton:hover {
+  border-color: var(--color-primary, #6f4e43);
+  color: var(--color-primary, #6f4e43);
+}
+
+.resourceHelpButton:focus-visible {
+  outline: 2px solid var(--color-primary, #6f4e43);
+  outline-offset: 2px;
+}
+
+/* =========================================================
+   RESURSE - MODAL "?" (informații suplimentare)
+========================================================= */
+
+.helpModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 20px;
+
+  background: var(--overlay-bg, rgba(15, 23, 42, 0.5));
+}
+
+.helpModal {
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+
+  display: flex;
+  flex-direction: column;
+
+  overflow: hidden;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 16px;
+
+  background: var(--surface, #ffffff);
+  color: var(--color-text, #111827);
+
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.25);
+}
+
+.helpModalHeader {
+  flex: 0 0 auto;
+
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+
+  padding: 18px 18px 12px;
+
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.helpModalTitle {
+  margin: 0;
+  font-size: 16px;
+  color: var(--color-text, #111827);
+}
+
+.helpModalCloseButton {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+
+  display: grid;
+  place-items: center;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+
+  background: var(--surface, #ffffff);
+  color: var(--color-text, #111827);
+
+  cursor: pointer;
+}
+
+.helpModalCloseButton:hover {
+  border-color: var(--color-primary, #6f4e43);
+}
+
+.helpModalBody {
+  flex: 1;
+  overflow-y: auto;
+
+  padding: 16px 18px;
+
+  color: var(--color-text, #111827);
+
+  font-size: 14px;
+  line-height: 1.6;
+
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.helpModalFooter {
+  flex: 0 0 auto;
+
+  display: flex;
+  justify-content: flex-end;
+
+  padding: 12px 18px 18px;
+}
+
+.helpModalFooter .primaryButton {
+  width: auto;
+}
+
+@media (max-width: 640px) {
+  .helpModalBackdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .helpModal {
+    max-width: none;
+    max-height: 85vh;
+
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .helpModalHeader,
+  .helpModalBody,
+  .helpModalFooter {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .helpModalCloseButton {
+    width: 38px;
+    height: 38px;
+  }
+
+  .resourceHelpButton {
+    width: 30px;
+    height: 30px;
+  }
+
+  .helpModalFooter .primaryButton {
+    width: 100%;
+  }
+}
