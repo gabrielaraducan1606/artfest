@@ -8,6 +8,9 @@ import {
   createDepositPaymentForShipment,
   createPaymentForOrder,
 } from "../payments/orchestrator.js";
+import {
+  restoreStockFromItems,
+} from "../services/stockRestore.js";
 
 const router = Router();
 
@@ -2349,70 +2352,23 @@ export async function cancelOwnOrder({
         }
 
         /*
-         * Adunăm cantitățile pe produs
-         * din toate shipment-urile.
+         * Restaurăm stocul - sursă canonică unică
+         * (src/services/stockRestore.js), aceeași folosită și de
+         * vendor cancel și admin cancel. Regulă (audit 2026-09-14):
+         * doar produse ÎN CONTINUARE stock-tracked (readyQty!==null)
+         * aflate în READY/SOLD_OUT - MADE_TO_ORDER/PREORDER nu sunt
+         * niciodată atinse.
          */
-        const qtyByProductId =
-          new Map();
+        const allItems =
+          o.shipments.flatMap(
+            (shipment) =>
+              shipment.items || []
+          );
 
-        for (
-          const shipment
-          of o.shipments
-        ) {
-          for (
-            const item
-            of shipment.items || []
-          ) {
-            if (!item.productId) {
-              continue;
-            }
-
-            const qty = Number(
-              item.qty || 0
-            );
-
-            if (
-              !Number.isInteger(qty) ||
-              qty <= 0
-            ) {
-              continue;
-            }
-
-            qtyByProductId.set(
-              item.productId,
-              (
-                qtyByProductId.get(
-                  item.productId
-                ) || 0
-              ) + qty
-            );
-          }
-        }
-
-        /*
-         * Restaurăm stocul.
-         */
-        for (
-          const [
-            productId,
-            qty,
-          ] of qtyByProductId
-        ) {
-          await tx.product.updateMany({
-            where: {
-              id: productId,
-            },
-
-            data: {
-              readyQty: {
-                increment: qty,
-              },
-
-              availability:
-                "READY",
-            },
-          });
-        }
+        await restoreStockFromItems(
+          tx,
+          allItems
+        );
 
         await tx.order.update({
           where: {

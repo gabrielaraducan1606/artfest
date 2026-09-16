@@ -43,9 +43,19 @@ const USER_DOCUMENT_TO_GATE_KEY = {
   MARKETING_EMAIL_OPTIN: "MARKETING",
 };
 
+/*
+ * VENDOR_PRIVACY_NOTICE ELIMINAT de aici (2026-09) - nu are document
+ * propriu (.md), folosea URL-ul Privacy general ("/legal/privacy.html"),
+ * nu era selectabil în UI-ul admin real (DOCS_BY_SCOPE.VENDORS din
+ * AdminPoliciesTab.jsx nu l-a inclus niciodată) și nu are nicio
+ * acceptare (VendorAcceptance) înregistrată vreodată. Vendorii rămân
+ * acoperiți de Privacy Policy generală (document USER, PRIVACY_ACK) -
+ * niciun consimțământ nu se pierde, doar nu se mai poate crea accidental
+ * un al doilea document duplicat pentru același conținut. Rândul
+ * VendorPolicy(VENDOR_PRIVACY_NOTICE) rămâne NEATINS în DB (nu e șters).
+ */
 const GATE_KEY_TO_VENDOR_DOCUMENT = {
   VENDOR_TERMS: "VENDOR_TERMS",
-  VENDOR_PRIVACY_NOTICE: "VENDOR_PRIVACY_NOTICE",
   SHIPPING_ADDENDUM: "SHIPPING_ADDENDUM",
   PRODUCTS_ADDENDUM: "PRODUCTS_ADDENDUM",
   RETURNS_POLICY_ACK: "RETURNS_POLICY_ACK",
@@ -70,7 +80,6 @@ const DOCUMENT_LABELS = {
   MARKETING_EMAIL_OPTIN: "Preferințe marketing",
 
   VENDOR_TERMS: "Acordul Marketplace pentru Vânzători",
-  VENDOR_PRIVACY_NOTICE: "Notă GDPR pentru vânzători",
   SHIPPING_ADDENDUM: "Anexa de Expediere și Curierat",
   PRODUCTS_ADDENDUM: "Anexa Produse",
   PRODUCT_DECLARATION: "Declarație privind produsele",
@@ -85,7 +94,6 @@ const DOCUMENT_URLS = {
   RETURNS_POLICY_ACK: "/politica-retur",
 
   VENDOR_TERMS: "/acord-vanzatori",
-  VENDOR_PRIVACY_NOTICE: "/confidentialitate",
   SHIPPING_ADDENDUM: "/anexa-expediere",
   PRODUCTS_ADDENDUM: "/anexa-produse",
   PRODUCT_DECLARATION: "/vendor/legal/product-declaration",

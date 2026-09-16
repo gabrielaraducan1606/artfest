@@ -465,6 +465,25 @@ export function normalizeProductForResponse(
       product?.availability ||
       null,
 
+    /*
+     * ADĂUGAT (audit Guest, Batch 2, 2026-09-08) - date reale
+     * existente în model, necesare pentru a răspunde onest la
+     * întrebări despre viteza de livrare, fără să inventeze
+     * estimări.
+     */
+    leadTimeDays:
+      typeof product?.leadTimeDays === "number"
+        ? product.leadTimeDays
+        : null,
+
+    readyQty:
+      typeof product?.readyQty === "number"
+        ? product.readyQty
+        : null,
+
+    nextShipDate:
+      product?.nextShipDate || null,
+
     orderMode:
       product?.orderMode ||
       null,

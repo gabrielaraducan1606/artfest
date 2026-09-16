@@ -2,18 +2,64 @@
 import { prisma } from "../db.js";
 
 /**
+ * Mapare explicită categorie -> cheia din User.preferences.notifications
+ * (vezi userSettingsRoutes.js GET/PATCH /me/notifications). NU orice
+ * notificare de user are o categorie - doar cele mapate CLAR mai jos,
+ * la fiecare apel al createUserNotification (parametrul
+ * `preferenceCategory`). O notificare fără `preferenceCategory` se
+ * comportă exact ca înainte (mereu trimisă) - nu inventăm mapping
+ * pentru evenimente care nu corespund clar uneia din cele 3 preferințe.
+ */
+const NOTIFICATION_PREFERENCE_KEYS = {
+  message: "inAppMessageNew",
+  booking: "inAppBookingUpdates",
+  reminder: "inAppEventReminders",
+};
+
+async function isUserNotificationCategoryEnabled(userId, preferenceCategory) {
+  if (!preferenceCategory) return true;
+
+  const preferenceKey = NOTIFICATION_PREFERENCE_KEYS[preferenceCategory];
+  if (!preferenceKey) return true;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { preferences: true },
+  });
+
+  // Implicit true, identic cu default-ul din GET /me/notifications -
+  // un câmp lipsă (user care nu a atins niciodată setarea) NU
+  // blochează notificarea.
+  return user?.preferences?.notifications?.[preferenceKey] !== false;
+}
+
+/**
  * Creează o notificare pentru un user (client).
  * ✅ Dedupe safe: dacă există unică (dedupeKey), ignoră duplicatele (P2002).
+ *
+ * `data.preferenceCategory` (opțional: "message" | "booking" | "reminder")
+ * leagă notificarea de un toggle din Setări cont - dacă userul l-a
+ * dezactivat explicit, notificarea in-app NU se mai creează (emailul,
+ * dacă există separat, nu e afectat de asta).
  */
 export async function createUserNotification(userId, data) {
   if (!userId) return null;
+
+  const { preferenceCategory, ...notificationData } = data;
+
+  const enabled = await isUserNotificationCategoryEnabled(
+    userId,
+    preferenceCategory
+  );
+
+  if (!enabled) return null;
 
   try {
     return await prisma.notification.create({
       data: {
         userId,
         vendorId: null,
-        ...data, // type, title, body, link, meta, dedupeKey etc.
+        ...notificationData, // type, title, body, link, meta, dedupeKey etc.
       },
     });
   } catch (e) {
@@ -415,6 +461,7 @@ export async function notifyUserOnOrderStatusChange(orderId, vendorUiStatus) {
   }
 
   return createUserNotification(o.userId, {
+    preferenceCategory: "booking",
     type: "order",
     title,
     body,
@@ -493,6 +540,7 @@ export async function notifyUserOnShipmentPickupScheduled(orderId, shipmentId) {
   const dedupeKey = `shipment_pickup:${order.userId}:${shipmentId}`;
 
   return createUserNotification(order.userId, {
+    preferenceCategory: "booking",
     dedupeKey,
     type: "shipping",
     title: `Coletul pentru comanda #${displayNo} este în drum spre tine`, // ✅
@@ -575,6 +623,7 @@ export async function notifyUserOnInboxMessage(thread, messageBody) {
 
   // dacă ai messageId, dedupe pe el; aici n-avem, deci lăsăm fără dedupeKey
   return createUserNotification(thread.userId, {
+    preferenceCategory: "message",
     type: "message",
     title: `Mesaj nou de la ${thread.vendor?.displayName || "magazin"}`,
     body: short || "Ai primit un mesaj nou în conversația cu magazinul.",
@@ -943,6 +992,34 @@ export async function notifyVendorStripePayoutsRequired(vendorId, mode = "grace"
   });
 }
 
+/**
+ * Reminder pentru INFLUENCER: prima comandă atribuită + profil de
+ * plată (InfluencerPayoutProfile) incomplet.
+ *
+ * ✅ dedupeKey STABIL, fără dată - o singură notificare, indiferent
+ * de câte comenzi urmează (constrângerea unică pe `dedupeKey` din
+ * Notification face deduplicarea, la fel ca la celelalte notificări
+ * din acest fișier - createUserNotification ignoră P2002).
+ *
+ * Apelantul (chekoutRoutes.js) decide DACĂ trebuie trimisă (verifică
+ * întâi profilul de payout) - funcția asta doar o creează.
+ */
+export async function notifyInfluencerPayoutProfileIncomplete(userId) {
+  if (!userId) return null;
+
+  return createUserNotification(userId, {
+    dedupeKey: `influencer_payout_profile_incomplete:${userId}`,
+
+    type: "system",
+    title: "Completează datele de plată",
+    body: "Ai început să generezi comenzi prin Artfest. Completează datele fiscale și IBAN-ul pentru a putea încasa câștigurile confirmate.",
+    link: "/influencer?tab=settings",
+    meta: {
+      kind: "influencer_payout_profile_incomplete",
+    },
+  });
+}
+
 export async function notifyVendorOnHomepageFeatureCreated(
   featureId
 ) {
@@ -1206,6 +1283,9 @@ export async function notifyUserDepositRequested({
   return createUserNotification(
     order.userId,
     {
+      preferenceCategory:
+        "booking",
+
       dedupeKey,
 
       type:

@@ -1663,6 +1663,24 @@ async function handleOrderPaymentIntentSucceeded(
                   .platformNet ||
                   0
               ),
+
+            /*
+             * Comision MIXT (audit 2026-09-14, lifecycle
+             * VendorCampaign) - identic ca formă cu ledger-ul COD
+             * (ensureSaleLedgerEntry din vendorOrdersRoutes.js), ca
+             * Admin/Vendor Order Details să citească exact aceeași
+             * structură indiferent de metoda de plată.
+             */
+            isMixedCommission:
+              Boolean(
+                payout
+                  .isMixedCommission
+              ),
+
+            commissionGroups:
+              payout
+                .commissionGroups ||
+              null,
           },
         },
       });

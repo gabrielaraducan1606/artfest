@@ -4,6 +4,51 @@
   padding: 24px 16px 64px;
 }
 
+/* ================== Taburi pagină (Costuri & profit / Bibliotecă) ================== */
+
+.pageTabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 20px;
+}
+
+.pageTab,
+.pageTabActive {
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  padding: 10px 4px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pageTab + .pageTab,
+.pageTab + .pageTabActive,
+.pageTabActive + .pageTab,
+.pageTabActive + .pageTabActive {
+  margin-left: 16px;
+}
+
+.pageTab:hover {
+  color: var(--color-text);
+}
+
+.pageTabActive {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+.pageTab:focus-visible,
+.pageTabActive:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent);
+  border-radius: 6px;
+}
+
 .header {
   display: flex;
   align-items: flex-start;

@@ -83,6 +83,15 @@ function normalizeCartData(value) {
 
         return true;
       })
+      /*
+       * Sortare deterministă pe cheie - altfel JSON.stringify (folosit
+       * de buildConfigurationKey mai jos) păstrează ordinea de
+       * inserare primită de la client, iar {color,size} vs {size,color}
+       * (aceeași configurație, ordine diferită) ar produce hash-uri
+       * diferite -> aceeași personalizare ar putea fi tratată ca 2
+       * linii distincte în coș.
+       */
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
   );
 }
 

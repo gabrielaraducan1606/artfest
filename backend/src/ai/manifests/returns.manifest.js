@@ -108,6 +108,30 @@ export const RETURNS_MANIFEST = {
       q: "Pot face retur dacă am comandat fără cont (ca guest)?",
       a: "Nu am o confirmare separată din cod pentru acest caz, dar nu există niciun motiv să fie diferit - contactează suportul cu numărul comenzii (îl ai din emailul de confirmare), la fel ca un cumpărător cu cont.",
     },
+    {
+      q: "Cine aprobă/gestionează efectiv un retur?",
+      a: "Echipa Artfest (admin) - confirmat direct în cod, procesarea retururilor existente (listare, schimbare status, creare AWB de retur) e strict o acțiune de admin, nu există nicio acțiune de retur pentru vânzător. Practic, orice retur trece prin support, nu direct prin vânzător.",
+    },
+    {
+      q: "Produsele personalizate pot fi returnate?",
+      a: "Nu am o confirmare tehnică sau legală separată în cod pentru acest caz - condițiile exacte (inclusiv eventuale excepții pentru produse personalizate) sunt descrise în pagina Politica de retur. Nu pot afirma cu certitudine dacă produsele personalizate sunt sau nu excluse - verifică acea pagină sau întreabă direct suportul.",
+    },
+    {
+      q: "Cine plătește transportul de retur?",
+      a: "Nu am găsit, în cod, o regulă tehnică care să stabilească asta (nu există un flux de retur self-service care să calculeze costul) - condițiile exacte sunt descrise în pagina Politica de retur. Cel mai sigur pas e să întrebi suportul, cu numărul comenzii, înainte să trimiți produsul înapoi.",
+    },
+    {
+      q: "Unde trimit produsul pentru retur? Care e adresa de retur?",
+      a: "Nu există o adresă de retur unică, generică - contactează suportul Artfest cu numărul comenzii; ei te vor îndruma spre vânzător sau spre adresa corectă. Nu trimite produsul înapoi din proprie inițiativă, fără să confirmi întâi adresa.",
+    },
+    {
+      q: "Cum primesc banii înapoi dacă fac retur?",
+      a: "Nu există în cod un termen fix confirmat pentru rambursare - condițiile sunt descrise în pagina Politica de retur. Contactează suportul cu numărul comenzii pentru a iniția procesul; nu pot confirma un interval exact de timp.",
+    },
+    {
+      q: "Pot refuza coletul la livrare?",
+      a: "Da, poți refuza un colet la livrare. Ce se întâmplă după: dacă refuzul are loc înainte ca vânzătorul să predea coletul curierului, comanda e anulată de vânzător; dacă refuzul are loc DUPĂ ce coletul a ajuns deja la curier (adică refuzi direct la curier, la ușă), statusul de anulare/retur e setat de echipa Artfest (admin), pe baza informației primite de la curier - vânzătorul e doar notificat, nu acționează el.",
+    },
   ],
 
   unavailableFeatures: [

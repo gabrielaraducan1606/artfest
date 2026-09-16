@@ -10,6 +10,7 @@ import { createPaymentForOrder } from "../payments/orchestrator.js";
 import {
   createVendorNotification,
   notifyVendorOnProductSoldOut,
+  notifyInfluencerPayoutProfileIncomplete,
 } from "../services/notifications.js";
 import {
   getPromotionPricingForProducts,
@@ -17,10 +18,27 @@ import {
 import {
   resolveVendorCampaignAttributions,
   buildCampaignPromotionsByProductId,
+  isProductEligibleForCampaign,
 } from "../services/campaignAttribution.js";
+import {
+  resolveInfluencerAttribution,
+  resolveInfluencerAttributionByInfluencerId,
+} from "../services/influencerAttribution.js";
+import {
+  resolveVendorReferralAttribution,
+  resolveVendorReferralAttributionByVendorId,
+  resolveVendorCollectionAttribution,
+  VENDOR_REFERRAL_OWN_SALE_COMMISSION_BPS,
+} from "../services/vendorAttribution.js";
 import {
   CAMPAIGN_COMMISSION_BPS,
 } from "./vendorCampaignRoutes.js";
+import {
+  validateDiscountCode,
+  buildDiscountCodePromotionsByProductId,
+  realizeDiscountCodeAmount,
+  redeemDiscountCode,
+} from "../services/discountCodeValidation.js";
 const router = Router();
 
 /*
@@ -41,6 +59,332 @@ function parseCampaignAttributionQuery(raw) {
 }
 
 const dec = (n) => Number.parseFloat((Number(n || 0)).toFixed(2));
+
+/*
+ * Reminder „completează datele de plată” pentru influenceri -
+ * trigger: prima comandă atribuită + profil de plată
+ * (InfluencerPayoutProfile) incomplet sau inexistent.
+ *
+ * Apelată DUPĂ ce tranzacția comenzii s-a confirmat (niciodată din
+ * interiorul $transaction) - la fel ca notificările de vendor
+ * (createVendorNotification/notifyVendorOnProductSoldOut) de mai
+ * jos, ca să nu creăm notificări pentru comenzi care ar putea fi
+ * anulate prin rollback.
+ *
+ * O comandă multi-vendor cu ACELAȘI influencer pe mai multe
+ * shipment-uri interoghează o singură dată per influencer (Set pe
+ * influencerId) - iar dedupeKey-ul STABIL din
+ * notifyInfluencerPayoutProfileIncomplete (fără dată) garantează
+ * oricum o singură notificare pe toată durata de viață a contului,
+ * indiferent de câte comenzi urmează.
+ *
+ * Nu aruncă niciodată - eșecul acestui reminder nu trebuie să
+ * afecteze răspunsul de succes al comenzii deja plasate.
+ */
+async function notifyInfluencersWithIncompletePayoutProfile(shipments) {
+  try {
+    const influencerIds = [
+      ...new Set(
+        (shipments || [])
+          .map((s) => s.influencerId)
+          .filter(Boolean)
+      ),
+    ];
+
+    if (!influencerIds.length) return;
+
+    const incompleteInfluencers = await prisma.influencerProfile.findMany({
+      where: {
+        id: { in: influencerIds },
+        OR: [
+          { payoutProfile: null },
+          { payoutProfile: { isComplete: false } },
+        ],
+      },
+
+      select: { userId: true },
+    });
+
+    await Promise.all(
+      incompleteInfluencers.map((influencer) =>
+        notifyInfluencerPayoutProfileIncomplete(influencer.userId)
+      )
+    );
+  } catch (err) {
+    console.error(
+      "Nu am putut trimite reminder-ul de date de plată pentru influenceri:",
+      err
+    );
+  }
+}
+
+/*
+ * =========================================================
+ * ATRIBUIRE PROMOTOR - INFLUENCER vs VENDOR (PER SHIPMENT)
+ * =========================================================
+ *
+ * Regulă unică, cerută explicit:
+ * - cod de reducere câștigător PE ACEST SHIPMENT are prioritate
+ *   absolută față de ?ref=, indiferent de tipul lui (vendor sau
+ *   influencer);
+ * - dacă niciun cod nu a câștigat pe acest shipment, cade pe
+ *   atribuirea ?ref= validă (influencer SAU vendor);
+ * - UN SINGUR promotor economic per shipment - niciodată influencer
+ *   ȘI vendor simultan (vezi buildShipmentAttributionFields, care
+ *   scrie DOAR câmpurile tipului câștigător, restul rămân null).
+ *
+ * Tie-break (caz limită, practic imposibil - ar necesita un cod de
+ * influencer și un cod de vendor cu literalmente același șir de
+ * caractere folosit ca ?ref=): dacă AMBELE ref-uri (influencer și
+ * vendor) sunt valide simultan pentru același shipment, influencer
+ * câștigă - comportamentul influencer, preexistent, rămâne
+ * neschimbat în orice ambiguitate.
+ */
+export function resolveShipmentPromoter({
+  shipmentWonByDiscountCode,
+  shipmentEligibleForVendorAttributionByDiscountCode,
+  shipmentEligibleForInfluencerByDiscountCode,
+  discountCodeInfluencerAttribution,
+  discountCodeVendorAttribution,
+  refInfluencerAttribution,
+  refVendorAttribution,
+}) {
+  /*
+   * INFLUENCER prin cod (audit 2026-09-14, aceeași regulă ca own-sale
+   * mai jos) - eligibilitatea codului influencerului NU trebuie să
+   * depindă de câștigarea competiției de preț. Un Product of
+   * Day/Artisan of Week poate oferi un discount egal/mai mare și
+   * câștiga vizual prețul, dar codul influencerului tot a fost
+   * validat și se aplică produsului cumpărat - PRICE WINNER !=
+   * ATTRIBUTION WINNER. Verificat ÎNAINTE de `shipmentWonByDiscountCode`.
+   */
+  if (
+    shipmentEligibleForInfluencerByDiscountCode &&
+    discountCodeInfluencerAttribution
+  ) {
+    return {
+      type: "INFLUENCER",
+      influencer: discountCodeInfluencerAttribution,
+    };
+  }
+
+  if (shipmentWonByDiscountCode && discountCodeInfluencerAttribution) {
+    return {
+      type: "INFLUENCER",
+      influencer: discountCodeInfluencerAttribution,
+    };
+  }
+
+  /*
+   * VENDOR (own-sale SAU referral cross-vendor - audit 2026-09-14,
+   * generalizat 2026-09-15): eligibilitatea codului vendorului NU
+   * trebuie să depindă de câștigarea competiției de preț - un Product
+   * of Day/Artisan of Week poate oferi un discount egal sau mai mare
+   * și câștiga vizual prețul (chooseBestPromotion,
+   * productPromotionPrice.js), dar codul vendorului tot a fost
+   * validat și se aplică produsului cumpărat. La fel, o reducere de
+   * colecție finanțată de VENDOR nu se mai aplică la preț pe produsul
+   * altui vendor (protecție seller, vezi
+   * buildDiscountCodePromotionsByProductId) - fără verificare pe
+   * ELIGIBILITATE aici, referral-ul cross-vendor ar dispărea complet
+   * în acel caz. Decizia own-sale vs referral extern se ia mai
+   * departe, în buildShipmentAttributionFields (compară
+   * promoter.vendor.vendorId cu shipmentVendorId) - NU aici.
+   * Verificat ÎNAINTE de `shipmentWonByDiscountCode` (fallback rămas
+   * pentru orice caz în care eligibilitatea nu a putut fi calculată,
+   * dar itemul tot a câștigat prin cod).
+   */
+  if (
+    shipmentEligibleForVendorAttributionByDiscountCode &&
+    discountCodeVendorAttribution
+  ) {
+    return {
+      type: "VENDOR",
+      vendor: discountCodeVendorAttribution,
+    };
+  }
+
+  if (shipmentWonByDiscountCode && discountCodeVendorAttribution) {
+    return {
+      type: "VENDOR",
+      vendor: discountCodeVendorAttribution,
+    };
+  }
+
+  if (refInfluencerAttribution) {
+    return {
+      type: "INFLUENCER",
+      influencer: refInfluencerAttribution,
+    };
+  }
+
+  if (refVendorAttribution) {
+    return {
+      type: "VENDOR",
+      vendor: refVendorAttribution,
+    };
+  }
+
+  return { type: null };
+}
+
+/*
+ * Traduce promotorul câștigător (resolveShipmentPromoter) în
+ * câmpurile EXACTE de scris pe Shipment la creare.
+ *
+ * Regula own-sale: dacă vendorul promotor === vendorul shipment-ului
+ * (își promovează propriul produs), NU se scrie referrerVendorId
+ * (nu există remunerație de referral separată) - în schimb se
+ * scrie vendorReferralCommissionOverrideBps, citit de
+ * computeVendorEarningForShipment (vendorOrdersRoutes.js) cu
+ * prioritate față de comisionul planului vendorului, exact ca la
+ * campaniile proprii (CAMPAIGN_COMMISSION_BPS).
+ *
+ * Regula referral extern: vendorul promotor !== vendorul
+ * shipment-ului -> se scrie referrerVendorId + snapshot, citit mai
+ * târziu de ensureVendorReferralSaleLedgerEntry (vendorOrdersRoutes.js)
+ * pentru a calcula earningNet din platformNet-ul acelui shipment.
+ *
+ * MARCAJ VENDOR_COLLECTION (audit 2026-09-15, regula finală de
+ * business): own-sale prin cod de scope VENDOR_COLLECTION rămâne
+ * 500bps, identic cu own-sale prin cod personal (VENDOR_ALL_PRODUCTS)
+ * - dar UI-ul trebuie să distingă sursa ("Comision colecție / Vânzare
+ * proprie" vs "Comision promoțional / Vânzare proprie"). Fără câmp
+ * nou în Prisma: refolosim `referrerVendorReferralCodeSnapshot`
+ * (String, mereu null în own-sale până acum, pentru că e populat doar
+ * pe ramura de referral extern - vezi mai jos) ca marcaj simplu
+ * "COLLECTION", citit de computeVendorEarningForShipment
+ * (vendorOrdersRoutes.js) pentru a alege label-ul corect. Sigur:
+ * niciun consumator existent al acestui câmp nu-l citește decât
+ * filtrat pe `referrerVendorId` (vezi vendorReferralEarnings.js),
+ * care rămâne null în own-sale - zero coliziune.
+ */
+export function buildShipmentAttributionFields({
+  promoter,
+  shipmentVendorId,
+  discountCodeScope,
+  discountCodeCollectionSlug,
+}) {
+  const fields = {
+    influencerId: null,
+    influencerReferralCodeSnapshot: null,
+    influencerCommissionBpsSnapshot: null,
+    influencerAttributedAt: null,
+
+    referrerVendorId: null,
+    referrerVendorReferralCodeSnapshot: null,
+    referrerVendorCommissionBpsSnapshot: null,
+    referrerVendorAttributedAt: null,
+
+    vendorReferralCommissionOverrideBps: null,
+    vendorReferralOwnSaleAttributedAt: null,
+  };
+
+  if (promoter?.type === "INFLUENCER" && promoter.influencer) {
+    fields.influencerId = promoter.influencer.influencerId;
+    fields.influencerReferralCodeSnapshot =
+      promoter.influencer.referralCodeSnapshot;
+    fields.influencerCommissionBpsSnapshot =
+      promoter.influencer.commissionBpsSnapshot;
+    fields.influencerAttributedAt = new Date();
+
+    return fields;
+  }
+
+  if (promoter?.type === "VENDOR" && promoter.vendor) {
+    const isOwnSale =
+      String(promoter.vendor.vendorId) === String(shipmentVendorId);
+
+    /*
+     * Marcaj "COLLECTION:<slug>" (audit 2026-09-15, regula finală de
+     * business - persistent attribution) - convenție UNICĂ, valabilă
+     * atât pentru own-sale prin cod de colecție (discountCodeScope),
+     * cât și pentru referral cross-vendor prin token de vizitare a
+     * colecției (promoter.vendor.collectionSlug, vezi
+     * resolveVendorCollectionAttribution). UI-ul (Vendor/Admin) NU
+     * trebuie să afișeze literal acest string - vezi
+     * formatAttributionSourceLabel.
+     */
+    const collectionSlugForMarker =
+      promoter.vendor.collectionSlug ||
+      (discountCodeScope === "VENDOR_COLLECTION"
+        ? discountCodeCollectionSlug
+        : null);
+
+    if (isOwnSale) {
+      fields.vendorReferralCommissionOverrideBps =
+        VENDOR_REFERRAL_OWN_SALE_COMMISSION_BPS;
+      fields.vendorReferralOwnSaleAttributedAt = new Date();
+
+      if (collectionSlugForMarker) {
+        fields.referrerVendorReferralCodeSnapshot =
+          `COLLECTION:${collectionSlugForMarker}`;
+      }
+    } else {
+      fields.referrerVendorId = promoter.vendor.vendorId;
+      fields.referrerVendorReferralCodeSnapshot = collectionSlugForMarker
+        ? `COLLECTION:${collectionSlugForMarker}`
+        : promoter.vendor.referralCodeSnapshot;
+      fields.referrerVendorCommissionBpsSnapshot =
+        promoter.vendor.commissionBpsSnapshot;
+      fields.referrerVendorAttributedAt = new Date();
+    }
+
+    return fields;
+  }
+
+  return fields;
+}
+
+/*
+ * Combină refVendorAttribution (?ref=) cu refCollectionAttribution
+ * (vizitare VendorCollection) într-un SINGUR candidat "referral pasiv"
+ * PER SHIPMENT (audit 2026-09-15, regula finală de business):
+ *
+ * 1. Dacă atribuirea de colecție ar produce own-sale PENTRU ACEST
+ *    shipment (vendorul colecției === vendorul shipment-ului) ȘI
+ *    produsul NU e chiar în colecție (shipmentEligibleByCollectionMembership
+ *    fals), o EXCLUDEM - tokenul de colecție NU poate transforma o
+ *    vânzare proprie DIN AFARA colecției în own-sale promoțional.
+ *    Dacă produsul CHIAR e în colecție, tokenul rămâne valid candidat
+ *    și own-sale-ul se acordă chiar și FĂRĂ cod de reducere introdus
+ *    (simpla vizitare + cumpărare directă) - vezi
+ *    collectionMemberProductIdsForToken mai sus. ?ref= își păstrează
+ *    comportamentul existent, neschimbat (nu e cerut să-l atingem).
+ * 2. Dacă rămân ambele candidate (ref + colecție), câștigă cel mai
+ *    RECENT EMIS (issuedAt/iat al tokenului) - "global last click
+ *    wins", exact regula cerută.
+ *
+ * Prioritatea codului explicit de reducere e deja garantată STRUCTURAL
+ * - această funcție alimentează DOAR fallback-ul refVendorAttribution
+ * din resolveShipmentPromoter, verificat ULTIMUL, după toate branch-urile
+ * bazate pe discountCodeVendorAttribution.
+ */
+export function resolveEffectiveRefVendorAttribution({
+  refVendorAttribution,
+  refCollectionAttribution,
+  shipmentVendorId,
+  shipmentEligibleByCollectionMembership = false,
+}) {
+  const isOwnVendorCollection =
+    refCollectionAttribution &&
+    String(refCollectionAttribution.vendorId) === String(shipmentVendorId);
+
+  const collectionCandidate =
+    refCollectionAttribution &&
+    (!isOwnVendorCollection || shipmentEligibleByCollectionMembership)
+      ? refCollectionAttribution
+      : null;
+
+  if (refVendorAttribution && collectionCandidate) {
+    return (collectionCandidate.issuedAt || 0) >
+      (refVendorAttribution.issuedAt || 0)
+      ? collectionCandidate
+      : refVendorAttribution;
+  }
+
+  return refVendorAttribution || collectionCandidate || null;
+}
 
 function mapCartItemForCheckout(
   it,
@@ -223,6 +567,28 @@ function mapCartItemForCheckout(
 }
 
 const normalizeText = (v = "") => String(v || "").trim();
+function normalizeConfigurationKey(value) {
+  const raw =
+    normalizeText(value);
+
+  if (
+    !raw ||
+    raw === "default"
+  ) {
+    return "default";
+  }
+
+  if (
+    raw.length <= 64
+  ) {
+    return raw;
+  }
+
+  return crypto
+    .createHash("sha256")
+    .update(raw, "utf8")
+    .digest("hex");
+}
 const normalizeDigits = (v = "") => String(v || "").replace(/\D/g, "");
 const normalizeCui = (v = "") =>
   String(v || "")
@@ -607,11 +973,11 @@ async function getGuestCart(
             .repeatedGroupAnswers
         : {};
 
-    const configurationKey =
-      normalizeText(
-        rawItem
-          ?.configurationKey
-      ) || "default";
+   const configurationKey =
+  normalizeConfigurationKey(
+    rawItem
+      ?.configurationKey
+  );
 
     const itemKey =
       `${productId}:${configurationKey}`;
@@ -794,6 +1160,254 @@ function buildCheckoutGroups(
 }
 
 /**
+ * Serializare comună a rezultatului de validare, pentru cele două
+ * rute de preview de mai jos - nu expune niciodată intern
+ * platformFundingBps/vendorFundingBps brute din DB dacă nu sunt
+ * relevante pentru client, doar ce are nevoie UI-ul.
+ */
+function serializeDiscountCodeValidation(validation) {
+  if (!validation?.valid) {
+    return {
+      valid: false,
+      error: validation?.error || "discount_code_invalid",
+      message:
+        validation?.message ||
+        "Codul de reducere nu este valabil.",
+    };
+  }
+
+  /*
+   * Codul rămâne VALID chiar dacă nu câștigă best promotion pe niciun
+   * produs (sau doar pe unele) - doar mesajul explică situația
+   * clientului. Nu transformăm asta într-o eroare.
+   */
+  const message =
+    validation.wonOnAnyItem === false
+      ? "Codul este valid, dar pentru acest produs se aplică automat o promoție mai avantajoasă."
+      : validation.lostToOtherPromotion
+      ? "Codul se aplică parțial - pentru unele produse din coș există deja o promoție mai avantajoasă."
+      : null;
+
+  return {
+    valid: true,
+    error: null,
+    message,
+    code: validation.discountCode.code,
+    discountType: validation.discountCode.discountType,
+    effectiveDiscountPercent: validation.effectiveDiscountPercent,
+    estimatedDiscountAmountCents: validation.estimatedDiscountAmountCents,
+    wonOnAnyItem: validation.wonOnAnyItem !== false,
+    eligibleProductIds: [...validation.eligibleProductIds],
+  };
+}
+
+/**
+ * POST /checkout/discount-code/validate
+ * Preview pentru utilizator autentificat - folosește coșul din DB.
+ */
+router.post(
+  "/checkout/discount-code/validate",
+  authRequired,
+  async (req, res) => {
+    try {
+      const code = String(req.body?.code || "");
+
+      const cart = await prisma.cartItem.findMany({
+        where: { userId: req.user.sub },
+        include: {
+          product: {
+            select: {
+              id: true,
+              priceCents: true,
+              currency: true,
+              service: { select: { id: true, vendorId: true } },
+            },
+          },
+        },
+      });
+
+      if (!cart.length) {
+        return res.status(400).json({
+          error: "cart_empty",
+          message: "Coșul este gol.",
+        });
+      }
+
+      const currency = cart[0]?.product?.currency || "RON";
+
+      let validation = await validateDiscountCode({
+        code,
+        cartItems: cart,
+        currency,
+        userId: req.user.sub,
+        customerEmail: null,
+      });
+
+      /*
+       * Preview complet, identic ca sursă cu /checkout/summary: dacă
+       * codul e valid, îl trecem prin ACEEAȘI best-promotion (Collection
+       * + Homepage se rezolvă intern; Campanie doar dacă frontendul
+       * trimite campaignAttribution, exact ca la summary) - fără asta,
+       * preview-ul din Cart ar putea arăta o valoare pe care codul nu
+       * o câștigă efectiv.
+       */
+      if (validation.valid) {
+        const validateVendorIds = [
+          ...new Set(
+            cart
+              .map((item) => item.product?.service?.vendorId)
+              .filter(Boolean)
+              .map(String)
+          ),
+        ];
+
+        const validateCampaignAttributionsByVendorId =
+          await resolveVendorCampaignAttributions({
+            vendorIds: validateVendorIds,
+            tokensByVendorId: req.body?.campaignAttribution || {},
+          });
+
+        const validateProducts = cart
+          .map((item) => item.product)
+          .filter(Boolean);
+
+        const validateCampaignPromotionsByProductId =
+          buildCampaignPromotionsByProductId(
+            validateProducts,
+            validateCampaignAttributionsByVendorId
+          );
+
+        const validateDiscountCodePromotionsByProductId =
+          buildDiscountCodePromotionsByProductId(validation, {
+            cartItems: cart,
+          });
+
+        const validatePricingByProductId =
+          await getPromotionPricingForProducts(validateProducts, {
+            campaignPromotionsByProductId:
+              validateCampaignPromotionsByProductId,
+            discountCodePromotionsByProductId:
+              validateDiscountCodePromotionsByProductId,
+          });
+
+        validation = realizeDiscountCodeAmount({
+          validation,
+          cartItems: cart,
+          pricingByProductId: validatePricingByProductId,
+        });
+      }
+
+      return res.json(serializeDiscountCodeValidation(validation));
+    } catch (err) {
+      console.error("POST /checkout/discount-code/validate FAILED:", err);
+      return res.status(500).json({
+        error: "discount_code_validate_failed",
+        message: "Nu am putut valida codul de reducere.",
+      });
+    }
+  }
+);
+
+/**
+ * POST /checkout/guest/discount-code/validate
+ * Preview pentru guest - clientul trimite explicit itemele din coș
+ * (identic ca formă cu /checkout/guest/summary).
+ */
+router.post(
+  "/checkout/guest/discount-code/validate",
+  async (req, res) => {
+    try {
+      const code = String(req.body?.code || "");
+      const customerEmail = String(req.body?.customerEmail || "") || null;
+
+      const cart = await getGuestCart(req.body?.items || []);
+
+      if (!cart.length) {
+        return res.status(400).json({
+          error: "cart_empty",
+          message: "Coșul este gol.",
+        });
+      }
+
+      const currency = cart[0]?.product?.currency || "RON";
+
+      let validation = await validateDiscountCode({
+        code,
+        cartItems: cart,
+        currency,
+        userId: null,
+        customerEmail,
+      });
+
+      if (validation.valid) {
+        const validateVendorIds = [
+          ...new Set(
+            cart
+              .map((item) => item.product?.service?.vendorId)
+              .filter(Boolean)
+              .map(String)
+          ),
+        ];
+
+        const validateCampaignAttributionsByVendorId =
+          await resolveVendorCampaignAttributions({
+            vendorIds: validateVendorIds,
+            tokensByVendorId: req.body?.campaignAttribution || {},
+          });
+
+        const validateProducts = cart
+          .map((item) => item.product)
+          .filter(Boolean);
+
+        const validateCampaignPromotionsByProductId =
+          buildCampaignPromotionsByProductId(
+            validateProducts,
+            validateCampaignAttributionsByVendorId
+          );
+
+        const validateDiscountCodePromotionsByProductId =
+          buildDiscountCodePromotionsByProductId(validation, {
+            cartItems: cart,
+          });
+
+        const validatePricingByProductId =
+          await getPromotionPricingForProducts(validateProducts, {
+            campaignPromotionsByProductId:
+              validateCampaignPromotionsByProductId,
+            discountCodePromotionsByProductId:
+              validateDiscountCodePromotionsByProductId,
+          });
+
+        validation = realizeDiscountCodeAmount({
+          validation,
+          cartItems: cart,
+          pricingByProductId: validatePricingByProductId,
+        });
+      }
+
+      return res.json(serializeDiscountCodeValidation(validation));
+    } catch (err) {
+      console.error(
+        "POST /checkout/guest/discount-code/validate FAILED:",
+        err
+      );
+
+      if (err?.message === "product_not_found") {
+        return res.status(404).json({
+          error: "product_not_found",
+          message: "Un produs din coș nu mai există.",
+        });
+      }
+
+      return res.status(500).json({
+        error: "discount_code_validate_failed",
+        message: "Nu am putut valida codul de reducere.",
+      });
+    }
+  }
+);
+
+/**
  * SUMMARY
  */
 router.get(
@@ -904,19 +1518,50 @@ router.get(
           summaryCampaignAttributionsByVendorId
         );
 
+      const currency =
+        items[0]?.product
+          ?.currency ||
+        "RON";
+
+      let summaryDiscountCodeValidation =
+        req.query?.discountCode
+          ? await validateDiscountCode({
+              code: String(req.query.discountCode),
+              cartItems: items,
+              currency,
+              userId: req.user.sub,
+              customerEmail: null,
+            })
+          : null;
+
+      const summaryDiscountCodePromotionsByProductId =
+        buildDiscountCodePromotionsByProductId(
+          summaryDiscountCodeValidation,
+          { cartItems: items }
+        );
+
       const pricingByProductId =
         await getPromotionPricingForProducts(
           products,
           {
             campaignPromotionsByProductId:
               summaryCampaignPromotionsByProductId,
+            discountCodePromotionsByProductId:
+              summaryDiscountCodePromotionsByProductId,
           }
         );
 
-      const currency =
-        items[0]?.product
-          ?.currency ||
-        "RON";
+      /*
+       * Preview-ul codului trebuie să arate DOAR ce câștigă efectiv
+       * după best promotion - nu valoarea lui brută. Re-agregăm din
+       * pricingByProductId, deja calculat mai sus (aceeași sursă,
+       * niciun calculator nou).
+       */
+      summaryDiscountCodeValidation = realizeDiscountCodeAmount({
+        validation: summaryDiscountCodeValidation,
+        cartItems: items,
+        pricingByProductId,
+      });
 
       const mapped =
         items.map(
@@ -1261,6 +1906,11 @@ router.get(
         groups,
         currency,
         subtotal,
+        discountCode: summaryDiscountCodeValidation
+          ? serializeDiscountCodeValidation(
+              summaryDiscountCodeValidation
+            )
+          : null,
       });
     } catch (error) {
       console.error(
@@ -1329,19 +1979,44 @@ router.post(
           guestSummaryCampaignAttributionsByVendorId
         );
 
+      const currency =
+        cart[0]?.product
+          ?.currency ||
+        "RON";
+
+      let guestSummaryDiscountCodeValidation =
+        req.body?.discountCode
+          ? await validateDiscountCode({
+              code: String(req.body.discountCode),
+              cartItems: cart,
+              currency,
+              userId: null,
+              customerEmail: req.body?.customerEmail || null,
+            })
+          : null;
+
+      const guestSummaryDiscountCodePromotionsByProductId =
+        buildDiscountCodePromotionsByProductId(
+          guestSummaryDiscountCodeValidation,
+          { cartItems: cart }
+        );
+
       const pricingByProductId =
         await getPromotionPricingForProducts(
           products,
           {
             campaignPromotionsByProductId:
               guestSummaryCampaignPromotionsByProductId,
+            discountCodePromotionsByProductId:
+              guestSummaryDiscountCodePromotionsByProductId,
           }
         );
 
-      const currency =
-        cart[0]?.product
-          ?.currency ||
-        "RON";
+      guestSummaryDiscountCodeValidation = realizeDiscountCodeAmount({
+        validation: guestSummaryDiscountCodeValidation,
+        cartItems: cart,
+        pricingByProductId,
+      });
 
       const mapped =
         cart.map(
@@ -1727,6 +2402,11 @@ router.post(
         groups,
         currency,
         subtotal,
+        discountCode: guestSummaryDiscountCodeValidation
+          ? serializeDiscountCodeValidation(
+              guestSummaryDiscountCodeValidation
+            )
+          : null,
       });
     } catch (error) {
       console.error(
@@ -1985,6 +2665,10 @@ router.post("/checkout/place", authRequired, async (req, res) => {
       customerType,
       shipToDifferentAddress,
       campaignAttribution,
+      influencerAttribution,
+      vendorReferralAttribution,
+      vendorCollectionAttribution,
+      discountCode,
     } = req.body || {};
 
     const ctRaw = String(customerType || "").toUpperCase();
@@ -2067,6 +2751,121 @@ const campaignAttributionsByVendorId =
     tokensByVendorId: campaignAttribution || {},
   });
 
+/*
+ * Cod de reducere - validat FRESH din DB (fail-CLOSED, spre
+ * deosebire de campanie/influencer prin link, care sunt fail-open:
+ * un cod introdus explicit de client trebuie confirmat sau respins
+ * clar, nu ignorat silențios). Dacă a devenit invalid chiar acum
+ * (expirat/dezactivat/limită atinsă între ultimul summary și place),
+ * oprim comanda aici, cu eroare clară pentru frontend.
+ */
+let discountCodeValidationForPlace = null;
+
+if (discountCode) {
+  discountCodeValidationForPlace = await validateDiscountCode({
+    code: String(discountCode),
+    cartItems: cart,
+    currency,
+    userId: req.user.sub,
+    customerEmail: null,
+  });
+
+  if (!discountCodeValidationForPlace.valid) {
+    return res.status(409).json({
+      error: discountCodeValidationForPlace.error,
+      message: discountCodeValidationForPlace.message,
+      discountCodeInvalid: true,
+    });
+  }
+}
+
+/*
+ * Atribuire influencer - GLOBALĂ pentru toată comanda (nu per
+ * vendor, spre deosebire de campanii), revalidată fresh din DB.
+ * Fail-open: null dacă tokenul lipsește/e invalid/influencerul
+ * nu mai e ACTIVE.
+ *
+ * REGULĂ: dacă există și un cod de reducere valid al unui
+ * influencer care chiar a câștigat reducere pe un produs din
+ * comandă, codul are prioritate față de ?ref= (decizie explicită -
+ * introducerea manuală a codului la checkout e acțiunea cea mai
+ * recentă). Dacă influencerul codului nu mai e eligibil pentru
+ * remunerație (status/comision), NU pierdem reducerea pentru
+ * client - rămânem pe atribuirea ?ref=, dacă există.
+ */
+const refAttributionResolved =
+  await resolveInfluencerAttribution({
+    token: influencerAttribution,
+  });
+
+/*
+ * Atribuire VENDOR prin ?ref= - mirror STRUCTURAL, GLOBALĂ pentru
+ * toată comanda, la fel ca la influencer (nu per-vendor ca la
+ * campanii). Fail-open: null dacă tokenul lipsește/e invalid/
+ * vendorul nu mai e activ sau nu are comision de referral setat.
+ */
+const refVendorAttributionResolved =
+  await resolveVendorReferralAttribution({
+    token: vendorReferralAttribution,
+  });
+
+/*
+ * Atribuire VENDOR prin vizitarea unei VendorCollection (audit
+ * 2026-09-15, regula finală de business - persistent attribution).
+ * Mirror STRUCTURAL, GLOBALĂ pentru toată comanda, la fel ca ?ref=.
+ * Fail-open, revalidat fresh (colecție + vendor-proprietar isActive).
+ */
+const refCollectionAttributionResolved =
+  await resolveVendorCollectionAttribution({
+    token: vendorCollectionAttribution,
+  });
+
+/*
+ * Slug-ul colecției, pentru marcajul "COLLECTION:<slug>" (audit
+ * 2026-09-15) - DOAR când codul de reducere aplicat e chiar de scope
+ * VENDOR_COLLECTION (own-sale/referral prin ELIGIBILITATE reală, nu
+ * prin tokenul de vizitare). O singură interogare, o dată per
+ * comandă, nu per shipment.
+ */
+const discountCodeCollectionSlug =
+  discountCodeValidationForPlace?.discountCode?.scope ===
+    "VENDOR_COLLECTION" &&
+  discountCodeValidationForPlace?.discountCode?.vendorCollectionId
+    ? (
+        await prisma.vendorCollection.findUnique({
+          where: {
+            id: discountCodeValidationForPlace.discountCode
+              .vendorCollectionId,
+          },
+          select: { slug: true },
+        })
+      )?.slug || null
+    : null;
+
+/*
+ * Membership REAL în VendorCollection pentru tokenul de vizitare
+ * (audit 2026-09-15, persistent attribution) - INDEPENDENT de orice
+ * cod de reducere introdus. Fără asta, own-sale prin simpla vizitare
+ * a colecției (fără cod) nu ar putea fi niciodată acordat, pentru că
+ * `shipmentEligibleForVendorAttributionByDiscountCode` cere strict un
+ * discountCodeVendorAttribution real. Folosit STRICT pentru a decide
+ * dacă own-sale-ul din colecție se acordă (produsul trebuie să fie
+ * chiar în colecție) - NU face nimic eligibil la discount de preț.
+ */
+const collectionMemberProductIdsForToken = refCollectionAttributionResolved
+  ? new Set(
+      (
+        await prisma.vendorCollectionItem.findMany({
+          where: {
+            collectionId: refCollectionAttributionResolved.collectionId,
+            productId: { in: cart.map((item) => item.product?.id).filter(Boolean) },
+          },
+          select: { productId: true },
+        })
+      ).map((row) => row.productId)
+    )
+  : new Set();
+
 const cartProducts = cart
   .map((item) => item.product)
   .filter(Boolean);
@@ -2077,11 +2876,72 @@ const campaignPromotionsByProductId =
     campaignAttributionsByVendorId
   );
 
+const discountCodePromotionsByProductId =
+  buildDiscountCodePromotionsByProductId(
+    discountCodeValidationForPlace,
+    { cartItems: cart }
+  );
+
 const pricingByProductId =
   await getPromotionPricingForProducts(
     cartProducts,
-    { campaignPromotionsByProductId }
+    {
+      campaignPromotionsByProductId,
+      discountCodePromotionsByProductId,
+    }
   );
+
+const discountCodeWonOnAnyItem =
+  discountCodeValidationForPlace?.valid &&
+  [...pricingByProductId.values()].some(
+    (p) => p?.discount?.source === "DISCOUNT_CODE"
+  );
+
+/*
+ * Eligibilitate PENTRU ATRIBUIRE PE COD (own-sale vendor ȘI influencer,
+ * audit 2026-09-14) - diferă de `discountCodeWonOnAnyItem` de mai sus:
+ * nu cere ca discountul codului să fi câștigat vizual competiția de
+ * preț (chooseBestPromotion poate alege Product of Day/Artisan of
+ * Week în locul codului dacă oferă un discount egal/mai mare), doar
+ * ca produsul să fie eligibil pentru cod
+ * (discountCodeValidationForPlace.eligibleProductIds, deja intersectat
+ * cu coșul în discountCodeValidation.js). PRICE WINNER != ATTRIBUTION
+ * WINNER. Cross-vendor prin `?ref=` (fallback-urile refInfluencer/
+ * refVendor) rămâne neatins, nu are legătură cu un cod.
+ */
+const discountCodeEligibleOnAnyItem =
+  discountCodeValidationForPlace?.valid &&
+  discountCodeValidationForPlace.eligibleProductIds?.size > 0;
+
+const discountCodeInfluencerAttribution =
+  discountCodeEligibleOnAnyItem &&
+  discountCodeValidationForPlace.discountCode.influencerId
+    ? await resolveInfluencerAttributionByInfluencerId({
+        influencerId:
+          discountCodeValidationForPlace.discountCode.influencerId,
+      })
+    : null;
+
+/*
+ * Mirror pentru cod de reducere de VENDOR - vezi comentariul de
+ * mai sus. discountCode.vendorId e populat DOAR pentru coduri cu
+ * ownerType VENDOR (vendorDiscountCodesRoutes.js) - niciodată în
+ * același timp cu influencerId (vezi discountCodeValidation.js).
+ */
+const discountCodeVendorAttribution =
+  discountCodeEligibleOnAnyItem &&
+  discountCodeValidationForPlace.discountCode.vendorId
+    ? await resolveVendorReferralAttributionByVendorId({
+        vendorId:
+          discountCodeValidationForPlace.discountCode.vendorId,
+      })
+    : null;
+
+/*
+ * Rezolvat aici GLOBAL doar ca variabile disponibile pentru decizia
+ * PER SHIPMENT de mai jos (vezi bucla de creare shipment-uri) -
+ * NU se mai scrie direct, global, pe fiecare shipment.
+ */
 
 const items =
   cart.map(
@@ -2103,6 +2963,40 @@ const groups =
     const quote = await quoteShipping({ groups, selections: selections || {} });
     const shippingTotal = dec(quote.totalShipping);
     const total = dec(subtotal + shippingTotal);
+
+    /*
+     * Consumare token campanie (audit 2026-09-14, lifecycle
+     * VendorCampaign, secțiunea 5/6) - determinăm ÎNAINTE de
+     * tranzacție (aceleași date, `groups`/`quote.shipments`, deja
+     * disponibile aici) care vendori chiar au avut ≥1 produs
+     * eligibil pentru campania lor atribuită în ACEASTĂ comandă.
+     * Frontend-ul (după succes) șterge tokenul DOAR pentru acei
+     * vendori - un token cu 0 produse eligibile NU se consumă,
+     * rămâne valabil până la expirare (poate exista o comandă
+     * viitoare cu alte produse, eligibile).
+     */
+    const eligibleCampaignVendorIds = [];
+
+    for (const s of quote.shipments) {
+      if (!s.vendorId) continue;
+
+      const attribution =
+        campaignAttributionsByVendorId.get(String(s.vendorId)) || null;
+
+      if (!attribution) continue;
+
+      const shipmentItems =
+        groups.find((g) => String(g.serviceId) === String(s.serviceId))
+          ?.items || [];
+
+      const hasEligibleItem = shipmentItems.some((item) =>
+        isProductEligibleForCampaign(item.productId, attribution)
+      );
+
+      if (hasEligibleItem) {
+        eligibleCampaignVendorIds.push(String(s.vendorId));
+      }
+    }
 
     const vendorIds = [
   ...new Set(
@@ -2346,11 +3240,105 @@ for (const item of cart) {
         },
       });
 
+      let discountCodeTotalAmountCents = 0;
+
       for (const s of quote.shipments) {
         if (!s.vendorId) continue;
 
         const shipmentAttribution =
           campaignAttributionsByVendorId.get(String(s.vendorId)) || null;
+
+        const its =
+          groups.find((g) => String(g.serviceId) === String(s.serviceId))
+            ?.items || [];
+
+        /*
+         * Atribuirea prin cod de reducere e PER SHIPMENT, nu globală
+         * pe comandă - un cod eligibil doar pentru produsele unui
+         * vendor nu trebuie să atribuie și shipment-urile altor
+         * vendori din aceeași comandă. Dacă acest shipment nu are
+         * niciun item câștigat prin cod, rămâne pe atribuirea ?ref=
+         * (dacă există), exact ca înainte de cod.
+         */
+        const shipmentWonByDiscountCode = its.some(
+          (item) => item.discountSource === "DISCOUNT_CODE"
+        );
+
+        /*
+         * Atribuire vendor pe ELIGIBILITATE, nu pe câștigarea prețului
+         * (audit 2026-09-14, extins 2026-09-15) - mirror STRUCTURAL al
+         * eligibilității de influencer de mai jos: FĂRĂ verificare de
+         * vendorId aici - acoperă atât own-sale (promoter === vendorul
+         * shipment-ului) cât și referral cross-vendor (promoter !==
+         * vendorul shipment-ului), decizia finală fiind luată în
+         * buildShipmentAttributionFields (compară promoter.vendor.vendorId
+         * cu shipmentVendorId).
+         *
+         * De ce contează asta separat de `shipmentWonByDiscountCode`
+         * (audit 2026-09-15): o reducere de colecție finanțată de
+         * VENDOR nu se mai aplică la PREȚ pe produsul altui vendor
+         * (vezi garda din buildDiscountCodePromotionsByProductId,
+         * discountCodeValidation.js - protejează net-ul sellerului) -
+         * deci acel item NU va avea niciodată discountSource
+         * "DISCOUNT_CODE", iar `shipmentWonByDiscountCode` ar rămâne
+         * mereu fals. FĂRĂ acest flag pe eligibilitate, referral-ul
+         * cross-vendor ar dispărea silențios exact în cazul pe care
+         * vrem să-l păstrăm funcțional (produsul e în colecție, dar
+         * fără discount la preț pentru el).
+         */
+        const shipmentEligibleForVendorAttributionByDiscountCode =
+          Boolean(discountCodeVendorAttribution) &&
+          its.some(
+            (item) =>
+              item.productId &&
+              discountCodeValidationForPlace?.eligibleProductIds?.has(
+                item.productId
+              )
+          );
+
+        /*
+         * Influencer pe ELIGIBILITATE (audit 2026-09-14) - mirror al
+         * own-sale de mai sus, dar fără verificare de vendorId (codul
+         * de influencer nu e legat de un shipmentVendorId anume).
+         */
+        const shipmentEligibleForInfluencerByDiscountCode =
+          Boolean(discountCodeInfluencerAttribution) &&
+          its.some(
+            (item) =>
+              item.productId &&
+              discountCodeValidationForPlace?.eligibleProductIds?.has(
+                item.productId
+              )
+          );
+
+        const shipmentEligibleByCollectionMembership = its.some(
+          (item) =>
+            item.productId &&
+            collectionMemberProductIdsForToken.has(item.productId)
+        );
+
+        const shipmentPromoter = resolveShipmentPromoter({
+          shipmentWonByDiscountCode,
+          shipmentEligibleForVendorAttributionByDiscountCode,
+          shipmentEligibleForInfluencerByDiscountCode,
+          discountCodeInfluencerAttribution,
+          discountCodeVendorAttribution,
+          refInfluencerAttribution: refAttributionResolved,
+          refVendorAttribution: resolveEffectiveRefVendorAttribution({
+            refVendorAttribution: refVendorAttributionResolved,
+            refCollectionAttribution: refCollectionAttributionResolved,
+            shipmentVendorId: s.vendorId,
+            shipmentEligibleByCollectionMembership,
+          }),
+        });
+
+        const shipmentAttributionFields = buildShipmentAttributionFields({
+          promoter: shipmentPromoter,
+          shipmentVendorId: s.vendorId,
+          discountCodeScope:
+            discountCodeValidationForPlace?.discountCode?.scope || null,
+          discountCodeCollectionSlug,
+        });
 
         const sh = await tx.shipment.create({
           data: {
@@ -2370,12 +3358,10 @@ for (const item of cart) {
               ? shipmentAttribution.discountPercent
               : null,
             campaignAttributedAt: shipmentAttribution ? new Date() : null,
+
+            ...shipmentAttributionFields,
           },
         });
-
-        const its =
-          groups.find((g) => String(g.serviceId) === String(s.serviceId))
-            ?.items || [];
 
       if (its.length) {
   await tx.shipmentItem.createMany({
@@ -2513,10 +3499,78 @@ configurationKey:
         discountSource:
           item.discountSource ||
           null,
+
+        discountCodeId:
+          item.discountSource === "DISCOUNT_CODE"
+            ? item.discount?.discountCodeId || null
+            : null,
+
+        discountCodeText:
+          item.discountSource === "DISCOUNT_CODE"
+            ? item.discount?.discountCodeText || null
+            : null,
+
+        discountCodePercent:
+          item.discountSource === "DISCOUNT_CODE"
+            ? Number(item.totalDiscountPercent || 0)
+            : null,
+
+        discountCodeAmount:
+          item.discountSource === "DISCOUNT_CODE"
+            ? totalDiscountAmount
+            : null,
+
+        discountCodeFundingSource:
+          item.discountSource === "DISCOUNT_CODE"
+            ? item.discount?.discountCodeFundingSource || null
+            : null,
       };
     }),
   });
+
+  if (discountCodeValidationForPlace?.valid) {
+    const shipmentDiscountCodeAmount = dec(
+      its
+        .filter(
+          (item) => item.discountSource === "DISCOUNT_CODE"
+        )
+        .reduce(
+          (sum, item) =>
+            sum +
+            (Number(item.originalPrice ?? item.price ?? 0) -
+              Number(item.price || 0)) *
+              Math.max(1, Number(item.qty || 1)),
+          0
+        )
+    );
+
+    discountCodeTotalAmountCents += Math.round(
+      shipmentDiscountCodeAmount * 100
+    );
+  }
 }
+      }
+
+      /*
+       * Un cod VALID care nu a câștigat best promotion pe niciun
+       * produs nu trebuie considerat "folosit" - nu consumă
+       * usedCount/usageLimitPerUser și nu lasă un
+       * DiscountCodeRedemption în urmă. discountCodeWonOnAnyItem e
+       * deja calculat mai sus, din același pricingByProductId care
+       * a decis discountSource pe fiecare ShipmentItem.
+       */
+      if (discountCodeValidationForPlace?.valid && discountCodeWonOnAnyItem) {
+        await redeemDiscountCode({
+          db: tx,
+          discountCodeId: discountCodeValidationForPlace.discountCode.id,
+          usageLimit: discountCodeValidationForPlace.discountCode.usageLimit,
+          usageLimitPerUser:
+            discountCodeValidationForPlace.discountCode.usageLimitPerUser,
+          orderId: order.id,
+          userId: req.user.sub,
+          customerEmail: null,
+          discountAmountCents: discountCodeTotalAmountCents,
+        });
       }
 
       await tx.cartItem.deleteMany({ where: { userId: req.user.sub } });
@@ -2534,10 +3588,14 @@ configurationKey:
       console.error("Nu am putut trimite notificările pentru produse epuizate:", err);
     }
 
+    let shipmentsForNotifications = [];
+
     try {
       const shipments = await prisma.shipment.findMany({
         where: { orderId: created.id },
       });
+
+      shipmentsForNotifications = shipments;
 
       const addr = created.shippingAddress || {};
       const customerName =
@@ -2591,6 +3649,10 @@ if (
       console.error("Nu am putut crea notificările pentru vendor:", err);
     }
 
+    await notifyInfluencersWithIncompletePayoutProfile(
+      shipmentsForNotifications
+    );
+
     try {
       await sendOrderConfirmationEmail({
         to: shippingAddressForOrder.email,
@@ -2611,6 +3673,7 @@ if (
     subtotal: Number(created.subtotal),
     shippingTotal: Number(created.shippingTotal),
     currency: created.currency || "RON",
+    eligibleCampaignVendorIds,
   });
 }
 
@@ -2626,6 +3689,7 @@ if (
   shippingTotal: Number(created.shippingTotal),
   currency: created.currency || "RON",
   payment,
+  eligibleCampaignVendorIds,
 });
     } catch (err) {
       console.error("Eroare la inițierea plății pentru comandă:", err);
@@ -2694,6 +3758,10 @@ router.post("/checkout/guest/place", async (req, res) => {
       shipToDifferentAddress,
       consents,
       campaignAttribution,
+      influencerAttribution,
+      vendorReferralAttribution,
+      vendorCollectionAttribution,
+      discountCode,
     } = req.body || {};
 
     const ctRaw = String(customerType || "").toUpperCase();
@@ -2764,6 +3832,99 @@ const campaignAttributionsByVendorId =
     tokensByVendorId: campaignAttribution || {},
   });
 
+/*
+ * Cod de reducere - identic fail-CLOSED ca la /checkout/place
+ * (autentificat). Email-ul guestului e recalculat aici (identic
+ * cu blocul de mai jos care construiește customerEmail pentru
+ * comandă) - avem nevoie de el deja aici pentru usageLimitPerUser.
+ */
+const discountCodeCustomerEmail =
+  ct === "PJ"
+    ? normalizedContactPerson?.email
+    : normalizedAddress?.email;
+
+let discountCodeValidationForPlace = null;
+
+if (discountCode) {
+  discountCodeValidationForPlace = await validateDiscountCode({
+    code: String(discountCode),
+    cartItems: cart,
+    currency,
+    userId: null,
+    customerEmail: discountCodeCustomerEmail || null,
+  });
+
+  if (!discountCodeValidationForPlace.valid) {
+    return res.status(409).json({
+      error: discountCodeValidationForPlace.error,
+      message: discountCodeValidationForPlace.message,
+      discountCodeInvalid: true,
+    });
+  }
+}
+
+/*
+ * Atribuire influencer - identică ca regulă cu /checkout/place:
+ * cod de reducere al unui influencer, dacă a câștigat efectiv
+ * reducere pe un produs din comandă, are prioritate față de ?ref=.
+ */
+const refAttributionResolved =
+  await resolveInfluencerAttribution({
+    token: influencerAttribution,
+  });
+
+const refVendorAttributionResolved =
+  await resolveVendorReferralAttribution({
+    token: vendorReferralAttribution,
+  });
+
+/*
+ * Atribuire VENDOR prin vizitarea unei VendorCollection (audit
+ * 2026-09-15) - mirror identic cu /checkout/place.
+ */
+const refCollectionAttributionResolved =
+  await resolveVendorCollectionAttribution({
+    token: vendorCollectionAttribution,
+  });
+
+/*
+ * Slug-ul colecției (audit 2026-09-15) - mirror identic cu
+ * /checkout/place.
+ */
+const discountCodeCollectionSlug =
+  discountCodeValidationForPlace?.discountCode?.scope ===
+    "VENDOR_COLLECTION" &&
+  discountCodeValidationForPlace?.discountCode?.vendorCollectionId
+    ? (
+        await prisma.vendorCollection.findUnique({
+          where: {
+            id: discountCodeValidationForPlace.discountCode
+              .vendorCollectionId,
+          },
+          select: { slug: true },
+        })
+      )?.slug || null
+    : null;
+
+/*
+ * Membership REAL în VendorCollection pentru tokenul de vizitare
+ * (audit 2026-09-15) - mirror identic cu /checkout/place, vezi
+ * comentariul de acolo.
+ */
+const collectionMemberProductIdsForToken = refCollectionAttributionResolved
+  ? new Set(
+      (
+        await prisma.vendorCollectionItem.findMany({
+          where: {
+            collectionId: refCollectionAttributionResolved.collectionId,
+            productId: { in: cart.map((item) => item.product?.id).filter(Boolean) },
+          },
+          select: { productId: true },
+        })
+      ).map((row) => row.productId)
+    )
+  : new Set();
+
 const guestCartProducts = cart
   .map((item) => item.product)
   .filter(Boolean);
@@ -2774,11 +3935,61 @@ const campaignPromotionsByProductId =
     campaignAttributionsByVendorId
   );
 
+const discountCodePromotionsByProductId =
+  buildDiscountCodePromotionsByProductId(
+    discountCodeValidationForPlace,
+    { cartItems: cart }
+  );
+
   const pricingByProductId =
   await getPromotionPricingForProducts(
     guestCartProducts,
-    { campaignPromotionsByProductId }
+    {
+      campaignPromotionsByProductId,
+      discountCodePromotionsByProductId,
+    }
   );
+
+const discountCodeWonOnAnyItem =
+  discountCodeValidationForPlace?.valid &&
+  [...pricingByProductId.values()].some(
+    (p) => p?.discount?.source === "DISCOUNT_CODE"
+  );
+
+/*
+ * Eligibilitate PENTRU ATRIBUIRE PE COD (own-sale vendor ȘI influencer,
+ * audit 2026-09-14) - mirror identic cu /checkout/place (vezi
+ * comentariul acolo). Nu cere ca discountul codului să fi câștigat
+ * vizual competiția de preț, doar ca produsul să fie eligibil pentru
+ * cod. PRICE WINNER != ATTRIBUTION WINNER.
+ */
+const discountCodeEligibleOnAnyItem =
+  discountCodeValidationForPlace?.valid &&
+  discountCodeValidationForPlace.eligibleProductIds?.size > 0;
+
+const discountCodeInfluencerAttribution =
+  discountCodeEligibleOnAnyItem &&
+  discountCodeValidationForPlace.discountCode.influencerId
+    ? await resolveInfluencerAttributionByInfluencerId({
+        influencerId:
+          discountCodeValidationForPlace.discountCode.influencerId,
+      })
+    : null;
+
+const discountCodeVendorAttribution =
+  discountCodeEligibleOnAnyItem &&
+  discountCodeValidationForPlace.discountCode.vendorId
+    ? await resolveVendorReferralAttributionByVendorId({
+        vendorId:
+          discountCodeValidationForPlace.discountCode.vendorId,
+      })
+    : null;
+
+/*
+ * Rezolvat aici GLOBAL doar ca variabile disponibile pentru decizia
+ * PER SHIPMENT de mai jos (vezi bucla de creare shipment-uri) -
+ * NU se mai scrie direct, global, pe fiecare shipment.
+ */
 
 const checkoutItems =
   cart.map(
@@ -2816,6 +4027,34 @@ const groups =
 
     const shippingTotal = dec(quote.totalShipping);
     const total = dec(subtotal + shippingTotal);
+
+    /*
+     * Consumare token campanie (audit 2026-09-14, lifecycle
+     * VendorCampaign, secțiunea 5/6/9 - identic user/guest) - vezi
+     * comentariul din handler-ul autentificat pentru detalii.
+     */
+    const eligibleCampaignVendorIds = [];
+
+    for (const s of quote.shipments) {
+      if (!s.vendorId) continue;
+
+      const attribution =
+        campaignAttributionsByVendorId.get(String(s.vendorId)) || null;
+
+      if (!attribution) continue;
+
+      const shipmentItems =
+        groups.find((g) => String(g.serviceId) === String(s.serviceId))
+          ?.items || [];
+
+      const hasEligibleItem = shipmentItems.some((item) =>
+        isProductEligibleForCampaign(item.productId, attribution)
+      );
+
+      if (hasEligibleItem) {
+        eligibleCampaignVendorIds.push(String(s.vendorId));
+      }
+    }
 
     const vendorIds = [
       ...new Set(
@@ -3136,6 +4375,8 @@ const storeAddresses = {};
          * Creăm shipment-urile și itemii,
          * păstrând configurațiile.
          */
+        let discountCodeTotalAmountCents = 0;
+
         for (const shipmentQuote of quote.shipments) {
           if (!shipmentQuote.vendorId) {
             continue;
@@ -3145,6 +4386,83 @@ const storeAddresses = {};
             campaignAttributionsByVendorId.get(
               String(shipmentQuote.vendorId)
             ) || null;
+
+          const shipmentItems =
+            groups.find(
+              (group) =>
+                String(group.serviceId) ===
+                String(shipmentQuote.serviceId)
+            )?.items || [];
+
+          /*
+           * Atribuirea prin cod de reducere e PER SHIPMENT, nu
+           * globală pe comandă - identic ca regulă cu /checkout/place
+           * (autentificat). Dacă acest shipment nu are niciun item
+           * câștigat prin cod, rămâne pe atribuirea ?ref= (dacă
+           * există).
+           */
+          const shipmentWonByDiscountCode = shipmentItems.some(
+            (item) => item.discountSource === "DISCOUNT_CODE"
+          );
+
+          /*
+           * Atribuire vendor pe ELIGIBILITATE (own-sale SAU referral
+           * cross-vendor) - mirror identic cu /checkout/place, vezi
+           * comentariul de acolo (audit 2026-09-14, generalizat
+           * 2026-09-15).
+           */
+          const shipmentEligibleForVendorAttributionByDiscountCode =
+            Boolean(discountCodeVendorAttribution) &&
+            shipmentItems.some(
+              (item) =>
+                item.productId &&
+                discountCodeValidationForPlace?.eligibleProductIds?.has(
+                  item.productId
+                )
+            );
+
+          /*
+           * Influencer pe ELIGIBILITATE (audit 2026-09-14) - mirror
+           * identic cu /checkout/place.
+           */
+          const shipmentEligibleForInfluencerByDiscountCode =
+            Boolean(discountCodeInfluencerAttribution) &&
+            shipmentItems.some(
+              (item) =>
+                item.productId &&
+                discountCodeValidationForPlace?.eligibleProductIds?.has(
+                  item.productId
+                )
+            );
+
+          const shipmentEligibleByCollectionMembership = shipmentItems.some(
+            (item) =>
+              item.productId &&
+              collectionMemberProductIdsForToken.has(item.productId)
+          );
+
+          const shipmentPromoter = resolveShipmentPromoter({
+            shipmentWonByDiscountCode,
+            shipmentEligibleForVendorAttributionByDiscountCode,
+            shipmentEligibleForInfluencerByDiscountCode,
+            discountCodeInfluencerAttribution,
+            discountCodeVendorAttribution,
+            refInfluencerAttribution: refAttributionResolved,
+            refVendorAttribution: resolveEffectiveRefVendorAttribution({
+              refVendorAttribution: refVendorAttributionResolved,
+              refCollectionAttribution: refCollectionAttributionResolved,
+              shipmentVendorId: shipmentQuote.vendorId,
+              shipmentEligibleByCollectionMembership,
+            }),
+          });
+
+          const shipmentAttributionFields = buildShipmentAttributionFields({
+            promoter: shipmentPromoter,
+            shipmentVendorId: shipmentQuote.vendorId,
+            discountCodeScope:
+              discountCodeValidationForPlace?.discountCode?.scope || null,
+            discountCodeCollectionSlug,
+          });
 
           const shipment = await tx.shipment.create({
             data: {
@@ -3179,15 +4497,10 @@ const storeAddresses = {};
               campaignAttributedAt: guestShipmentAttribution
                 ? new Date()
                 : null,
+
+              ...shipmentAttributionFields,
             },
           });
-
-          const shipmentItems =
-            groups.find(
-              (group) =>
-                String(group.serviceId) ===
-                String(shipmentQuote.serviceId)
-            )?.items || [];
 
           if (shipmentItems.length) {
   await tx.shipmentItem.createMany({
@@ -3326,10 +4639,81 @@ configurationKey:
         discountSource:
           item.discountSource ||
           null,
+
+        discountCodeId:
+          item.discountSource === "DISCOUNT_CODE"
+            ? item.discount?.discountCodeId || null
+            : null,
+
+        discountCodeText:
+          item.discountSource === "DISCOUNT_CODE"
+            ? item.discount?.discountCodeText || null
+            : null,
+
+        discountCodePercent:
+          item.discountSource === "DISCOUNT_CODE"
+            ? Number(item.totalDiscountPercent || 0)
+            : null,
+
+        discountCodeAmount:
+          item.discountSource === "DISCOUNT_CODE"
+            ? totalDiscountAmount
+            : null,
+
+        discountCodeFundingSource:
+          item.discountSource === "DISCOUNT_CODE"
+            ? item.discount?.discountCodeFundingSource || null
+            : null,
       };
     }),
   });
+
+  if (discountCodeValidationForPlace?.valid) {
+    const shipmentDiscountCodeAmount = dec(
+      shipmentItems
+        .filter(
+          (item) => item.discountSource === "DISCOUNT_CODE"
+        )
+        .reduce(
+          (sum, item) =>
+            sum +
+            (Number(item.originalPrice ?? item.price ?? 0) -
+              Number(item.price || 0)) *
+              Math.max(1, Number(item.qty || 1)),
+          0
+        )
+    );
+
+    discountCodeTotalAmountCents += Math.round(
+      shipmentDiscountCodeAmount * 100
+    );
+  }
 }
+        }
+
+        /*
+         * Identic ca la /checkout/place: un cod valid care nu a
+         * câștigat best promotion pe niciun produs nu consumă
+         * usedCount/usageLimitPerUser.
+         */
+        if (
+          discountCodeValidationForPlace?.valid &&
+          discountCodeWonOnAnyItem
+        ) {
+          await redeemDiscountCode({
+            db: tx,
+            discountCodeId:
+              discountCodeValidationForPlace.discountCode.id,
+            usageLimit:
+              discountCodeValidationForPlace.discountCode.usageLimit,
+            usageLimitPerUser:
+              discountCodeValidationForPlace.discountCode
+                .usageLimitPerUser,
+            orderId: order.id,
+            userId: null,
+            customerEmail: customerEmail || null,
+            discountAmountCents: discountCodeTotalAmountCents,
+          });
         }
 
         return order;
@@ -3352,6 +4736,8 @@ configurationKey:
       );
     }
 
+    let guestShipmentsForNotifications = [];
+
     try {
       const shipments =
         await prisma.shipment.findMany({
@@ -3359,6 +4745,8 @@ configurationKey:
             orderId: created.id,
           },
         });
+
+      guestShipmentsForNotifications = shipments;
 
       await Promise.all(
         shipments.map(async (shipment) => {
@@ -3437,6 +4825,10 @@ configurationKey:
         err
       );
     }
+
+    await notifyInfluencersWithIncompletePayoutProfile(
+      guestShipmentsForNotifications
+    );
 
   try {
   const frontendUrl = (
@@ -3544,6 +4936,8 @@ if (pm === "COD") {
     currency:
       created.currency ||
       "RON",
+
+    eligibleCampaignVendorIds,
   });
 }
 
@@ -3591,6 +4985,8 @@ try {
       "RON",
 
     payment,
+
+    eligibleCampaignVendorIds,
   });
 } catch (paymentError) {
   console.error(

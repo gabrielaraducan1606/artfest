@@ -380,6 +380,134 @@ async function buildHomepageFeatureInsight(vendorId) {
   };
 }
 
+/* ======================================================
+   BATCH B (audit regression Vendor Assistant, 2026-09-07) -
+   "sănătatea" listării de produs. Reutilizează EXACT câmpurile reale
+   din Product (Prisma) - isActive/isHidden (implicit true/false,
+   deci o schimbare deliberată a vendorului, nu o stare tranzitorie),
+   description, images, category. NU introducem un scor compus -
+   fiecare condiție e simplă, verificabilă direct, documentată aici.
+
+   DELIBERAT NU am creat un insight pentru leadTimeDays/availability
+   generic - un `leadTimeDays` null nu are o interpretare de "problemă"
+   clară în schema (poate însemna pur și simplu "gata de livrare
+   imediată", nu "lipsă informație") - ar fi o presupunere, nu un
+   fapt verificabil, exact ce evită acest fișier prin design (vezi
+   comentariul din header).
+====================================================== */
+async function buildProductHiddenOrInactiveInsight(vendorId) {
+  const items = await prisma.product.findMany({
+    where: {
+      service: { vendorId },
+      OR: [{ isActive: false }, { isHidden: true }],
+    },
+
+    select: { id: true, title: true },
+    take: 50,
+  });
+
+  if (!items.length) return null;
+
+  const single = items.length === 1;
+
+  return {
+    id: "product-hidden-or-inactive",
+    type: "PRODUCT_HIDDEN_OR_INACTIVE",
+    severity: "INFO",
+    domain: "products",
+
+    title: "Produse ascunse sau dezactivate",
+
+    message: single
+      ? `„${items[0].title}” este ascuns sau dezactivat - nu apare în magazin pentru clienți.`
+      : `${items.length} produse sunt ascunse sau dezactivate - nu apar în magazin pentru clienți.`,
+
+    entityType: single ? "PRODUCT" : null,
+    entityId: single ? items[0].id : null,
+
+    /*
+     * Nu presupunem că vendorul vrea să le reactiveze - poate fi
+     * intenționat (produs sezonier, scos temporar).
+     */
+    suggestedAction: null,
+    actionParams: null,
+  };
+}
+
+/*
+ * "Listare incompletă" - praguri simple, documentate explicit (nu
+ * un scor ascuns): fără descriere sau descriere sub 20 caractere
+ * (prea scurtă ca să fie utilă cuiva), sub 2 imagini, sau fără
+ * categorie. Verificăm DOAR produsele active și vizibile - un produs
+ * deja ascuns nu mai are nevoie și de acest semnal (e deja acoperit
+ * de PRODUCT_HIDDEN_OR_INACTIVE).
+ */
+const MIN_DESCRIPTION_LENGTH = 20;
+const MIN_IMAGES_COUNT = 2;
+
+function describeIncompleteReasons(p) {
+  const reasons = [];
+
+  if (!p.description || p.description.trim().length < MIN_DESCRIPTION_LENGTH) {
+    reasons.push("fără descriere sau descriere prea scurtă");
+  }
+  if (!Array.isArray(p.images) || p.images.length < MIN_IMAGES_COUNT) {
+    reasons.push("mai puțin de 2 imagini");
+  }
+  if (!p.category) {
+    reasons.push("fără categorie");
+  }
+
+  return reasons;
+}
+
+async function buildProductIncompleteListingInsight(vendorId) {
+  const candidates = await prisma.product.findMany({
+    where: {
+      service: { vendorId },
+      isActive: true,
+      isHidden: false,
+    },
+
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      images: true,
+      category: true,
+    },
+
+    take: 500,
+  });
+
+  const items = candidates
+    .map((p) => ({ ...p, reasons: describeIncompleteReasons(p) }))
+    .filter((p) => p.reasons.length > 0);
+
+  if (!items.length) return null;
+
+  const single = items.length === 1;
+
+  return {
+    id: "product-incomplete-listing",
+    type: "PRODUCT_INCOMPLETE_LISTING",
+    severity: "INFO",
+    domain: "products",
+
+    title: "Produse cu listare incompletă",
+
+    message: single
+      ? `„${items[0].title}” are o listare incompletă (${items[0].reasons.join(", ")}) - o listare completă atrage mai mulți clienți.`
+      : `${items.length} produse au listarea incompletă (fără descriere suficientă, prea puține imagini sau fără categorie) - o listare completă atrage mai mulți clienți.`,
+
+    entityType: single ? "PRODUCT" : null,
+    entityId: single ? items[0].id : null,
+
+    suggestedAction: null,
+    actionParams: null,
+  };
+}
+
 /*
  * Detaliul din spatele unui insight (secțiunea "arată-mi produsele"
  * din cerință) - reutilizează EXACT aceleași filtre/interogări ca
@@ -434,6 +562,32 @@ export async function getInsightItemsList(vendorId, type) {
       });
 
       return items.map((p) => ({ id: p.id, title: p.title }));
+    }
+
+    case "PRODUCT_HIDDEN_OR_INACTIVE": {
+      const items = await prisma.product.findMany({
+        where: {
+          service: { vendorId },
+          OR: [{ isActive: false }, { isHidden: true }],
+        },
+        select: { id: true, title: true },
+        take: 15,
+      });
+
+      return items.map((p) => ({ id: p.id, title: p.title }));
+    }
+
+    case "PRODUCT_INCOMPLETE_LISTING": {
+      const candidates = await prisma.product.findMany({
+        where: { service: { vendorId }, isActive: true, isHidden: false },
+        select: { id: true, title: true, description: true, images: true, category: true },
+        take: 500,
+      });
+
+      return candidates
+        .filter((p) => describeIncompleteReasons(p).length > 0)
+        .slice(0, 15)
+        .map((p) => ({ id: p.id, title: p.title }));
     }
 
     case "ORDER_NEEDS_ACTION": {
@@ -520,12 +674,16 @@ export async function getVendorInsights(vendorId) {
   const [
     costingInsights,
     stockInsight,
+    hiddenOrInactiveInsight,
+    incompleteListingInsight,
     ordersInsight,
     quoteInsights,
     homepageFeatureInsight,
   ] = await Promise.all([
     buildCostingInsights(vendorId),
     buildStockInsight(vendorId),
+    buildProductHiddenOrInactiveInsight(vendorId),
+    buildProductIncompleteListingInsight(vendorId),
     buildOrdersInsight(vendorId),
     buildQuoteInsights(vendorId),
     buildHomepageFeatureInsight(vendorId),
@@ -534,6 +692,8 @@ export async function getVendorInsights(vendorId) {
   const all = [
     ...costingInsights,
     stockInsight,
+    hiddenOrInactiveInsight,
+    incompleteListingInsight,
     ordersInsight,
     ...quoteInsights,
     homepageFeatureInsight,

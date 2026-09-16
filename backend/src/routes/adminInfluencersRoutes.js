@@ -17,13 +17,60 @@ import {
   sendInfluencerInviteEmail,
 } from "../lib/mailer.js";
 
+import {
+  getInfluencerConfirmedTotals,
+} from "../services/influencerEarnings.js";
+
+import {
+  getSignedDownloadUrl,
+} from "../services/r2Storage.js";
+
 const router = Router();
+
+const {
+  R2_ACCOUNT_ID,
+  R2_BUCKET_NAME,
+  R2_PUBLIC_BASE_URL,
+} = process.env;
+
+/*
+ * Identic ca logică cu keyFromPublicUrl din influencerFilesRoutes.js -
+ * extrage cheia R2 dintr-un URL public existent, fără să atingă
+ * fișierul.
+ */
+function keyFromPublicUrl(url) {
+  const base = R2_PUBLIC_BASE_URL
+    ? R2_PUBLIC_BASE_URL.replace(/\/+$/, "")
+    : `https://${R2_BUCKET_NAME}.${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+
+  if (!url || !url.startsWith(`${base}/`)) return null;
+
+  return url.slice(base.length + 1);
+}
 
 const APP_URL = (
   process.env.APP_URL ||
   process.env.FRONTEND_URL ||
   "https://artfest.ro"
 ).replace(/\/+$/, "");
+
+/* =========================================================
+   CONSTANTE REMUNERAȚIE
+========================================================= */
+
+const INFLUENCER_COMMISSION_TERMS_VERSION =
+  "1.0";
+
+const MIN_INFLUENCER_COMMISSION_BPS =
+  1;
+
+/**
+ * 10000 BPS = 100% din comisionul Artfest.
+ *
+ * Nu înseamnă 100% din valoarea comenzii.
+ */
+const MAX_INFLUENCER_COMMISSION_BPS =
+  10000;
 
 /* =========================================================
    ADMIN GUARD
@@ -39,14 +86,16 @@ function adminOnly(
       .status(401)
       .json({
         ok: false,
-        error: "unauthorized",
+        error:
+          "unauthorized",
       });
   }
 
   prisma.user
     .findUnique({
       where: {
-        id: req.user.sub,
+        id:
+          req.user.sub,
       },
 
       select: {
@@ -61,7 +110,8 @@ function adminOnly(
           .status(401)
           .json({
             ok: false,
-            error: "user_not_found",
+            error:
+              "user_not_found",
           });
       }
 
@@ -73,7 +123,8 @@ function adminOnly(
           .status(403)
           .json({
             ok: false,
-            error: "forbidden",
+            error:
+              "forbidden",
           });
       }
 
@@ -92,35 +143,137 @@ function adminOnly(
         .status(500)
         .json({
           ok: false,
-          error: "admin_check_failed",
+          error:
+            "admin_check_failed",
         });
     });
 }
 
 /* =========================================================
-   VALIDATION
-
-   Adminul completează doar:
-   - nume
-   - email
-
-   Referral code-ul este intern și se generează automat.
+   VALIDATION - INVITAȚIE
 ========================================================= */
 
-const InvitePayloadSchema =
-  z.object({
+/*
+ * Standardizare Prenume/Nume (2026-09-11): modalul „Invită influencer”
+ * trimite acum firstName/lastName. InfluencerInvite NU are coloane
+ * separate în schema (doar `name`, legacy) - NU modificăm Prisma aici,
+ * doar construim `name = firstName + " " + lastName` la salvare (vezi
+ * raportul de standardizare). Acceptăm și shape-ul legacy `{ name }`
+ * pentru compatibilitate cu apeluri existente (ex. resendInvite din
+ * frontend, care retrimite cu `{ name: item.name, email }` neschimbat).
+ */
+const InvitePayloadSchema = z
+  .object({
+    firstName: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .optional(),
+
+    lastName: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .optional(),
+
     name: z
       .string()
       .trim()
       .min(1)
-      .max(160),
+      .max(160)
+      .optional(),
 
     email: z
       .string()
       .trim()
       .email()
       .max(320),
-  });
+  })
+  .refine(
+    (data) =>
+      Boolean(data.name?.trim()) ||
+      Boolean(
+        data.firstName?.trim() &&
+          data.lastName?.trim()
+      ),
+    {
+      message:
+        "Completează prenumele și numele (sau numele complet).",
+    }
+  );
+
+/*
+ * Split best-effort al `name`-ului legacy - folosit DOAR pentru
+ * salutul din emailul de invitație atunci când nu avem firstName
+ * explicit (retrimitere/editare unei invitații vechi care are doar
+ * `name`). Nu modifică nimic în baza de date.
+ */
+function deriveFirstName(fullName) {
+  const trimmed = String(fullName || "").trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed.split(/\s+/)[0] || "";
+}
+
+/* =========================================================
+   VALIDATION - REMUNERAȚIE
+
+   Frontendul poate trimite:
+
+   {
+     commissionPercent: 20
+   }
+
+   sau:
+
+   {
+     commissionBps: 2000
+   }
+
+   Recomand frontend:
+   commissionPercent: 20
+========================================================= */
+
+const CommissionAgreementPayloadSchema =
+  z
+    .object({
+      commissionPercent:
+        z
+          .coerce
+          .number()
+          .positive()
+          .max(100)
+          .optional(),
+
+      commissionBps:
+        z
+          .coerce
+          .number()
+          .int()
+          .min(
+            MIN_INFLUENCER_COMMISSION_BPS
+          )
+          .max(
+            MAX_INFLUENCER_COMMISSION_BPS
+          )
+          .optional(),
+    })
+    .refine(
+      (data) =>
+        data.commissionPercent !==
+          undefined ||
+        data.commissionBps !==
+          undefined,
+      {
+        message:
+          "commissionPercent sau commissionBps este obligatoriu.",
+      }
+    );
 
 /* =========================================================
    HELPERS
@@ -202,13 +355,123 @@ function buildInviteUrl(
 }
 
 /* =========================================================
+   COMMISSION HELPERS
+========================================================= */
+
+function bpsToPercent(
+  value
+) {
+  const bps =
+    Number(
+      value || 0
+    );
+
+  return Number(
+    (
+      bps /
+      100
+    ).toFixed(2)
+  );
+}
+
+function percentToBps(
+  value
+) {
+  const percent =
+    Number(value);
+
+  return Math.round(
+    percent *
+      100
+  );
+}
+
+function resolveCommissionBps(
+  payload
+) {
+  if (
+    payload.commissionBps !==
+    undefined
+  ) {
+    return Number(
+      payload.commissionBps
+    );
+  }
+
+  return percentToBps(
+    payload.commissionPercent
+  );
+}
+
+function buildCommissionAgreementText({
+  commissionBps,
+}) {
+  const percent =
+    bpsToPercent(
+      commissionBps
+    );
+
+  return [
+    `Artfest îți propune o remunerație de ${percent}% din comisionul Artfest`,
+    "aferent comenzilor eligibile atribuite colaborării tale.",
+    "",
+    "Remunerația nu reprezintă un procent din valoarea totală a comenzii.",
+    "Ea se calculează exclusiv din comisionul Artfest rezultat pentru vânzările eligibile.",
+    "",
+    "Noua remunerație devine activă numai după acceptarea ta.",
+  ].join(" ");
+}
+
+function serializeCommissionAgreement(
+  agreement
+) {
+  if (!agreement) {
+    return null;
+  }
+
+  return {
+    id:
+      agreement.id,
+
+    commissionBps:
+      agreement.commissionBps,
+
+    commissionPercent:
+      bpsToPercent(
+        agreement.commissionBps
+      ),
+
+    status:
+      agreement.status,
+
+    agreementText:
+      agreement.agreementText,
+
+    termsVersion:
+      agreement.termsVersion,
+
+    proposedAt:
+      agreement.proposedAt,
+
+    acceptedAt:
+      agreement.acceptedAt,
+
+    declinedAt:
+      agreement.declinedAt,
+
+    supersededAt:
+      agreement.supersededAt,
+
+    createdAt:
+      agreement.createdAt,
+
+    updatedAt:
+      agreement.updatedAt,
+  };
+}
+
+/* =========================================================
    GENERARE REFERRAL CODE INTERN
-
-   Nu este cod promoțional.
-   Nu este completat de admin.
-   Nu este afișat în formularul de invitație.
-
-   Este folosit intern pentru tracking/referral.
 ========================================================= */
 
 async function generateUniqueReferralCode(
@@ -330,7 +593,8 @@ async function validateInviteEmail({
           usedAt: null,
 
           expiresAt: {
-            gt: new Date(),
+            gt:
+              new Date(),
           },
         },
 
@@ -355,14 +619,12 @@ async function validateInviteEmail({
 
 /* =========================================================
    SEND INVITE EMAIL
-
-   Nu trimitem referralCode.
-   Influencerul nu are nevoie să îl vadă.
 ========================================================= */
 
 async function sendInviteEmail({
   invite,
   inviteUrl,
+  firstName,
 }) {
   let emailSent =
     false;
@@ -377,6 +639,12 @@ async function sendInviteEmail({
 
       name:
         invite.name,
+
+      firstName:
+        firstName ||
+        deriveFirstName(
+          invite.name
+        ),
 
       inviteUrl,
 
@@ -406,6 +674,11 @@ async function sendInviteEmail({
    GET /api/admin/influencers
 
    Influenceri activi + invitații neacceptate.
+
+   Pentru PROFILE returnăm:
+   - remunerația activă/acceptată
+   - ultima propunere PENDING
+   - ultimul acord acceptat
 ========================================================= */
 
 router.get(
@@ -465,6 +738,29 @@ router.get(
                   },
                 },
 
+                commissionAgreements: {
+                  orderBy: {
+                    proposedAt:
+                      "desc",
+                  },
+
+                  take: 10,
+
+                  select: {
+                    id: true,
+                    commissionBps: true,
+                    status: true,
+                    agreementText: true,
+                    termsVersion: true,
+                    proposedAt: true,
+                    acceptedAt: true,
+                    declinedAt: true,
+                    supersededAt: true,
+                    createdAt: true,
+                    updatedAt: true,
+                  },
+                },
+
                 _count: {
                   select: {
                     clicks: true,
@@ -488,9 +784,32 @@ router.get(
           ),
         ]);
 
+      /*
+       * Agregate REALE de comenzi/vânzări/câștig, ACEEAȘI sursă
+       * folosită de dashboardul influencerului (services/
+       * influencerEarnings.js) - nu recalculăm separat aici.
+       */
+      const confirmedTotalsByInfluencerId = new Map(
+        await Promise.all(
+          profiles.map(async (profile) => [
+            profile.id,
+            await getInfluencerConfirmedTotals(profile.id),
+          ])
+        )
+      );
+
       const profileItems =
         profiles.map(
           (profile) => {
+            const earningTotals =
+              confirmedTotalsByInfluencerId.get(
+                profile.id
+              ) || {
+                ordersCount: 0,
+                salesAmount: 0,
+                confirmedEarningsAmount: 0,
+              };
+
             const fallbackName =
               [
                 profile.user
@@ -507,6 +826,33 @@ router.get(
               profile.user
                 ?.UserConsent?.[0] ||
               null;
+
+            const pendingAgreement =
+              profile.commissionAgreements.find(
+                (agreement) =>
+                  agreement.status ===
+                  "PENDING"
+              ) ||
+              null;
+
+            const acceptedAgreement =
+              profile.commissionAgreements.find(
+                (agreement) =>
+                  agreement.status ===
+                  "ACCEPTED"
+              ) ||
+              null;
+
+            const activeCommissionBps =
+              Number(
+                profile.commissionBps ||
+                  0
+              );
+
+            const activeCommissionPercent =
+              bpsToPercent(
+                activeCommissionBps
+              );
 
             return {
               id:
@@ -527,6 +873,27 @@ router.get(
                   ?.email ||
                 "Influencer",
 
+              /*
+               * Aditiv - standardizare Prenume/Nume: numele PERSOANEI
+               * (User.firstName/lastName), distinct de `name` de mai
+               * sus (care rămâne identitatea afișată în listă/header,
+               * neschimbată) și de `displayName` (profilul public al
+               * influencerului, poate fi diferit).
+               */
+              firstName:
+                profile.user
+                  ?.firstName ||
+                null,
+
+              lastName:
+                profile.user
+                  ?.lastName ||
+                null,
+
+              displayName:
+                profile.displayName ||
+                null,
+
               email:
                 profile.user
                   ?.email ||
@@ -535,25 +902,64 @@ router.get(
               status:
                 profile.status,
 
-              /*
-               * Nu expunem referralCode
-               * în tabelul admin.
+              /**
+               * Remunerația ACTIVĂ.
+               * Este cea acceptată.
                */
-
               commissionBps:
-                profile.commissionBps,
+                activeCommissionBps,
+
+              commissionSharePercent:
+                activeCommissionPercent,
+
+              platformCommissionSharePercent:
+                activeCommissionPercent,
 
               commissionConfigured:
-                Number(
-                  profile.commissionBps ||
-                    0
-                ) > 0,
+                activeCommissionBps >
+                0,
 
-              /*
-               * Temporar:
-               * tracking-ul de comenzi
-               * va fi legat ulterior.
+              /**
+               * Propunerea care așteaptă
+               * răspunsul influencerului.
                */
+              pendingCommissionAgreement:
+                serializeCommissionAgreement(
+                  pendingAgreement
+                ),
+
+              pendingCommissionBps:
+                pendingAgreement
+                  ?.commissionBps ??
+                null,
+
+              pendingCommissionPercent:
+                pendingAgreement
+                  ? bpsToPercent(
+                      pendingAgreement.commissionBps
+                    )
+                  : null,
+
+              hasPendingCommissionAgreement:
+                Boolean(
+                  pendingAgreement
+                ),
+
+              /**
+               * Ultimul acord acceptat.
+               */
+              acceptedCommissionAgreement:
+                serializeCommissionAgreement(
+                  acceptedAgreement
+                ),
+
+              commissionAgreementStatus:
+                pendingAgreement
+                  ? "PENDING"
+                  : activeCommissionBps >
+                      0
+                    ? "ACCEPTED"
+                    : null,
 
               clicks:
                 profile._count
@@ -561,10 +967,13 @@ router.get(
                 0,
 
               ordersCount:
-                0,
+                earningTotals.ordersCount,
 
               salesAmount:
-                0,
+                earningTotals.salesAmount,
+
+              earningsAmount:
+                earningTotals.confirmedEarningsAmount,
 
               instagramUrl:
                 profile.instagramUrl,
@@ -629,6 +1038,17 @@ router.get(
               invite.name ||
               invite.email,
 
+            /*
+             * InfluencerInvite nu are firstName/lastName separat
+             * (legacy, doar `name`) - null explicit, ca shape-ul să
+             * rămână consistent cu PROFILE pentru frontend.
+             */
+            firstName:
+              null,
+
+            lastName:
+              null,
+
             email:
               invite.email,
 
@@ -637,18 +1057,42 @@ router.get(
                 invite
               ),
 
-            /*
-             * Nu expunem referralCode.
+            /**
+             * Invite commissionBps este păstrat
+             * pentru compatibilitate.
+             *
+             * Noul flux contractual începe
+             * după activarea contului.
              */
-
             commissionBps:
               invite.commissionBps,
 
+            commissionSharePercent:
+              0,
+
+            platformCommissionSharePercent:
+              0,
+
             commissionConfigured:
-              Number(
-                invite.commissionBps ||
-                  0
-              ) > 0,
+              false,
+
+            pendingCommissionAgreement:
+              null,
+
+            pendingCommissionBps:
+              null,
+
+            pendingCommissionPercent:
+              null,
+
+            hasPendingCommissionAgreement:
+              false,
+
+            acceptedCommissionAgreement:
+              null,
+
+            commissionAgreementStatus:
+              null,
 
             clicks:
               0,
@@ -677,12 +1121,11 @@ router.get(
             termsChecksum:
               null,
 
-            /*
+            /**
              * Tokenul brut nu este salvat.
-             * Linkul invitației nu poate fi
-             * reconstruit după refresh.
+             * Linkul nu poate fi reconstruit
+             * după refresh.
              */
-
             inviteUrl:
               null,
 
@@ -770,6 +1213,19 @@ router.get(
               (item) =>
                 item.termsAccepted
             ).length,
+
+          commissionConfigured:
+            profileItems.filter(
+              (item) =>
+                item.commissionConfigured
+            ).length,
+
+          commissionPending:
+            profileItems.filter(
+              (item) =>
+                item
+                  .hasPendingCommissionAgreement
+            ).length,
         },
       });
     } catch (error) {
@@ -790,18 +1246,535 @@ router.get(
 );
 
 /* =========================================================
-   POST /api/admin/influencers/invite
+   POST /api/admin/influencers/:id/commission-agreement
 
-   Creează invitația.
+   Adminul PROPUNE remunerația.
 
-   Adminul trimite:
+   IMPORTANT:
+   NU modificăm aici InfluencerProfile.commissionBps.
+
+   Exemplu body:
+
    {
-     name,
-     email
+     "commissionPercent": 20
    }
 
-   referralCode este generat automat.
-   commissionBps = 0 = remunerație nesetată.
+   Creează:
+   commissionBps = 2000
+   status = PENDING
+
+   Dacă exista deja o propunere PENDING,
+   ea devine SUPERSEDED.
+========================================================= */
+
+router.post(
+  "/:id/commission-agreement",
+  authRequired,
+  adminOnly,
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const influencerId =
+        String(
+          req.params.id ||
+            ""
+        ).trim();
+
+      if (!influencerId) {
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            error:
+              "influencer_id_required",
+          });
+      }
+
+      const parsed =
+        CommissionAgreementPayloadSchema.safeParse(
+          req.body
+        );
+
+      if (
+        !parsed.success
+      ) {
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            error:
+              "invalid_commission_payload",
+
+            details:
+              parsed.error.flatten(),
+          });
+      }
+
+      const commissionBps =
+        resolveCommissionBps(
+          parsed.data
+        );
+
+      if (
+        !Number.isInteger(
+          commissionBps
+        ) ||
+        commissionBps <
+          MIN_INFLUENCER_COMMISSION_BPS ||
+        commissionBps >
+          MAX_INFLUENCER_COMMISSION_BPS
+      ) {
+        return res
+          .status(400)
+          .json({
+            ok: false,
+
+            error:
+              "invalid_commission_bps",
+
+            message:
+              "Remunerația trebuie să fie între 0,01% și 100% din comisionul Artfest.",
+          });
+      }
+
+      const influencer =
+        await prisma.influencerProfile.findUnique(
+          {
+            where: {
+              id:
+                influencerId,
+            },
+
+            select: {
+              id: true,
+              userId: true,
+              displayName: true,
+              commissionBps: true,
+              status: true,
+
+              user: {
+                select: {
+                  email: true,
+                  name: true,
+                },
+              },
+            },
+          }
+        );
+
+      if (!influencer) {
+        return res
+          .status(404)
+          .json({
+            ok: false,
+            error:
+              "influencer_not_found",
+          });
+      }
+
+      if (
+        influencer.status !==
+        "ACTIVE"
+      ) {
+        return res
+          .status(409)
+          .json({
+            ok: false,
+
+            error:
+              "influencer_not_active",
+
+            message:
+              "Remunerația poate fi propusă doar unui influencer activ.",
+          });
+      }
+
+      /**
+       * Dacă exact aceeași remunerație
+       * este deja activă și nu există
+       * o schimbare reală, nu creăm
+       * inutil un acord nou.
+       */
+      if (
+        Number(
+          influencer.commissionBps ||
+            0
+        ) ===
+          commissionBps
+      ) {
+        const existingPending =
+          await prisma.influencerCommissionAgreement.findFirst(
+            {
+              where: {
+                influencerId,
+                status:
+                  "PENDING",
+              },
+
+              orderBy: {
+                proposedAt:
+                  "desc",
+              },
+
+              select: {
+                id: true,
+              },
+            }
+          );
+
+        if (!existingPending) {
+          return res
+            .status(409)
+            .json({
+              ok: false,
+
+              error:
+                "commission_already_active",
+
+              message:
+                "Această remunerație este deja activă pentru influencer.",
+            });
+        }
+      }
+
+      const agreementText =
+        buildCommissionAgreementText({
+          commissionBps,
+        });
+
+      const now =
+        new Date();
+
+      const agreement =
+        await prisma.$transaction(
+          async (tx) => {
+            /**
+             * O singură propunere PENDING
+             * trebuie să fie activă.
+             *
+             * Dacă adminul schimbă propunerea
+             * înainte de răspuns, cea veche
+             * este marcată SUPERSEDED.
+             */
+            await tx.influencerCommissionAgreement.updateMany(
+              {
+                where: {
+                  influencerId,
+
+                  status:
+                    "PENDING",
+                },
+
+                data: {
+                  status:
+                    "SUPERSEDED",
+
+                  supersededAt:
+                    now,
+                },
+              }
+            );
+
+            const created =
+              await tx.influencerCommissionAgreement.create(
+                {
+                  data: {
+                    influencerId,
+
+                    commissionBps,
+
+                    status:
+                      "PENDING",
+
+                    agreementText,
+
+                    termsVersion:
+                      INFLUENCER_COMMISSION_TERMS_VERSION,
+
+                    proposedByUserId:
+                      req.adminUser.id,
+
+                    proposedAt:
+                      now,
+                  },
+
+                  select: {
+                    id: true,
+                    influencerId: true,
+                    commissionBps: true,
+                    status: true,
+                    agreementText: true,
+                    termsVersion: true,
+                    proposedAt: true,
+                    acceptedAt: true,
+                    declinedAt: true,
+                    supersededAt: true,
+                    createdAt: true,
+                    updatedAt: true,
+                  },
+                }
+              );
+
+            /**
+             * Notificăm influencerul.
+             *
+             * Nu este critică pentru calcul,
+             * dar îl ajută să vadă imediat
+             * propunerea în cont.
+             */
+            await tx.notification.create({
+              data: {
+                userId:
+                  influencer.userId,
+
+                type:
+                  "system",
+
+                title:
+                  "Ai primit o propunere de remunerare",
+
+                body:
+                  `Artfest îți propune o remunerație de ${bpsToPercent(
+                    commissionBps
+                  )}% din comisionul Artfest. Intră în dashboard pentru a o accepta sau refuza.`,
+
+                link:
+                  "/influencer",
+
+                meta: {
+                  influencerId:
+                    influencer.id,
+
+                  commissionAgreementId:
+                    created.id,
+
+                  commissionBps,
+
+                  commissionPercent:
+                    bpsToPercent(
+                      commissionBps
+                    ),
+
+                  termsVersion:
+                    INFLUENCER_COMMISSION_TERMS_VERSION,
+                },
+
+                dedupeKey:
+                  `influencer_commission_proposal:${created.id}`,
+              },
+            });
+
+            return created;
+          }
+        );
+
+      return res
+        .status(201)
+        .json({
+          ok: true,
+
+          message:
+            "Propunerea de remunerare a fost trimisă influencerului.",
+
+          influencer: {
+            id:
+              influencer.id,
+
+            name:
+              influencer.displayName ||
+              influencer.user
+                ?.name ||
+              influencer.user
+                ?.email ||
+              "Influencer",
+
+            activeCommissionBps:
+              Number(
+                influencer.commissionBps ||
+                  0
+              ),
+
+            activeCommissionPercent:
+              bpsToPercent(
+                influencer.commissionBps
+              ),
+          },
+
+          agreement:
+            serializeCommissionAgreement(
+              agreement
+            ),
+        });
+    } catch (error) {
+      console.error(
+        "[adminInfluencers] POST /:id/commission-agreement error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          ok: false,
+
+          error:
+            "commission_agreement_create_failed",
+        });
+    }
+  }
+);
+
+/* =========================================================
+   DELETE /api/admin/influencers/:id/commission-agreement/:agreementId
+
+   Adminul poate retrage DOAR o propunere PENDING.
+
+   Nu poate șterge un acord ACCEPTED.
+   Îl marcăm SUPERSEDED pentru audit.
+========================================================= */
+
+router.delete(
+  "/:id/commission-agreement/:agreementId",
+  authRequired,
+  adminOnly,
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const influencerId =
+        String(
+          req.params.id ||
+            ""
+        ).trim();
+
+      const agreementId =
+        String(
+          req.params.agreementId ||
+            ""
+        ).trim();
+
+      if (
+        !influencerId ||
+        !agreementId
+      ) {
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            error:
+              "invalid_agreement_reference",
+          });
+      }
+
+      const agreement =
+        await prisma.influencerCommissionAgreement.findFirst(
+          {
+            where: {
+              id:
+                agreementId,
+
+              influencerId,
+            },
+
+            select: {
+              id: true,
+              status: true,
+            },
+          }
+        );
+
+      if (!agreement) {
+        return res
+          .status(404)
+          .json({
+            ok: false,
+            error:
+              "commission_agreement_not_found",
+          });
+      }
+
+      if (
+        agreement.status !==
+        "PENDING"
+      ) {
+        return res
+          .status(409)
+          .json({
+            ok: false,
+
+            error:
+              "commission_agreement_not_pending",
+
+            message:
+              "Doar o propunere aflată în așteptare poate fi retrasă.",
+          });
+      }
+
+      const updated =
+        await prisma.influencerCommissionAgreement.update(
+          {
+            where: {
+              id:
+                agreementId,
+            },
+
+            data: {
+              status:
+                "SUPERSEDED",
+
+              supersededAt:
+                new Date(),
+            },
+
+            select: {
+              id: true,
+              commissionBps: true,
+              status: true,
+              agreementText: true,
+              termsVersion: true,
+              proposedAt: true,
+              acceptedAt: true,
+              declinedAt: true,
+              supersededAt: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          }
+        );
+
+      return res.json({
+        ok: true,
+
+        message:
+          "Propunerea de remunerare a fost retrasă.",
+
+        agreement:
+          serializeCommissionAgreement(
+            updated
+          ),
+      });
+    } catch (error) {
+      console.error(
+        "[adminInfluencers] DELETE commission agreement error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          ok: false,
+
+          error:
+            "commission_agreement_cancel_failed",
+        });
+    }
+  }
+);
+
+/* =========================================================
+   POST /api/admin/influencers/invite
 ========================================================= */
 
 router.post(
@@ -834,17 +1807,24 @@ router.post(
           });
       }
 
+      const firstName =
+        parsed.data.firstName?.trim() ||
+        "";
+
+      const lastName =
+        parsed.data.lastName?.trim() ||
+        "";
+
       const name =
-        parsed.data.name.trim();
+        firstName && lastName
+          ? `${firstName} ${lastName}`.trim()
+          : parsed.data.name?.trim() ||
+            "";
 
       const email =
         parsed.data.email
           .trim()
           .toLowerCase();
-
-      /* -----------------------------------------------------
-         EMAIL
-      ----------------------------------------------------- */
 
       const emailValidation =
         await validateInviteEmail({
@@ -864,18 +1844,10 @@ router.post(
           });
       }
 
-      /* -----------------------------------------------------
-         REFERRAL INTERN
-      ----------------------------------------------------- */
-
       const referralCode =
         await generateUniqueReferralCode(
           name
         );
-
-      /* -----------------------------------------------------
-         TOKEN
-      ----------------------------------------------------- */
 
       const rawToken =
         createInviteToken();
@@ -888,10 +1860,6 @@ router.post(
       const expiresAt =
         createExpiresAt();
 
-      /* -----------------------------------------------------
-         CREATE
-      ----------------------------------------------------- */
-
       const invite =
         await prisma.influencerInvite.create(
           {
@@ -899,13 +1867,14 @@ router.post(
               name,
               email,
 
-              /*
-               * Folosit intern pentru tracking.
-               */
               referralCode,
 
-              /*
-               * 0 = remunerație încă nesetată.
+              /**
+               * Legacy / compatibilitate.
+               *
+               * Remunerația contractuală
+               * va fi stabilită DUPĂ
+               * activarea profilului.
                */
               commissionBps:
                 0,
@@ -940,6 +1909,9 @@ router.post(
         await sendInviteEmail({
           invite,
           inviteUrl,
+          firstName:
+            firstName ||
+            deriveFirstName(name),
         });
 
       return res
@@ -1011,18 +1983,6 @@ router.post(
 
 /* =========================================================
    PATCH /api/admin/influencers/invite/:id
-
-   Poți edita:
-   - numele
-   - emailul
-
-   NU schimbăm referralCode-ul intern.
-
-   La editare:
-   - regenerăm tokenul;
-   - expirarea revine la 7 zile;
-   - vechiul link devine invalid;
-   - trimitem email nou.
 ========================================================= */
 
 router.patch(
@@ -1117,17 +2077,24 @@ router.patch(
           });
       }
 
+      const firstName =
+        parsed.data.firstName?.trim() ||
+        "";
+
+      const lastName =
+        parsed.data.lastName?.trim() ||
+        "";
+
       const name =
-        parsed.data.name.trim();
+        firstName && lastName
+          ? `${firstName} ${lastName}`.trim()
+          : parsed.data.name?.trim() ||
+            "";
 
       const email =
         parsed.data.email
           .trim()
           .toLowerCase();
-
-      /* -----------------------------------------------------
-         EMAIL
-      ----------------------------------------------------- */
 
       const emailValidation =
         await validateInviteEmail({
@@ -1149,10 +2116,6 @@ router.patch(
               emailValidation.error,
           });
       }
-
-      /* -----------------------------------------------------
-         TOKEN NOU
-      ----------------------------------------------------- */
 
       const rawToken =
         createInviteToken();
@@ -1177,9 +2140,6 @@ router.patch(
               name,
               email,
 
-              /*
-               * referralCode rămâne neschimbat.
-               */
               tokenHash,
               expiresAt,
             },
@@ -1207,6 +2167,9 @@ router.patch(
         await sendInviteEmail({
           invite,
           inviteUrl,
+          firstName:
+            firstName ||
+            deriveFirstName(name),
         });
 
       return res.json({
@@ -1276,8 +2239,6 @@ router.patch(
 
 /* =========================================================
    DELETE /api/admin/influencers/invite/:id
-
-   Șterge doar invitațiile neacceptate.
 ========================================================= */
 
 router.delete(
@@ -1393,6 +2354,134 @@ router.delete(
 );
 
 /* =========================================================
+   GET /api/admin/influencers/:id/files
+
+   Read-only - adminul vede documentele influencerului pentru
+   colaborare/documentare, dar NU poate încărca/șterge de aici
+   (fluxul de upload rămâne exclusiv al influencerului, prin
+   influencerFilesRoutes.js).
+========================================================= */
+
+router.get(
+  "/:id/files",
+  authRequired,
+  adminOnly,
+  async (req, res) => {
+    try {
+      const influencerId = String(req.params.id || "").trim();
+
+      if (!influencerId) {
+        return res.status(400).json({
+          ok: false,
+          error: "influencer_id_required",
+        });
+      }
+
+      const influencer = await prisma.influencerProfile.findUnique({
+        where: { id: influencerId },
+        select: { id: true },
+      });
+
+      if (!influencer) {
+        return res.status(404).json({
+          ok: false,
+          error: "influencer_not_found",
+        });
+      }
+
+      const items = await prisma.influencerFile.findMany({
+        where: { influencerId },
+        orderBy: { createdAt: "desc" },
+      });
+
+      /*
+       * fileUrl e URL-ul public permanent din R2 - nu-l expunem în
+       * listă, la fel ca în influencerFilesRoutes.js. Adminul cere un
+       * URL semnat, temporar, prin GET /:id/files/:fileId/download.
+       */
+      return res.json({
+        ok: true,
+        items: items.map(({ fileUrl, ...rest }) => rest),
+      });
+    } catch (error) {
+      console.error(
+        "[adminInfluencersRoutes] GET /:id/files error:",
+        error
+      );
+
+      return res.status(500).json({
+        ok: false,
+        error: "admin_influencer_files_load_failed",
+      });
+    }
+  }
+);
+
+/* =========================================================
+   GET /api/admin/influencers/:id/files/:fileId/download
+
+   Adminul poate deschide documentele UNUI influencer specific -
+   verificăm explicit că fileId aparține chiar influencerId-ului din
+   URL (nu doar că fileId există undeva în DB).
+========================================================= */
+
+router.get(
+  "/:id/files/:fileId/download",
+  authRequired,
+  adminOnly,
+  async (req, res) => {
+    try {
+      const influencerId = String(req.params.id || "").trim();
+      const fileId = String(req.params.fileId || "").trim();
+
+      if (!influencerId || !fileId) {
+        return res.status(400).json({
+          ok: false,
+          error: "influencer_id_and_file_id_required",
+        });
+      }
+
+      const file = await prisma.influencerFile.findUnique({
+        where: { id: fileId },
+      });
+
+      if (!file || file.influencerId !== influencerId) {
+        return res.status(404).json({
+          ok: false,
+          error: "influencer_file_not_found",
+        });
+      }
+
+      const key = keyFromPublicUrl(file.fileUrl);
+
+      if (!key) {
+        return res.status(500).json({
+          ok: false,
+          error: "influencer_file_key_unresolvable",
+        });
+      }
+
+      const url = await getSignedDownloadUrl({
+        key,
+        filename: file.originalFilename,
+      });
+
+      return res.json({ ok: true, url, expiresInSeconds: 300 });
+    } catch (error) {
+      console.error(
+        "[adminInfluencersRoutes] GET /:id/files/:fileId/download error:",
+        error
+      );
+
+      return res.status(500).json({
+        ok: false,
+        error: "admin_influencer_file_download_failed",
+      });
+    }
+  }
+);
+
+/* =========================================================
    TEST
 ========================================================= */
 
@@ -1400,11 +2489,18 @@ router.get(
   "/test",
   authRequired,
   adminOnly,
-  (_req, res) => {
+  (
+    _req,
+    res
+  ) => {
     return res.json({
       ok: true,
+
       module:
         "admin-influencers",
+
+      commissionAgreements:
+        true,
     });
   }
 );

@@ -8,6 +8,8 @@ import React, {
 } from "react";
 
 import ProductVideoField from "../../../../components/ProductVideoField";
+import { validateProductConfiguration } from "../../../../utils/productConfigurationValidator.js";
+import { normalizeOptionChoice } from "../../../../utils/optionLabels.js";
 
 import ProductModalWizard from "../../../../pages/Vendor/ProfilMagazin/modals/ProductModal/ProductModalWizard";
 import { useProductEditorController } from "../../../../pages/Vendor/ProfilMagazin/modals/useProductEditorController.js";
@@ -351,9 +353,14 @@ function SchemaFields({
                     }
                   >
                     Variante:{" "}
-                    {field.options.join(
-                      ", "
-                    )}
+                    {field.options
+                      .map(
+                        (option) =>
+                          normalizeOptionChoice(
+                            option
+                          ).label
+                      )
+                      .join(", ")}
                   </small>
                 )}
             </div>
@@ -425,6 +432,38 @@ function VendorProductCreateWizard({
           images
         ),
       [safeDraft, images]
+    );
+
+  /*
+   * ANTI-ABANDON - mecanism comun cu ProductModalWizard.jsx/
+   * ProductDetails.jsx (productConfigurationValidator.js): blochează
+   * publicarea unei scheme pe care un client n-o poate rezolva (câmp
+   * obligatoriu fără opțiuni, valori duplicate, grup fără
+   * identificator etc.) - separat de `missingFields` de mai sus, care
+   * rămâne exact cum era (informativ, nu blocant).
+   */
+  const configurationValidation =
+    useMemo(
+      () =>
+        validateProductConfiguration({
+          orderMode:
+            safeDraft.orderMode,
+          optionsSchema:
+            safeDraft.optionsSchema,
+          customSchema:
+            safeDraft.customSchema,
+          repeatedGroups:
+            safeDraft.repeatedGroups,
+          quoteSchema:
+            safeDraft.quoteSchema,
+        }),
+      [
+        safeDraft.orderMode,
+        safeDraft.optionsSchema,
+        safeDraft.customSchema,
+        safeDraft.repeatedGroups,
+        safeDraft.quoteSchema,
+      ]
     );
 
   /*
@@ -1786,6 +1825,74 @@ function VendorProductCreateWizard({
                 </div>
               )}
 
+            {!publishSuccess &&
+              !!configurationValidation
+                .blockingIssues
+                .length && (
+                <div
+                  className={`${styles.card} ${styles.cardAccentWarning}`}
+                >
+                  <strong>
+                    Trebuie reparat
+                    înainte de
+                    publicare:
+                  </strong>
+
+                  <ul
+                    className={
+                      styles.infoList
+                    }
+                  >
+                    {configurationValidation.blockingIssues.map(
+                      (issue) => (
+                        <li
+                          key={`${issue.code}-${issue.path}`}
+                        >
+                          {
+                            issue.message
+                          }
+                        </li>
+                      )
+                    )}
+                  </ul>
+                </div>
+              )}
+
+            {!publishSuccess &&
+              !configurationValidation
+                .blockingIssues
+                .length &&
+              !!configurationValidation
+                .warnings.length && (
+                <div
+                  className={`${styles.card} ${styles.cardAccentWarning}`}
+                >
+                  <strong>
+                    Sugestii pentru o
+                    configurare mai
+                    clară:
+                  </strong>
+
+                  <ul
+                    className={
+                      styles.infoList
+                    }
+                  >
+                    {configurationValidation.warnings.map(
+                      (issue) => (
+                        <li
+                          key={`${issue.code}-${issue.path}`}
+                        >
+                          {
+                            issue.message
+                          }
+                        </li>
+                      )
+                    )}
+                  </ul>
+                </div>
+              )}
+
             {publishSuccess ? (
               <div className={styles.successCard}>
                 <strong>
@@ -1920,7 +2027,10 @@ function VendorProductCreateWizard({
                   <button
                     type="button"
                     disabled={
-                      publishing
+                      publishing ||
+                      !!configurationValidation
+                        .blockingIssues
+                        .length
                     }
                     className={
                       styles.primaryButton

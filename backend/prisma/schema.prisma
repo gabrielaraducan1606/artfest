@@ -100,6 +100,8 @@ model User {
   acceptedInfluencerInvites InfluencerInvite[]       @relation("InfluencerInviteAcceptedUser")
   createdInfluencerInvites  InfluencerInvite[]       @relation("InfluencerInviteCreatedBy")
 
+  proposedInfluencerCommissionAgreements InfluencerCommissionAgreement[] @relation("InfluencerCommissionAgreementProposedBy")
+
   orders              Order[]
   handedOverShipments Shipment[]      @relation("ShipmentHandedOverBy")
   returnRequests      ReturnRequest[]
@@ -293,7 +295,7 @@ model UserVendorBlock {
 
 model Vendor {
   id                     String    @id @default(uuid())
-  userId                 String    @unique
+  userId                 String?   @unique
   displayName            String
   about                  String?
   isActive               Boolean   @default(true)
@@ -315,6 +317,12 @@ model Vendor {
   entitySelfDeclaredUa   String?
   productLimitOverride   Int?
 
+  anonymizedAt DateTime?
+
+  // ==================== Referral vendor ====================
+  referralCode          String? @unique
+  referralCommissionBps Int     @default(0)
+
   emailOnNewOrder        Boolean             @default(true)
   stripeAccountId        String?             @unique
   stripeChargesEnabled   Boolean             @default(false)
@@ -325,8 +333,7 @@ model Vendor {
   stripeDisabledReason   String?             @db.VarChar(255)
   stripeOnboardedAt      DateTime?
 
-  homepageFeatures HomepageFeature[]
-
+  homepageFeatures  HomepageFeature[]
   ambassadorProfile AmbassadorProfile?
   commentReplies    Comment[]          @relation("VendorCommentReplies")
   events            Event[]
@@ -336,36 +343,42 @@ model Vendor {
   receivedVendorThreads MessageThread[] @relation("RecipientVendorThreads")
   sentVendorMessages    Message[]       @relation("SenderVendorMessages")
 
-  Notification       Notification[]
-  ReviewReply        ReviewReply[]
-  searches           Search[]
-  shipments          Shipment[]
+  Notification Notification[]
+  ReviewReply  ReviewReply[]
+  searches     Search[]
+
+  shipments         Shipment[] @relation("ShipmentSellerVendor")
+  referredShipments Shipment[] @relation("ShipmentReferrerVendor")
+
   storeRatingStats   StoreRatingStats[]
   storeReviews       StoreReview[]
   storeReviewReplies StoreReviewReply[]
   supportTickets     SupportTicket[]
   blocks             UserVendorBlock[]
 
-  user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user               User?                     @relation(fields: [userId], references: [id], onDelete: SetNull)
   VendorAcceptance   VendorAcceptance[]
   billing            VendorBilling?
   productDeclaration VendorProductDeclaration?
   services           VendorService[]
   stats              VendorStats?
   subscriptions      VendorSubscription[]
-  campaigns          VendorCampaign[]
-  discountCodes      DiscountCode[]
-  visitors           Visitor[]
-  earningEntries     VendorEarningEntry[]
-  payouts            VendorPayout[]
-  chatUsage          ChatUsage[]
-  returnRequests     ReturnRequest[]
 
-  // Cereri de ofertă trimise direct acestui vendor.
+  campaigns     VendorCampaign[]
+  collections   VendorCollection[]
+  discountCodes DiscountCode[]
+
+  referralClicks   VendorReferralClick[]
+  referralEarnings VendorReferralEarningEntry[]
+
+  visitors       Visitor[]
+  earningEntries VendorEarningEntry[]
+  payouts        VendorPayout[]
+  chatUsage      ChatUsage[]
+  returnRequests ReturnRequest[]
+
   quoteRequests QuoteRequest[]
 
-  // Ofertele trimise de acest vendor
-  // la cererile publice ale clienților.
   customerRequestOffers CustomerRequestOffer[]
   productImports        ProductImport[]
 
@@ -441,7 +454,7 @@ model VendorBilling {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
 
   @@index([sellerType])
   @@index([cui])
@@ -696,6 +709,37 @@ model Product {
   careInstructions String?
   specialNotes     String?
 
+  // ==================== GPSR / Siguranță produs ====================
+
+  // null = vendorul nu a confirmat încă
+  // true = vendorul este producătorul produsului
+  // false = produsul are alt producător
+  isOwnManufacturer Boolean?
+
+  // Se completează dacă vendorul NU este producătorul
+  manufacturerName    String?
+  manufacturerAddress String?
+  manufacturerEmail   String?
+
+  // null = vendorul nu a răspuns încă
+  // true = producătorul este stabilit în UE
+  // false = producătorul este din afara UE
+  manufacturerInEU Boolean?
+
+  // Se completează dacă producătorul NU este stabilit în UE
+  responsiblePersonName    String?
+  responsiblePersonAddress String?
+  responsiblePersonEmail   String?
+
+  // null = vendorul nu a completat încă
+  // "" = vendorul a confirmat explicit că nu se aplică avertismente
+  // text = avertismentele/informațiile de siguranță aplicabile
+  safetyWarnings String? @db.Text
+
+  // null = vendorul nu a confirmat încă
+  // true / false = răspuns explicit
+  isForChildren Boolean?
+
   popularityScore   Int                     @default(0)
   moderationStatus  ProductModerationStatus @default(PENDING)
   moderationMessage String?
@@ -727,21 +771,24 @@ model Product {
   aiAnalyzedAt      DateTime?
   aiManuallyEdited  Boolean   @default(false)
 
-  reviewedBy                User?                      @relation("ProductReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
-  cartItems                 CartItem[]
-  comments                  Comment[]
-  Favorite                  Favorite[]
-  service                   VendorService              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  ProductRatingStats        ProductRatingStats?
-  reviews                   Review[]
-  product_image_embeddings  product_image_embeddings[]
+  reviewedBy               User?                      @relation("ProductReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  cartItems                CartItem[]
+  comments                 Comment[]
+  Favorite                 Favorite[]
+  service                  VendorService              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  ProductRatingStats       ProductRatingStats?
+  reviews                  Review[]
+  product_image_embeddings product_image_embeddings[]
+
   collectionItems           CollectionItem[]
   influencerCollectionItems InfluencerCollectionItem[]
-  discountCodeProducts      DiscountCodeProduct[]
-  homepageFeatures          HomepageFeature[]
-  quoteRequests             QuoteRequest[]
-  importItems               ProductImportItem[]
-  campaignProducts          VendorCampaignProduct[]
+  vendorCollectionItems     VendorCollectionItem[]
+
+  discountCodeProducts DiscountCodeProduct[]
+  homepageFeatures     HomepageFeature[]
+  quoteRequests        QuoteRequest[]
+  importItems          ProductImportItem[]
+  campaignProducts     VendorCampaignProduct[]
 
   costing ProductCosting?
 
@@ -775,31 +822,136 @@ model Product {
  * =========================================================
  */
 
-model VendorCostItem {
-  id       String @id @default(uuid())
+model VendorCollection {
+  id String @id @default(cuid())
+
   vendorId String
 
-  type          VendorCostItemType
-  name          String
-  unit          String?
-  unitCostCents Int
-  currency      String             @default("RON")
+  title       String  @db.VarChar(160)
+  slug        String  @unique @db.VarChar(180)
+  description String?
+  coverImage  String?
 
-  notes    String?
   isActive Boolean @default(true)
 
-  // MANUAL = introdus de vendor.
-  // AI_SUGGESTED = propus din analiza foto, fără preț - vezi ProductCosting.aiDraft.
-  source VendorCostItemSource @default(MANUAL)
+  sort String @default("curated") @db.VarChar(32)
+
+  visits Int @default(0)
+  clicks Int @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  vendor       Vendor               @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor        Vendor                 @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  items         VendorCollectionItem[]
+  discountCodes DiscountCode[]
+
+  @@index([vendorId, createdAt])
+  @@index([vendorId, isActive])
+  @@index([isActive, createdAt])
+}
+
+model VendorCollectionItem {
+  collectionId String
+  productId    String
+  position     Int?
+
+  createdAt DateTime @default(now())
+
+  collection VendorCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  product    Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([collectionId, productId])
+  @@index([productId])
+  @@index([collectionId, position])
+}
+
+model VendorReferralClick {
+  id String @id @default(cuid())
+
+  vendorId String
+
+  sessionId String?
+  pageUrl   String?
+  referrer  String?
+  ipHash    String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId, createdAt])
+  @@index([sessionId])
+  @@index([createdAt])
+}
+
+enum VendorReferralEarningType {
+  SALE
+  REFUND
+}
+
+model VendorReferralEarningEntry {
+  id String @id @default(cuid())
+
+  referrerVendorId String
+
+  shipmentId String? @unique
+  orderId    String?
+
+  type VendorReferralEarningType @default(SALE)
+
+  commissionBpsSnapshot Int
+
+  currency String @default("RON") @db.VarChar(8)
+
+  eligibleItemsNet     Decimal @default(0) @db.Decimal(12, 2)
+  artfestCommissionNet Decimal @default(0) @db.Decimal(12, 2)
+  earningNet           Decimal @default(0) @db.Decimal(12, 2)
+
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  meta Json?
+
+  referrerVendor Vendor    @relation(fields: [referrerVendorId], references: [id], onDelete: Cascade)
+  shipment       Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  order          Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([referrerVendorId, occurredAt])
+  @@index([orderId])
+}
+
+model VendorCostItem {
+  id String @id @default(uuid())
+
+  vendorId String
+
+  type VendorCostItemType
+
+  label String
+
+  unit     String?
+  currency String  @default("RON") @db.VarChar(8)
+
+  unitCostCents Int
+
+  source VendorCostItemSource @default(MANUAL)
+
+  notes String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
   costingItems ProductCostingItem[]
 
-  @@index([vendorId, type, isActive])
-  @@index([vendorId, name])
+  @@index([vendorId, type])
+  @@index([vendorId, isActive])
+  @@index([vendorId, createdAt])
 }
 
 model ProductCosting {
@@ -1363,29 +1515,19 @@ model Order {
   customerType           CustomerType @default(PF)
   shipToDifferentAddress Boolean      @default(false)
 
-  // Datele clientului păstrate la momentul comenzii.
-  // Sunt completate atât pentru guest, cât și pentru utilizatorii autentificați.
   customerName  String? @db.VarChar(160)
   customerEmail String? @db.VarChar(320)
   customerPhone String? @db.VarChar(40)
 
-  // false pentru comenzile actuale și comenzile făcute din cont.
-  // true pentru comenzile plasate fără cont.
   isGuestOrder Boolean @default(false)
 
-  // Pentru acces securizat la comanda guest.
-  // În DB se va salva doar hash-ul tokenului.
   guestAccessTokenHash String?   @unique @db.VarChar(64)
   guestAccessExpiresAt DateTime?
 
-  // Momentul în care s-a trimis reminderul
-  // pentru o plată CARD guest nefinalizată.
   guestPaymentReminderSentAt DateTime?
 
-  // Snapshot al acordurilor acceptate în checkout.
   checkoutConsents Json?
 
-  // Date tehnice pentru securitate și audit.
   checkoutIp        String? @db.VarChar(64)
   checkoutUserAgent String? @db.VarChar(500)
 
@@ -1410,8 +1552,11 @@ model Order {
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  shipments               Shipment[]
-  vendorEarningEntries    VendorEarningEntry[]
+  shipments                    Shipment[]
+  vendorEarningEntries         VendorEarningEntry[]
+  influencerEarningEntries     InfluencerEarningEntry[]
+  vendorReferralEarningEntries VendorReferralEarningEntry[]
+
   returnRequests          ReturnRequest[]
   quoteRequest            QuoteRequest?
   discountCodeRedemptions DiscountCodeRedemption[]
@@ -1469,6 +1614,21 @@ model Shipment {
   campaignDiscountPercent Int?
   campaignAttributedAt    DateTime?
 
+  // ==================== Atribuire influencer ====================
+  influencerId                    String?
+  influencerReferralCodeSnapshot  String?
+  influencerCommissionBpsSnapshot Int?
+  influencerAttributedAt          DateTime?
+
+  // ==================== Atribuire vendor-promotor ====================
+  referrerVendorId                    String?
+  referrerVendorReferralCodeSnapshot  String?
+  referrerVendorCommissionBpsSnapshot Int?
+  referrerVendorAttributedAt          DateTime?
+
+  vendorReferralCommissionOverrideBps Int?
+  vendorReferralOwnSaleAttributedAt   DateTime?
+
   // ==================== Avans ====================
   depositStatus                PaymentDepositStatus @default(NOT_REQUESTED)
   depositPercent               Int?
@@ -1485,17 +1645,23 @@ model Shipment {
   depositMeta                  Json?
 
   // ==================== Relații ====================
-  order                  Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  vendor                 Vendor              @relation(fields: [vendorId], references: [id])
-  service                VendorService?      @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  campaign               VendorCampaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  handedOverBy           User?               @relation("ShipmentHandedOverBy", fields: [handedOverById], references: [id], onDelete: SetNull)
-  vendorEarningEntry     VendorEarningEntry?
-  items                  ShipmentItem[]
-  returnRequest          ReturnRequest?      @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
-  originalReturnRequests ReturnRequest[]     @relation("ReturnOriginalShipment")
+  order          Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  vendor         Vendor             @relation("ShipmentSellerVendor", fields: [vendorId], references: [id])
+  referrerVendor Vendor?            @relation("ShipmentReferrerVendor", fields: [referrerVendorId], references: [id], onDelete: SetNull)
+  service        VendorService?     @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  campaign       VendorCampaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  influencer     InfluencerProfile? @relation(fields: [influencerId], references: [id], onDelete: SetNull)
+  handedOverBy   User?              @relation("ShipmentHandedOverBy", fields: [handedOverById], references: [id], onDelete: SetNull)
 
-  // ==================== Indexuri ====================
+  vendorEarningEntry         VendorEarningEntry?
+  influencerEarningEntry     InfluencerEarningEntry?
+  vendorReferralEarningEntry VendorReferralEarningEntry?
+
+  items ShipmentItem[]
+
+  returnRequest          ReturnRequest?  @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+  originalReturnRequests ReturnRequest[] @relation("ReturnOriginalShipment")
+
   @@index([deliveredAt])
   @@index([refusedAt])
   @@index([returnedAt])
@@ -1504,6 +1670,9 @@ model Shipment {
   @@index([orderId])
   @@index([vendorId])
   @@index([serviceId])
+  @@index([influencerId])
+  @@index([referrerVendorId])
+  @@index([referrerVendorId, createdAt])
   @@index([status, pickupDate])
   @@index([vendorId, status, createdAt], map: "ship_vendor_status_created_idx")
   @@index([vendorId, createdAt], map: "ship_vendor_created_idx")
@@ -1759,6 +1928,7 @@ model Message {
   authorUserId      String?
   authorName        String?
   body              String
+  clientMessageId   String?
   createdAt         DateTime          @default(now())
   deletedByUserAt   DateTime?
   deletedByVendorAt DateTime?
@@ -1768,6 +1938,7 @@ model Message {
   thread       MessageThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
   attachments  MessageAttachment[]
 
+  @@unique([threadId, clientMessageId])
   @@index([vendorId, authorType, createdAt])
   @@index([threadId, createdAt])
   @@index([threadId, deletedByUserAt])
@@ -1834,32 +2005,44 @@ model Notification {
 }
 
 model Invoice {
-  id            String           @id @default(cuid())
-  vendorId      String
-  direction     InvoiceDirection
-  type          InvoiceType      @default(OTHER)
-  periodFrom    DateTime?
-  periodTo      DateTime?
-  orderId       String?
-  series        String?          @db.VarChar(16)
-  number        String           @db.VarChar(64)
-  issueDate     DateTime
-  dueDate       DateTime?
-  currency      String           @default("RON") @db.VarChar(8)
-  notes         String?
+  id           String  @id @default(cuid())
+  vendorId     String?
+  influencerId String?
+
+  direction InvoiceDirection
+  type      InvoiceType      @default(OTHER)
+
+  periodFrom DateTime?
+  periodTo   DateTime?
+
+  orderId String?
+
+  series String? @db.VarChar(16)
+  number String  @db.VarChar(64)
+
+  issueDate DateTime
+  dueDate   DateTime?
+
+  currency String @default("RON") @db.VarChar(8)
+
+  notes String?
+
   clientName    String?
   clientEmail   String?
   clientPhone   String?
   clientAddress String?
-  totalNet      Decimal          @db.Decimal(12, 2)
-  totalVat      Decimal          @db.Decimal(12, 2)
-  totalGross    Decimal          @db.Decimal(12, 2)
-  status        InvoiceStatus    @default(UNPAID)
-  pdfUrl        String?
-  paymentUrl    String?
-  paidAt        DateTime?
-  externalId    String?
-  meta          Json?
+
+  totalNet   Decimal @db.Decimal(12, 2)
+  totalVat   Decimal @db.Decimal(12, 2)
+  totalGross Decimal @db.Decimal(12, 2)
+
+  status InvoiceStatus @default(UNPAID)
+
+  pdfUrl     String?
+  paymentUrl String?
+  paidAt     DateTime?
+  externalId String?
+  meta       Json?
 
   provider          InvoiceProvider @default(LOCAL)
   providerInvoiceId String?
@@ -1880,15 +2063,23 @@ model Invoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  vendor       Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  order        Order?        @relation(fields: [orderId], references: [id])
-  vendorPayout VendorPayout?
-  lines        InvoiceLine[]
+  vendor     Vendor?            @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  influencer InfluencerProfile? @relation(fields: [influencerId], references: [id], onDelete: Restrict)
+
+  order Order? @relation(fields: [orderId], references: [id])
+
+  vendorPayout     VendorPayout?
+  influencerPayout InfluencerPayout?
+
+  lines InvoiceLine[]
 
   @@unique([vendorId, number])
+  @@unique([influencerId, number])
   @@unique([vendorId, type, periodFrom, periodTo], name: "vendor_monthly_invoice_unique")
+  @@unique([influencerId, type, periodFrom, periodTo], name: "influencer_monthly_invoice_unique")
   @@index([orderId])
   @@index([vendorId, direction, status, issueDate])
+  @@index([influencerId, direction, status, issueDate])
   @@index([provider, providerInvoiceId])
   @@index([dueDate, status])
   @@index([stripeCheckoutSessionId])
@@ -2242,12 +2433,14 @@ enum InvoiceDirection {
   PLATFORM_TO_CLIENT
   PLATFORM_TO_VENDOR
   VENDOR_TO_CLIENT
+  INFLUENCER_TO_PLATFORM
 }
 
 enum InvoiceType {
   COMMISSION
   SUBSCRIPTION
   SHIPPING
+  INFLUENCER_COMMISSION
   OTHER
 }
 
@@ -2459,7 +2652,7 @@ model VendorEarningEntry {
   createdAt        DateTime          @default(now())
   stripeTransferId String?           @db.VarChar(255)
 
-  vendor   Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor   Vendor        @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   shipment Shipment?     @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
   order    Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
   payout   VendorPayout? @relation(fields: [payoutId], references: [id], onDelete: SetNull)
@@ -2486,8 +2679,9 @@ model VendorPayout {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  vendor  Vendor               @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  invoice Invoice?             @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  vendor  Vendor   @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
   entries VendorEarningEntry[]
 
   @@index([vendorId, periodFrom, periodTo])
@@ -2797,6 +2991,28 @@ model HomepageFeature {
    */
   vendorEmailError String? @db.VarChar(1000)
 
+  /**
+   * =========================================================
+   * Material social media generat pentru PRODUCT_OF_DAY
+   * =========================================================
+   * URL public permanent către imaginea generată și salvată
+   * în storage (R2).
+   * Rămâne nullable deoarece:
+   * - feature-urile vechi nu au imagine generată;
+   * - ARTISAN_OF_WEEK nu trebuie să folosească momentan
+   * această funcționalitate;
+   * - imaginea se generează doar la cererea adminului.
+   */
+  generatedImageUrl String?
+
+  /**
+   * Momentul ultimei generări/regenerări.
+   * La regenerare:
+   * - generatedImageUrl este înlocuit cu noul URL;
+   * - generatedImageGeneratedAt este actualizat.
+   */
+  generatedImageGeneratedAt DateTime?
+
   impressions Int @default(0)
   clicks      Int @default(0)
 
@@ -3095,7 +3311,12 @@ model VendorCampaign {
   scope VendorCampaignScope @default(ALL_PRODUCTS)
 
   discountPercent Int @default(0)
-  commissionBps   Int @default(600)
+
+  platformFundingBps Int?
+  vendorFundingBps   Int?
+  fundingSource      DiscountCodeFundingSource?
+
+  commissionBps Int @default(600)
 
   attributionWindowHours Int @default(168)
 
@@ -3154,8 +3375,8 @@ model VendorCampaignCreative {
 
 /// ==================== Influencers ====================
 model InfluencerProfile {
-  id     String @id @default(cuid())
-  userId String @unique
+  id     String  @id @default(cuid())
+  userId String? @unique
 
   displayName  String?
   referralCode String  @unique
@@ -3171,17 +3392,108 @@ model InfluencerProfile {
 
   notes String?
 
+  anonymizedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clicks        InfluencerClick[]
-  collections   InfluencerCollection[]
-  discountCodes DiscountCode[]
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  clicks               InfluencerClick[]
+  collections          InfluencerCollection[]
+  discountCodes        DiscountCode[]
+  commissionAgreements InfluencerCommissionAgreement[]
+  shipments            Shipment[]
+  earnings             InfluencerEarningEntry[]
+  resourceActivities   InfluencerResourceActivity[]
+
+  payoutProfile InfluencerPayoutProfile?
+  invoices      Invoice[]
+  payouts       InfluencerPayout[]
+  files         InfluencerFile[]
 
   @@index([referralCode])
   @@index([status])
   @@index([createdAt])
+}
+
+enum InfluencerFileType {
+  CONTRACT
+  BRIEF
+  DOCUMENT
+  OTHER
+}
+
+model InfluencerFile {
+  id String @id @default(cuid())
+
+  influencerId String
+
+  type InfluencerFileType @default(OTHER)
+
+  title String?
+
+  originalFilename String
+  fileUrl          String
+  mimeType         String?
+  sizeBytes        Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  influencer InfluencerProfile @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+
+  @@index([influencerId, createdAt])
+  @@index([influencerId, type])
+}
+
+enum InfluencerPayoutBeneficiaryType {
+  INDIVIDUAL
+  PFA
+  COMPANY
+  OTHER
+}
+
+enum InfluencerPayoutVerificationStatus {
+  INCOMPLETE
+  COMPLETE
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+model InfluencerPayoutProfile {
+  id String @id @default(cuid())
+
+  influencerId String @unique
+
+  beneficiaryType InfluencerPayoutBeneficiaryType?
+
+  beneficiaryName String?
+
+  iban     String?
+  bankName String?
+
+  countryCode String @default("RO") @db.VarChar(2)
+
+  fiscalName         String?
+  taxId              String?
+  registrationNumber String?
+  fiscalAddress      String?
+  city               String?
+  postalCode         String?
+
+  isComplete Boolean @default(false)
+
+  verificationStatus InfluencerPayoutVerificationStatus @default(INCOMPLETE)
+  verifiedAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  influencer InfluencerProfile @relation(fields: [influencerId], references: [id], onDelete: Restrict)
+
+  @@index([verificationStatus])
 }
 
 model InfluencerInvite {
@@ -3237,6 +3549,153 @@ model InfluencerClick {
   @@index([influencerId, createdAt])
   @@index([sessionId])
   @@index([createdAt])
+}
+
+enum InfluencerResourceType {
+  PRODUCT_OF_DAY
+  ARTISAN_OF_WEEK
+  POST_IDEA
+  ARTFEST_FEATURE
+  CAMPAIGN
+  GENERIC
+}
+
+enum InfluencerResourceMediaType {
+  IMAGE
+  VIDEO
+}
+
+enum InfluencerResourceStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model InfluencerResource {
+  id String @id @default(cuid())
+
+  type InfluencerResourceType @default(GENERIC)
+
+  title       String
+  description String?
+
+  mediaType InfluencerResourceMediaType?
+  mediaUrl  String?
+
+  thumbnailUrl String?
+  targetUrl    String?
+
+  status InfluencerResourceStatus @default(DRAFT)
+
+  publishedAt DateTime?
+  expiresAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activities InfluencerResourceActivity[]
+
+  @@index([status, publishedAt])
+  @@index([type, status, publishedAt])
+  @@index([expiresAt])
+  @@index([createdAt])
+}
+
+model InfluencerResourceActivity {
+  id           String @id @default(cuid())
+  influencerId String
+  resourceId   String
+
+  lastPostedAt DateTime?
+  postedCount  Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  influencer InfluencerProfile  @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  resource   InfluencerResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([influencerId, resourceId])
+  @@index([influencerId, lastPostedAt])
+  @@index([resourceId])
+}
+
+/// ==================== Influencer earnings (ledger) ====================
+/// Mirror STRUCTURAL al VendorEarningEntry (idempotență prin shipmentId
+/// unic, tip SALE/REFUND), dar MODEL SEPARAT - un shipment poate avea
+/// simultan o intrare pentru vendor ȘI una pentru influencer, iar
+/// semantica (comision Artfest vs. remunerație influencer) nu trebuie
+/// amestecată într-un singur rând.
+enum InfluencerEarningType {
+  SALE
+  REFUND
+}
+
+model InfluencerEarningEntry {
+  id String @id @default(cuid())
+
+  influencerId String
+  shipmentId   String? @unique
+  orderId      String?
+  payoutId     String?
+
+  type InfluencerEarningType @default(SALE)
+
+  commissionBpsSnapshot Int
+
+  currency String @default("RON") @db.VarChar(8)
+
+  eligibleItemsNet Decimal @default(0) @db.Decimal(12, 2)
+
+  artfestCommissionNet Decimal @default(0) @db.Decimal(12, 2)
+
+  earningNet Decimal @default(0) @db.Decimal(12, 2)
+
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  meta Json?
+
+  influencer InfluencerProfile @relation(fields: [influencerId], references: [id], onDelete: Restrict)
+  shipment   Shipment?         @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  order      Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  payout     InfluencerPayout? @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+
+  @@index([influencerId, occurredAt])
+  @@index([influencerId, payoutId])
+  @@index([orderId])
+}
+
+model InfluencerPayout {
+  id String @id @default(cuid())
+
+  influencerId String
+
+  periodFrom DateTime
+  periodTo   DateTime
+
+  currency String @default("RON") @db.VarChar(8)
+
+  amount Decimal @default(0) @db.Decimal(12, 2)
+
+  invoiceId String? @unique
+
+  status InvoiceStatus @default(UNPAID)
+
+  issuedAt DateTime  @default(now())
+  paidAt   DateTime?
+
+  paymentReference String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  influencer InfluencerProfile @relation(fields: [influencerId], references: [id], onDelete: Restrict)
+  invoice    Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  entries InfluencerEarningEntry[]
+
+  @@index([influencerId, periodFrom, periodTo])
+  @@index([influencerId, status])
 }
 
 enum InfluencerStatus {
@@ -3299,6 +3758,7 @@ enum DiscountCodeScope {
   VENDOR_ALL_PRODUCTS
   SELECTED_PRODUCTS
   INFLUENCER_COLLECTION
+  VENDOR_COLLECTION
 }
 
 enum DiscountCodeType {
@@ -3331,6 +3791,7 @@ model DiscountCode {
 
   scope                  DiscountCodeScope
   influencerCollectionId String?
+  vendorCollectionId     String?
 
   discountType        DiscountCodeType @default(PERCENT)
   discountPercent     Int?
@@ -3362,6 +3823,7 @@ model DiscountCode {
   vendor               Vendor?               @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   influencer           InfluencerProfile?    @relation(fields: [influencerId], references: [id], onDelete: Cascade)
   influencerCollection InfluencerCollection? @relation(fields: [influencerCollectionId], references: [id], onDelete: SetNull)
+  vendorCollection     VendorCollection?     @relation(fields: [vendorCollectionId], references: [id], onDelete: SetNull)
   createdByUser        User?                 @relation("DiscountCodeCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   products    DiscountCodeProduct[]
@@ -3372,6 +3834,7 @@ model DiscountCode {
   @@index([vendorId, isActive])
   @@index([influencerId, isActive])
   @@index([influencerCollectionId])
+  @@index([vendorCollectionId])
   @@index([startsAt, endsAt])
   @@index([createdByUserId])
 }
@@ -3410,4 +3873,48 @@ model DiscountCodeRedemption {
   @@index([userId, createdAt])
   @@index([customerEmail, createdAt])
   @@index([orderId])
+}
+
+enum InfluencerCommissionAgreementStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  SUPERSEDED
+}
+
+model InfluencerCommissionAgreement {
+  id String @id @default(cuid())
+
+  influencerId String
+
+  commissionBps Int
+
+  status InfluencerCommissionAgreementStatus @default(PENDING)
+
+  agreementText String?
+
+  termsVersion String @default("1.0") @db.VarChar(32)
+
+  proposedByUserId String?
+
+  proposedAt DateTime @default(now())
+
+  acceptedAt   DateTime?
+  declinedAt   DateTime?
+  supersededAt DateTime?
+
+  acceptedIpHash    String? @db.VarChar(64)
+  acceptedUserAgent String? @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  influencer InfluencerProfile @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+
+  proposedByUser User? @relation("InfluencerCommissionAgreementProposedBy", fields: [proposedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([influencerId, status])
+  @@index([influencerId, proposedAt])
+  @@index([proposedByUserId])
+  @@index([status, proposedAt])
 }

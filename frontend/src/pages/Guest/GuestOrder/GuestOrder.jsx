@@ -128,6 +128,9 @@ function getDepositTitle(
     case "FAILED":
       return "Plata avansului nu a fost finalizată";
 
+    case "REFUNDED":
+      return "Avans rambursat";
+
     default:
       return "Avans";
   }
@@ -976,6 +979,21 @@ const isPaid =
     order?.paidAt
   );
 
+/*
+ * order.paidAt nu este niciodată șters la refund (istoric), deci
+ * isPaid rămâne adevărat și după o rambursare CARD integrală -
+ * derivăm starea de "rambursată" din statusul shipment-urilor
+ * (RETURNED/REFUSED), singurul semnal disponibil fără câmpuri noi.
+ */
+const isRefunded =
+  isCardPayment &&
+  shipments.length > 0 &&
+  shipments.every(
+    (s) =>
+      s?.status === "RETURNED" ||
+      s?.status === "REFUSED"
+  );
+
 const paymentPending =
   isCardPayment &&
   !isPaid;
@@ -1718,12 +1736,16 @@ const canRetryPayment =
         ...cardStyle,
 
         border:
-          isPaid
+          isRefunded
+            ? "1px solid rgba(153, 27, 27, 0.25)"
+            : isPaid
             ? "1px solid rgba(42, 135, 75, 0.25)"
             : "1px solid rgba(206, 143, 27, 0.25)",
 
         background:
-          isPaid
+          isRefunded
+            ? "#fef2f2"
+            : isPaid
             ? "#f4fbf6"
             : "#fffaf0",
       }}
@@ -1750,7 +1772,9 @@ const canRetryPayment =
 
         <div>
           <strong>
-            {isPaid
+            {isRefunded
+              ? "Plata a fost rambursată integral."
+              : isPaid
               ? "Plata a fost confirmată."
               : "Verificăm plata…"}
           </strong>
@@ -1843,13 +1867,16 @@ const canRetryPayment =
           Status:{" "}
 
           <strong>
-            {isPaid
+            {isRefunded
+              ? "Rambursată"
+              : isPaid
               ? "Achitată"
               : "În așteptarea plății"}
           </strong>
         </div>
 
         {isPaid &&
+          !isRefunded &&
           order?.paidAt && (
             <div
               style={{
@@ -2097,6 +2124,21 @@ const canRetryPayment =
                           }}
                         >
                           Termenul de plată al acestui avans a expirat.
+                        </p>
+                      )}
+
+                      {deposit.status ===
+                        "REFUNDED" && (
+                        <p
+                          style={{
+                            ...subtleStyle,
+
+                            margin:
+                              0,
+                          }}
+                        >
+                          Avansul plătit a fost rambursat. Restul de plată
+                          la livrare a fost actualizat corespunzător.
                         </p>
                       )}
                     </div>

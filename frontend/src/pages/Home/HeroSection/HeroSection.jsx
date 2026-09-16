@@ -1128,27 +1128,13 @@ function FeaturedSpotlight({
   artisan,
   onAnalytics,
 }) {
-  /*
-   * Produsul zilei e tabul inițial preferat - dar dacă la montare
-   * doar Artizanul e gata (cazul rar în care product-of-the-day
-   * întârzie), pornim direct pe "artisan" ca să nu arătăm un tab gol.
-   */
-  const [
-    activeTab,
-    setActiveTab,
-  ] = useState(
+  const [activeTab, setActiveTab] = useState(
     () => (product ? "product" : "artisan")
   );
 
   const bothReady = Boolean(product) && Boolean(artisan);
   const rotationStartedRef = useRef(false);
 
-  /*
-   * Dacă am pornit pe "artisan" (product încă nu era gata) și
-   * între timp product-ul a sosit, iar rotația nu a apucat încă să
-   * pornească, comutăm pe "product" - rămâne tabul inițial real, nu
-   * doar cel disponibil primul.
-   */
   useEffect(() => {
     if (
       product &&
@@ -1160,283 +1146,141 @@ function FeaturedSpotlight({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product]);
 
-  /*
-   * Rotația Produs <-> Artizan pornește DOAR când ambele sunt
-   * disponibile - nu rotim niciodată pe un tab gol/fallback lipsă.
-   * Dacă unul dintre ele nu ajunge vreodată (eroare reală), rămânem
-   * pe cel disponibil.
-   */
   useEffect(() => {
-    if (!bothReady) {
-      return undefined;
-    }
+    if (!bothReady) return undefined;
 
     rotationStartedRef.current = true;
 
-    const intervalId =
-      window.setInterval(
-        () => {
-          setActiveTab(
-            (current) =>
-              current ===
-              "product"
-                ? "artisan"
-                : "product"
-          );
-        },
-        2000
+    const intervalId = window.setInterval(() => {
+      setActiveTab((current) =>
+        current === "product" ? "artisan" : "product"
       );
+    }, 2000);
 
-    return () => {
-      window.clearInterval(
-        intervalId
-      );
-    };
+    return () => window.clearInterval(intervalId);
   }, [bothReady]);
 
-  const isProduct =
-    activeTab ===
-    "product";
+  const isProduct = activeTab === "product";
 
-  const productUrl =
-    getProductUrl(
-      product
-    );
-
+  const productUrl = getProductUrl(product);
   const artisanUrl =
     artisan?.ctaUrl ||
-    (
-      artisan?.profileSlug
-        ? `${STORE_PAGE_PREFIX}/${encodeURIComponent(
-            artisan.profileSlug
-          )}`
-        : "/magazine"
-    );
+    (artisan?.profileSlug
+      ? `${STORE_PAGE_PREFIX}/${encodeURIComponent(artisan.profileSlug)}`
+      : "/magazine");
 
   const productTitle =
-    product?.title ||
-    "Descoperă produsul zilei";
+    product?.title || "Descoperă produsul zilei";
 
   const artisanTitle =
     artisan?.title ||
     artisan?.displayName ||
     "Artizan recomandat Artfest";
 
- const productCurrency =
-  product?.currency ||
-  "RON";
+  const productCurrency = product?.currency || "RON";
 
-const originalProductPrice =
-  formatMoney(
-    Number.isFinite(
-      Number(
-        product?.originalPriceCents
-      )
-    )
-      ? Number(
-          product.originalPriceCents
-        ) / 100
-      : Number.isFinite(
-          Number(
-            product?.priceCents
-          )
-        )
-        ? Number(
-            product.priceCents
-          ) / 100
+  const originalProductPrice = formatMoney(
+    Number.isFinite(Number(product?.originalPriceCents))
+      ? Number(product.originalPriceCents) / 100
+      : Number.isFinite(Number(product?.priceCents))
+        ? Number(product.priceCents) / 100
         : product?.price,
-
     productCurrency
   );
 
-const discountedProductPrice =
-  formatMoney(
-    Number.isFinite(
-      Number(
-        product?.discountedPriceCents
-      )
-    )
-      ? Number(
-          product.discountedPriceCents
-        ) / 100
-      : Number.isFinite(
-          Number(
-            product?.priceCents
-          )
-        )
-        ? Number(
-            product.priceCents
-          ) / 100
+  const discountedProductPrice = formatMoney(
+    Number.isFinite(Number(product?.discountedPriceCents))
+      ? Number(product.discountedPriceCents) / 100
+      : Number.isFinite(Number(product?.priceCents))
+        ? Number(product.priceCents) / 100
         : product?.price,
-
     productCurrency
   );
 
-const productDiscount =
-  product?.discount ||
-  product?.feature ||
-  {};
-
-const productDiscountPercent =
-  Number(
-    productDiscount
-      ?.totalDiscountPercent ||
-      0
+  const productDiscount = product?.discount || product?.feature || {};
+  const productDiscountPercent = Number(
+    productDiscount?.totalDiscountPercent || 0
   );
 
-const productHasDiscount =
-  product?.quoteOnly !== true &&
-  productDiscount?.active === true &&
-  productDiscount?.eligible !== false &&
-  productDiscountPercent > 0 &&
-  Number(
-    product?.discountedPriceCents
-  ) <
-    Number(
-      product?.originalPriceCents ??
-        product?.priceCents
+  const productHasDiscount =
+    product?.quoteOnly !== true &&
+    productDiscount?.active === true &&
+    productDiscount?.eligible !== false &&
+    productDiscountPercent > 0 &&
+    Number(product?.discountedPriceCents) <
+      Number(product?.originalPriceCents ?? product?.priceCents);
+
+  const artisanDiscount = artisan?.discount || artisan?.feature || {};
+  const artisanDiscountPercent = Number(
+    artisanDiscount?.totalDiscountPercent || 0
+  );
+  const artisanHasDiscount =
+    artisanDiscount?.active === true && artisanDiscountPercent > 0;
+
+  const activeTitle = isProduct ? productTitle : artisanTitle;
+
+  const activeDescription = isProduct
+    ? product?.description ||
+      product?.subtitle ||
+      "O selecție Artfest aleasă pentru inspirație, cadouri și momente speciale."
+    : artisan?.description ||
+      "Descoperă un atelier românesc și creații realizate cu grijă, în serii mici.";
+
+  const activeCategory = isProduct
+    ? product?.storeName || product?.subtitle || "Selecția Artfest"
+    : artisan?.category || artisan?.subtitle || "Creator român";
+
+  const handlePrimaryClick = () => {
+    onAnalytics?.(
+      isProduct ? "product_of_day_click" : "featured_artisan_click",
+      {
+        id: isProduct ? product?.id : artisan?.id,
+        title: activeTitle,
+        placement: "homepage_featured_spotlight",
+      }
     );
-
-const artisanDiscount =
-  artisan?.discount ||
-  artisan?.feature ||
-  {};
-
-const artisanDiscountPercent =
-  Number(
-    artisanDiscount
-      ?.totalDiscountPercent ||
-      0
-  );
-
-const artisanHasDiscount =
-  artisanDiscount?.active === true &&
-  artisanDiscountPercent > 0;
-
-  const activeTitle =
-    isProduct
-      ? productTitle
-      : artisanTitle;
-
-  const activeDescription =
-    artisan?.description ||
-    "Descoperă un atelier românesc și creații realizate cu grijă, în serii mici.";
-
-  const activeEyebrow =
-    isProduct
-      ? "Produsul zilei"
-      : "Artizanul săptămânii";
-
-  const activeCategory =
-    isProduct
-      ? (
-          product?.storeName ||
-          product?.subtitle ||
-          "Selecția Artfest"
-        )
-      : (
-          artisan?.category ||
-          artisan?.subtitle ||
-          "Creator român"
-        );
-
-  const handlePrimaryClick =
-    () => {
-      onAnalytics?.(
-        isProduct
-          ? "product_of_day_click"
-          : "featured_artisan_click",
-
-        {
-          id:
-            isProduct
-              ? product?.id
-              : artisan?.id,
-
-          title:
-            activeTitle,
-
-          placement:
-            "homepage_featured_spotlight",
-        }
-      );
-    };
+  };
 
   return (
     <section
-      className={
-        styles.spotlightSection
-      }
+      className={styles.spotlightSection}
       aria-labelledby="spotlight-title"
     >
-      <article
-        className={
-          styles.spotlightCard
-        }
-      >
-        {isProduct ? (
-          <SpotlightProductGallery
-            product={
-              product
-            }
-            title={
-              productTitle
-            }
-            productUrl={
-              productUrl
-            }
-            onClick={
-              handlePrimaryClick
-            }
-          />
-        ) : (
-          <div
-            className={
-              styles.spotlightMedia
-            }
-          >
-            <Link
-              to={
-                artisanUrl
-              }
-              className={
-                styles.spotlightImageLink
-              }
-              onClick={
-                handlePrimaryClick
-              }
-            >
-              <img
-                src={
-                  resolvePrimaryImage(
-                    artisan
-                  ) ||
-                  imageMain
-                }
-                alt={
-                  artisanTitle
-                }
-                className={
-                  styles.spotlightImage
-                }
-                loading="eager"
-                decoding="async"
-                fetchPriority="high"
-              />
-            </Link>
-          </div>
-        )}
+      <article className={styles.spotlightCard}>
+        <div className={styles.spotlightVisual}>
+          {isProduct ? (
+            <SpotlightProductGallery
+              product={product}
+              title={productTitle}
+              productUrl={productUrl}
+              onClick={handlePrimaryClick}
+            />
+          ) : (
+            <div className={styles.spotlightMedia}>
+              <Link
+                to={artisanUrl}
+                className={styles.spotlightImageLink}
+                onClick={handlePrimaryClick}
+              >
+                <img
+                  src={resolvePrimaryImage(artisan) || imageMain}
+                  alt={artisanTitle}
+                  className={styles.spotlightImage}
+                  loading="eager"
+                  decoding="async"
+                  fetchPriority="high"
+                />
+              </Link>
+            </div>
+          )}
 
-        <div
-          className={
-            styles.spotlightContent
-          }
-        >
-          <div
-            className={
-              styles.spotlightTabs
-            }
-          >
+          <span className={styles.spotlightImageLabel}>
+            {isProduct ? "Produsul zilei" : "Artizanul săptămânii"}
+          </span>
+        </div>
+
+        <div className={styles.spotlightContent}>
+          <div className={styles.spotlightTabs}>
             <button
               type="button"
               className={
@@ -1444,11 +1288,7 @@ const artisanHasDiscount =
                   ? `${styles.spotlightTab} ${styles.spotlightTabActive}`
                   : styles.spotlightTab
               }
-              onClick={() =>
-                setActiveTab(
-                  "product"
-                )
-              }
+              onClick={() => setActiveTab("product")}
             >
               Produsul zilei
             </button>
@@ -1460,133 +1300,52 @@ const artisanHasDiscount =
                   ? `${styles.spotlightTab} ${styles.spotlightTabActive}`
                   : styles.spotlightTab
               }
-              onClick={() =>
-                setActiveTab(
-                  "artisan"
-                )
-              }
+              onClick={() => setActiveTab("artisan")}
             >
               Artizanul săptămânii
             </button>
           </div>
 
-          <span
-            className={
-              styles.spotlightEyebrow
-            }
-          >
+          <div className={styles.spotlightEditorialLabel}>
             {isProduct ? (
-              <FaStar
-                aria-hidden="true"
-              />
+              <FaStar aria-hidden="true" />
             ) : (
-              <FaStore
-                aria-hidden="true"
-              />
+              <FaStore aria-hidden="true" />
             )}
+            <span>Selecția Artfest</span>
+          </div>
 
-            {activeEyebrow}
-          </span>
+          <span className={styles.spotlightCategory}>{activeCategory}</span>
 
-        <span
-  className={
-    styles.spotlightCategory
-  }
->
-  {activeCategory}
-</span>
-
-{isProduct &&
-  productHasDiscount && (
-    <span
-      className={
-        styles.spotlightDiscountBadge
-      }
-    >
-      Reducere{" "}
-      {
-        productDiscountPercent
-      }
-      %
-    </span>
-  )}
-
-{!isProduct &&
-  artisanHasDiscount && (
-    <span
-      className={
-        styles.spotlightDiscountBadge
-      }
-    >
-      Reducere{" "}
-      {
-        artisanDiscountPercent
-      }
-      % la produsele magazinului
-    </span>
-  )}
-
-          <h2
-            id="spotlight-title"
-            className={
-              styles.spotlightTitle
-            }
-          >
+          <h2 id="spotlight-title" className={styles.spotlightTitle}>
             <Link
-              to={
-                isProduct
-                  ? productUrl
-                  : artisanUrl
-              }
-              onClick={
-                handlePrimaryClick
-              }
+              to={isProduct ? productUrl : artisanUrl}
+              onClick={handlePrimaryClick}
             >
               {activeTitle}
             </Link>
           </h2>
 
-          {!isProduct && (
-            <p
-              className={
-                styles.spotlightDescription
-              }
-            >
-              {activeDescription}
-            </p>
-          )}
+          <p className={styles.spotlightDescription}>{activeDescription}</p>
 
-          <div
-            className={
-              styles.spotlightMeta
-            }
-          >
+          <div className={styles.spotlightMeta}>
             {isProduct ? (
               <>
                 {product?.personalizable && (
                   <span>
-                    <FaCheckCircle
-                      aria-hidden="true"
-                    />
-
+                    <FaCheckCircle aria-hidden="true" />
                     Personalizabil
                   </span>
                 )}
 
                 <span>
-                  <FaCheckCircle
-                    aria-hidden="true"
-                  />
-
+                  <FaCheckCircle aria-hidden="true" />
                   Creator verificat
                 </span>
 
                 {product?.city && (
                   <span>
-                    <FaMapMarkerAlt
-                      aria-hidden="true"
-                    />
-
+                    <FaMapMarkerAlt aria-hidden="true" />
                     {product.city}
                   </span>
                 )}
@@ -1595,32 +1354,20 @@ const artisanHasDiscount =
               <>
                 {artisan?.city && (
                   <span>
-                    <FaMapMarkerAlt
-                      aria-hidden="true"
-                    />
-
+                    <FaMapMarkerAlt aria-hidden="true" />
                     {artisan.city}
                   </span>
                 )}
 
                 <span>
-                  <FaCheckCircle
-                    aria-hidden="true"
-                  />
-
+                  <FaCheckCircle aria-hidden="true" />
                   Magazin verificat
                 </span>
 
                 {artisan?.productsCount && (
                   <span>
-                    <FaStore
-                      aria-hidden="true"
-                    />
-
-                    {
-                      artisan.productsCount
-                    }{" "}
-                    produse
+                    <FaStore aria-hidden="true" />
+                    {artisan.productsCount} produse
                   </span>
                 )}
               </>
@@ -1628,113 +1375,53 @@ const artisanHasDiscount =
           </div>
 
           <div
-            className={
-              styles.spotlightFooter
-            }
+            className={`${styles.spotlightFooter} ${
+              !isProduct ? styles.spotlightFooterArtisan : ""
+            }`}
           >
-            {isProduct && (
-  product?.quoteOnly ? (
-    <strong
-      className={
-        styles.spotlightPrice
-      }
-    >
-      Preț la cerere
-    </strong>
-  ) : productHasDiscount ? (
-    <div
-      className={
-        styles.spotlightPriceGroup
-      }
-    >
-      <span
-        className={
-          styles.spotlightOldPrice
-        }
-      >
-        {
-          originalProductPrice
-        }
-      </span>
+            <div className={styles.spotlightOfferArea}>
+              {isProduct &&
+                (product?.quoteOnly ? (
+                  <strong className={styles.spotlightPrice}>
+                    Preț la cerere
+                  </strong>
+                ) : productHasDiscount ? (
+                  <div className={styles.spotlightPriceGroup}>
+                    <strong className={styles.spotlightDiscountedPrice}>
+                      {discountedProductPrice}
+                    </strong>
 
-      <strong
-        className={
-          styles.spotlightDiscountedPrice
-        }
-      >
-        {
-          discountedProductPrice
-        }
-      </strong>
+                    <span className={styles.spotlightOldPrice}>
+                      {originalProductPrice}
+                    </span>
 
-      <span
-        className={
-          styles.spotlightDiscountNote
-        }
-      >
-        Reducere totală{" "}
-        {
-          productDiscountPercent
-        }
-        %
-      </span>
-    </div>
-  ) : (
-    originalProductPrice && (
-      <strong
-        className={
-          styles.spotlightPrice
-        }
-      >
-        {
-          originalProductPrice
-        }
-      </strong>
-    )
-  )
-)}
+                    <span className={styles.spotlightDiscountBadge}>
+                      -{productDiscountPercent}%
+                    </span>
+                  </div>
+                ) : (
+                  originalProductPrice && (
+                    <strong className={styles.spotlightPrice}>
+                      {originalProductPrice}
+                    </strong>
+                  )
+                ))}
 
-{!isProduct &&
-  artisanHasDiscount && (
-    <div
-      className={
-        styles.spotlightArtisanDiscount
-      }
-    >
-      <strong>
-        {
-          artisanDiscountPercent
-        }
-        % reducere
-      </strong>
-
-      <span>
-        la produsele eligibile ale
-        acestui magazin
-      </span>
-    </div>
-  )}
+              {!isProduct && artisanHasDiscount && (
+                <div className={styles.spotlightArtisanDiscount}>
+                  <strong>-{artisanDiscountPercent}% săptămâna aceasta</strong>
+                  <span>la produsele eligibile ale magazinului</span>
+                </div>
+              )}
+            </div>
 
             <Link
-              to={
-                isProduct
-                  ? productUrl
-                  : artisanUrl
-              }
-              className={
-                styles.spotlightCta
-              }
-              onClick={
-                handlePrimaryClick
-              }
+              to={isProduct ? productUrl : artisanUrl}
+              className={styles.spotlightCta}
+              onClick={handlePrimaryClick}
             >
-              {isProduct
-                ? "Vezi produsul"
-                : "Descoperă magazinul"}
-
-              <FaArrowRight
-                aria-hidden="true"
-              />
+              {isProduct ? "Vezi produsul" : "Descoperă magazinul"}
+              <FaArrowRight aria-hidden="true" />
             </Link>
           </div>
         </div>
@@ -1742,6 +1429,7 @@ const artisanHasDiscount =
     </section>
   );
 }
+
 
 /* =========================================================
    PARTENER
@@ -1753,58 +1441,29 @@ function PartnerBar({
   onAnalytics,
 }) {
   return (
-    <section
-      className={
-        styles.partnerBar
-      }
-      aria-label="Vinde pe Artfest"
-    >
-      <div
-        className={
-          styles.partnerBarInner
-        }
-      >
-        <div
-          className={
-            styles.partnerCopy
-          }
-        >
-          <span
-            className={
-              styles.partnerIcon
-            }
-            aria-hidden="true"
-          >
-            🎨
+    <section className={styles.partnerBar} aria-label="Vinde pe Artfest">
+      <div className={styles.partnerBarInner}>
+        <div className={styles.partnerCopy}>
+          <span className={styles.partnerIcon} aria-hidden="true">
+            <FaStore />
           </span>
 
           <div>
-            <strong>
-              Creezi produse handmade?
-            </strong>
-
-            <span>
-              Deschide-ți magazinul și
-              ajungi mai ușor la
-              clienții potriviți.
+            <span className={styles.partnerKicker}>Pentru creatori</span>
+            <strong>Creezi produse handmade?</strong>
+            <span className={styles.partnerDescription}>
+              Deschide-ți magazinul pe Artfest și ajungi mai ușor la clienții
+              care caută produse originale și personalizate.
             </span>
           </div>
         </div>
 
-        <div
-          className={
-            styles.partnerActions
-          }
-        >
+        <div className={styles.partnerActions}>
           {ambassador?.referralLink && (
             <button
               type="button"
-              className={
-                styles.ambassadorButton
-              }
-              onClick={
-                onCopyAmbassadorLink
-              }
+              className={styles.ambassadorButton}
+              onClick={onCopyAmbassadorLink}
             >
               Invită un creator
             </button>
@@ -1812,30 +1471,22 @@ function PartnerBar({
 
           <Link
             to="/?auth=register&as=partner"
-            className={
-              styles.partnerCta
-            }
+            className={styles.partnerCta}
             onClick={() =>
-              onAnalytics?.(
-                "partner_cta_click",
-                {
-                  placement:
-                    "homepage_partner_bar",
-                }
-              )
+              onAnalytics?.("partner_cta_click", {
+                placement: "homepage_partner_bar",
+              })
             }
           >
-            Devino partener
-
-            <FaArrowRight
-              aria-hidden="true"
-            />
+            Deschide magazin gratuit
+            <FaArrowRight aria-hidden="true" />
           </Link>
         </div>
       </div>
     </section>
   );
 }
+
 
 /* =========================================================
    COMPONENTA PRINCIPALĂ

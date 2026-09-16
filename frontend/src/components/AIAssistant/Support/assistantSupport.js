@@ -78,6 +78,20 @@ export const SUPPORT_ACTIONS = {
 
   FAQ_RESOLVED:
     "support-faq-resolved",
+
+  /*
+   * FAZA 4 (Support × AiAssistant - navigare) - CTA-uri care
+   * navighează la pagina REALĂ (nu deschid inline, în chat, ca
+   * OPEN_TICKET) - rezolvate prin assistantActionRegistry.js
+   * (USER_SUPPORT_TICKETS / OPEN_SUPPORT_TICKET), intercepate în
+   * AiAssistant.jsx ÎNAINTE de handleSupportChoice (acest modul nu are
+   * acces la useNavigate).
+   */
+  OPEN_SUPPORT_PAGE:
+    "support-open-page",
+
+  OPEN_SUPPORT_TICKET_PAGE:
+    "support-open-ticket-page",
 };
 
 /* =========================================================
@@ -375,6 +389,48 @@ function createOpenTicketChoice(
   };
 }
 
+/*
+ * FAZA 4: alături de "Deschide conversația" (inline, în chat) - un CTA
+ * separat care navighează la pagina reală de suport
+ * (/account/support/tickets/:ticketId). Doar pentru USER autentificat -
+ * apelantul (submitSupportMessage/retrySupportOperation) îl adaugă
+ * NUMAI când `canOpenConversation` e true, deci GUEST nu-l primește
+ * niciodată (GUEST nu are cont/rută persistentă pentru tichete).
+ */
+function createOpenTicketPageChoice(
+  ticket
+) {
+  return {
+    id:
+      `${ticket.id}-page`,
+
+    ticketId:
+      ticket.id,
+
+    action:
+      SUPPORT_ACTIONS.OPEN_SUPPORT_TICKET_PAGE,
+
+    label:
+      "Deschide tichetul",
+  };
+}
+
+/*
+ * FAZA 4: "Vezi toate" - trailing choice pe lista de tichete, navighează
+ * la pagina reală de suport (lista completă). Adăugat DOAR când există
+ * cel puțin un tichet (nu are sens lângă starea goală, care are deja
+ * propriul CTA "Creează o solicitare").
+ */
+function createOpenSupportPageChoice() {
+  return {
+    action:
+      SUPPORT_ACTIONS.OPEN_SUPPORT_PAGE,
+
+    label:
+      "Vezi toate în pagina de suport",
+  };
+}
+
 function createArchiveTicketChoice(
   ticket
 ) {
@@ -558,8 +614,8 @@ export async function loadSupportTickets({
           emptyActionLabel:
             "Creează o solicitare",
 
-          choices:
-            result.hasMore
+          choices: [
+            ...(result.hasMore
               ? [
                   {
                     action:
@@ -572,7 +628,16 @@ export async function loadSupportTickets({
                       result.nextOffset,
                   },
                 ]
-              : [],
+              : []),
+
+            /*
+             * FAZA 4: "Vezi toate" - doar dacă există măcar un tichet
+             * (starea goală are deja propriul CTA, emptyActionLabel).
+             */
+            ...(result.items.length > 0
+              ? [createOpenSupportPageChoice()]
+              : []),
+          ],
         }
       )
     );
@@ -763,6 +828,13 @@ export async function openSupportTicket({
                   },
                 ]
               : []),
+
+            /*
+             * FAZA 4: "Deschide tichetul" (pagina reală) - disponibil
+             * indiferent de status (inclusiv CLOSED - un tichet închis
+             * tot trebuie să poată fi văzut pe pagina completă).
+             */
+            createOpenTicketPageChoice(normalizedTicket),
 
             ...(!isClosed
               ? [
@@ -1137,6 +1209,7 @@ addMessage(
         result.canOpenConversation
           ? [
               createOpenTicketChoice(ticket),
+              createOpenTicketPageChoice(ticket),
             ]
           : [],
     }
@@ -1823,6 +1896,9 @@ addMessage(
         result.canOpenConversation
           ? [
               createOpenTicketChoice(
+                ticket
+              ),
+              createOpenTicketPageChoice(
                 ticket
               ),
             ]

@@ -1789,6 +1789,17 @@ quoteSchema: [],
               careInstructions: "",
               specialNotes: "",
 
+              isOwnManufacturer: null,
+              manufacturerName: "",
+              manufacturerAddress: "",
+              manufacturerEmail: "",
+              manufacturerInEU: null,
+              responsiblePersonName: "",
+              responsiblePersonAddress: "",
+              responsiblePersonEmail: "",
+              safetyWarnings: null,
+              isForChildren: null,
+
               orderMode:
                 "READY_TO_BUY",
 

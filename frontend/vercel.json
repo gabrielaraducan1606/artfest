@@ -30,6 +30,38 @@
       "destination": "https://artfest.onrender.com/legal/:path*"
     },
     {
+      "source": "/termenii-si-conditiile",
+      "destination": "https://artfest.onrender.com/termenii-si-conditiile"
+    },
+    {
+      "source": "/confidentialitate",
+      "destination": "https://artfest.onrender.com/confidentialitate"
+    },
+    {
+      "source": "/cookies",
+      "destination": "https://artfest.onrender.com/cookies"
+    },
+    {
+      "source": "/acord-vanzatori",
+      "destination": "https://artfest.onrender.com/acord-vanzatori"
+    },
+    {
+      "source": "/acord-influenceri",
+      "destination": "https://artfest.onrender.com/acord-influenceri"
+    },
+    {
+      "source": "/politica-retur",
+      "destination": "https://artfest.onrender.com/politica-retur"
+    },
+    {
+      "source": "/anexa-expediere",
+      "destination": "https://artfest.onrender.com/anexa-expediere"
+    },
+    {
+      "source": "/anexa-produse",
+      "destination": "https://artfest.onrender.com/anexa-produse"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

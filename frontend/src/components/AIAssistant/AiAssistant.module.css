@@ -141,16 +141,13 @@
    Header
 ========================================= */
 
-.artfest-assistant-header {
+.assistantHeader {
   display: flex;
-  min-height: 72px;
+  flex-direction: column;
   flex-shrink: 0;
+  gap: 2px;
 
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-
-  padding: 12px 14px;
+  padding: 14px 16px;
 
   background:
     linear-gradient(
@@ -166,38 +163,32 @@
   user-select: none;
 }
 
-.artfest-assistant-header:active {
+.assistantHeader:active {
   cursor: grabbing;
 }
 
-/* Grupul din stânga */
-
-.artfest-assistant-header > div:first-child {
+.assistantHeaderTop {
   display: flex;
   min-width: 0;
+
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.assistantIdentity {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+
   align-items: center;
   gap: 10px;
 }
 
-/* Icon drag */
-
-.artfest-assistant-header > div:first-child > span {
+.assistantIcon {
   display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-
-  color: rgba(255, 255, 255, 0.7);
-}
-
-/* Avatar */
-
-.artfest-assistant-header
-  > div:first-child
-  > div:nth-child(2) {
-  display: flex;
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
 
   align-items: center;
@@ -210,16 +201,15 @@
   backdrop-filter: blur(8px);
 }
 
-/* Titlu */
-
-.artfest-assistant-header h2 {
+.assistantTitle {
   margin: 0;
+  min-width: 0;
 
   overflow: hidden;
 
   color: #ffffff;
 
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   line-height: 1.25;
 
@@ -227,30 +217,33 @@
   white-space: nowrap;
 }
 
-/* Subtitlu */
+.assistantSubtitle {
+  margin: 0;
 
-.artfest-assistant-header p {
-  margin: 3px 0 0;
+  overflow: hidden;
 
-  color: rgba(255, 255, 255, 0.76);
+  color: rgba(255, 255, 255, 0.8);
+  opacity: 0.8;
 
-  font-size: 11px;
-  line-height: 1.25;
+  font-size: 12px;
+  line-height: 1.3;
+
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Butoanele header */
-
-.artfest-assistant-header > div:last-child {
+.assistantHeaderActions {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: 4px;
 }
 
-.artfest-assistant-header button {
+.assistantHeaderButton {
   display: flex;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
 
   align-items: center;
   justify-content: center;
@@ -259,7 +252,7 @@
   padding: 0;
 
   border: 0;
-  border-radius: 50%;
+  border-radius: 10px;
 
   background: transparent;
   color: #ffffff;
@@ -271,12 +264,65 @@
     transform 160ms ease;
 }
 
-.artfest-assistant-header button:hover {
-  background: rgba(255, 255, 255, 0.16);
+.assistantHeaderButton:hover {
+  background: rgba(255, 255, 255, 0.12);
 }
 
-.artfest-assistant-header button:active {
+.assistantHeaderButton:active {
   transform: scale(0.94);
+}
+
+/* =========================================
+   Mesaj introductiv scurt (FAZA 7)
+
+   Text static, randat DUPĂ quick actions - NU un mesaj din
+   `messages` (nu intră în istoricul conversației) - fundal discret,
+   nu o bulă de chat mare.
+========================================= */
+
+.assistantIntroText {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+
+  border-radius: 12px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 6%,
+      var(--color-bg, #fafafa)
+    );
+
+  color: var(--color-muted, #6b7280);
+
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+@media (max-width: 700px) {
+  .assistantIntroText {
+    display: -webkit-box;
+    overflow: hidden;
+
+    padding: 9px 11px;
+
+    font-size: 13px;
+
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+}
+
+/* Linia discretă de sub helper text ("Poți și să scrii liber...") */
+
+.assistantIntroHint {
+  margin: 6px 2px 0;
+
+  color: var(--color-muted, #6b7280);
+
+  font-size: 11px;
+  line-height: 1.35;
+  opacity: 0.75;
 }
 
 /* =========================================
@@ -904,15 +950,51 @@
    Mobil
 ========================================= */
 
+/*
+ * Header - breakpoint separat (700px), cerut explicit (FAZA 6,
+ * refacere header), mai larg decât cel general de mai jos (640px).
+ */
+@media (max-width: 700px) {
+  .assistantHeader {
+    padding: 10px 12px;
+  }
+
+  .assistantIcon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .assistantTitle {
+    font-size: 15px;
+  }
+
+  .assistantSubtitle {
+    font-size: 11.5px;
+  }
+
+  .assistantHeaderActions {
+    flex-shrink: 0;
+  }
+
+  .assistantHeaderButton {
+    width: 30px;
+    height: 30px;
+  }
+}
+
+/* Sub 340px, spațiul din rândul 1 e prea strâns pentru toate cele 3
+   elemente (icon + titlu + acțiuni) fără să comprime titlul - ascunde
+   întâi refresh-ul (păstrăm doar minimize/close), nu titlul. */
+@media (max-width: 340px) {
+  .assistantRefreshButton {
+    display: none;
+  }
+}
+
 @media (max-width: 640px) {
   .artfest-assistant-panel {
     border-radius: 20px;
     transform-origin: bottom center;
-  }
-
-  .artfest-assistant-header {
-    min-height: 66px;
-    padding: 10px 12px;
   }
 
   .artfest-assistant-conversation {
@@ -951,6 +1033,17 @@
   .artfest-assistant-form button {
     transition: none !important;
   }
+}
+
+/* Rol afișat discret în panou, deasupra quick actions - înlocuiește
+   badge-ul de rol scos din header (vezi ActionMenu.jsx: roleHint). */
+
+.assistantPanelRoleHint {
+  margin: 0 0 8px;
+  color: var(--color-muted, #6b7280);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .quickActions {
@@ -1713,5 +1806,365 @@
   .quoteChoiceImage img,
   .quoteChoiceArrow {
     transition: none !important;
+  }
+}
+
+/* =========================================================
+   FAZA 5 - POLISH VIZUAL INFLUENCER (doar prezentare)
+========================================================= */
+
+/* =========================================
+   Quick actions compacte, grupate (pills)
+========================================= */
+
+.quickActionsCompact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quickActionsGroupTitle {
+  margin: 12px 0 7px;
+  color: var(--color-muted, #6b7280);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.quickActionsGroupTitle:first-child {
+  margin-top: 2px;
+}
+
+.quickActionsPillGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.quickActionPill {
+  display: flex;
+  min-height: 74px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  gap: 6px;
+
+  margin: 0;
+  padding: 10px 6px;
+
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: 14px;
+
+  background: var(--surface, #ffffff);
+  color: var(--color-text, #2d2d2d);
+
+  text-align: center;
+
+  cursor: pointer;
+
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.quickActionPill:hover {
+  transform: translateY(-2px);
+
+  border-color:
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 55%,
+      var(--color-border, #e5e5e5)
+    );
+
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+}
+
+.quickActionPill:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.quickActionPillIcon {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 10px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 12%,
+      var(--surface, #ffffff)
+    );
+
+  color: var(--color-primary, #8b5cf6);
+}
+
+.quickActionPillLabel {
+  display: -webkit-box;
+  overflow: hidden;
+
+  color: var(--color-text, #2d2d2d);
+
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.25;
+
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* =========================================
+   CTA-uri (butoane reale, nu link-uri text)
+========================================= */
+
+.influencerCta {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+
+  margin: 0;
+  padding: 9px 16px;
+
+  border-radius: 11px;
+
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+
+  cursor: pointer;
+
+  transition:
+    transform 160ms ease,
+    opacity 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.influencerCtaPrimary {
+  border: 0;
+
+  background:
+    linear-gradient(
+      135deg,
+      var(--color-primary, #8b5cf6),
+      var(--color-hover, #7c3aed)
+    );
+
+  color: #ffffff;
+}
+
+.influencerCtaPrimary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(124, 58, 237, 0.28);
+}
+
+.influencerCtaSecondary {
+  border: 1px solid var(--color-border, #e5e5e5);
+  background: var(--surface, #ffffff);
+  color: var(--color-text, #2d2d2d);
+}
+
+.influencerCtaSecondary:hover {
+  border-color: var(--color-primary, #8b5cf6);
+  color: var(--color-primary, #8b5cf6);
+}
+
+.influencerCta:active {
+  transform: scale(0.98);
+}
+
+.influencerCtaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* =========================================
+   Mini-carduri recomandare ("Ce fac azi?")
+========================================= */
+
+.influencerRecommendations {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: 100%;
+}
+
+.influencerRecCard {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+
+  align-items: center;
+  gap: 11px;
+
+  padding: 12px;
+
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: 15px;
+
+  background: var(--surface, #ffffff);
+
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
+}
+
+.influencerRecIcon {
+  display: flex;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 11px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 12%,
+      var(--surface, #ffffff)
+    );
+
+  color: var(--color-primary, #8b5cf6);
+}
+
+.influencerRecBody {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 160px;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.influencerRecTitle {
+  color: var(--color-text, #2d2d2d);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.influencerRecReason {
+  color: var(--color-muted, #6b7280);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.influencerRecCard .influencerCta {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* =========================================
+   Card evidențiere date live (câștig/comenzi/cod/colecții)
+========================================= */
+
+.influencerHighlightCard {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.influencerHighlightRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+
+  padding: 9px 0;
+}
+
+.influencerHighlightRow + .influencerHighlightRow {
+  border-top: 1px solid var(--color-border, #e5e5e5);
+}
+
+.influencerHighlightLabel {
+  min-width: 0;
+  overflow: hidden;
+
+  color: var(--color-muted, #6b7280);
+
+  font-size: 11.5px;
+  font-weight: 600;
+
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.influencerHighlightValue {
+  flex-shrink: 0;
+
+  color: var(--color-text, #2d2d2d);
+
+  font-size: 14px;
+  font-weight: 800;
+}
+
+/* =========================================
+   Loading "Mă uit în contul tău..."
+========================================= */
+
+.influencerLoadingHint {
+  color: var(--color-muted, #6b7280);
+  font-size: 11px;
+}
+
+/* =========================================
+   Mobil - quick actions + CTA-uri influencer
+========================================= */
+
+@media (max-width: 700px) {
+  .quickActionsPillGrid {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+
+    gap: 8px;
+    margin: 0 -13px;
+    padding: 2px 13px 6px;
+
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .quickActionPill {
+    width: 86px;
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  .influencerRecCard {
+    padding: 11px;
+  }
+
+  .influencerRecCard .influencerCta,
+  .influencerCtaRow .influencerCta {
+    width: 100%;
+    min-height: 44px;
+    margin-left: 0;
+  }
+
+  .influencerCtaRow {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 400px) {
+  .quickActionPill {
+    width: 78px;
+    min-height: 70px;
   }
 }

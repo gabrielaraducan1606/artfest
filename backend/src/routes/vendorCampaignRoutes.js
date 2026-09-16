@@ -17,6 +17,20 @@ import {
   getVendorCampaignRoute,
 } from "../ai/manifests/vendorCampaigns.manifest.js";
 
+import {
+  getCampaignStats,
+} from "../services/vendorAttributionStats.js";
+
+import {
+  computeVendorEarningForShipment,
+} from "./vendorOrdersRoutes.js";
+
+import {
+  MAX_TOTAL_DISCOUNT_PERCENT,
+  computeFundingFields,
+  splitDiscountPercentForDisplay,
+} from "./vendorDiscountCodesRoutes.js";
+
 const router =
   express.Router();
 
@@ -24,12 +38,32 @@ const router =
    CONFIG
 ========================================================= */
 
-const ALLOWED_DISCOUNTS = [
-  0,
-  5,
-  10,
-  15,
-];
+export { MAX_TOTAL_DISCOUNT_PERCENT };
+
+/*
+ * REGULA FINALĂ DE BUSINESS (audit 2026-09-14): VendorCampaign e
+ * tehnic DOAR OWN-SALE (validateOwnedProducts mai jos impune strict
+ * produse proprii - nu există niciun scenariu cross-vendor pentru
+ * campanii). De aceea UN SINGUR câmp discount (0-50%), 100% suportat
+ * de vendor - NU mai există split Artfest/Vendor în UI-ul nou pentru
+ * campanii NOI (spre deosebire de audit 2026-09-13, rundă anterioară).
+ *
+ * Câmpurile Prisma platformFundingBps/vendorFundingBps/fundingSource
+ * RĂMÂN pe model (backward compatibility, cerut explicit) - campanii
+ * VECHI cu split SHARED real (create în runda anterioară) își păstrează
+ * afișarea corectă prin splitDiscountPercentForDisplay, fără backfill.
+ * Pentru campanii NOI, computeFundingFields e apelat mereu cu
+ * artfestDiscountPercent: 0 -> fundingSource "VENDOR" garantat.
+ */
+function normalizeCampaignDiscount(value) {
+  const n = Number(value);
+
+  if (!Number.isInteger(n) || n < 0 || n > MAX_TOTAL_DISCOUNT_PERCENT) {
+    return null;
+  }
+
+  return n;
+}
 
 /*
  * Comisionul redus este controlat
@@ -159,23 +193,6 @@ function normalizeScope(
     "SELECTED_PRODUCTS"
     ? "SELECTED_PRODUCTS"
     : "ALL_PRODUCTS";
-}
-
-function normalizeDiscount(
-  value
-) {
-  const discount =
-    Number(value);
-
-  if (
-    !ALLOWED_DISCOUNTS.includes(
-      discount
-    )
-  ) {
-    return null;
-  }
-
-  return discount;
 }
 
 function normalizeDate(
@@ -310,9 +327,31 @@ async function validateOwnedProducts(
   };
 }
 
+/*
+ * `stats` - din getCampaignStats() (vendorAttributionStats.js),
+ * calculate LIVE din Shipment/ShipmentItem. NECESAR pentru că
+ * VendorCampaign.attributedOrdersCount/attributedRevenueCents NU
+ * sunt incrementate NICĂIERI în cod (verificat la audit) - rămân
+ * mereu 0 dacă le citim direct din coloană. Când `stats` e furnizat,
+ * înlocuim acele 2 câmpuri cu valorile reale; când lipsește
+ * (apelant vechi), rămân pe coloana stocată (0), comportament
+ * identic cu înainte.
+ */
 function mapCampaign(
-  campaign
+  campaign,
+  stats = null
 ) {
+  /*
+   * Split Artfest/Vendor - reconstruit din discountPercent (total) +
+   * fundingSource/platformFundingBps, IDENTIC ca sursă cu
+   * vendorDiscountCodesRoutes.js (splitDiscountPercentForDisplay,
+   * reutilizată, nu recalculată). Campanie legacy (fundingSource
+   * null) => artfestDiscountPercent 0, vendorDiscountPercent = total,
+   * exact comportamentul dinainte de split.
+   */
+  const { artfestDiscountPercent, vendorDiscountPercent } =
+    splitDiscountPercentForDisplay(campaign);
+
   return {
     id:
       campaign.id,
@@ -334,6 +373,12 @@ function mapCampaign(
 
     discountPercent:
       campaign.discountPercent,
+    totalDiscountPercent:
+      campaign.discountPercent,
+    artfestDiscountPercent,
+    vendorDiscountPercent,
+    fundingSource:
+      campaign.fundingSource,
 
     commissionBps:
       campaign.commissionBps,
@@ -349,14 +394,43 @@ function mapCampaign(
       campaign.visits,
 
     attributedOrdersCount:
-      campaign.attributedOrdersCount,
+      stats
+        ? stats.ordersCount
+        : campaign.attributedOrdersCount,
 
     attributedRevenueCents:
-      campaign.attributedRevenueCents,
+      stats
+        ? Math.round(stats.salesValue * 100)
+        : campaign.attributedRevenueCents,
 
     attributedRevenue:
-      campaign.attributedRevenueCents /
-      100,
+      stats
+        ? stats.salesValue
+        : campaign.attributedRevenueCents / 100,
+
+    /*
+     * Statistici suplimentare, doar când `stats` e furnizat (listă/
+     * detaliu îmbogățite) - vezi getCampaignStats().
+     */
+    productsSoldCount:
+      stats?.productsSoldCount ??
+      null,
+
+    discountGiven:
+      stats?.discountGiven ??
+      null,
+
+    artfestFunded:
+      stats?.artfestFunded ??
+      null,
+
+    vendorFunded:
+      stats?.vendorFunded ??
+      null,
+
+    vendorNetGenerated:
+      stats?.vendorNetGenerated ??
+      null,
 
     startsAt:
       campaign.startsAt,
@@ -450,9 +524,18 @@ router.get(
           },
         });
 
+      const statsByCampaignId =
+        await getCampaignStats(
+          campaigns.map((c) => c.id)
+        );
+
       const items =
         campaigns.map(
-          mapCampaign
+          (campaign) =>
+            mapCampaign(
+              campaign,
+              statsByCampaignId.get(campaign.id)
+            )
         );
 
       return res.json({
@@ -466,6 +549,8 @@ router.get(
             (item) =>
               item.isActive
           ).length,
+
+        maxTotalDiscountPercent: MAX_TOTAL_DISCOUNT_PERCENT,
       });
     } catch (error) {
       console.error(
@@ -565,27 +650,27 @@ router.post(
           });
       }
 
-      const discountPercent =
-        normalizeDiscount(
-          req.body
-            ?.discountPercent ??
-            0
-        );
+      const discountPercent = normalizeCampaignDiscount(
+        req.body?.discountPercent ?? 0
+      );
 
-      if (
-        discountPercent ===
-        null
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              "invalid_discount",
-
-            message:
-              "Reducerea permisă este 0%, 5%, 10% sau 15%.",
-          });
+      if (discountPercent === null) {
+        return res.status(400).json({
+          error: "invalid_discount",
+          message: `Reducerea trebuie să fie un număr întreg între 0% și ${MAX_TOTAL_DISCOUNT_PERCENT}%.`,
+        });
       }
+
+      /*
+       * Campanie = mereu OWN-SALE (own-products-only, vezi
+       * validateOwnedProducts mai jos) - fundingSource FORȚAT VENDOR,
+       * niciodată SHARED pentru campanii NOI.
+       */
+      const { totalDiscountPercent: _ignored, ...fundingFields } =
+        computeFundingFields({
+          artfestDiscountPercent: 0,
+          vendorDiscountPercent: discountPercent,
+        });
 
       const scope =
         normalizeScope(
@@ -701,6 +786,7 @@ router.post(
             scope,
 
             discountPercent,
+            ...fundingFields,
 
             /*
              * NU folosim valoare
@@ -757,6 +843,8 @@ router.post(
             mapCampaign(
               campaign
             ),
+
+          maxTotalDiscountPercent: MAX_TOTAL_DISCOUNT_PERCENT,
         });
     } catch (error) {
       console.error(
@@ -825,10 +913,18 @@ router.get(
           });
       }
 
+      const statsByCampaignId =
+        await getCampaignStats([
+          campaign.id,
+        ]);
+
       return res.json({
         campaign:
           mapCampaign(
-            campaign
+            campaign,
+            statsByCampaignId.get(
+              campaign.id
+            )
           ),
 
         creatives:
@@ -846,6 +942,156 @@ router.get(
           error:
             "campaign_load_failed",
         });
+    }
+  }
+);
+
+/* =========================================================
+   GET /:campaignId/orders
+
+   Comenzile/componentele atribuite acestei campanii - filtrăm
+   STRICT pe Shipment.campaignId = această campanie (NU pe orderId),
+   ca să nu expunem componente ale altor vendori dintr-o comandă
+   multi-vendor care nu au legătură cu campania.
+
+   NU e înregistrată în manifest-ul AI (vendorCampaigns.manifest.js) -
+   nu modificăm manifeste în această rundă.
+========================================================= */
+
+router.get(
+  "/:campaignId/orders",
+  async (req, res) => {
+    try {
+      const vendor =
+        await getVendorForRequest(req);
+
+      if (!vendor) {
+        return res.status(404).json({
+          error: "vendor_not_found",
+        });
+      }
+
+      const campaign =
+        await prisma.vendorCampaign.findFirst({
+          where: {
+            id: req.params.campaignId,
+            vendorId: vendor.id,
+          },
+          select: { id: true },
+        });
+
+      if (!campaign) {
+        return res.status(404).json({
+          error: "campaign_not_found",
+          message: "Campania nu a fost găsită.",
+        });
+      }
+
+      const page = Math.max(
+        parseInt(req.query.page ?? "1", 10) || 1,
+        1
+      );
+      const pageSizeRaw =
+        parseInt(req.query.pageSize ?? "20", 10) || 20;
+      const pageSize = Math.min(Math.max(pageSizeRaw, 1), 100);
+
+      const where = { campaignId: campaign.id };
+
+      const [shipments, total] = await Promise.all([
+        prisma.shipment.findMany({
+          where,
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+          orderBy: { createdAt: "desc" },
+
+          select: {
+            id: true,
+            vendorId: true,
+            status: true,
+            order: {
+              select: {
+                id: true,
+                orderNumber: true,
+                createdAt: true,
+              },
+            },
+            items: {
+              select: {
+                title: true,
+                qty: true,
+                price: true,
+                discountAmount: true,
+                discountSource: true,
+              },
+            },
+          },
+        }),
+
+        prisma.shipment.count({ where }),
+      ]);
+
+      const rows = await Promise.all(
+        shipments.map(async (shipment) => {
+          let vendorNet = null;
+
+          try {
+            const earning = await computeVendorEarningForShipment({
+              vendorId: shipment.vendorId,
+              shipmentId: shipment.id,
+            });
+
+            vendorNet = Number(earning?.vendorNet || 0);
+          } catch {
+            vendorNet = null;
+          }
+
+          const value = (shipment.items || []).reduce(
+            (sum, it) =>
+              sum + Number(it.price || 0) * Number(it.qty || 0),
+            0
+          );
+
+          const discountFromCampaign = (shipment.items || []).reduce(
+            (sum, it) =>
+              it.discountSource === "CAMPAIGN"
+                ? sum + Number(it.discountAmount || 0)
+                : sum,
+            0
+          );
+
+          return {
+            shipmentId: shipment.id,
+            orderId: shipment.order?.id || null,
+            orderNumber: shipment.order?.orderNumber || null,
+            orderDate: shipment.order?.createdAt || null,
+            shipmentStatus: shipment.status,
+            products: (shipment.items || []).map((it) => ({
+              title: it.title,
+              qty: it.qty,
+            })),
+            value,
+            discountGiven: discountFromCampaign,
+            vendorNet,
+          };
+        })
+      );
+
+      return res.json({
+        items: rows,
+        total,
+        page,
+        pageSize,
+      });
+    } catch (error) {
+      console.error(
+        "[vendor-campaigns] orders:",
+        error
+      );
+
+      return res.status(500).json({
+        error: "campaign_orders_load_failed",
+        message: "Nu am putut încărca comenzile campaniei.",
+      });
     }
   }
 );
@@ -929,33 +1175,35 @@ router.patch(
           name;
       }
 
-      if (
-        req.body
-          ?.discountPercent !==
-        undefined
-      ) {
-        const discount =
-          normalizeDiscount(
-            req.body
-              .discountPercent
-          );
+      if (req.body?.discountPercent !== undefined) {
+        const discountPercent = normalizeCampaignDiscount(
+          req.body.discountPercent
+        );
 
-        if (
-          discount === null
-        ) {
-          return res
-            .status(400)
-            .json({
-              error:
-                "invalid_discount",
-
-              message:
-                "Reducerea permisă este 0%, 5%, 10% sau 15%.",
-            });
+        if (discountPercent === null) {
+          return res.status(400).json({
+            error: "invalid_discount",
+            message: `Reducerea trebuie să fie un număr întreg între 0% și ${MAX_TOTAL_DISCOUNT_PERCENT}%.`,
+          });
         }
 
-        data.discountPercent =
-          discount;
+        /*
+         * Editarea unei campanii VECHI cu split SHARED (rundă
+         * anterioară) resetează funding-ul la 100% vendor - regula
+         * finală nu mai permite split pe câmpul unic din UI-ul nou.
+         * Nu e backfill (nimic nu se schimbă până la un edit
+         * deliberat al vendorului).
+         */
+        const { totalDiscountPercent, ...fundingFields } =
+          computeFundingFields({
+            artfestDiscountPercent: 0,
+            vendorDiscountPercent: discountPercent,
+          });
+
+        data.discountPercent = totalDiscountPercent;
+        data.platformFundingBps = fundingFields.platformFundingBps;
+        data.vendorFundingBps = fundingFields.vendorFundingBps;
+        data.fundingSource = fundingFields.fundingSource;
       }
 
       if (
@@ -1068,6 +1316,8 @@ router.patch(
           mapCampaign(
             updated
           ),
+
+        maxTotalDiscountPercent: MAX_TOTAL_DISCOUNT_PERCENT,
       });
     } catch (error) {
       console.error(
@@ -1591,6 +1841,29 @@ router.delete(
             error:
               "campaign_not_found",
           });
+      }
+
+      /*
+       * GĂSIT LA AUDIT: spre deosebire de DiscountCode (care blochează
+       * ștergerea dacă are redemptions/usedCount), campania nu avea
+       * NICIO protecție - ștergerea unei campanii cu comenzi reale
+       * atribuite ar fi pus NULL pe Shipment.campaignId (onDelete:
+       * SetNull), pierzând definitiv identitatea campaniei pentru
+       * acele comenzi istorice. Adăugăm aceeași protecție, simetrică.
+       */
+      const attributedShipmentsCount =
+        await prisma.shipment.count({
+          where: { campaignId: campaign.id },
+        });
+
+      if (attributedShipmentsCount > 0) {
+        return res.status(409).json({
+          error:
+            "campaign_has_attributed_orders",
+
+          message:
+            "Această campanie are deja comenzi atribuite și nu mai poate fi ștearsă. O poți dezactiva pentru a păstra istoricul comenzilor.",
+        });
       }
 
       await prisma.vendorCampaign.delete({

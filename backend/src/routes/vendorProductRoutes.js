@@ -6,6 +6,12 @@ import { COLOR_SET } from "../constants/colors.js";
 import {
   applyPromotionsToProducts,
 } from "../services/productPromotionPrice.js";
+import {
+  pickGpsrPatchFromBody,
+  validateGpsrConsistency,
+  isGpsrComplete,
+  getGpsrMissingFields,
+} from "../lib/gpsrCompliance.js";
 
 const router = Router();
 
@@ -288,6 +294,28 @@ quoteSchema:
 
     updatedAt:
       p.updatedAt,
+
+    /*
+     * GPSR (Regulamentul UE 2023/988) - vezi
+     * src/lib/gpsrCompliance.js. Niciun câmp nu e obligatoriu în DB;
+     * `gpsrComplete`/`gpsrMissingFields` sunt calculate, nu stocate.
+     */
+    isOwnManufacturer: p.isOwnManufacturer ?? null,
+    manufacturerName: p.manufacturerName || null,
+    manufacturerAddress: p.manufacturerAddress || null,
+    manufacturerEmail: p.manufacturerEmail || null,
+    manufacturerInEU: p.manufacturerInEU ?? null,
+    responsiblePersonName: p.responsiblePersonName || null,
+    responsiblePersonAddress: p.responsiblePersonAddress || null,
+    responsiblePersonEmail: p.responsiblePersonEmail || null,
+    safetyWarnings:
+      p.safetyWarnings === null || p.safetyWarnings === undefined
+        ? null
+        : p.safetyWarnings,
+    isForChildren: p.isForChildren ?? null,
+
+    gpsrComplete: isGpsrComplete(p),
+    gpsrMissingFields: getGpsrMissingFields(p),
   };
 }
 
@@ -871,6 +899,14 @@ async function getProduct(req, res) {
         displayName: p.service.profile?.displayName || p.service.vendor.displayName || "",
         slug: p.service.profile?.slug || null,
         city: p.service.profile?.city || p.service.vendor.city || "",
+        /*
+         * Date PUBLICE de profil de magazin (nu VendorBilling/fiscal) -
+         * folosite ca preview read-only în secțiunea GPSR
+         * "Producător și siguranță" atunci când vendorul confirmă
+         * că el este producătorul.
+         */
+        address: p.service.vendor.address || "",
+        email: p.service.vendor.email || "",
       },
       service: {
         id: p.service.id,
@@ -1351,6 +1387,21 @@ async function createProduct(req, res) {
         });
     }
 
+    const gpsrValidation =
+      validateGpsrConsistency(req.body || {}, null);
+
+    if (!gpsrValidation.ok) {
+      return res
+        .status(400)
+        .json({
+          error: gpsrValidation.error,
+          message: gpsrValidation.message,
+        });
+    }
+
+    const gpsrPatch =
+      pickGpsrPatchFromBody(req.body || {});
+
     console.info(
       "[PRODUCT CREATE]",
       {
@@ -1500,6 +1551,8 @@ async function createProduct(req, res) {
                   specialNotes
                 )
               : null,
+
+          ...gpsrPatch,
         },
       });
 
@@ -1898,6 +1951,26 @@ async function updateProduct(
           ? null
           : String(v);
     }
+
+    const gpsrValidation =
+      validateGpsrConsistency(
+        req.body || {},
+        product
+      );
+
+    if (!gpsrValidation.ok) {
+      return res
+        .status(400)
+        .json({
+          error: gpsrValidation.error,
+          message: gpsrValidation.message,
+        });
+    }
+
+    Object.assign(
+      patch,
+      pickGpsrPatchFromBody(req.body || {})
+    );
 
     const availNorm =
       normalizeAvailabilityPayload(

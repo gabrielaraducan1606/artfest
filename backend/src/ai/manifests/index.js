@@ -58,6 +58,7 @@ import { SEO_VISIBILITY_MANIFEST } from "./seoVisibility.manifest.js";
 import { COLLECTIONS_MANIFEST } from "./collections.manifest.js";
 import { AMBASSADOR_VENDOR_PROGRAM_MANIFEST } from "./ambassadorVendorProgram.manifest.js";
 import { PLATFORM_OVERVIEW_MANIFEST } from "./platformOverview.manifest.js";
+import { VENDOR_VISITORS_MANIFEST } from "./vendorVisitors.manifest.js";
 
 /*
  * Domenii verificate direct din cod și adăugate ulterior (2026-08-24):
@@ -100,6 +101,13 @@ const PLATFORM_MANIFESTS = [
   SEO_VISIBILITY_MANIFEST,
   COLLECTIONS_MANIFEST,
   AMBASSADOR_VENDOR_PROGRAM_MANIFEST,
+
+  /*
+   * BATCH 2 (audit regression Vendor Assistant, 2026-09-06) - domeniul
+   * "Statistici/performanță magazin" nu avea niciun manifest - 0/15
+   * PASS în audit, deși vendorVisitorsRoutes.js e complet funcțional.
+   */
+  VENDOR_VISITORS_MANIFEST,
 ];
 
 export function getPlatformManifests() {

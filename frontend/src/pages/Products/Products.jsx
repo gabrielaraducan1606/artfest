@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { toast } from "react-toastify";
 import { api } from "../../lib/api.js";
 import styles from "./Products.module.css";
 import { addToGuestCart } from "../../utils/guestCart";
@@ -1226,7 +1227,7 @@ if (requiresConfiguration) {
 
       window.dispatchEvent(new CustomEvent("cart:changed"));
 
-      alert("Produs adăugat în coș.");
+      toast.success("Produs adăugat în coș.");
     } catch (error) {
       console.error("Add to cart error:", error);
 
@@ -1235,7 +1236,7 @@ if (requiresConfiguration) {
         error?.data?.error;
 
       if (code === "insufficient_stock") {
-        alert(
+        toast.error(
           error?.data?.message ||
             "Nu sunt disponibile suficiente produse."
         );
@@ -1243,19 +1244,19 @@ if (requiresConfiguration) {
       }
 
       if (code === "product_sold_out") {
-        alert("Produsul este epuizat.");
+        toast.error("Produsul este epuizat.");
         return;
       }
 
       if (code === "product_unavailable") {
-        alert("Produsul nu mai este disponibil.");
+        toast.error("Produsul nu mai este disponibil.");
         return;
       }
 
-      alert(
+      toast.error(
         error?.data?.message ||
           error?.message ||
-          "Produsul nu a putut fi adăugat în coș."
+          "Nu am putut adăuga produsul în coș."
       );
     }
   },

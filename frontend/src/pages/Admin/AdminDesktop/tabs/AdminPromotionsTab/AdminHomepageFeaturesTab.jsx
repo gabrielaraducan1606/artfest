@@ -7,6 +7,8 @@ import {
   useState,
 } from "react";
 
+import { toast } from "react-toastify";
+
 import {
   api,
 } from "../../../../../lib/api.js";
@@ -80,6 +82,26 @@ function formatDateTime(value) {
         "short",
     }
   ).format(date);
+}
+
+function formatStrictDateTime(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+
+  return `${day}.${month}.${year}, ${hours}:${minutes}`;
 }
 
 function toDateInputValue(value) {
@@ -327,6 +349,11 @@ export default function AdminHomepageFeaturesTab() {
   const [
     deletingId,
     setDeletingId,
+  ] = useState(null);
+
+  const [
+    generatingImageId,
+    setGeneratingImageId,
   ] = useState(null);
 
   const [
@@ -1117,6 +1144,138 @@ const upcomingFeatures =
     }
   }
 
+  async function generateFeatureImage(
+    feature
+  ) {
+    const status =
+      getFeatureStatus(
+        feature
+      );
+
+    if (
+      status ===
+      "upcoming"
+    ) {
+      return;
+    }
+
+    if (
+      status ===
+      "past"
+    ) {
+      const confirmed =
+        window.confirm(
+          "Sigur vrei să regenerezi materialul pentru acest produs din istoric?"
+        );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setGeneratingImageId(
+      feature.id
+    );
+
+    try {
+      const data =
+        await api(
+          `/api/admin/homepage-features/${feature.id}/generate-image`,
+          {
+            method:
+              "POST",
+          }
+        );
+
+      if (
+        data?.feature
+      ) {
+        setFeatures(
+          (current) =>
+            current.map(
+              (item) =>
+                item.id ===
+                feature.id
+                  ? data.feature
+                  : item
+            )
+        );
+      }
+
+      toast.success(
+        "Imaginea pentru Produsul zilei a fost generată."
+      );
+    } catch (generateImageError) {
+      toast.error(
+        generateImageError?.data
+          ?.message ||
+          generateImageError?.message ||
+          "Nu am putut genera imaginea."
+      );
+    } finally {
+      setGeneratingImageId(
+        null
+      );
+    }
+  }
+
+  async function downloadFeatureImage(
+    feature
+  ) {
+    const imageUrl =
+      feature?.generatedImageUrl;
+
+    if (!imageUrl) {
+      return;
+    }
+
+    try {
+      const response =
+        await fetch(
+          imageUrl
+        );
+
+      if (!response.ok) {
+        throw new Error(
+          "download_failed"
+        );
+      }
+
+      const blob =
+        await response.blob();
+
+      const blobUrl =
+        URL.createObjectURL(
+          blob
+        );
+
+      const link =
+        document.createElement(
+          "a"
+        );
+
+      link.href =
+        blobUrl;
+
+      link.download = `produsul-zilei-${
+        toDateInputValue(
+          feature.startsAt
+        ) ||
+        "imagine"
+      }.png`;
+
+      link.click();
+
+      URL.revokeObjectURL(
+        blobUrl
+      );
+    } catch {
+      toast.error(
+        "Nu am putut descărca imaginea."
+      );
+    }
+  }
+
   if (loading) {
     return (
       <p
@@ -1333,6 +1492,9 @@ const upcomingFeatures =
         deletingId={
           deletingId
         }
+        generatingImageId={
+          generatingImageId
+        }
         onEdit={
           openEditModal
         }
@@ -1341,6 +1503,12 @@ const upcomingFeatures =
         }
         onDelete={
           deleteFeature
+        }
+        onGenerateImage={
+          generateFeatureImage
+        }
+        onDownloadImage={
+          downloadFeatureImage
         }
       />
 
@@ -1360,6 +1528,9 @@ const upcomingFeatures =
         deletingId={
           deletingId
         }
+        generatingImageId={
+          generatingImageId
+        }
         onEdit={
           openEditModal
         }
@@ -1368,6 +1539,12 @@ const upcomingFeatures =
         }
         onDelete={
           deleteFeature
+        }
+        onGenerateImage={
+          generateFeatureImage
+        }
+        onDownloadImage={
+          downloadFeatureImage
         }
       />
 
@@ -1382,6 +1559,9 @@ const upcomingFeatures =
         deletingId={
           deletingId
         }
+        generatingImageId={
+          generatingImageId
+        }
         onEdit={
           openEditModal
         }
@@ -1390,6 +1570,12 @@ const upcomingFeatures =
         }
         onDelete={
           deleteFeature
+        }
+        onGenerateImage={
+          generateFeatureImage
+        }
+        onDownloadImage={
+          downloadFeatureImage
         }
         history
       />
@@ -1446,9 +1632,12 @@ function FeatureSection({
   features,
   sendingId,
   deletingId,
+  generatingImageId,
   onEdit,
   onSend,
   onDelete,
+  onGenerateImage,
+  onDownloadImage,
   history = false,
 }) {
   return (
@@ -1502,6 +1691,10 @@ function FeatureSection({
                   deletingId ===
                   feature.id
                 }
+                generatingImage={
+                  generatingImageId ===
+                  feature.id
+                }
                 history={
                   history
                 }
@@ -1513,6 +1706,12 @@ function FeatureSection({
                 }
                 onDelete={
                   onDelete
+                }
+                onGenerateImage={
+                  onGenerateImage
+                }
+                onDownloadImage={
+                  onDownloadImage
                 }
               />
             )
@@ -1527,13 +1726,25 @@ function FeatureCard({
   feature,
   sending,
   deleting,
+  generatingImage,
   history,
   onEdit,
   onSend,
   onDelete,
+  onGenerateImage,
+  onDownloadImage,
 }) {
   const image =
     getFeatureImage(
+      feature
+    );
+
+  const isProductOfDay =
+    feature.type ===
+    FEATURE_TYPES.PRODUCT_OF_DAY;
+
+  const featureStatus =
+    getFeatureStatus(
       feature
     );
 
@@ -1791,6 +2002,26 @@ function FeatureCard({
         />
       </div>
 
+      {isProductOfDay && (
+        <ProductOfDayImagePanel
+          feature={
+            feature
+          }
+          status={
+            featureStatus
+          }
+          generating={
+            generatingImage
+          }
+          onGenerate={
+            onGenerateImage
+          }
+          onDownload={
+            onDownloadImage
+          }
+        />
+      )}
+
       {!history && (
         <div
           style={{
@@ -1860,6 +2091,113 @@ function FeatureCard({
         </div>
       )}
     </article>
+  );
+}
+
+function ProductOfDayImagePanel({
+  feature,
+  status,
+  generating,
+  onGenerate,
+  onDownload,
+}) {
+  const hasImage = Boolean(
+    feature.generatedImageUrl
+  );
+
+  const panelStyle = {
+    padding: 12,
+    border: "1px dashed #d1d5db",
+    borderRadius: 12,
+    display: "grid",
+    gap: 10,
+  };
+
+  if (status === "upcoming") {
+    return (
+      <div style={panelStyle}>
+        <button
+          type="button"
+          className={styles.tab}
+          disabled
+        >
+          Generează imagine
+        </button>
+
+        <span className={styles.subtle}>
+          Disponibil din{" "}
+          {formatStrictDateTime(
+            feature.startsAt
+          )}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={panelStyle}>
+      {hasImage && (
+        <>
+          <img
+            src={
+              feature.generatedImageUrl
+            }
+            alt={`Material Produsul zilei - ${getFeatureTitle(
+              feature
+            )}`}
+            style={{
+              width: "100%",
+              maxWidth: 320,
+              borderRadius: 10,
+              objectFit: "cover",
+            }}
+          />
+
+          <span className={styles.subtle}>
+            Generat la{" "}
+            {formatDateTime(
+              feature.generatedImageGeneratedAt
+            )}
+          </span>
+        </>
+      )}
+
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        {hasImage && (
+          <button
+            type="button"
+            className={styles.tab}
+            disabled={generating}
+            onClick={() =>
+              onDownload(feature)
+            }
+          >
+            Descarcă imaginea
+          </button>
+        )}
+
+        <button
+          type="button"
+          className={styles.tab}
+          disabled={generating}
+          onClick={() =>
+            onGenerate(feature)
+          }
+        >
+          {generating
+            ? "Se generează…"
+            : hasImage
+              ? "Regenerare"
+              : "Generează imagine"}
+        </button>
+      </div>
+    </div>
   );
 }
 

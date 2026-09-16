@@ -4,6 +4,11 @@ import { authRequired } from "../api/auth.js";
 import { CATEGORY_SET } from "../constants/categories.js";
 import { COLOR_SET } from "../constants/colors.js";
 import { notifyVendorOnProductModeration } from "../services/notifications.js";
+import {
+  isGpsrComplete,
+  getGpsrMissingFields,
+  buildGpsrIncompleteWhere,
+} from "../lib/gpsrCompliance.js";
 const router = Router();
 
 /* ================= Helpers comune ================= */
@@ -153,6 +158,28 @@ function mapProduct(p) {
 
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
+
+    /*
+     * GPSR (Regulamentul UE 2023/988) - vezi src/lib/gpsrCompliance.js.
+     * Admin este read-only aici - nu completează date în locul
+     * vendorului, doar vede starea.
+     */
+    isOwnManufacturer: p.isOwnManufacturer ?? null,
+    manufacturerName: p.manufacturerName || null,
+    manufacturerAddress: p.manufacturerAddress || null,
+    manufacturerEmail: p.manufacturerEmail || null,
+    manufacturerInEU: p.manufacturerInEU ?? null,
+    responsiblePersonName: p.responsiblePersonName || null,
+    responsiblePersonAddress: p.responsiblePersonAddress || null,
+    responsiblePersonEmail: p.responsiblePersonEmail || null,
+    safetyWarnings:
+      p.safetyWarnings === null || p.safetyWarnings === undefined
+        ? null
+        : p.safetyWarnings,
+    isForChildren: p.isForChildren ?? null,
+
+    gpsrComplete: isGpsrComplete(p),
+    gpsrMissingFields: getGpsrMissingFields(p),
   };
 }
 
@@ -982,12 +1009,26 @@ async function adminListProducts(req, res) {
   isHidden,
   serviceStatus = "",
   moderationStatus = "",
+  gpsrIncomplete = "",
   sort = "new",
   take = "500",
   skip = "0",
 } = req.query || {};
 
     const where = {};
+
+    const gpsrIncompleteFlag =
+      String(gpsrIncomplete || "").trim().toLowerCase();
+
+    if (gpsrIncompleteFlag === "true" || gpsrIncompleteFlag === "1") {
+      /*
+       * AND separat (nu Object.assign direct pe `where.OR`) - mai jos
+       * `where.OR` mai e folosit și pentru căutarea text (`q`); combinarea
+       * lor într-un singur array OR ar transforma "GPSR incomplet ȘI
+       * căutare" în "GPSR incomplet SAU căutare", ceea ce e greșit.
+       */
+      where.AND = [...(where.AND || []), buildGpsrIncompleteWhere()];
+    }
 
     if (serviceId) {
       where.serviceId = String(serviceId).trim();

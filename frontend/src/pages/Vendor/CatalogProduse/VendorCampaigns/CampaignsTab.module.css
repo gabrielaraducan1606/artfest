@@ -366,6 +366,24 @@
   border-color: var(--color-primary);
 }
 
+.previewText {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg);
+  font-size: 0.86rem;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.errorText {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--color-danger, #c0392b);
+}
+
 .productPicker {
   display: grid;
   gap: 12px;

@@ -139,45 +139,48 @@ function getFeatureImage(feature) {
   );
 }
 
+/*
+ * Audit promoții 2026-09-15: eticheta veche ("Selecție în
+ * pregătire" cât timp !vendorContacted) descria greșit starea ca
+ * fiind temporală ("nu e gata încă"), deși de fapt însemna doar
+ * "vendorul nu a fost contactat" - acum imposibil, pentru că
+ * notifyVendorAboutFeatureCreated contactează vendorul automat la
+ * creare (homepageFeatureScheduler.js). Eticheta reflectă acum
+ * starea reală (expirată / așteaptă răspuns / activă / programată),
+ * calculată din câmpurile deja întoarse de buildFeaturePayload
+ * (vendorHomepageFeatureRoutes.js): isExpired, isActive,
+ * responseRequired.
+ */
 function getStatusLabel(feature) {
-  if (
-    !feature?.vendorContacted
-  ) {
-    return "Selecție în pregătire";
+  if (feature?.isExpired) {
+    return "Încheiată";
   }
 
-  if (
-    feature?.vendorDiscountStatus ===
-    "ACCEPTED"
-  ) {
-    return "Reducere acceptată";
+  if (feature?.responseRequired) {
+    return "Așteaptă răspunsul tău";
   }
 
-  if (
-    feature?.vendorDiscountStatus ===
-    "DECLINED"
-  ) {
-    return "Fără reducere suplimentară";
+  if (feature?.isActive) {
+    return "Activă";
   }
 
-  return "Așteaptă răspunsul tău";
+  return "Programată";
 }
 
 function getStatusColor(feature) {
-  if (
-    !feature?.vendorContacted
-  ) {
+  if (feature?.isExpired) {
     return "#6b7280";
   }
 
-  if (
-    feature?.vendorDiscountStatus ===
-    "PENDING"
-  ) {
+  if (feature?.responseRequired) {
     return "#b45309";
   }
 
-  return "#166534";
+  if (feature?.isActive) {
+    return "#166534";
+  }
+
+  return "#1d4ed8";
 }
 
 function calculateDiscountedPrice(
@@ -379,9 +382,16 @@ export default function VendorHomepagePromotions() {
           );
 
           setSearchParams(
-            {
-              featureId:
-                feature.id,
+            (current) => {
+              const next =
+                new URLSearchParams(current);
+
+              next.set(
+                "featureId",
+                feature.id
+              );
+
+              return next;
             },
             {
               replace:
@@ -395,7 +405,16 @@ export default function VendorHomepagePromotions() {
           );
 
           setSearchParams(
-            {},
+            (current) => {
+              const next =
+                new URLSearchParams(current);
+
+              next.delete(
+                "featureId"
+              );
+
+              return next;
+            },
             {
               replace:
                 true,
@@ -420,7 +439,16 @@ export default function VendorHomepagePromotions() {
     );
 
     setSearchParams(
-      {},
+      (current) => {
+        const next =
+          new URLSearchParams(current);
+
+        next.delete(
+          "featureId"
+        );
+
+        return next;
+      },
       {
         replace:
           true,
@@ -1065,8 +1093,10 @@ function FeatureCard({
                 : 0.8,
           }}
         >
-          {!feature.vendorContacted
-            ? "În pregătire"
+          {!canRespond
+            ? getStatusLabel(
+                feature
+              )
             : feature.vendorDiscountStatus ===
                 "PENDING"
               ? "Alege reducerea"

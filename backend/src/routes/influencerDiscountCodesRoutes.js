@@ -10,45 +10,79 @@ import {
   enforceTokenVersion,
 } from "../api/auth.js";
 
+import { enforceInfluencerTermsGate } from "../middleware/enforceInfluencerTermsGate.js";
+
 const router = Router();
 
 /* =========================================================
    CONFIG
 
-   Pentru moment:
-   - influencerul poate crea singur codul;
+   Influencerul poate:
+   - crea singur codul;
    - maximum 5%;
-   - codul se aplică doar unei colecții proprii;
+   - aplica reducerea:
+       1. tuturor produselor Artfest eligibile
+       2. doar unei colecții proprii
    - reducerea este suportată 100% de Artfest.
 ========================================================= */
 
-const MAX_INFLUENCER_DISCOUNT_PERCENT = 5;
+const MAX_INFLUENCER_DISCOUNT_PERCENT =
+  5;
 
-const MAX_CODE_LENGTH = 32;
-const MAX_NAME_LENGTH = 160;
+const MAX_CODE_LENGTH =
+  32;
 
-const MAX_USAGE_LIMIT = 10_000;
-const MAX_USAGE_PER_USER = 10;
+const MAX_NAME_LENGTH =
+  160;
+
+const MAX_USAGE_LIMIT =
+  10_000;
+
+const MAX_USAGE_PER_USER =
+  10;
+
+const SCOPE_ALL_PRODUCTS =
+  "ALL_PRODUCTS";
+
+const SCOPE_COLLECTION =
+  "INFLUENCER_COLLECTION";
 
 /* =========================================================
    HELPERS
 ========================================================= */
 
-function normalizeString(value = "") {
-  return String(value || "").trim();
+function normalizeString(
+  value = ""
+) {
+  return String(
+    value ||
+      ""
+  ).trim();
 }
 
-function normalizeCode(value = "") {
-  return normalizeString(value)
+function normalizeCode(
+  value = ""
+) {
+  return normalizeString(
+    value
+  )
     .toUpperCase()
-    .replace(/\s+/g, "");
+    .replace(
+      /\s+/g,
+      ""
+    );
 }
 
-function parseNullableDate(value) {
+function parseNullableDate(
+  value
+) {
   if (
-    value === undefined ||
-    value === null ||
-    value === ""
+    value ===
+      undefined ||
+    value ===
+      null ||
+    value ===
+      ""
   ) {
     return null;
   }
@@ -56,7 +90,9 @@ function parseNullableDate(value) {
   const date =
     value instanceof Date
       ? value
-      : new Date(value);
+      : new Date(
+          value
+        );
 
   if (
     Number.isNaN(
@@ -69,7 +105,7 @@ function parseNullableDate(value) {
   return date;
 }
 
-function serializeDiscountCode(
+export function serializeDiscountCode(
   discountCode
 ) {
   if (!discountCode) {
@@ -141,7 +177,8 @@ function serializeDiscountCode(
       discountCode.updatedAt,
 
     influencerCollectionId:
-      discountCode.influencerCollectionId,
+      discountCode
+        .influencerCollectionId,
 
     collection:
       discountCode
@@ -190,19 +227,23 @@ async function getInfluencerByUserId(
     return null;
   }
 
-  return prisma.influencerProfile.findUnique({
-    where: {
-      userId,
-    },
+  return prisma.influencerProfile.findUnique(
+    {
+      where: {
+        userId,
+      },
 
-    select: {
-      id: true,
-      userId: true,
-      displayName: true,
-      referralCode: true,
-      status: true,
-    },
-  });
+      select: {
+        id: true,
+        userId: true,
+        displayName:
+          true,
+        referralCode:
+          true,
+        status: true,
+      },
+    }
+  );
 }
 
 async function requireInfluencer(
@@ -213,13 +254,17 @@ async function requireInfluencer(
     req.user?.sub;
 
   if (!userId) {
-    res.status(401).json({
-      ok: false,
-      error:
-        "unauthorized",
-      message:
-        "Trebuie să fii autentificat.",
-    });
+    res
+      .status(401)
+      .json({
+        ok: false,
+
+        error:
+          "unauthorized",
+
+        message:
+          "Trebuie să fii autentificat.",
+      });
 
     return null;
   }
@@ -230,13 +275,17 @@ async function requireInfluencer(
     );
 
   if (!influencer) {
-    res.status(403).json({
-      ok: false,
-      error:
-        "influencer_required",
-      message:
-        "Este necesar un cont de influencer.",
-    });
+    res
+      .status(403)
+      .json({
+        ok: false,
+
+        error:
+          "influencer_required",
+
+        message:
+          "Este necesar un cont de influencer.",
+      });
 
     return null;
   }
@@ -245,13 +294,17 @@ async function requireInfluencer(
     influencer.status !==
     "ACTIVE"
   ) {
-    res.status(403).json({
-      ok: false,
-      error:
-        "influencer_disabled",
-      message:
-        "Contul de influencer nu este activ.",
-    });
+    res
+      .status(403)
+      .json({
+        ok: false,
+
+        error:
+          "influencer_disabled",
+
+        message:
+          "Contul de influencer nu este activ.",
+      });
 
     return null;
   }
@@ -262,7 +315,8 @@ async function requireInfluencer(
 /* =========================================================
    COLLECTION OWNERSHIP
 
-   Codurile influencerilor se aplică doar colecțiilor lor.
+   Colecția este necesară doar dacă scope-ul este
+   INFLUENCER_COLLECTION.
 ========================================================= */
 
 async function getOwnedCollection(
@@ -276,21 +330,24 @@ async function getOwnedCollection(
     return null;
   }
 
-  return prisma.influencerCollection.findFirst({
-    where: {
-      id:
-        collectionId,
+  return prisma.influencerCollection.findFirst(
+    {
+      where: {
+        id:
+          collectionId,
 
-      influencerId,
-    },
+        influencerId,
+      },
 
-    select: {
-      id: true,
-      title: true,
-      slug: true,
-      isActive: true,
-    },
-  });
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        isActive:
+          true,
+      },
+    }
+  );
 }
 
 /* =========================================================
@@ -308,40 +365,59 @@ async function getOwnedDiscountCode(
     return null;
   }
 
-  return prisma.discountCode.findFirst({
-    where: {
-      id:
-        discountCodeId,
+  return prisma.discountCode.findFirst(
+    {
+      where: {
+        id:
+          discountCodeId,
 
-      influencerId,
+        influencerId,
 
-      ownerType:
-        "INFLUENCER",
-    },
-
-    include: {
-      influencerCollection: {
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-          isActive: true,
-        },
+        ownerType:
+          "INFLUENCER",
       },
 
-      _count: {
-        select: {
-          redemptions:
-            true,
+      include: {
+        influencerCollection: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            isActive:
+              true,
+          },
+        },
+
+        _count: {
+          select: {
+            redemptions:
+              true,
+          },
         },
       },
-    },
-  });
+    }
+  );
 }
 
 /* =========================================================
-   VALIDATION SCHEMAS
+   VALIDATION
 ========================================================= */
+
+const DiscountScopeSchema =
+  z.enum([
+    SCOPE_ALL_PRODUCTS,
+    SCOPE_COLLECTION,
+  ]);
+
+const NullableCollectionIdSchema =
+  z.union([
+    z
+      .string()
+      .trim()
+      .min(1),
+
+    z.null(),
+  ]);
 
 const CreateDiscountCodeSchema =
   z.object({
@@ -368,15 +444,23 @@ const CreateDiscountCodeSchema =
     description: z
       .string()
       .trim()
-      .max(2000)
+      .max(
+        2000
+      )
       .optional()
       .nullable(),
 
+    scope:
+      DiscountScopeSchema
+        .optional()
+        .default(
+          SCOPE_ALL_PRODUCTS
+        ),
+
     influencerCollectionId:
-      z
-        .string()
-        .trim()
-        .min(1),
+      NullableCollectionIdSchema
+        .optional()
+        .nullable(),
 
     discountPercent: z
       .coerce
@@ -412,6 +496,7 @@ const CreateDiscountCodeSchema =
           .max(
             MAX_USAGE_LIMIT
           ),
+
         z.null(),
       ])
       .optional(),
@@ -426,6 +511,7 @@ const CreateDiscountCodeSchema =
             .max(
               MAX_USAGE_PER_USER
             ),
+
           z.null(),
         ])
         .optional(),
@@ -437,6 +523,7 @@ const CreateDiscountCodeSchema =
             .number()
             .int()
             .min(0),
+
           z.null(),
         ])
         .optional(),
@@ -448,6 +535,7 @@ const CreateDiscountCodeSchema =
             .number()
             .int()
             .min(1),
+
           z.null(),
         ])
         .optional(),
@@ -476,16 +564,20 @@ const UpdateDiscountCodeSchema =
     description: z
       .string()
       .trim()
-      .max(2000)
+      .max(
+        2000
+      )
       .nullable()
       .optional(),
 
-    influencerCollectionId:
-      z
-        .string()
-        .trim()
-        .min(1)
+    scope:
+      DiscountScopeSchema
         .optional(),
+
+    influencerCollectionId:
+      NullableCollectionIdSchema
+        .optional()
+        .nullable(),
 
     discountPercent: z
       .coerce
@@ -522,6 +614,7 @@ const UpdateDiscountCodeSchema =
           .max(
             MAX_USAGE_LIMIT
           ),
+
         z.null(),
       ])
       .optional(),
@@ -536,6 +629,7 @@ const UpdateDiscountCodeSchema =
             .max(
               MAX_USAGE_PER_USER
             ),
+
           z.null(),
         ])
         .optional(),
@@ -547,6 +641,7 @@ const UpdateDiscountCodeSchema =
             .number()
             .int()
             .min(0),
+
           z.null(),
         ])
         .optional(),
@@ -558,6 +653,7 @@ const UpdateDiscountCodeSchema =
             .number()
             .int()
             .min(1),
+
           z.null(),
         ])
         .optional(),
@@ -573,7 +669,8 @@ const discountCodeInclude = {
       id: true,
       title: true,
       slug: true,
-      isActive: true,
+      isActive:
+        true,
     },
   },
 
@@ -585,10 +682,42 @@ const discountCodeInclude = {
   },
 };
 
+/*
+ * Lista codurilor de reducere ale unui influencer (același query
+ * folosit de GET /api/influencer/discount-codes) - extrasă ca funcție
+ * reutilizabilă pentru influencerAssistantContext.js (asistentul AI),
+ * ca să nu duplicăm acest query acolo.
+ */
+export async function listInfluencerDiscountCodesSummary(
+  influencerId
+) {
+  const discountCodes =
+    await prisma.discountCode.findMany(
+      {
+        where: {
+          influencerId,
+
+          ownerType:
+            "INFLUENCER",
+        },
+
+        include:
+          discountCodeInclude,
+
+        orderBy: {
+          createdAt:
+            "desc",
+        },
+      }
+    );
+
+  return discountCodes.map(
+    serializeDiscountCode
+  );
+}
+
 /* =========================================================
    GET /api/influencer/discount-codes
-
-   Lista codurilor influencerului.
 ========================================================= */
 
 router.get(
@@ -597,7 +726,10 @@ router.get(
   authRequired,
   enforceTokenVersion,
 
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const influencer =
         await requireInfluencer(
@@ -610,23 +742,9 @@ router.get(
       }
 
       const discountCodes =
-        await prisma.discountCode.findMany({
-          where: {
-            influencerId:
-              influencer.id,
-
-            ownerType:
-              "INFLUENCER",
-          },
-
-          include:
-            discountCodeInclude,
-
-          orderBy: {
-            createdAt:
-              "desc",
-          },
-        });
+        await listInfluencerDiscountCodesSummary(
+          influencer.id
+        );
 
       return res.json({
         ok: true,
@@ -634,10 +752,7 @@ router.get(
         maxDiscountPercent:
           MAX_INFLUENCER_DISCOUNT_PERCENT,
 
-        discountCodes:
-          discountCodes.map(
-            serializeDiscountCode
-          ),
+        discountCodes,
       });
     } catch (error) {
       console.error(
@@ -670,7 +785,10 @@ router.get(
   authRequired,
   enforceTokenVersion,
 
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const influencer =
         await requireInfluencer(
@@ -737,14 +855,15 @@ router.get(
 /* =========================================================
    POST /api/influencer/discount-codes
 
-   Influencerul poate crea singur codul.
-
-   Backendul FORȚEAZĂ:
+   Backendul controlează:
    ownerType = INFLUENCER
-   scope = INFLUENCER_COLLECTION
    type = PERCENT
    funding = PLATFORM
    max = 5%
+
+   Scope permis:
+   - ALL_PRODUCTS
+   - INFLUENCER_COLLECTION
 ========================================================= */
 
 router.post(
@@ -752,8 +871,12 @@ router.post(
 
   authRequired,
   enforceTokenVersion,
+  enforceInfluencerTermsGate,
 
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const influencer =
         await requireInfluencer(
@@ -767,7 +890,8 @@ router.post(
 
       const parsed =
         CreateDiscountCodeSchema.safeParse(
-          req.body || {}
+          req.body ||
+            {}
         );
 
       if (
@@ -820,15 +944,17 @@ router.post(
       }
 
       const existingCode =
-        await prisma.discountCode.findUnique({
-          where: {
-            code,
-          },
+        await prisma.discountCode.findUnique(
+          {
+            where: {
+              code,
+            },
 
-          select: {
-            id: true,
-          },
-        });
+            select: {
+              id: true,
+            },
+          }
+        );
 
       if (existingCode) {
         return res
@@ -845,27 +971,59 @@ router.post(
       }
 
       /* =====================================================
-         COLLECTION OWNERSHIP
+         SCOPE + COLLECTION
       ===================================================== */
 
-      const collection =
-        await getOwnedCollection(
-          input.influencerCollectionId,
-          influencer.id
-        );
+      const scope =
+        input.scope ===
+        SCOPE_COLLECTION
+          ? SCOPE_COLLECTION
+          : SCOPE_ALL_PRODUCTS;
 
-      if (!collection) {
-        return res
-          .status(404)
-          .json({
-            ok: false,
+      let collection =
+        null;
 
-            error:
-              "collection_not_found",
+      if (
+        scope ===
+        SCOPE_COLLECTION
+      ) {
+        if (
+          !input
+            .influencerCollectionId
+        ) {
+          return res
+            .status(400)
+            .json({
+              ok: false,
 
-            message:
-              "Colecția selectată nu a fost găsită.",
-          });
+              error:
+                "collection_required",
+
+              message:
+                "Alege colecția pe care se aplică acest cod.",
+            });
+        }
+
+        collection =
+          await getOwnedCollection(
+            input
+              .influencerCollectionId,
+            influencer.id
+          );
+
+        if (!collection) {
+          return res
+            .status(404)
+            .json({
+              ok: false,
+
+              error:
+                "collection_not_found",
+
+              message:
+                "Colecția selectată nu a fost găsită.",
+            });
+        }
       }
 
       /* =====================================================
@@ -874,7 +1032,7 @@ router.post(
 
       const startsAt =
         input.startsAt ===
-          undefined
+        undefined
           ? null
           : parseNullableDate(
               input.startsAt
@@ -882,7 +1040,7 @@ router.post(
 
       const endsAt =
         input.endsAt ===
-          undefined
+        undefined
           ? null
           : parseNullableDate(
               input.endsAt
@@ -925,7 +1083,8 @@ router.post(
       if (
         startsAt &&
         endsAt &&
-        endsAt <= startsAt
+        endsAt <=
+          startsAt
       ) {
         return res
           .status(400)
@@ -942,103 +1101,109 @@ router.post(
 
       /* =====================================================
          CREATE
-
-         IMPORTANT:
-         ignorăm orice ownerType/funding/scope venit din frontend.
       ===================================================== */
 
       const discountCode =
-        await prisma.discountCode.create({
-          data: {
-            code,
+        await prisma.discountCode.create(
+          {
+            data: {
+              code,
 
-            name:
-              normalizeString(
-                input.name
-              ) ||
-              null,
+              name:
+                normalizeString(
+                  input.name
+                ) ||
+                null,
 
-            description:
-              normalizeString(
-                input.description
-              ) ||
-              null,
+              description:
+                normalizeString(
+                  input.description
+                ) ||
+                null,
 
-            ownerType:
-              "INFLUENCER",
+              ownerType:
+                "INFLUENCER",
 
-            influencerId:
-              influencer.id,
+              influencerId:
+                influencer.id,
 
-            vendorId:
-              null,
+              vendorId:
+                null,
 
-            scope:
-              "INFLUENCER_COLLECTION",
+              scope,
 
-            influencerCollectionId:
-              collection.id,
+              influencerCollectionId:
+                scope ===
+                SCOPE_COLLECTION
+                  ? collection.id
+                  : null,
 
-            discountType:
-              "PERCENT",
+              discountType:
+                "PERCENT",
 
-            discountPercent:
-              input.discountPercent,
+              discountPercent:
+                input.discountPercent,
 
-            discountAmountCents:
-              null,
+              discountAmountCents:
+                null,
 
-            currency:
-              "RON",
+              currency:
+                "RON",
 
-            minimumOrderCents:
-              input.minimumOrderCents ??
-              null,
+              minimumOrderCents:
+                input
+                  .minimumOrderCents ??
+                null,
 
-            maxDiscountCents:
-              input.maxDiscountCents ??
-              null,
+              maxDiscountCents:
+                input
+                  .maxDiscountCents ??
+                null,
 
-            /*
-             * Reducerea este suportată integral de Artfest.
-             */
-            fundingSource:
-              "PLATFORM",
+              /*
+               * Reducerea influencerului
+               * este suportată integral
+               * de Artfest.
+               */
+              fundingSource:
+                "PLATFORM",
 
-            platformFundingBps:
-              10000,
+              platformFundingBps:
+                10000,
 
-            vendorFundingBps:
-              0,
+              vendorFundingBps:
+                0,
 
-            status:
-              "ACTIVE",
+              status:
+                "ACTIVE",
 
-            isActive:
-              true,
+              isActive:
+                true,
 
-            startsAt,
+              startsAt,
 
-            endsAt,
+              endsAt,
 
-            usageLimit:
-              input.usageLimit ??
-              null,
+              usageLimit:
+                input.usageLimit ??
+                null,
 
-            usageLimitPerUser:
-              input.usageLimitPerUser ??
-              1,
+              usageLimitPerUser:
+                input
+                  .usageLimitPerUser ??
+                1,
 
-            usedCount:
-              0,
+              usedCount:
+                0,
 
-            createdByUserId:
-              influencer.userId,
-          },
+              createdByUserId:
+                influencer.userId,
+            },
 
-          include:
-            discountCodeInclude,
-        });
+            include:
+              discountCodeInclude,
+          }
+        );
 
       return res
         .status(201)
@@ -1062,10 +1227,6 @@ router.post(
         error
       );
 
-      /*
-       * Protecție suplimentară pentru unique code,
-       * inclusiv în cazul unui race condition.
-       */
       if (
         error?.code ===
         "P2002"
@@ -1101,13 +1262,21 @@ router.post(
 /* =========================================================
    PATCH /api/influencer/discount-codes/:id
 
-   Influencerul poate modifica doar câmpurile permise.
-   Nu poate schimba:
+   Influencerul poate modifica:
+   - code
+   - name
+   - description
+   - scope
+   - collection
+   - discount %
+   - dates
+   - limits
+
+   Nu poate modifica:
    - ownerType
    - fundingSource
    - platformFundingBps
    - vendorFundingBps
-   - scope
    - influencerId
    - vendorId
 ========================================================= */
@@ -1117,8 +1286,12 @@ router.patch(
 
   authRequired,
   enforceTokenVersion,
+  enforceInfluencerTermsGate,
 
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const influencer =
         await requireInfluencer(
@@ -1152,7 +1325,8 @@ router.patch(
 
       const parsed =
         UpdateDiscountCodeSchema.safeParse(
-          req.body || {}
+          req.body ||
+            {}
         );
 
       if (
@@ -1212,21 +1386,23 @@ router.patch(
         }
 
         const conflict =
-          await prisma.discountCode.findFirst({
-            where: {
-              code:
-                nextCode,
+          await prisma.discountCode.findFirst(
+            {
+              where: {
+                code:
+                  nextCode,
 
-              id: {
-                not:
-                  current.id,
+                id: {
+                  not:
+                    current.id,
+                },
               },
-            },
 
-            select: {
-              id: true,
-            },
-          });
+              select: {
+                id: true,
+              },
+            }
+          );
 
         if (conflict) {
           return res
@@ -1285,16 +1461,50 @@ router.patch(
       }
 
       /* =====================================================
-         COLLECTION
+         SCOPE + COLLECTION
       ===================================================== */
 
-      if (
-        input.influencerCollectionId !==
+      const nextScope =
+        input.scope !==
         undefined
+          ? input.scope
+          : current.scope ===
+            SCOPE_COLLECTION
+          ? SCOPE_COLLECTION
+          : SCOPE_ALL_PRODUCTS;
+
+      const nextCollectionId =
+        input
+          .influencerCollectionId !==
+        undefined
+          ? input
+              .influencerCollectionId
+          : current
+              .influencerCollectionId;
+
+      if (
+        nextScope ===
+        SCOPE_COLLECTION
       ) {
+        if (
+          !nextCollectionId
+        ) {
+          return res
+            .status(400)
+            .json({
+              ok: false,
+
+              error:
+                "collection_required",
+
+              message:
+                "Alege colecția pe care se aplică acest cod.",
+            });
+        }
+
         const collection =
           await getOwnedCollection(
-            input.influencerCollectionId,
+            nextCollectionId,
             influencer.id
           );
 
@@ -1312,14 +1522,27 @@ router.patch(
             });
         }
 
-        updateData.influencerCollectionId =
+        updateData.scope =
+          SCOPE_COLLECTION;
+
+        updateData
+          .influencerCollectionId =
           collection.id;
+      } else {
+        /*
+         * ALL_PRODUCTS nu are nevoie
+         * de colecție.
+         */
+        updateData.scope =
+          SCOPE_ALL_PRODUCTS;
+
+        updateData
+          .influencerCollectionId =
+          null;
       }
 
       /* =====================================================
          DATES
-
-         Dacă un câmp nu este trimis, păstrăm valoarea actuală.
       ===================================================== */
 
       let nextStartsAt =
@@ -1415,10 +1638,6 @@ router.patch(
         input.usageLimit !==
         undefined
       ) {
-        /*
-         * Nu permitem scăderea limitei sub numărul
-         * de utilizări deja consumate.
-         */
         if (
           input.usageLimit !==
             null &&
@@ -1443,11 +1662,14 @@ router.patch(
       }
 
       if (
-        input.usageLimitPerUser !==
+        input
+          .usageLimitPerUser !==
         undefined
       ) {
-        updateData.usageLimitPerUser =
-          input.usageLimitPerUser;
+        updateData
+          .usageLimitPerUser =
+          input
+            .usageLimitPerUser;
       }
 
       if (
@@ -1468,23 +1690,23 @@ router.patch(
 
       /* =====================================================
          UPDATE
-
-         Nu punem niciodată aici câmpurile financiare sensibile.
       ===================================================== */
 
       const updated =
-        await prisma.discountCode.update({
-          where: {
-            id:
-              current.id,
-          },
+        await prisma.discountCode.update(
+          {
+            where: {
+              id:
+                current.id,
+            },
 
-          data:
-            updateData,
+            data:
+              updateData,
 
-          include:
-            discountCodeInclude,
-        });
+            include:
+              discountCodeInclude,
+          }
+        );
 
       return res.json({
         ok: true,
@@ -1540,8 +1762,6 @@ router.patch(
 
 /* =========================================================
    PATCH /api/influencer/discount-codes/:id/toggle
-
-   Activează / dezactivează.
 ========================================================= */
 
 router.patch(
@@ -1549,8 +1769,12 @@ router.patch(
 
   authRequired,
   enforceTokenVersion,
+  enforceInfluencerTermsGate,
 
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const influencer =
         await requireInfluencer(
@@ -1582,14 +1806,11 @@ router.patch(
           });
       }
 
-      /*
-       * Dacă expirarea a trecut, nu îl lăsăm să fie
-       * reactivat fără ca influencerul să schimbe întâi perioada.
-       */
       if (
         !current.isActive &&
         current.endsAt &&
-        current.endsAt.getTime() <
+        current.endsAt
+          .getTime() <
           Date.now()
       ) {
         return res
@@ -1605,10 +1826,6 @@ router.patch(
           });
       }
 
-      /*
-       * Dacă limita totală a fost atinsă,
-       * nu îl permitem să redevină activ.
-       */
       if (
         !current.isActive &&
         current.usageLimit !==
@@ -1635,25 +1852,27 @@ router.patch(
         !current.isActive;
 
       const updated =
-        await prisma.discountCode.update({
-          where: {
-            id:
-              current.id,
-          },
+        await prisma.discountCode.update(
+          {
+            where: {
+              id:
+                current.id,
+            },
 
-          data: {
-            isActive:
-              nextActive,
+            data: {
+              isActive:
+                nextActive,
 
-            status:
-              nextActive
-                ? "ACTIVE"
-                : "DISABLED",
-          },
+              status:
+                nextActive
+                  ? "ACTIVE"
+                  : "DISABLED",
+            },
 
-          include:
-            discountCodeInclude,
-        });
+            include:
+              discountCodeInclude,
+          }
+        );
 
       return res.json({
         ok: true,
@@ -1692,9 +1911,7 @@ router.patch(
 /* =========================================================
    DELETE /api/influencer/discount-codes/:id
 
-   IMPORTANT:
-   Nu ștergem un cod care a fost deja folosit,
-   deoarece vrem să păstrăm istoricul financiar.
+   Nu ștergem codurile deja folosite.
 ========================================================= */
 
 router.delete(
@@ -1702,8 +1919,12 @@ router.delete(
 
   authRequired,
   enforceTokenVersion,
+  enforceInfluencerTermsGate,
 
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const influencer =
         await requireInfluencer(
@@ -1744,8 +1965,10 @@ router.delete(
         );
 
       if (
-        redemptionsCount > 0 ||
-        current.usedCount > 0
+        redemptionsCount >
+          0 ||
+        current.usedCount >
+          0
       ) {
         return res
           .status(409)
@@ -1760,12 +1983,14 @@ router.delete(
           });
       }
 
-      await prisma.discountCode.delete({
-        where: {
-          id:
-            current.id,
-        },
-      });
+      await prisma.discountCode.delete(
+        {
+          where: {
+            id:
+              current.id,
+          },
+        }
+      );
 
       return res.json({
         ok: true,

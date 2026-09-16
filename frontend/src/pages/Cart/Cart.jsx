@@ -31,6 +31,11 @@ import {
 } from "../../utils/guestCart";
 import { getAttributionsForCheckout } from "../../utils/campaignAttribution.js";
 import {
+  getStoredDiscountCode,
+  storeDiscountCode,
+  clearStoredDiscountCode,
+} from "../../utils/discountCode.js";
+import {
   trackAddToCart,
   trackBeginCheckout,
 } from "../../../services/analytics.js";
@@ -198,6 +203,11 @@ const [rows, setRows] =
   const [pending, setPending] = useState(() => new Set());
   const [favIds, setFavIds] = useState(() => new Set());
   const [previewImage, setPreviewImage] = useState(null);
+
+  const [discountCodeInput, setDiscountCodeInput] = useState("");
+  const [discountCodeApplied, setDiscountCodeApplied] = useState(null);
+  const [discountCodeError, setDiscountCodeError] = useState("");
+  const [discountCodeLoading, setDiscountCodeLoading] = useState(false);
 
   const closePreviewImage = useCallback(() => {
     setPreviewImage(null);
@@ -823,6 +833,98 @@ availabilityMessage:
 
     return s;
   }, [rows]);
+
+  const discountAmount = discountCodeApplied
+    ? Number(discountCodeApplied.estimatedDiscountAmountCents || 0) / 100
+    : 0;
+
+  const grandTotalAfterDiscount = Math.max(0, grandTotal - discountAmount);
+
+  const runDiscountCodeValidation = useCallback(
+    async (rawCode) => {
+      const code = String(rawCode || "").trim();
+      if (!code) return;
+
+      if (!rows.length) {
+        setDiscountCodeError("Coșul este gol.");
+        return;
+      }
+
+      setDiscountCodeLoading(true);
+      setDiscountCodeError("");
+
+      try {
+        const items = rows.map((r) => ({
+          productId: r.productId,
+          qty: r.qty,
+        }));
+
+        const res = me
+          ? await api("/api/checkout/discount-code/validate", {
+              method: "POST",
+              body: {
+                code,
+                campaignAttribution: getAttributionsForCheckout(),
+              },
+            })
+          : await api("/api/checkout/guest/discount-code/validate", {
+              method: "POST",
+              body: {
+                code,
+                items,
+                campaignAttribution: getAttributionsForCheckout(),
+              },
+            });
+
+        if (res?.valid) {
+          setDiscountCodeApplied(res);
+          setDiscountCodeError("");
+          storeDiscountCode(code);
+        } else {
+          setDiscountCodeApplied(null);
+          setDiscountCodeError(
+            res?.message || "Codul de reducere nu este valabil."
+          );
+          clearStoredDiscountCode();
+        }
+      } catch (err) {
+        setDiscountCodeApplied(null);
+        setDiscountCodeError(
+          err?.message || "Nu am putut valida codul de reducere."
+        );
+      } finally {
+        setDiscountCodeLoading(false);
+      }
+    },
+    [rows, me]
+  );
+
+  const applyDiscountCode = useCallback(() => {
+    runDiscountCodeValidation(discountCodeInput);
+  }, [discountCodeInput, runDiscountCodeValidation]);
+
+  const removeDiscountCode = useCallback(() => {
+    setDiscountCodeApplied(null);
+    setDiscountCodeError("");
+    setDiscountCodeInput("");
+    clearStoredDiscountCode();
+  }, []);
+
+  /*
+   * Restaurăm codul din sessionStorage (Cart -> Checkout, sau
+   * revenire pe pagină) DUPĂ ce coșul e încărcat - revalidăm mereu
+   * fresh, nu afișăm niciodată o reducere din storage necontrolată.
+   */
+  useEffect(() => {
+    if (loading || !rows.length || discountCodeApplied) return;
+
+    const stored = getStoredDiscountCode();
+    if (!stored) return;
+
+    setDiscountCodeInput(stored);
+    runDiscountCodeValidation(stored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, rows.length]);
 
   const hasOwnItems = useMemo(() => {
     if (!myVendorId) return false;
@@ -1685,6 +1787,107 @@ const hasConfiguration =
               <strong>{money(grandTotal, "RON")}</strong>
             </div>
 
+            <div style={{ margin: "10px 0" }}>
+              {discountCodeApplied ? (
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    {discountCodeApplied.wonOnAnyItem === false ? (
+                      <span style={{ color: "#92400e", fontWeight: 600 }}>
+                        Cod {discountCodeApplied.code} valid
+                      </span>
+                    ) : (
+                      <span style={{ color: "#16a34a", fontWeight: 600 }}>
+                        Cod {discountCodeApplied.code} aplicat: −
+                        {money(discountAmount, "RON")}
+                      </span>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={removeDiscountCode}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#6b7280",
+                        textDecoration: "underline",
+                        cursor: "pointer",
+                        fontSize: 13,
+                      }}
+                    >
+                      Elimină
+                    </button>
+                  </div>
+
+                  {discountCodeApplied.message && (
+                    <div
+                      style={{ color: "#92400e", fontSize: 13, marginTop: 4 }}
+                    >
+                      {discountCodeApplied.message}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="text"
+                    placeholder="Cod de reducere"
+                    value={discountCodeInput}
+                    onChange={(e) =>
+                      setDiscountCodeInput(e.target.value.toUpperCase())
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") applyDiscountCode();
+                    }}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: "1px solid #d1d5db",
+                    }}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={applyDiscountCode}
+                    disabled={discountCodeLoading || !discountCodeInput.trim()}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      border: "1px solid #d1d5db",
+                      background: "#f9fafb",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {discountCodeLoading ? "..." : "Aplică"}
+                  </button>
+                </div>
+              )}
+
+              {discountCodeError && (
+                <div
+                  style={{ color: "#dc2626", fontSize: 13, marginTop: 6 }}
+                  role="alert"
+                >
+                  {discountCodeError}
+                </div>
+              )}
+            </div>
+
+            {discountCodeApplied && (
+              <div className={styles.summaryRow}>
+                <span>Total după reducere</span>
+                <strong>{money(grandTotalAfterDiscount, "RON")}</strong>
+              </div>
+            )}
+
             <div className={styles.summaryNote}>
               Taxele de livrare se calculează la pasul următor, separat pe
               fiecare magazin.
@@ -1727,7 +1930,9 @@ const hasConfiguration =
           aria-label="Rezumat rapid și checkout"
         >
           <div>
-            <div className={styles.tot}>{money(grandTotal, "RON")}</div>
+            <div className={styles.tot}>
+              {money(grandTotalAfterDiscount, "RON")}
+            </div>
             <div className={styles.small}>Subtotal fără livrare</div>
           </div>
 

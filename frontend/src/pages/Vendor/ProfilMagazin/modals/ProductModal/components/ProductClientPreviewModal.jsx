@@ -1,5 +1,6 @@
 import Modal from "../../../ui/Modal";
 import styles from "../../../components/css/ProductModal.module.css";
+import { normalizeOptionChoice } from "../../../../../../utils/optionLabels.js";
 
 function getSchemaFields(schema) {
   if (Array.isArray(schema)) {
@@ -149,9 +150,14 @@ export default function ProductClientPreviewModal({
                     {(Array.isArray(field.options)
                       ? field.options
                       : []
-                    ).map((option) => (
-                      <span key={option}>○ {option}</span>
-                    ))}
+                    ).map((option, index) => {
+                      const choice = normalizeOptionChoice(option);
+                      return (
+                        <span key={choice.value || index}>
+                          ○ {choice.label}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               ))}

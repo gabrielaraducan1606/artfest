@@ -29,6 +29,17 @@ export default async function changePassword(req, res) {
       return res.status(400).json({ message: "Utilizator inexistent" });
     }
 
+    // cont creat prin login social (Google) - fără parolă setată încă;
+    // bcrypt.compare cu un hash null ar arunca eroare, deci verificăm
+    // explicit înainte, la fel ca în userSettingsRoutes.js (change-email)
+    if (!user.passwordHash) {
+      return res.status(400).json({
+        error: "no_password_set",
+        message:
+          "Contul tău nu are o parolă setată (probabil creat prin login social).",
+      });
+    }
+
     // 1) verificăm parola curentă
     const ok = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!ok) {

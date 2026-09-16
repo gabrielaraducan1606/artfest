@@ -9,6 +9,16 @@ import {
 import {
   sendOrderConfirmationEmail,
 } from "../lib/mailer.js";
+import {
+  computeVendorEarningForShipment,
+  buildAttributionCommissionPreview,
+  ensureRefundLedgerEntry,
+  ensureInfluencerRefundLedgerEntry,
+  ensureVendorReferralRefundLedgerEntry,
+} from "./vendorOrdersRoutes.js";
+import {
+  restoreStockFromItems,
+} from "../services/stockRestore.js";
 
 const router = Router();
 
@@ -20,6 +30,143 @@ router.use(
 
 const normalizeText = (value = "") =>
   String(value || "").trim();
+
+const isPostgres =
+  (process.env.DATABASE_URL || "").startsWith("postgres://") ||
+  (process.env.DATABASE_URL || "").startsWith("postgresql://");
+
+function round2(value) {
+  return Number.parseFloat(Number(value || 0).toFixed(2));
+}
+
+/*
+ * Calcul financiar per shipment pentru Admin Order Details - REUTILIZEAZĂ
+ * exact aceeași sursă ca vendorul (computeVendorEarningForShipment,
+ * buildAttributionCommissionPreview din vendorOrdersRoutes.js) - NU o
+ * a doua logică financiară.
+ *
+ * Dacă există deja o intrare CONFIRMATĂ în ledger (VendorEarningEntry,
+ * creată la DELIVERED/IN_TRANSIT), aceea e sursa de adevăr (+ REFUND
+ * netat, dacă a fost returnată) - identic ca strategie cu GET
+ * /api/vendor/orders/:id. Altfel, preview live.
+ */
+async function buildShipmentFinancialsForAdmin(shipment) {
+  try {
+    const confirmedSale = await prisma.vendorEarningEntry.findUnique({
+      where: { shipmentId: shipment.id },
+    });
+
+    let vendorFinancials;
+
+    if (confirmedSale) {
+      let confirmedRefund = null;
+
+      if (isPostgres) {
+        confirmedRefund = await prisma.vendorEarningEntry.findFirst({
+          where: {
+            vendorId: shipment.vendorId,
+            type: "REFUND",
+            meta: { path: ["refShipmentId"], equals: shipment.id },
+          },
+        });
+      } else {
+        const lastRefunds = await prisma.vendorEarningEntry.findMany({
+          where: { vendorId: shipment.vendorId, type: "REFUND" },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        });
+
+        confirmedRefund =
+          lastRefunds.find((r) => r?.meta?.refShipmentId === shipment.id) ||
+          null;
+      }
+
+      vendorFinancials = {
+        itemsNet: round2(
+          Number(confirmedSale.itemsNet || 0) +
+            Number(confirmedRefund?.itemsNet || 0)
+        ),
+        commissionNet: round2(
+          Number(confirmedSale.commissionNet || 0) +
+            Number(confirmedRefund?.commissionNet || 0)
+        ),
+        vendorNet: round2(
+          Number(confirmedSale.vendorNet || 0) +
+            Number(confirmedRefund?.vendorNet || 0)
+        ),
+        commissionBps: confirmedSale.meta?.commissionBps ?? null,
+        commissionSource: confirmedSale.meta?.commissionSource ?? null,
+        /*
+         * Comision MIXT (audit 2026-09-14) - snapshot din ledger,
+         * identic ca sursă cu Vendor Order Details.
+         */
+        isMixedCommission: Boolean(confirmedSale.meta?.isMixedCommission),
+        commissionGroups: confirmedSale.meta?.commissionGroups ?? null,
+        platformDiscountGross:
+          confirmedSale.meta?.platformDiscountGross ?? null,
+        vendorDiscountGross:
+          confirmedSale.meta?.vendorDiscountGross ?? null,
+        commissionBaseGross:
+          confirmedSale.meta?.commissionBaseGross ?? null,
+        commissionBase: confirmedSale.meta?.commissionBase ?? null,
+        commissionAmount: confirmedSale.meta?.commissionAmount ?? null,
+        platformSubsidyAmount:
+          confirmedSale.meta?.platformSubsidyAmount ?? null,
+        isReversed: Boolean(confirmedRefund),
+        isSnapshot: true,
+      };
+    } else {
+      const live = await computeVendorEarningForShipment({
+        vendorId: shipment.vendorId,
+        shipmentId: shipment.id,
+      });
+
+      vendorFinancials = {
+        ...live,
+        isReversed: false,
+        isSnapshot: false,
+      };
+    }
+
+    const influencerCommission = await buildAttributionCommissionPreview({
+      type: "INFLUENCER",
+      name: shipment.influencer?.displayName,
+      commissionBpsSnapshot: shipment.influencerCommissionBpsSnapshot,
+      ledgerModel: prisma.influencerEarningEntry,
+      shipmentId: shipment.id,
+      liveArtfestCommissionNet: vendorFinancials.commissionNet,
+    });
+
+    const vendorReferralCommission = await buildAttributionCommissionPreview({
+      type: "VENDOR_REFERRAL",
+      name: shipment.referrerVendor?.displayName,
+      commissionBpsSnapshot: shipment.referrerVendorCommissionBpsSnapshot,
+      ledgerModel: prisma.vendorReferralEarningEntry,
+      shipmentId: shipment.id,
+      liveArtfestCommissionNet: vendorFinancials.commissionNet,
+    });
+
+    vendorFinancials.netArtfestAfterAttribution = round2(
+      Number(vendorFinancials.commissionNet || 0) -
+        Number(influencerCommission?.amount || 0) -
+        Number(vendorReferralCommission?.amount || 0)
+    );
+
+    return { vendorFinancials, influencerCommission, vendorReferralCommission };
+  } catch (error) {
+    console.error(
+      "[adminOrders] buildShipmentFinancialsForAdmin failed:",
+      shipment.id,
+      error
+    );
+
+    return {
+      vendorFinancials: null,
+      influencerCommission: null,
+      vendorReferralCommission: null,
+    };
+  }
+}
 
 /* ----------------------------------------------------
    Helper: computeUiStatus
@@ -307,6 +454,28 @@ function getDepositAdminData(
     commissionHandling:
       meta.commissionHandling ||
       null,
+
+    refunded:
+      meta.refunded === true,
+
+    refundedAt:
+      meta.refundedAt ||
+      null,
+
+    refundedAmount:
+      meta.refundedAmount != null
+        ? Number(
+            meta.refundedAmount
+          )
+        : null,
+
+    stripeRefundId:
+      meta.stripeRefundId ||
+      null,
+
+    refundReversalId:
+      meta.refundReversalId ||
+      null,
   };
 }
 
@@ -515,6 +684,50 @@ router.post(
         });
       }
 
+      /*
+       * =====================================================
+       * COD + AVANS PLĂTIT - blocăm anularea (audit 2026-09-14)
+       * =====================================================
+       *
+       * Anularea NU trebuie să lase avansul încasat fără refund.
+       * Varianta aleasă e cea mai sigură dintre cele două propuse:
+       * blocăm anularea și cerem refund avans ÎNTÂI, prin ruta deja
+       * idempotentă POST /orders/:id/refund (CAZ 2). NU declanșăm
+       * automat refund Stripe de aici - un refund Stripe pornit din
+       * mijlocul unei tranzacții de anulare ar putea reuși pe Stripe
+       * și eșua la commit-ul DB, lăsând o stare parțială fără
+       * recovery clar (exact riscul pe care admin refund CARD l-a
+       * avut înainte de fix-ul din runda anterioară).
+       */
+      const shipmentsWithPaidDeposit =
+        (order.shipments || []).filter(
+          (shipment) =>
+            shipment.depositStatus ===
+            "PAID"
+        );
+
+      if (
+        shipmentsWithPaidDeposit
+          .length >
+        0
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "deposit_refund_required_before_cancel",
+
+            message:
+              "Această comandă are un avans plătit online. Rambursează avansul (POST /orders/:id/refund) înainte de a anula comanda.",
+
+            shipmentIds:
+              shipmentsWithPaidDeposit.map(
+                (shipment) =>
+                  shipment.id
+              ),
+          });
+      }
+
       await prisma.$transaction(
         async (tx) => {
           /*
@@ -559,70 +772,23 @@ router.post(
           }
 
           /*
-           * Calculăm cantitatea totală
-           * pentru fiecare produs.
+           * Restaurăm stocul - sursă canonică unică
+           * (src/services/stockRestore.js), aceeași folosită și de
+           * vendor cancel și user cancel. Regulă (audit 2026-09-14):
+           * doar produse ÎN CONTINUARE stock-tracked (readyQty!==null)
+           * aflate în READY/SOLD_OUT - MADE_TO_ORDER/PREORDER nu sunt
+           * niciodată atinse.
            */
-          const quantityByProductId =
-            new Map();
+          const allItems =
+            order.shipments.flatMap(
+              (shipment) =>
+                shipment.items || []
+            );
 
-          for (
-            const shipment
-            of order.shipments
-          ) {
-            for (
-              const item
-              of shipment.items || []
-            ) {
-              if (!item.productId) {
-                continue;
-              }
-
-              const qty =
-                Number(item.qty || 0);
-
-              if (
-                !Number.isInteger(qty) ||
-                qty <= 0
-              ) {
-                continue;
-              }
-
-              quantityByProductId.set(
-                item.productId,
-                Number(
-                  quantityByProductId.get(
-                    item.productId
-                  ) || 0
-                ) + qty
-              );
-            }
-          }
-
-          /*
-           * Restaurăm stocul.
-           */
-          for (
-            const [
-              productId,
-              qty,
-            ]
-            of quantityByProductId
-          ) {
-            await tx.product.updateMany({
-              where: {
-                id: productId,
-              },
-
-              data: {
-                readyQty: {
-                  increment: qty,
-                },
-
-                availability:
-                  "READY",
-              },
-            });
-          }
+          await restoreStockFromItems(
+            tx,
+            allItems
+          );
 
           await tx.order.update({
             where: {
@@ -938,6 +1104,28 @@ router.get(
                   },
                 },
 
+                influencer: {
+                  select: {
+                    id: true,
+                    displayName: true,
+                  },
+                },
+
+                referrerVendor: {
+                  select: {
+                    id: true,
+                    displayName: true,
+                  },
+                },
+
+                campaign: {
+                  select: {
+                    id: true,
+                    name: true,
+                    slug: true,
+                  },
+                },
+
                 items: true,
               },
             },
@@ -990,6 +1178,15 @@ const {
  * Adăugăm și un obiect `deposit`
  * normalizat pe fiecare shipment.
  */
+const shipmentFinancialsById = new Map(
+  await Promise.all(
+    (safeOrder.shipments || []).map(async (shipment) => [
+      shipment.id,
+      await buildShipmentFinancialsForAdmin(shipment),
+    ])
+  )
+);
+
 const safeShipments =
   (safeOrder.shipments || []).map(
     (shipment) => ({
@@ -999,6 +1196,8 @@ const safeShipments =
         getDepositAdminData(
           shipment
         ),
+
+      ...(shipmentFinancialsById.get(shipment.id) || {}),
     })
   );
 
@@ -1271,6 +1470,8 @@ router.post(
             select: {
               id: true,
               vendorId: true,
+              shipmentId:
+                true,
               stripeTransferId:
                 true,
             },
@@ -1446,98 +1647,255 @@ router.post(
           );
 
         /*
-         * Dacă plata a fost deja rambursată,
-         * nu mai facem încă un refund.
+         * Dacă plata a fost deja rambursată (retry după un prim apel
+         * reușit pe partea Stripe), NU mai facem încă un refund -
+         * dar NU mai oprim aici execuția (audit 2026-09-14, secțiunea
+         * 4/7 - retry după Stripe succes + DB reversal eșuat): dacă
+         * ne-am oprit aici, blocul de reversal DB de mai jos nu mai
+         * era NICIODATĂ reluat, chiar dacă eșuase la prima încercare.
+         * Continuăm fără `refund` (rămâne null) direct spre reversal-ul
+         * DB, care e idempotent și reia doar ce n-a reușit.
          */
-        if (
+        const alreadyRefundedByStripe =
           remainingRefundAmount <=
-          0
-        ) {
-          return res.json({
-            ok:
-              true,
-
-            alreadyRefunded:
-              true,
-
-            message:
-              "Plata acestei comenzi era deja rambursată integral.",
-
-            reversals,
-          });
-        }
+          0;
 
         const refund =
-          await stripe.refunds.create(
-            {
-              charge:
-                chargeId,
+          alreadyRefundedByStripe
+            ? null
+            : await stripe.refunds.create(
+                {
+                  charge:
+                    chargeId,
 
-              amount:
-                remainingRefundAmount,
+                  amount:
+                    remainingRefundAmount,
 
-              metadata: {
-                kind:
-                  "admin_order_refund",
+                  metadata: {
+                    kind:
+                      "admin_order_refund",
 
-                orderId:
-                  String(
-                    order.id
-                  ),
+                    orderId:
+                      String(
+                        order.id
+                      ),
 
-                orderNumber:
-                  String(
-                    order.orderNumber ||
-                      ""
-                  ),
-              },
-            },
-            {
-              idempotencyKey:
-                `admin-order-refund-${order.id}-${chargeId}`,
-            }
-          );
+                    orderNumber:
+                      String(
+                        order.orderNumber ||
+                          ""
+                      ),
+                  },
+                },
+                {
+                  idempotencyKey:
+                    `admin-order-refund-${order.id}-${chargeId}`,
+                }
+              );
 
         /*
          * Adăugăm o urmă simplă în notele
          * Admin, fără să avem nevoie acum
-         * de migrare Prisma.
+         * de migrare Prisma. Doar dacă chiar s-a
+         * făcut un refund Stripe la ACEST apel -
+         * la retry (alreadyRefundedByStripe), nu
+         * mai adăugăm o notă duplicată.
          */
-        const who =
-          req.user?.email ||
-          req.user?.id ||
-          req.user?.sub ||
-          "admin";
+        if (refund) {
+          const who =
+            req.user?.email ||
+            req.user?.id ||
+            req.user?.sub ||
+            "admin";
 
-        const refundNote =
-          `[${new Date().toISOString()} | ${who}] ` +
-          `Refund Stripe ${refund.id} — ` +
-          `${(
-            remainingRefundAmount /
-            100
-          ).toFixed(2)} ${String(
-            order.currency ||
-              "RON"
-          ).toUpperCase()}`;
+          const refundNote =
+            `[${new Date().toISOString()} | ${who}] ` +
+            `Refund Stripe ${refund.id} — ` +
+            `${(
+              remainingRefundAmount /
+              100
+            ).toFixed(2)} ${String(
+              order.currency ||
+                "RON"
+            ).toUpperCase()}`;
 
-        const oldNotes =
-          normalizeText(
-            order.adminNotes
+          const oldNotes =
+            normalizeText(
+              order.adminNotes
+            );
+
+          await prisma.order.update({
+            where: {
+              id:
+                order.id,
+            },
+
+            data: {
+              adminNotes:
+                oldNotes
+                  ? `${oldNotes}\n${refundNote}`
+                  : refundNote,
+            },
+          });
+        }
+
+        /*
+         * ==========================================
+         * 3. REVERSAL LEDGER (audit 2026-09-14, bug CRITICAL)
+         * ==========================================
+         *
+         * Banii au fost deja reversați real în Stripe (pasul 1-2 de
+         * mai sus, confirmate) - DB-ul financiar rămânea, până acum,
+         * ca și cum vânzarea încă ar exista: VendorEarningEntry
+         * nereversat -> factura lunară de comision ar fi facturat
+         * vendorului o vânzare deja anulată; VendorReferralEarningEntry/
+         * InfluencerEarningEntry nereversate -> payout-ul ar fi plătit
+         * efectiv un câștig pentru o comandă rambursată integral.
+         *
+         * Reutilizăm STRICT helper-ele canonice deja existente
+         * (aceleași folosite de PATCH /orders/:id/status al vendorului
+         * și de admin Pickups /refused, /returned) - niciun calcul
+         * financiar nou. Toate 3 sunt idempotente (upsert / căutare
+         * după meta.refShipmentId) - un al doilea apel pe același
+         * shipment (buton apăsat de două ori, retry) nu creează un al
+         * doilea reversal și nu modifică sumele a doua oară.
+         *
+         * Status: PĂSTRĂM regula deja existentă (RETURNED/REFUSED),
+         * fără status nou. DELIVERED -> RETURNED (marfa a ajuns la
+         * client, tranzacția e acum reversată - cel mai apropiat sens
+         * existent de "returnat"); orice alt status -> REFUSED
+         * (aceeași regulă folosită deja la anularea de către client,
+         * userOrdersRoutes.js - comandă anulată înainte de finalizare).
+         *
+         * Per shipment, într-o tranzacție proprie: dacă reversal-ul
+         * DB al UNUI shipment eșuează, nu blocăm reversal-ul
+         * celorlalte shipment-uri din aceeași comandă (multi-vendor) -
+         * dar NU ascundem eroarea: o logăm clar și o raportăm în
+         * răspuns (`dbReversals`), ca adminul să știe exact ce
+         * necesită verificare manuală. Recovery: re-apelarea acestei
+         * rute (același refund Stripe, deja idempotent) reia DOAR
+         * shipment-urile la care reversal-ul DB nu s-a finalizat -
+         * cele deja reversate sunt no-op (idempotență).
+         */
+        const shipmentById =
+          new Map(
+            (order.shipments || []).map(
+              (shipment) => [String(shipment.id), shipment]
+            )
           );
 
-        await prisma.order.update({
-          where: {
-            id:
-              order.id,
-          },
+        const dbReversals = [];
 
-          data: {
-            adminNotes:
-              oldNotes
-                ? `${oldNotes}\n${refundNote}`
-                : refundNote,
-          },
-        });
+        for (const entry of earningEntries) {
+          const entryShipmentId = entry.shipmentId
+            ? String(entry.shipmentId)
+            : null;
+
+          if (!entryShipmentId) {
+            continue;
+          }
+
+          const entryVendorId = String(entry.vendorId);
+
+          const currentShipment =
+            shipmentById.get(entryShipmentId) ||
+            (await prisma.shipment.findUnique({
+              where: { id: entryShipmentId },
+              select: { status: true },
+            }));
+
+          /*
+           * Idempotență status (găsit prin testul determinist de
+           * reversal dublu, audit 2026-09-14): dacă shipment-ul e DEJA
+           * într-o stare finală de anulare (RETURNED/REFUSED) - de la
+           * un apel anterior al ACESTEI rute - NU mai re-derivăm
+           * statusul din starea CURENTĂ (care e deja RETURNED/REFUSED,
+           * nu mai DELIVERED) - altfel un al doilea apel (retry după
+           * eșec parțial pe alt shipment, sau buton apăsat de două
+           * ori) ar "răsturna" greșit RETURNED -> REFUSED, deși nimic
+           * real nu s-a schimbat. Păstrăm statusul deja stabilit.
+           */
+          const alreadyCancelled =
+            currentShipment?.status === "RETURNED" ||
+            currentShipment?.status === "REFUSED";
+
+          const nextShipmentStatus =
+            alreadyCancelled
+              ? currentShipment.status
+              : currentShipment?.status === "DELIVERED"
+              ? "RETURNED"
+              : "REFUSED";
+
+          try {
+            await prisma.$transaction(async (tx) => {
+              if (!alreadyCancelled) {
+                await tx.shipment.update({
+                  where: { id: entryShipmentId },
+                  data:
+                    nextShipmentStatus === "RETURNED"
+                      ? {
+                          status: "RETURNED",
+                          returnedAt: new Date(),
+                          refusedAt: null,
+                        }
+                      : {
+                          status: "REFUSED",
+                          refusedAt: new Date(),
+                          deliveredAt: null,
+                          returnedAt: null,
+                          cancelReason:
+                            currentShipment?.cancelReason ||
+                            "Rambursat de admin (card)",
+                        },
+                });
+              }
+
+              await ensureRefundLedgerEntry({
+                vendorId: entryVendorId,
+                shipmentId: entryShipmentId,
+                db: tx,
+              });
+
+              await ensureInfluencerRefundLedgerEntry({
+                shipmentId: entryShipmentId,
+                db: tx,
+              });
+
+              await ensureVendorReferralRefundLedgerEntry({
+                shipmentId: entryShipmentId,
+                db: tx,
+              });
+            });
+
+            dbReversals.push({
+              shipmentId: entryShipmentId,
+              vendorId: entryVendorId,
+              status: nextShipmentStatus,
+              ok: true,
+            });
+          } catch (dbReversalError) {
+            console.error(
+              "[admin/orders refund] DB ledger reversal FAILED for shipment:",
+              entryShipmentId,
+              "order:",
+              order.id,
+              dbReversalError
+            );
+
+            dbReversals.push({
+              shipmentId: entryShipmentId,
+              vendorId: entryVendorId,
+              ok: false,
+              error:
+                dbReversalError?.message ||
+                "db_reversal_failed",
+            });
+          }
+        }
+
+        const dbReversalFailed = dbReversals.some(
+          (r) => !r.ok
+        );
 
         return res.json({
           ok:
@@ -1547,12 +1905,19 @@ router.post(
             "CARD_FULL_REFUND",
 
           refundId:
-            refund.id,
+            refund?.id ??
+            null,
+
+          alreadyRefundedByStripe,
 
           refundedAmount:
             Number(
               (
-                remainingRefundAmount /
+                (
+                  alreadyRefundedByStripe
+                    ? chargeAmount
+                    : remainingRefundAmount
+                ) /
                 100
               ).toFixed(2)
             ),
@@ -1565,8 +1930,24 @@ router.post(
 
           reversals,
 
+          dbReversals,
+
+          /*
+           * Stripe (client + vendor) a reușit garantat până aici -
+           * acest flag NU indică eșecul refund-ului, ci că reversal-ul
+           * DB financiar pentru cel puțin un shipment necesită
+           * verificare/recovery manuală (re-apelarea rutei e sigură,
+           * idempotentă).
+           */
+          dbReversalNeedsAttention:
+            dbReversalFailed,
+
           message:
-            "Plata a fost rambursată integral clientului, iar transferurile către vendori au fost reversate.",
+            dbReversalFailed
+              ? "ATENȚIE: reversal-ul ledger-ului financiar a eșuat pentru cel puțin un shipment - vezi dbReversals. Reapelează ruta pentru a relua doar partea eșuată (Stripe nu va fi atins din nou)."
+              : alreadyRefundedByStripe
+              ? "Plata era deja rambursată integral clientului anterior; transferurile către vendori și ledger-ul financiar (comision, referral, influencer) au fost reversate/confirmate acum."
+              : "Plata a fost rambursată integral clientului, transferurile către vendori au fost reversate, iar ledger-ul financiar (comision, referral, influencer) a fost reversat corect.",
         });
       }
 
@@ -1579,20 +1960,24 @@ router.post(
         paymentMethod ===
         "COD"
       ) {
-        const paidDepositShipments =
+        const relevantDepositShipments =
           (
             order.shipments ||
             []
           ).filter(
             (shipment) =>
-              shipment.depositStatus ===
-                "PAID" &&
+              (
+                shipment.depositStatus ===
+                  "PAID" ||
+                shipment.depositStatus ===
+                  "REFUNDED"
+              ) &&
               shipment
                 .stripeDepositChargeId
           );
 
         if (
-          !paidDepositShipments
+          !relevantDepositShipments
             .length
         ) {
           return res
@@ -1616,8 +2001,57 @@ router.post(
          */
         for (
           const shipment of
-          paidDepositShipments
+          relevantDepositShipments
         ) {
+          /*
+           * Retry idempotent: avansul acestui
+           * shipment a fost deja rambursat
+           * complet într-un apel anterior - NU
+           * mai atingem Stripe din nou, doar
+           * raportăm starea curentă (identică
+           * cu tratarea alreadyRefundedByStripe
+           * de la CARD).
+           */
+          if (
+            shipment.depositStatus ===
+            "REFUNDED"
+          ) {
+            const meta =
+              shipment.depositMeta &&
+              typeof shipment.depositMeta ===
+                "object" &&
+              !Array.isArray(
+                shipment.depositMeta
+              )
+                ? shipment.depositMeta
+                : {};
+
+            refundedDeposits.push({
+              shipmentId:
+                shipment.id,
+
+              vendorId:
+                shipment.vendorId,
+
+              stripeRefundId:
+                meta.stripeRefundId ||
+                null,
+
+              reversalId:
+                meta.refundReversalId ||
+                null,
+
+              refundedAmount:
+                meta.refundedAmount ??
+                null,
+
+              alreadyRefunded:
+                true,
+            });
+
+            continue;
+          }
+
           const existingMeta =
             shipment.depositMeta &&
             typeof shipment.depositMeta ===
@@ -1807,6 +2241,40 @@ router.post(
           const refundedAt =
             new Date();
 
+          /*
+           * =====================================================
+           * RESET AVANS DUPĂ REFUND (audit 2026-09-14)
+           * =====================================================
+           *
+           * depositStatus -> REFUNDED (valoare deja existentă în
+           * enum-ul PaymentDepositStatus, nefolosită până acum).
+           *
+           * depositPaidAmount -> null, la fel ca la
+           * NOT_REQUESTED/PENDING (vezi request-deposit route) -
+           * avansul nu mai este considerat plătit.
+           *
+           * remainingCodAmount -> recalculat cu FORMULA EXISTENTĂ
+           * (request-deposit route: productsTotal + shippingAmount -
+           * depositRequestedAmount), fără să hardcodăm nicio sumă și
+           * fără să recalculăm productsTotal/shippingAmount din
+           * items (risc de drift) - folosim direct relația inversă
+           * cu valorile deja stocate pe shipment: adăugăm înapoi
+           * exact suma avansului care tocmai a fost scăzută
+           * (depositRequestedAmount == suma efectiv plătită,
+           * validată la webhook cu toleranță de 1 ban).
+           */
+          const restoredRemainingCodAmount =
+            round2(
+              Number(
+                shipment.remainingCodAmount ||
+                  0
+              ) +
+                Number(
+                  shipment.depositRequestedAmount ||
+                    0
+                )
+            );
+
           await prisma.shipment.update({
             where: {
               id:
@@ -1814,6 +2282,15 @@ router.post(
             },
 
             data: {
+              depositStatus:
+                "REFUNDED",
+
+              depositPaidAmount:
+                null,
+
+              remainingCodAmount:
+                restoredRemainingCodAmount,
+
               depositMeta: {
                 ...existingMeta,
 
@@ -1862,6 +2339,12 @@ router.post(
                   100
                 ).toFixed(2)
               ),
+
+            depositStatus:
+              "REFUNDED",
+
+            remainingCodAmount:
+              restoredRemainingCodAmount,
           });
         }
 
@@ -1876,7 +2359,7 @@ router.post(
             refundedDeposits,
 
           message:
-            "Avansul plătit online a fost rambursat clientului, iar transferul către vendor a fost reversat.",
+            "Avansul plătit online a fost rambursat clientului, iar transferul către vendor a fost reversat. Restul de încasat la livrare a fost recalculat ca și cum avansul nu ar fi fost plătit.",
         });
       }
 

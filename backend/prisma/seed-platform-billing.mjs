@@ -1,14 +1,13 @@
 import { PrismaClient } from "@prisma/client";
+
 const prisma = new PrismaClient();
 
 async function main() {
   const BILLING_ID = "platform";
-  const VENDOR_ID = "platform";
-  const PLATFORM_EMAIL = "platform@artfest.ro";
 
-  // PlatformBilling
   await prisma.platformBilling.upsert({
     where: { id: BILLING_ID },
+
     update: {
       companyName: "ARTFEST MARKETPLACE SRL",
       legalType: "SRL",
@@ -23,11 +22,12 @@ async function main() {
       invoiceSeries: "AF",
       updatedAt: new Date(),
     },
+
     create: {
       id: BILLING_ID,
       companyName: "ARTFEST MARKETPLACE SRL",
       legalType: "SRL",
-     cui: "RO53489510",
+      cui: "RO53489510",
       regCom: "J2026005369007",
       address: "Strada Rândunelelor 3, Șarânga, Buzău",
       iban: "RO59BTRLRONCRT0DC9784101",
@@ -42,42 +42,7 @@ async function main() {
     },
   });
 
-  // User (pentru Vendor.userId)
-  const platformUser = await prisma.user.upsert({
-    where: { email: PLATFORM_EMAIL },
-    update: { name: "Platform", role: "ADMIN" },
-    create: {
-      email: PLATFORM_EMAIL,
-      passwordHash: "not-used",
-      tokenVersion: 0,
-      name: "Platform",
-      role: "ADMIN",
-    },
-    select: { id: true },
-  });
-
-  // Vendor "platform"
-  await prisma.vendor.upsert({
-    where: { id: VENDOR_ID },
-    update: {
-      displayName: "Platform",
-      isActive: true,
-      email: "billing@artfest.ro",
-      phone: "+40 760 565 147",
-      address: "Strada Rândunelelor 3, Șarânga, Buzău",
-    },
-    create: {
-      id: VENDOR_ID,
-      userId: platformUser.id,
-      displayName: "Platform",
-      isActive: true,
-      email: "billing@artfest.ro",
-      phone: "+40 760 565 147",
-      address: "Strada Rândunelelor 3, Șarânga, Buzău",
-    },
-  });
-
-  console.log("Seed done: PlatformBilling + Vendor(platform)");
+  console.log("Seed done: PlatformBilling");
 }
 
 main()

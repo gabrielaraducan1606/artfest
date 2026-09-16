@@ -33,6 +33,17 @@ export const SUBSCRIPTIONS_PLANS_MANIFEST = {
     "ce comision platesc daca aduc eu clientul",
     "mai exista planuri platite",
     "exista plan gratuit",
+
+    /*
+     * Retrieval instabil pentru comision (audit 2026-09-04) - vezi
+     * checkoutPayments.manifest.js pentru mecanismul de plată; aici e
+     * procentul exact, care lipsea din rezultate pentru aceste
+     * formulări (ajungeau la platform-overview/collections).
+     */
+    "ce procent ia artfest",
+    "procent comision artfest",
+    "comisionul se retine automat",
+    "trebuie sa platesc manual comisionul",
   ],
 
   uiLocations: [
@@ -83,11 +94,11 @@ export const SUBSCRIPTIONS_PLANS_MANIFEST = {
     },
     {
       q: "Cât costă să vând pe Artfest?",
-      a: "Nimic fix - planul disponibil momentan (Basic) este gratuit. Artfest reține un comision din vânzări, nu o taxă fixă lunară.",
+      a: "Nimic fix - planul disponibil momentan (Basic) este gratuit. Artfest percepe un comision din vânzări, nu o taxă fixă lunară.",
     },
     {
       q: "Cât este comisionul pe Artfest?",
-      a: "Comisionul standard, pe planul gratuit activ momentan, este 12% din valoarea produselor vândute. Pot exista reduceri sau promovări care modifică temporar această valoare pentru anumite comenzi. Comisionul exact aplicat unei comenzi îl vezi direct din contul tău de vânzător.",
+      a: "Comisionul standard, pe planul gratuit activ momentan, este 12% din valoarea produselor vândute, fără transport (5% pentru o comandă atribuită unei campanii proprii validate). Se calculează la fiecare comandă, dar NU se scade automat din nicio plată (nici card, nici ramburs) - se adună într-un jurnal intern și Artfest emite periodic o factură cu comisionul datorat, la fel pentru toate comenzile, indiferent de metoda de plată; vezi manifestul checkout-payments pentru mecanismul complet.",
     },
     {
       q: "Ce comision plătesc dacă aduc eu clientul?",
@@ -105,5 +116,5 @@ export const SUBSCRIPTIONS_PLANS_MANIFEST = {
   ],
 
   notes:
-    "Sursă: subscriptionRoutes.js, adminSubscriptionRoutes.js, billingRoutes.js, prisma/seed-subscription-plans.mjs (commissionBps: 1200 pe planul 'basic', isActive:true; planurile 'pro'/'premium' au isActive:false - verificat direct în seed). Comisionul de 5% pentru comenzi atribuite unei campanii proprii (CAMPAIGN_COMMISSION_BPS=500 în vendorCampaignRoutes.js) e complet implementat și testat end-to-end - vezi manifestul vendor-campaigns pentru mecanismul complet. Nicio pagină „planul meu” găsită sub pages/Vendor/. Verificat 2026-08-26.",
+    "Sursă: subscriptionRoutes.js, adminSubscriptionRoutes.js, billingRoutes.js, prisma/seed-subscription-plans.mjs (commissionBps: 1200 pe planul 'basic', isActive:true; planurile 'pro'/'premium' au isActive:false - verificat direct în seed). Comisionul de 5% pentru comenzi atribuite unei campanii proprii (CAMPAIGN_COMMISSION_BPS=500 în vendorCampaignRoutes.js) e complet implementat și testat end-to-end - vezi manifestul vendor-campaigns pentru mecanismul complet. Nicio pagină „planul meu” găsită sub pages/Vendor/. Verificat 2026-08-26. CORECȚIE 2026-09-04: plata comisionului NU e mereu o deducere automată din payout-ul Stripe al vendorului - vezi checkoutPayments.manifest.js pentru mecanismul complet verificat în cod (adminInvoicesRoutes.js, vendorInvoices.js). NUANȚĂ BATCH 5 (audit regression, 2026-09-06, ISTORIC - vezi corecția de mai jos): la data auditului, pentru comenzile cu cardul comisionul CHIAR se deducea automat din transferul Stripe, cu un risc de dublă facturare identificat. BATCH A / MODEL B (2026-09-07): riscul a fost confirmat și REPARAT prin decizie de business - comisionul NU mai e dedus din niciun transfer (nici card, nici ramburs); `computeVendorPayouts` (marketplaceCalc.js) reține acum doar taxa Stripe. Comisionul se facturează IDENTIC pentru CARD și COD, periodic, manual din admin (implicit pentru luna calendaristică anterioară) - detalii complete în notes din checkoutPayments.manifest.js.",
 };

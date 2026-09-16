@@ -41,6 +41,37 @@ export default function PublicInfluencerCollectionPage() {
     setError,
   ] = useState("");
 
+  const [me, setMe] =
+    useState(null);
+
+  /* =========================================================
+     LOAD ME
+
+     Determină dacă vizitatorul e logat, la fel ca în
+     Products.jsx / PublicCampaignPage.jsx - decide viewMode
+     pentru ProductCard ("user" vs "guest"), care la rândul lui
+     decide dacă butonul de coș apelează fallback-ul real din
+     ProductCard (POST /api/cart/add pentru user, addToGuestCart
+     pentru guest) cu contul corect.
+  ========================================================= */
+
+  useEffect(() => {
+    let alive = true;
+
+    api("/api/auth/me")
+      .then((res) => {
+        if (!alive) return;
+        setMe(res?.__unauth ? null : res?.user || null);
+      })
+      .catch(() => {
+        if (alive) setMe(null);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   /* =========================================================
      LOAD COLLECTION
   ========================================================= */
@@ -172,6 +203,29 @@ export default function PublicInfluencerCollectionPage() {
      PRODUCT CARDS
   ========================================================= */
 
+  const referralCode =
+    collection
+      ?.influencer
+      ?.referralCode ||
+    null;
+
+  const productLinkQuery =
+    referralCode
+      ? `ref=${encodeURIComponent(
+          referralCode
+        )}`
+      : "";
+
+  const viewMode =
+    me ? "user" : "guest";
+
+  /*
+   * Fără onAddToCart/onToggleFavorite - ProductCard are deja
+   * propriul fallback funcțional (POST /api/cart/add sau
+   * addToGuestCart; POST /api/favorites/toggle), exact ce
+   * folosesc deja PublicCampaignPage.jsx și ProductList.jsx.
+   * Nu duplicăm logica aici.
+   */
   const productCards =
     useMemo(() => {
       return products.map(
@@ -183,27 +237,18 @@ export default function PublicInfluencerCollectionPage() {
             p={
               product
             }
-            viewMode="guest"
+            viewMode={
+              viewMode
+            }
             isFav={false}
-            onAddToCart={() => {
-              window.dispatchEvent(
-                new CustomEvent(
-                  "cart:add-product",
-                  {
-                    detail: {
-                      productId:
-                        product.id,
-                    },
-                  }
-                )
-              );
-            }}
-            onToggleFavorite={() => {}}
+            linkQuery={
+              productLinkQuery
+            }
             categoryLabelMap={{}}
           />
         )
       );
-    }, [products]);
+    }, [products, productLinkQuery, viewMode]);
 
   /* =========================================================
      LOADING

@@ -35,7 +35,6 @@ const ALLOWED_DOCS_BY_SCOPE = {
 
   VENDORS: [
     "VENDOR_TERMS",
-    "VENDOR_PRIVACY_NOTICE",
     "SHIPPING_ADDENDUM",
     "PRODUCTS_ADDENDUM",
     "PRODUCT_DECLARATION",
@@ -875,8 +874,14 @@ router.post(
        * efectiv în manifest.
        *
        * PRODUCT_DECLARATION este tratată separat.
-       * MARKETING și VENDOR_PRIVACY_NOTICE trebuie
-       * să aibă deja o politică activă dacă sunt selectate.
+       * MARKETING trebuie să aibă deja o politică activă
+       * dacă e selectat.
+       *
+       * VENDOR_PRIVACY_NOTICE a fost ELIMINAT (2026-09) din
+       * ALLOWED_DOCS_BY_SCOPE/GATE_KEY_TO_VENDOR_DOCUMENT - nu mai e
+       * selectabil aici. Rândul VendorPolicy corespunzător rămâne
+       * neatins în DB (artefact legacy, fără cod care să-l mai
+       * citească).
        */
       const manifestDocuments =
         documents.filter(

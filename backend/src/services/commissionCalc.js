@@ -124,3 +124,89 @@ export function computeCommissionBreakdown({
     platformNet,
   };
 }
+
+/*
+ * Comision MIXT într-un singur shipment (audit 2026-09-14, lifecycle
+ * VendorCampaign) - unele linii pot fi eligibile pentru comisionul
+ * redus de campanie (5%), altele nu (comisionul standard al
+ * planului, ex. 12%). Nu inventăm o formulă nouă - rulăm
+ * computeCommissionBreakdown separat PE FIECARE GRUP (fiecare grup e
+ * un sub-shipment financiar autonom, cu propriile
+ * originalGross/afterDiscountGross/platformDiscountAmount), apoi
+ * însumăm rezultatele. Cu un singur grup, comportamentul e identic
+ * cu computeCommissionBreakdown simplu (folosit și pentru
+ * own-sale/plan, unde nu există split pe eligibilitate).
+ *
+ * @param {Array<{
+ *   label: string,           // "campaign" | "plan" | "vendor_referral_own_sale"
+ *   commissionBps: number,
+ *   itemCount?: number,
+ *   itemsOriginalGross: number,
+ *   itemsAfterDiscountGross: number,
+ *   platformDiscountAmount: number,
+ *   vatFraction?: number,
+ * }>} groups
+ */
+export function computeGroupedCommissionBreakdown(groups = []) {
+  const validGroups = (groups || []).filter(
+    (g) =>
+      g &&
+      (Number(g.itemsAfterDiscountGross) > 0 ||
+        Number(g.itemsOriginalGross) > 0)
+  );
+
+  const computed = validGroups.map((g) => {
+    const breakdown = computeCommissionBreakdown({
+      itemsOriginalGross: g.itemsOriginalGross,
+      itemsAfterDiscountGross: g.itemsAfterDiscountGross,
+      platformDiscountAmount: g.platformDiscountAmount,
+      commissionBps: g.commissionBps,
+      vatFraction: g.vatFraction,
+    });
+
+    return {
+      label: g.label,
+      commissionBps: g.commissionBps,
+      itemCount: Number(g.itemCount || 0),
+      itemsOriginalGross: round2(g.itemsOriginalGross),
+      itemsAfterDiscount: breakdown.itemsAfterDiscount,
+      commissionBase: breakdown.commissionBase,
+      commissionAmount: breakdown.commissionAmount,
+      platformSubsidyAmount: breakdown.platformSubsidyAmount,
+      vendorNet: breakdown.vendorNet,
+      platformNet: breakdown.platformNet,
+    };
+  });
+
+  const sum = (key) =>
+    round2(
+      computed.reduce((total, g) => total + Number(g[key] || 0), 0)
+    );
+
+  const distinctBpsCount = new Set(
+    computed.map((g) => g.commissionBps)
+  ).size;
+
+  return {
+    isMixed: computed.length > 1 && distinctBpsCount > 1,
+
+    commissionBps:
+      computed.length === 1 ? computed[0].commissionBps : null,
+
+    commissionSource:
+      computed.length === 1
+        ? computed[0].label
+        : computed.length > 1
+        ? "mixed"
+        : null,
+
+    groups: computed,
+
+    itemsAfterDiscount: sum("itemsAfterDiscount"),
+    commissionBase: sum("commissionBase"),
+    commissionAmount: sum("commissionAmount"),
+    platformSubsidyAmount: sum("platformSubsidyAmount"),
+    vendorNet: sum("vendorNet"),
+    platformNet: sum("platformNet"),
+  };
+}

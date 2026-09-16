@@ -6,6 +6,7 @@ import {
 } from "react";
 
 import styles from "../../../components/css/ProductModal.module.css";
+import { normalizeOptionChoice } from "../../../../../../utils/optionLabels.js";
 import ProductOptionsAssistantModal
   from "./ProductOptionsAssistantModal";
   import OptionsManualChoiceModal
@@ -221,9 +222,13 @@ function describeQuoteFieldPreview(field) {
       : [];
 
     return options.length
-      ? `Clientul va alege una din: ${options.join(
-          ", "
-        )}.`
+      ? `Clientul va alege una din: ${options
+          .map(
+            (option) =>
+              normalizeOptionChoice(option)
+                .label
+          )
+          .join(", ")}.`
       : `Clientul va alege dintr-o listă de opțiuni la „${label}” (adaugă opțiunile mai jos).`;
   }
 
@@ -477,27 +482,40 @@ function OptionTagComboField({
       selectedValues.map(normalizeText)
     );
 
+    const seenValues = new Set();
+
     return options
       .map((item) =>
-        String(item || "").trim()
+        normalizeOptionChoice(item)
       )
-      .filter(Boolean)
+      .filter((choice) => choice.value)
+      .filter((choice) => {
+        const key = normalizeText(
+          choice.value
+        );
+
+        if (seenValues.has(key)) {
+          return false;
+        }
+
+        seenValues.add(key);
+        return true;
+      })
       .filter(
-        (item, index, array) =>
-          array.indexOf(item) === index
-      )
-      .filter(
-        (item) =>
+        (choice) =>
           !existingValues.has(
-            normalizeText(item)
+            normalizeText(choice.value)
           )
       )
       .filter(
-        (item) =>
+        (choice) =>
           !query ||
-          normalizeText(item).includes(
-            query
-          )
+          normalizeText(
+            choice.label
+          ).includes(query) ||
+          normalizeText(
+            choice.value
+          ).includes(query)
       )
       .slice(0, 80);
   }, [
@@ -629,7 +647,11 @@ function OptionTagComboField({
                   "rgba(0,0,0,0.06)",
               }}
             >
-              {item}
+              {
+                normalizeOptionChoice(
+                  item
+                ).label
+              }
 
               <button
                 type="button"
@@ -719,15 +741,15 @@ function OptionTagComboField({
           }}
         >
           {suggestions.length ? (
-            suggestions.map((item) => (
+            suggestions.map((choice) => (
               <button
-                key={item}
+                key={choice.value}
                 type="button"
                 onMouseDown={(event) =>
                   event.preventDefault()
                 }
                 onClick={() =>
-                  addValue(item)
+                  addValue(choice.value)
                 }
                 style={{
                   width: "100%",
@@ -742,7 +764,7 @@ function OptionTagComboField({
                   fontSize: "0.86rem",
                 }}
               >
-                {item}
+                {choice.label}
               </button>
             ))
           ) : (
@@ -2367,9 +2389,14 @@ return (
                                   {field.label ||
                                     "Variantă"}{" "}
                                   (
-                                  {field.options.join(
-                                    ", "
-                                  )}
+                                  {field.options
+                                    .map(
+                                      (option) =>
+                                        normalizeOptionChoice(
+                                          option
+                                        ).label
+                                    )
+                                    .join(", ")}
                                   )
                                 </div>
                               )}

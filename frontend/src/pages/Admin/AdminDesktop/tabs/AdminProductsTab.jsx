@@ -94,6 +94,7 @@ export default function AdminProductsTab() {
   const [hiddenFilter, setHiddenFilter] = useState("");
   const [storeStatusFilter, setStoreStatusFilter] = useState("");
   const [moderationFilter, setModerationFilter] = useState("");
+  const [gpsrIncompleteFilter, setGpsrIncompleteFilter] = useState(false);
 
  const shouldFetchOwnData = true;
 
@@ -123,6 +124,7 @@ export default function AdminProductsTab() {
         if (availability) params.set("availability", availability);
         if (moderationFilter) params.set("moderationStatus", moderationFilter);
         if (storeStatusFilter) params.set("serviceStatus", storeStatusFilter);
+        if (gpsrIncompleteFilter) params.set("gpsrIncomplete", "true");
 
         if (activeFilter === "active") params.set("isActive", "true");
         if (activeFilter === "inactive") params.set("isActive", "false");
@@ -164,6 +166,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
     hiddenFilter,
     storeStatusFilter,
     moderationFilter,
+    gpsrIncompleteFilter,
   ]);
 
   useEffect(() => {
@@ -175,6 +178,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
     hiddenFilter,
     storeStatusFilter,
     moderationFilter,
+    gpsrIncompleteFilter,
   ]);
 
   const products = productsState;
@@ -402,6 +406,22 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
           <option value="DRAFT">Store DRAFT</option>
           <option value="INACTIVE">Store INACTIVE</option>
         </select>
+
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 13,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={gpsrIncompleteFilter}
+            onChange={(e) => setGpsrIncompleteFilter(e.target.checked)}
+          />
+          Doar GPSR incomplet
+        </label>
       </div>
 
       <div className={styles.metaRow}>
@@ -616,6 +636,12 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
                             {String(p.moderationMessage).length > 80 ? "…" : ""}
                           </span>
                         ) : null}
+
+                        {p.gpsrComplete === false && (
+                          <StatusBadge tone="warn">
+                            GPSR incomplet
+                          </StatusBadge>
+                        )}
                       </div>
                     </td>
 
@@ -1490,6 +1516,106 @@ function ProductReviewModal({
                 value={
                   product.specialNotes ||
                   "—"
+                }
+              />
+            </div>
+
+            {/* =========================
+                GPSR (Reg. UE 2023/988)
+                Read-only - adminul nu completează
+                date GPSR în locul vendorului.
+            ========================== */}
+
+            <div
+              className={
+                styles.descriptionBox
+              }
+            >
+              <h4>
+                Producător și siguranță (GPSR)
+              </h4>
+
+              <Detail
+                label="Stare GPSR"
+                value={
+                  product.gpsrComplete
+                    ? "Complet"
+                    : "Incomplet"
+                }
+              />
+
+              <Detail
+                label="Vendorul este producătorul"
+                value={
+                  product.isOwnManufacturer === true
+                    ? "Da"
+                    : product.isOwnManufacturer === false
+                    ? "Nu"
+                    : "Necompletat"
+                }
+              />
+
+              {product.isOwnManufacturer === false && (
+                <>
+                  <Detail
+                    label="Producător"
+                    value={product.manufacturerName || "—"}
+                  />
+                  <Detail
+                    label="Adresă producător"
+                    value={product.manufacturerAddress || "—"}
+                  />
+                  <Detail
+                    label="Email producător"
+                    value={product.manufacturerEmail || "—"}
+                  />
+                  <Detail
+                    label="Producător în UE"
+                    value={
+                      product.manufacturerInEU === true
+                        ? "Da"
+                        : product.manufacturerInEU === false
+                        ? "Nu"
+                        : "Necompletat"
+                    }
+                  />
+                  {product.manufacturerInEU === false && (
+                    <>
+                      <Detail
+                        label="Persoană responsabilă UE"
+                        value={product.responsiblePersonName || "—"}
+                      />
+                      <Detail
+                        label="Adresă persoană responsabilă"
+                        value={product.responsiblePersonAddress || "—"}
+                      />
+                      <Detail
+                        label="Email persoană responsabilă"
+                        value={product.responsiblePersonEmail || "—"}
+                      />
+                    </>
+                  )}
+                </>
+              )}
+
+              <Detail
+                label="Avertismente de siguranță"
+                value={
+                  product.safetyWarnings === null ||
+                  product.safetyWarnings === undefined
+                    ? "Necompletat"
+                    : product.safetyWarnings || "Nu se aplică"
+                }
+              />
+
+              <Detail
+                label="Destinat copiilor"
+                value={
+                  product.isForChildren === true
+                    ? "Da"
+                    : product.isForChildren === false
+                    ? "Nu"
+                    : "Necompletat"
                 }
               />
             </div>

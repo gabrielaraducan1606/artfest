@@ -8,9 +8,11 @@ import {
   ChevronRight,
   FileText,
   ExternalLink,
+  Eye,
 } from "lucide-react";
 
 import styles from "./AdminBillingToClient.module.css";
+import VendorCommissionBreakdownModal from "./VendorCommissionBreakdownModal.jsx";
 
 function formatMoney(n, currency = "RON") {
   const v = Number(n || 0);
@@ -63,6 +65,8 @@ export default function AdminBillingToClientPage() {
 
   const [creatingId, setCreatingId] = useState("");
   const [createErr, setCreateErr] = useState("");
+
+  const [detailsVendor, setDetailsVendor] = useState(null); // { vendorId, displayName } | null
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -415,8 +419,22 @@ async function openInvoicePdf(invoiceId) {
                               display: "flex",
                               gap: 8,
                               justifyContent: "flex-end",
+                              flexWrap: "wrap",
                             }}
                           >
+                            <button
+                              type="button"
+                              className={styles.secondaryBtn}
+                              onClick={() =>
+                                setDetailsVendor({
+                                  vendorId: row.vendorId,
+                                  displayName: row.displayName,
+                                })
+                              }
+                            >
+                              <Eye size={16} /> Vezi detalii
+                            </button>
+
                             <button
                               className={styles.primaryBtn}
                               disabled={!row.canInvoice || creatingId === row.vendorId}
@@ -538,6 +556,14 @@ async function openInvoicePdf(invoiceId) {
           </div>
         )}
       </div>
+
+      {detailsVendor && (
+        <VendorCommissionBreakdownModal
+          vendorId={detailsVendor.vendorId}
+          vendorName={detailsVendor.displayName}
+          onClose={() => setDetailsVendor(null)}
+        />
+      )}
     </main>
   );
 }

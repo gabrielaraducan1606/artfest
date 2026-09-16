@@ -240,3 +240,97 @@ export function scoreTextMatch(target, query) {
 
   return average + fullCoverageBonus;
 }
+
+/*
+ * BATCH 1 (FINAL GAP PASS, 2026-09-07) - variantă STRICTĂ a
+ * scoreTextMatch, folosită DOAR pentru manifest.faq[].q în
+ * knowledgeRetrieval.js (nu schimbă scoreTextMatch și nu afectează
+ * niciun alt consumator - product search, vendorAssistantCommandService.js
+ * etc. rămân neschimbate).
+ *
+ * Motiv: FAQ.q sunt propoziții gramaticale complete (cu articole/
+ * prepoziții - "de O ofertă", "cum X O comandă"), nu fraze scurte
+ * curate manual ca aliases. Regresie CONFIRMATĂ prin audit: un
+ * manifest cu MULTE FAQ-uri "Cum ___ O comandă?" acumulează scor pe
+ * cuvinte funcționale de 1-2 litere ("o") tratate ca match exact
+ * (scor 3, identic cu un cuvânt de conținut real) - suficient cât să
+ * scoată un manifest mic, dar corect (o singură potrivire reală), din
+ * top-3.
+ *
+ * Fix: un match provenit din FAQ.q se acceptă DOAR dacă cel puțin
+ * `minCoverageRatio` din tokenii de conținut real ai query-ului
+ * (lungime >= `minTokenLength`) au un match - tokenii de 1-2 litere
+ * ("o", "și", "la") nu mai contează pentru acoperire (dar tot
+ * contribuie la scorul final, ca înainte, dacă gate-ul trece).
+ */
+export function scoreTextMatchStrict(
+  target,
+  query,
+  { minCoverageRatio = 2 / 3, minTokenLength = 3 } = {}
+) {
+  const queryTokens = tokenizeSearchText(query);
+  const targetTokens = tokenizeSearchText(target);
+
+  if (!queryTokens.length || !targetTokens.length) {
+    return 0;
+  }
+
+  const meaningfulQueryTokens = queryTokens.filter(
+    (token) => token.length >= minTokenLength
+  );
+
+  if (!meaningfulQueryTokens.length) {
+    return 0;
+  }
+
+  let scoreSum = 0;
+  let matchedTokenCount = 0;
+  let matchedMeaningfulCount = 0;
+
+  for (const queryToken of queryTokens) {
+    let bestTokenScore = 0;
+
+    for (const targetToken of targetTokens) {
+      const pairScore = scoreTokenPair(queryToken, targetToken);
+      if (pairScore > bestTokenScore) bestTokenScore = pairScore;
+    }
+
+    if (bestTokenScore > 0) {
+      matchedTokenCount += 1;
+
+      /*
+       * Doar potriviri TARI (exact sau prefix - scor >= 2.5) contează
+       * pentru acoperire. Un match pe treapta "includes"/"fuzzy"
+       * (scor 1-2, ex. "reducere" conține din întâmplare substring-ul
+       * "cer") e prea slab semantic ca să demonstreze că query-ul
+       * chiar se referă la acest FAQ - confirmat prin audit ca fiind
+       * cauza EXACTĂ a unei regresii reale (Q255, "Cum aplic o
+       * reducere?" ~ FAQ orders "Cum cer avans pentru o comandă?").
+       */
+      if (
+        queryToken.length >= minTokenLength &&
+        bestTokenScore >= 2.5
+      ) {
+        matchedMeaningfulCount += 1;
+      }
+    }
+
+    scoreSum += bestTokenScore;
+  }
+
+  const coverageRatio =
+    matchedMeaningfulCount / meaningfulQueryTokens.length;
+
+  if (coverageRatio < minCoverageRatio) {
+    return 0;
+  }
+
+  if (matchedTokenCount === 0) return 0;
+
+  const average = scoreSum / queryTokens.length;
+
+  const fullCoverageBonus =
+    matchedTokenCount === queryTokens.length ? 1 : 0;
+
+  return average + fullCoverageBonus;
+}

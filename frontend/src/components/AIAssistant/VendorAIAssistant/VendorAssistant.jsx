@@ -23,8 +23,6 @@ import {
   BackIcon,
   ChevronRightIcon,
   CloseIcon,
-  DragIcon,
-  HomeIcon,
   RefreshIcon,
   SendIcon,
   SparkleIcon,
@@ -117,7 +115,15 @@ import {
   runImageSearchFlow,
   handleProductChoice,
   startProductFlow,
+  HELP_SUPPORT_INTENT_RE,
+  OWN_ENTITY_ACTION_RE,
+  OWN_VENDOR_DATA_RE,
 } from "../Products/assistantProducts.js";
+
+import {
+  normalizeForIntentDetection,
+  isExplainIntentMessage,
+} from "../explainIntent.js";
 
 const MARKETPLACE_FLOW_TYPES = new Set([
   "product-search",
@@ -338,18 +344,15 @@ function detectPhotoPendingChoice(text) {
   return null;
 }
 
-const INITIAL_MESSAGES = [
-  {
-    id: "vendor-welcome",
-
-    role: "assistant",
-
-    type: "text",
-
-    content:
-      "Bună! Sunt asistentul magazinului tău. Te pot ajuta să adaugi și să editezi produse, să actualizezi prețul și stocul sau să ceri ajutor echipei Artfest.",
-  },
-];
+/*
+ * FAZA 8 (polish vizual, consistență roluri) - NU mai e un mesaj
+ * seedat în `messages` (bulă mare de chat) - text static, randat
+ * separat, DUPĂ quick actions (vezi JSX, gated pe `showMenu`), ca
+ * la INFLUENCER/USER/GUEST (AiAssistant.jsx). Nu intră în niciun
+ * history trimis către backend.
+ */
+const VENDOR_ASSISTANT_INTRO_TEXT =
+  "Întreabă-mă despre produse, comenzi, prețuri, promovare sau magazin. Te pot duce direct la pagina potrivită.";
 
 const EMPTY_PRODUCT_DRAFT = {
   images: [],
@@ -817,7 +820,7 @@ function getSavedDraft() {
    Componentă
 ========================================================= */
 
-export default function VendorAssistant() {
+export default function VendorAssistant({ embedded = false } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -921,9 +924,7 @@ export default function VendorAssistant() {
   const [
     messages,
     setMessages,
-  ] = useState(
-    INITIAL_MESSAGES
-  );
+  ] = useState([]);
 
   const [
     inputValue,
@@ -1365,6 +1366,12 @@ const [
   ======================================================= */
 
   useEffect(() => {
+    // Embedded (FloatingHub): poziția e deținută/persistată de hub, nu
+    // de widget - nimic de scris aici.
+    if (embedded) {
+      return;
+    }
+
     if (
       typeof window ===
       "undefined"
@@ -1376,7 +1383,7 @@ const [
       STORAGE_KEYS.position,
       JSON.stringify(position)
     );
-  }, [position]);
+  }, [position, embedded]);
 
   /* =======================================================
      Salvare draft
@@ -1452,6 +1459,12 @@ const [
   ======================================================= */
 
   useEffect(() => {
+    // Embedded (FloatingHub): poziția/dimensiunea sunt deținute de hub -
+    // widget-ul nu mai are propriul listener de resize.
+    if (embedded) {
+      return undefined;
+    }
+
     function handleResize() {
       const currentPanelSize =
         getPanelSize();
@@ -1500,7 +1513,7 @@ const [
         handleResize
       );
     };
-  }, [isOpen]);
+  }, [isOpen, embedded]);
 
   /* =======================================================
      Eliberare URL-uri la demontare
@@ -4349,9 +4362,7 @@ if (resetBatch) {
   function resetConversation() {
     clearUploadedImages();
 
-    setMessages([
-      ...INITIAL_MESSAGES,
-    ]);
+    setMessages([]);
 
     setInputValue("");
 
@@ -4585,6 +4596,7 @@ setTopicTracking({
     }
   }
 
+  // eslint-disable-next-line no-unused-vars -- butonul din header a fost scos (simplificare header), rămâne apelabilă din alte puncte de intrare ale meniului
   function returnToMainMenu() {
     setActiveFlow(null);
 
@@ -7786,16 +7798,48 @@ function handleResetBatch() {
     const isMarketplaceFlowActive =
       MARKETPLACE_FLOW_TYPES.has(activeFlow);
 
+    /*
+     * BUGFIX (audit, regresie "vreau ajutor" -> shopping flow) - un
+     * flow marketplace ACTIV continua ORB orice mesaj nou (`{ type:
+     * activeFlow }`, fără să se mai uite la text deloc), inclusiv
+     * unul evident NELEGAT ("vreau ajutor", "câte comenzi am?").
+     * Verificăm ÎNAINTE dacă mesajul nou arată clar ca ieșire din
+     * flow - reutilizăm detectoarele deterministe deja existente
+     * (aceleași folosite de detectMarketplaceIntent), nu o listă nouă.
+     * Dacă da: golim activeFlow și lăsăm mesajul să cadă pe calea
+     * normală de mai jos (askCopilot), exact ca pe stare curată.
+     */
+    const normalizedForExitCheck =
+      isMarketplaceFlowActive
+        ? normalizeForIntentDetection(value)
+        : "";
+
+    const looksLikeMarketplaceExit =
+      isMarketplaceFlowActive &&
+      (
+        HELP_SUPPORT_INTENT_RE.test(normalizedForExitCheck) ||
+        OWN_ENTITY_ACTION_RE.test(normalizedForExitCheck) ||
+        OWN_VENDOR_DATA_RE.test(normalizedForExitCheck) ||
+        isExplainIntentMessage(normalizedForExitCheck)
+      );
+
+    if (looksLikeMarketplaceExit) {
+      setActiveFlow(null);
+    }
+
+    const effectiveMarketplaceFlowActive =
+      isMarketplaceFlowActive && !looksLikeMarketplaceExit;
+
     const noOtherActiveContext =
       !conversationContext.mode ||
       conversationContext.mode === "NORMAL";
 
     if (
-      isMarketplaceFlowActive ||
+      effectiveMarketplaceFlowActive ||
       noOtherActiveContext
     ) {
       const marketplaceIntent =
-        isMarketplaceFlowActive
+        effectiveMarketplaceFlowActive
           ? { type: activeFlow }
           : detectMarketplaceIntent(value, {
               includeGenericProductWords: false,
@@ -7808,7 +7852,7 @@ function handleResetBatch() {
 
         setInputValue("");
 
-        if (!isMarketplaceFlowActive) {
+        if (!effectiveMarketplaceFlowActive) {
           setShowMenu(false);
           setActiveFlow(marketplaceIntent.type);
         }
@@ -7827,6 +7871,16 @@ function handleResetBatch() {
           });
 
           if (!handled) {
+            /*
+             * BUGFIX (audit): căutarea nu a putut fi PORNITĂ deloc -
+             * stare terminală clară, fără rezultate/opțiuni de
+             * rafinare afișate (spre deosebire de "zero rezultate",
+             * care oferă "Încearcă altă căutare" ca alegere) - golim
+             * activeFlow, altfel rămâne blocat pe un flow care n-a
+             * apucat nici măcar să înceapă.
+             */
+            setActiveFlow(null);
+
             addMessage(
               createMessage(
                 "assistant",
@@ -8039,25 +8093,37 @@ function handleResetBatch() {
             "artfest-assistant"
           ]
         }
-        style={{
-          left:
-            position.x,
+        style={
+          embedded
+            ? {
+                position: "static",
+                inset: "auto",
+                left: "auto",
+                top: "auto",
+                zIndex: "auto",
+                width: "100%",
+                height: "100%",
+              }
+            : {
+                left:
+                  position.x,
 
-          top:
-            position.y,
+                top:
+                  position.y,
 
-          width:
-            isOpen
-              ? panelSize.width
-              : 64,
+                width:
+                  isOpen
+                    ? panelSize.width
+                    : 64,
 
-          height:
-            isOpen
-              ? panelSize.height
-              : 64,
-        }}
+                height:
+                  isOpen
+                    ? panelSize.height
+                    : 64,
+              }
+        }
       >
-        {isOpen ? (
+        {(embedded || isOpen) ? (
           <section
             className={
               styles[
@@ -8067,100 +8133,93 @@ function handleResetBatch() {
           >
             <header
               className={
-                styles[
-                  "artfest-assistant-header"
-                ]
+                styles.assistantHeader
               }
               onPointerDown={
-                handlePointerDown
+                embedded ? undefined : handlePointerDown
               }
               onPointerMove={
-                handlePointerMove
+                embedded ? undefined : handlePointerMove
               }
               onPointerUp={
-                handlePointerUp
+                embedded ? undefined : handlePointerUp
               }
               onPointerCancel={
-                handlePointerUp
+                embedded ? undefined : handlePointerUp
               }
             >
-              <div>
-                <span>
-                  <DragIcon />
-                </span>
-
-                <div>
-                  <SparkleIcon />
-                </div>
-
-                <div>
-                  <h2>
-                    Asistent magazin
-                  </h2>
-
-                  <p>
-                    Produse și administrare
-                  </p>
-                </div>
-              </div>
-
               <div
-                onPointerDown={(
-                  event
-                ) =>
-                  event.stopPropagation()
+                className={
+                  styles.assistantHeaderTop
                 }
               >
-                <button
-                  type="button"
-                  onClick={
-                    returnToMainMenu
+                <div
+                  className={
+                    styles.assistantIdentity
                   }
-                  aria-label="Meniu principal"
-                  title="Meniu principal"
                 >
-                  <HomeIcon />
-                </button>
+                  <div
+                    className={
+                      styles.assistantIcon
+                    }
+                  >
+                    <SparkleIcon />
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={
-                    startNewTopic
-                  }
-                  aria-label="Subiect nou - păstrează istoricul, dar nu mai ține cont de discuția anterioară"
-                  title="Subiect nou"
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    whiteSpace: "nowrap",
-                    padding: "0 8px",
-                  }}
-                >
-                  Subiect nou
-                </button>
+                  <h2
+                    className={
+                      styles.assistantTitle
+                    }
+                  >
+                    Asistent Artfest
+                  </h2>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={
-                    resetConversation
+                <div
+                  className={
+                    styles.assistantHeaderActions
                   }
-                  aria-label="Șterge toată conversația"
-                  title="Șterge conversația"
+                  onPointerDown={(
+                    event
+                  ) =>
+                    event.stopPropagation()
+                  }
                 >
-                  <RefreshIcon />
-                </button>
+                  <button
+                    type="button"
+                    className={`${styles.assistantHeaderButton} ${styles.assistantRefreshButton}`}
+                    onClick={
+                      resetConversation
+                    }
+                    aria-label="Șterge toată conversația"
+                    title="Șterge conversația"
+                  >
+                    <RefreshIcon />
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={
-                    closeAssistant
-                  }
-                  aria-label="Închide asistentul"
-                  title="Închide"
-                >
-                  <CloseIcon />
-                </button>
+                  <button
+                    type="button"
+                    className={
+                      styles.assistantHeaderButton
+                    }
+                    onClick={
+                      closeAssistant
+                    }
+                    aria-label="Închide asistentul"
+                    title="Închide"
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
               </div>
+
+              <p
+                className={
+                  styles.assistantSubtitle
+                }
+              >
+                Produse, comenzi și magazinul tău
+              </p>
             </header>
 
             <div
@@ -9065,7 +9124,34 @@ function handleResetBatch() {
         ChevronRightIcon={
           ChevronRightIcon
         }
+        compact={
+          currentMenu ===
+          VENDOR_MENU_IDS.ROOT
+        }
+        roleHint="Panoul tău de vânzător"
       />
+    )}
+
+    {showMenu && (
+      <>
+        <p
+          className={
+            styles.assistantIntroText
+          }
+        >
+          {
+            VENDOR_ASSISTANT_INTRO_TEXT
+          }
+        </p>
+
+        <p
+          className={
+            styles.assistantIntroHint
+          }
+        >
+          Poți și să scrii liber orice întrebare.
+        </p>
+      </>
     )}
 
     <div

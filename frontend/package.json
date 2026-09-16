@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test:guest-intents": "node scripts/testGuestIntentRouter.mjs",
     "test:guest-intents:hard": "node scripts/testGuestIntentHardSet.mjs",
-    "test:guest-intents:all": "npm run test:guest-intents && npm run test:guest-intents:hard"
+    "test:guest-intents:all": "npm run test:guest-intents && npm run test:guest-intents:hard",
+    "test:product-config-validator": "node --test src/utils/productConfigurationValidator.test.js src/components/AIAssistant/Personalization/productPersonalizationFlow.test.js"
   },
   "dependencies": {
     "axios": "^1.11.0",

@@ -10,6 +10,58 @@ function clampQty(value) {
   );
 }
 
+/*
+ * Oglindă a normalizeCartData() din backend/src/routes/cartRoutes.js -
+ * trim string-uri, elimină câmpuri goale/null/undefined, SORTEAZĂ
+ * cheile determinist (altfel {color,size} vs {size,color}, aceeași
+ * configurație, ar produce chei diferite).
+ */
+function normalizeConfigValue(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, itemValue]) => [
+        String(key || "").trim(),
+        typeof itemValue === "string"
+          ? itemValue.trim()
+          : itemValue,
+      ])
+      .filter(([key, itemValue]) => {
+        if (!key) return false;
+        if (itemValue === undefined || itemValue === null) return false;
+        if (typeof itemValue === "string" && itemValue.length === 0) {
+          return false;
+        }
+        return true;
+      })
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  );
+}
+
+/*
+ * Identitatea unei linii din coșul guest - echivalentul client-side al
+ * buildConfigurationKey() din backend (nu are nevoie de hash, doar de
+ * un string determinist și STABIL pentru aceeași configurație).
+ */
+export function buildGuestConfigurationKey(
+  selectedOptions,
+  customAnswers,
+  repeatedGroupAnswers
+) {
+  return JSON.stringify({
+    selectedOptions: normalizeConfigValue(selectedOptions),
+    customAnswers: normalizeConfigValue(customAnswers),
+    repeatedGroupAnswers: normalizeConfigValue(repeatedGroupAnswers),
+  });
+}
+
 export function getGuestCart() {
   try {
     const raw = localStorage.getItem(
@@ -150,13 +202,37 @@ const safeConfiguration =
   !Array.isArray(configuration)
     ? configuration
     : {};
+
+  /*
+   * Identitatea reală a liniei - calculată din selectedOptions/
+   * customAnswers/repeatedGroupAnswers, NU doar productId. Dacă
+   * apelantul trimite deja un configurationKey explicit (rar), îl
+   * respectăm; altfel îl calculăm determinist aici.
+   */
+  const configurationKey =
+    typeof safeConfiguration.configurationKey === "string" &&
+    safeConfiguration.configurationKey
+      ? safeConfiguration.configurationKey
+      : buildGuestConfigurationKey(
+          safeConfiguration.selectedOptions,
+          safeConfiguration.customAnswers,
+          safeConfiguration.repeatedGroupAnswers
+        );
+
   const existingIndex =
     cart.findIndex(
       (item) =>
-        item.productId === id
+        item.productId === id &&
+        (item.configurationKey || "default") === configurationKey
     );
 
   if (existingIndex >= 0) {
+    /*
+     * Aceeași configurație (productId + configurationKey identice) -
+     * doar cantitatea crește. selectedOptions/customAnswers/
+     * repeatedGroupAnswers rămân neschimbate (sunt deja identice,
+     * altfel configurationKey ar fi fost diferit).
+     */
     cart[existingIndex] = {
   ...cart[existingIndex],
 
@@ -164,26 +240,6 @@ const safeConfiguration =
     MAX_QTY,
     Number(cart[existingIndex].qty || 0) + safeQty
   ),
-
-  selectedOptions:
-    safeConfiguration.selectedOptions ||
-    cart[existingIndex].selectedOptions ||
-    {},
-
-  customAnswers:
-    safeConfiguration.customAnswers ||
-    cart[existingIndex].customAnswers ||
-    {},
-
-  repeatedGroupAnswers:
-    safeConfiguration.repeatedGroupAnswers ||
-    cart[existingIndex].repeatedGroupAnswers ||
-    {},
-
-  configurationKey:
-    safeConfiguration.configurationKey ||
-    cart[existingIndex].configurationKey ||
-    "default",
 };
   } else {
  cart.push({
@@ -199,8 +255,7 @@ const safeConfiguration =
   repeatedGroupAnswers:
     safeConfiguration.repeatedGroupAnswers || {},
 
-  configurationKey:
-    safeConfiguration.configurationKey || "default",
+  configurationKey,
 });
   }
 
@@ -209,6 +264,7 @@ const safeConfiguration =
 
 export function updateGuestCartItem(
   productId,
+  configurationKey,
   qty
 ) {
   const id = String(
@@ -221,11 +277,13 @@ export function updateGuestCartItem(
     );
   }
 
+  const key = configurationKey || "default";
   const safeQty = clampQty(qty);
 
   const updated = getGuestCart().map(
     (item) =>
-      item.productId === id
+      item.productId === id &&
+      (item.configurationKey || "default") === key
         ? {
             ...item,
             qty: safeQty,
@@ -237,15 +295,21 @@ export function updateGuestCartItem(
 }
 
 export function removeFromGuestCart(
-  productId
+  productId,
+  configurationKey
 ) {
   const id = String(
     productId || ""
   ).trim();
 
+  const key = configurationKey || "default";
+
   const updated = getGuestCart().filter(
     (item) =>
-      item.productId !== id
+      !(
+        item.productId === id &&
+        (item.configurationKey || "default") === key
+      )
   );
 
   return saveGuestCart(updated);

@@ -363,12 +363,71 @@ function formatCurrentPageForTicket(currentPage) {
 }
 
 /*
- * FAZA 8/10.4: context automat, fără schimbare de schemă Prisma -
- * tot ce nu are câmp dedicat pe SupportTicket (rol, domeniu,
- * pagină curentă, pași încercați, entitate din conversationContext)
- * intră într-un rezumat STRUCTURAT în body-ul mesajului, nu într-un
- * câmp nou.
+ * FAZA 3 (context mai bogat în tichet): NU e o schimbare de schemă -
+ * tot ce nu are câmp dedicat pe SupportTicket (rol, domeniu, pagină
+ * curentă, pași încercați, entități referite) intră tot în același
+ * rezumat STRUCTURAT în body-ul mesajului, doar cu mai multe linii de
+ * context posibile, nu doar una ("Entitate legată: TYPE (id)").
+ *
+ * `entities` e un obiect plat cu chei fixe - DOAR cele cu valoare
+ * apar în body, niciodată linii goale. Cheile țin cont STRICT de ce
+ * e verificat, azi, ca disponibil în UI (vezi raportul FAZA 3):
+ * productId/orderId/quoteRequestId - din currentEntity (URL sau
+ * anunțat explicit de pagină, vezi derivePageContext.js +
+ * CurrentEntityContext.jsx pe frontend); storeSlug - la fel, pentru
+ * /magazin/:slug (e un slug, NU vendorId - etichetat corect ca atare,
+ * nu inventăm un id care nu există). shipmentId/threadId/serviceId NU
+ * au azi nicio sursă reală în UI - dacă cineva le trimite vreodată,
+ * tot apar (funcția e genericăpe orice cheie din ENTITY_CONTEXT_LABELS),
+ * dar nimic nu le populează încă, deci nu apar în practică.
  */
+const ENTITY_CONTEXT_LABELS = {
+  productId: "Produs",
+  orderId: "Comandă",
+  shipmentId: "Shipment",
+  quoteRequestId: "Cerere ofertă",
+  threadId: "Conversație",
+  storeSlug: "Magazin",
+};
+
+/*
+ * Compatibilitate cu formatul vechi (entityType + entityId, un singur
+ * tip de entitate) - traduce tipurile cunoscute din
+ * derivePageContext.js/CurrentEntityContext.jsx (PRODUCT,
+ * PRODUCT_COSTING, ORDER, QUOTE, STORE) pe cheile de mai sus. Un tip
+ * necunoscut nu produce nimic (nu inventăm o etichetă pentru ceva
+ * nemapat).
+ */
+export function mapEntityTypeToEntities(entityType, entityId) {
+  if (!entityType || !entityId) return {};
+
+  switch (entityType) {
+    case "PRODUCT":
+    case "PRODUCT_COSTING":
+      return { productId: entityId };
+
+    case "ORDER":
+      return { orderId: entityId };
+
+    case "QUOTE":
+      return { quoteRequestId: entityId };
+
+    case "STORE":
+      return { storeSlug: entityId };
+
+    default:
+      return {};
+  }
+}
+
+function formatEntityContextLines(entities) {
+  const lines = Object.entries(ENTITY_CONTEXT_LABELS)
+    .filter(([key]) => entities?.[key])
+    .map(([key, label]) => `- ${label}: ${entities[key]}`);
+
+  return lines.join("\n");
+}
+
 export function buildTicketDraft({
   category,
   ticketCategory,
@@ -381,6 +440,7 @@ export function buildTicketDraft({
   domain,
   entityType = null,
   entityId = null,
+  entities = null,
 }) {
   const subjectBase =
     summary || message || "Solicitare de suport";
@@ -396,6 +456,11 @@ export function buildTicketDraft({
         .join("\n")
     : "(niciun pas de clarificare - problema a fost clară din primul mesaj)";
 
+  const resolvedEntities =
+    entities || mapEntityTypeToEntities(entityType, entityId);
+
+  const entityContextLines = formatEntityContextLines(resolvedEntities);
+
   const structuredMessage = `
 Rezumat AI: ${summary || "-"}
 
@@ -403,7 +468,7 @@ Rol: ${audience}
 Categorie detectată: ${category}
 Domeniu: ${domain || "necunoscut"}
 Pagina curentă: ${formatCurrentPageForTicket(currentPage)}
-${entityType && entityId ? `Entitate legată: ${entityType} (${entityId})` : ""}
+${entityContextLines ? `Context entitate:\n${entityContextLines}` : ""}
 
 Mesajul utilizatorului:
 ${message}

@@ -166,7 +166,7 @@ function wasVendorContacted(
   );
 }
 
-function buildFeaturePayload(
+export function buildFeaturePayload(
   feature
 ) {
   if (!feature) {

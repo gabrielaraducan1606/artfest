@@ -32,6 +32,22 @@
   line-height: 1.5;
 }
 
+.linkButton {
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--color-primary, #2563eb);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.linkButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .primaryButton {
   border: 0;
   border-radius: var(--radius);
@@ -286,6 +302,42 @@
 .statusDisabled {
   color: var(--color-muted);
   border: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+/*
+ * Badge-uri pentru InfluencerPayoutProfile.verificationStatus
+ * (subtab Fiscalizare & plăți) - refolosesc paleta de mai sus unde
+ * semantica se potrivește (Verificat = success, Respins = danger,
+ * Incomplet = muted), plus una nouă pentru În verificare.
+ */
+.statusIncomplete {
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+.statusCompletePayout {
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning);
+  background: var(--surface);
+}
+
+.statusUnderReview {
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  background: var(--surface);
+}
+
+.statusVerified {
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+  background: var(--surface);
+}
+
+.statusRejected {
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
   background: var(--surface);
 }
 
@@ -612,4 +664,564 @@
   font-size: 13px;
   line-height: 1.5;
   opacity: 0.8;
+}
+
+/* =========================================================
+   INFLUENCER RESOURCES
+   ========================================================= */
+
+.resourceCategoryTabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.resourceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.resourceCard {
+  min-width: 0;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.resourceMedia {
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--color-bg);
+}
+
+.resourceMedia img,
+.resourceMedia video {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+}
+
+.resourceTypeLabel {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.resourceTitle {
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.resourceDates {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.resourceStatsBox {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg);
+}
+
+.resourceStatsTitle {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.resourceProgress {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.resourceProgressBar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transition: width 0.25s ease;
+}
+
+.resourceStatsText {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.resourceActions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+
+/* =========================================================
+   ACTIVITY MODAL
+   ========================================================= */
+
+.activitySummary {
+  margin-bottom: 12px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.activityList {
+  display: grid;
+  gap: 8px;
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
+.activityItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.activityPerson {
+  min-width: 0;
+}
+
+.activityName {
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.activityEmail,
+.activityMeta {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+
+/* =========================================================
+   RESOURCE FORM MEDIA
+   ========================================================= */
+
+.resourceMediaForm {
+  display: grid;
+  gap: 8px;
+}
+
+.resourceMediaPreview {
+  width: 100%;
+  max-height: 240px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+
+
+/* =========================================================
+   MOBILE RESOURCES
+   ========================================================= */
+
+@media (max-width: 700px) {
+  .resourceCategoryTabs {
+    flex-wrap: nowrap;
+    width: calc(100% + 24px);
+    margin-left: -12px;
+    padding: 2px 12px 9px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .resourceCategoryTabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .resourceCategoryTabs button {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 40px;
+    white-space: nowrap;
+  }
+
+  .resourceGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .resourceCard {
+    padding: 12px;
+    gap: 9px;
+    border-radius: 13px;
+  }
+
+  .resourceMedia img,
+  .resourceMedia video {
+    max-height: 220px;
+  }
+
+  .resourceTitle {
+    font-size: 14px;
+  }
+
+  .resourceStatsBox {
+    padding: 9px;
+  }
+
+  .resourceActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .resourceActions .smallButton {
+    width: 100%;
+    min-height: 42px;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .activityList {
+    max-height: 62vh;
+  }
+
+  .activityItem {
+    align-items: flex-start;
+  }
+}
+
+
+/* =========================================================
+   VERY SMALL MOBILE
+   ========================================================= */
+
+@media (max-width: 430px) {
+  .resourceActions {
+    grid-template-columns: 1fr;
+  }
+
+  .activityItem {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .activityItem .status {
+    justify-self: start;
+  }
+
+  .resourceMedia img,
+  .resourceMedia video {
+    max-height: 190px;
+  }
+}
+
+/* =========================================================
+   INFLUENCER DRAWER
+   ========================================================= */
+
+.clickableRow {
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.clickableRow:hover {
+  background: var(--color-bg);
+}
+
+.clickableRow:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.drawerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+
+  display: flex;
+  justify-content: flex-end;
+
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(2px);
+}
+
+.drawer {
+  width: min(520px, 100%);
+  height: 100%;
+
+  display: flex;
+  flex-direction: column;
+
+  background: var(--surface);
+  color: var(--color-text);
+
+  box-shadow:
+    -18px 0 55px rgba(15, 23, 42, 0.22);
+
+  animation: influencerDrawerIn 0.2s ease-out;
+}
+
+@keyframes influencerDrawerIn {
+  from {
+    transform: translateX(30px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.drawerHeader {
+  flex: 0 0 auto;
+
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 16px;
+
+  padding: 20px 22px;
+
+  border-bottom: 1px solid var(--color-border);
+}
+
+.drawerTitle {
+  margin: 0;
+
+  font-family: var(--font-title);
+  font-size: 20px;
+  line-height: 1.25;
+
+  color: var(--color-text);
+}
+
+.drawerSub {
+  margin-top: 5px;
+
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.45;
+
+  overflow-wrap: anywhere;
+}
+
+.drawerClose {
+  width: 36px;
+  height: 36px;
+
+  flex: 0 0 auto;
+
+  display: grid;
+  place-items: center;
+
+  padding: 0;
+
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+
+  background: var(--surface);
+  color: var(--color-text);
+
+  font-size: 22px;
+  line-height: 1;
+
+  cursor: pointer;
+
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.drawerClose:hover {
+  border-color: var(--color-primary);
+  background: var(--color-bg);
+}
+
+.drawerBody {
+  flex: 1 1 auto;
+  min-height: 0;
+
+  overflow-y: auto;
+
+  padding: 20px 22px;
+}
+
+.drawerSection {
+  margin: 0 0 20px;
+  padding: 0 0 20px;
+
+  border-bottom: 1px solid var(--color-border);
+}
+
+.drawerSection:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.drawerSection h4 {
+  margin: 0 0 12px;
+
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.drawerField {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 0.8fr)
+    minmax(0, 1.2fr);
+
+  gap: 12px;
+
+  padding: 8px 0;
+
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.drawerField > span:first-child {
+  color: var(--color-muted);
+}
+
+.drawerField > div {
+  min-width: 0;
+
+  color: var(--color-text);
+
+  overflow-wrap: anywhere;
+}
+
+.drawerField code {
+  display: inline-block;
+
+  max-width: 100%;
+
+  padding: 3px 6px;
+
+  border-radius: 6px;
+
+  background: var(--color-bg);
+  color: var(--color-text);
+
+  font-size: 12px;
+
+  word-break: break-all;
+}
+
+.drawerFooter {
+  flex: 0 0 auto;
+
+  display: flex;
+  flex-wrap: wrap;
+
+  gap: 8px;
+
+  padding: 16px 22px;
+
+  border-top: 1px solid var(--color-border);
+
+  background: var(--surface);
+}
+
+.drawerBtnSecondary,
+.drawerBtnDanger {
+  min-height: 40px;
+
+  padding: 9px 12px;
+
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+
+  background: var(--surface);
+  color: var(--color-text);
+
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.drawerBtnSecondary:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: var(--color-bg);
+}
+
+.drawerBtnDanger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.drawerBtnDanger:hover:not(:disabled) {
+  background: var(--color-bg);
+}
+
+.drawerBtnSecondary:disabled,
+.drawerBtnDanger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* =========================================================
+   DRAWER MOBILE
+   ========================================================= */
+
+@media (max-width: 700px) {
+  .drawer {
+    width: 100%;
+  }
+
+  .drawerHeader,
+  .drawerBody,
+  .drawerFooter {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .drawerField {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .drawerFooter {
+    flex-direction: column;
+  }
+
+  .drawerBtnSecondary,
+  .drawerBtnDanger {
+    width: 100%;
+  }
 }

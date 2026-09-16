@@ -31,10 +31,24 @@ function createDefaultVendorFilters() {
   };
 }
 
+function createDefaultInfluencerFilters() {
+  return {
+    q: "",
+    termsStatus: "ALL",
+  };
+}
+
 const TABS = {
   USERS: "USERS",
   VENDORS: "VENDORS",
+  INFLUENCERS: "INFLUENCERS",
   NOTIFY: "NOTIFY",
+};
+
+const INFLUENCER_TERMS_STATUS_LABELS = {
+  UPDATED: "Actualizat",
+  OUTDATED: "Necesită reacceptare",
+  NEVER_ACCEPTED: "Nu a acceptat",
 };
 
 const DOC_LABELS = {
@@ -45,7 +59,6 @@ const DOC_LABELS = {
   MARKETING: "Preferințe marketing",
 
   VENDOR_TERMS: "Acord master vânzători",
-  VENDOR_PRIVACY_NOTICE: "Notă GDPR vendori",
   SHIPPING_ADDENDUM: "Politica de livrare",
   PRODUCTS_ADDENDUM: "Anexa produse",
   PRODUCT_DECLARATION: "Declarație produse",
@@ -336,6 +349,7 @@ export default function AdminPoliciesTab({
   users = [],
   userConsents = [],
   vendorAgreements = [],
+  influencerTerms = {},
 }) {
   const [activeTab, setActiveTab] = useState(TABS.USERS);
 
@@ -348,6 +362,21 @@ export default function AdminPoliciesTab({
   const [vendorPage, setVendorPage] = useState(1);
 
   const [selectedVendor, setSelectedVendor] = useState(null);
+
+  const [influencerFilters, setInfluencerFilters] = useState(
+    createDefaultInfluencerFilters
+  );
+  const [influencerPage, setInfluencerPage] = useState(1);
+
+  const [selectedInfluencerTerms, setSelectedInfluencerTerms] =
+    useState(null);
+
+  const influencerRows = useMemo(
+    () => influencerTerms?.influencers || [],
+    [influencerTerms]
+  );
+  const influencerCurrentVersion = influencerTerms?.currentVersion || null;
+  const influencerDocumentUrl = influencerTerms?.documentUrl || null;
 
   const normalizedUserRows = useMemo(() => {
     const legalRows = normalizeUserConsents(userConsents);
@@ -559,6 +588,56 @@ if (userFilters.hasMarketing === "YES") {
     vendorEndIndex
   );
 
+  const handleInfluencerFilterChange = (updater) => {
+    setInfluencerFilters((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      return next;
+    });
+    setInfluencerPage(1);
+  };
+
+  const resetInfluencerFilters = () => {
+    setInfluencerFilters(createDefaultInfluencerFilters());
+    setInfluencerPage(1);
+  };
+
+  const filteredInfluencerRows = useMemo(() => {
+    let list = [...influencerRows];
+
+    const q = influencerFilters.q.trim().toLowerCase();
+    if (q) {
+      list = list.filter((row) => {
+        const name = row.name?.toLowerCase() || "";
+        const email = row.email?.toLowerCase() || "";
+        return name.includes(q) || email.includes(q);
+      });
+    }
+
+    if (influencerFilters.termsStatus !== "ALL") {
+      list = list.filter(
+        (row) => row.termsStatus === influencerFilters.termsStatus
+      );
+    }
+
+    list.sort((a, b) => new Date(b.joinedAt) - new Date(a.joinedAt));
+    return list;
+  }, [influencerRows, influencerFilters]);
+
+  const influencerTotalItems = filteredInfluencerRows.length;
+  const influencerTotalPages = influencerTotalItems
+    ? Math.ceil(influencerTotalItems / PAGE_SIZE)
+    : 1;
+  const influencerCurrentPage = Math.min(
+    influencerPage,
+    influencerTotalPages
+  );
+  const influencerStartIndex = (influencerCurrentPage - 1) * PAGE_SIZE;
+  const influencerEndIndex = influencerStartIndex + PAGE_SIZE;
+  const influencerPaginatedRows = filteredInfluencerRows.slice(
+    influencerStartIndex,
+    influencerEndIndex
+  );
+
   return (
     <>
       <div
@@ -584,6 +663,16 @@ if (userFilters.hasMarketing === "YES") {
             onClick={() => setActiveTab(TABS.VENDORS)}
           >
             Acorduri vendori
+          </button>
+
+          <button
+            type="button"
+            className={`${styles.paginationBtn} ${
+              activeTab === TABS.INFLUENCERS ? styles.paginationBtnActive : ""
+            }`}
+            onClick={() => setActiveTab(TABS.INFLUENCERS)}
+          >
+            Influenceri
           </button>
 
           <button
@@ -816,6 +905,102 @@ if (userFilters.hasMarketing === "YES") {
             <VendorDetailsDrawer
               vendor={selectedVendor}
               onClose={() => setSelectedVendor(null)}
+            />
+          )}
+        </section>
+      )}
+
+      {activeTab === TABS.INFLUENCERS && (
+        <section>
+          <h3 className={styles.sectionTitle}>
+            Acord Program Influenceri
+            {influencerCurrentVersion && (
+              <span className={styles.subtle} style={{ marginLeft: 10 }}>
+                Versiune curentă: v{influencerCurrentVersion}
+                {influencerDocumentUrl && (
+                  <>
+                    {" · "}
+                    <a
+                      href={influencerDocumentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Vezi documentul
+                    </a>
+                  </>
+                )}
+              </span>
+            )}
+          </h3>
+
+          <div className={styles.filtersRow}>
+            <label>
+              <span>Caută</span>
+              <input
+                type="text"
+                placeholder="Nume influencer, email"
+                value={influencerFilters.q}
+                onChange={(e) =>
+                  handleInfluencerFilterChange((f) => ({
+                    ...f,
+                    q: e.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              <span>Status acord</span>
+              <select
+                value={influencerFilters.termsStatus}
+                onChange={(e) =>
+                  handleInfluencerFilterChange((f) => ({
+                    ...f,
+                    termsStatus: e.target.value,
+                  }))
+                }
+              >
+                <option value="ALL">Toți</option>
+                <option value="UPDATED">Actualizați</option>
+                <option value="OUTDATED">Necesită reacceptare</option>
+                <option value="NEVER_ACCEPTED">Nu au acceptat</option>
+              </select>
+            </label>
+
+            <div className={styles.filtersActions}>
+              <button
+                type="button"
+                className={styles.resetBtn}
+                onClick={resetInfluencerFilters}
+              >
+                Reset
+              </button>
+              <span className={styles.filtersCount}>
+                {influencerTotalItems} rezultate
+              </span>
+            </div>
+          </div>
+
+          <InfluencerTermsTable
+            rows={influencerPaginatedRows}
+            totalItems={influencerTotalItems}
+            currentVersion={influencerCurrentVersion}
+            onShowHistory={setSelectedInfluencerTerms}
+          />
+
+          <Pagination
+            page={influencerCurrentPage}
+            totalPages={influencerTotalPages}
+            totalItems={influencerTotalItems}
+            onPageChange={setInfluencerPage}
+          />
+
+          {selectedInfluencerTerms && (
+            <InfluencerTermsHistoryDrawer
+              influencer={selectedInfluencerTerms}
+              currentVersion={influencerCurrentVersion}
+              documentUrl={influencerDocumentUrl}
+              onClose={() => setSelectedInfluencerTerms(null)}
             />
           )}
         </section>
@@ -1939,6 +2124,271 @@ function VendorDetailsDrawer({ vendor, onClose }) {
               * Aceste documente sunt afișate informativ în onboarding și nu mai
               sunt tratate ca acceptări separate în admin.
             </p>
+          </section>
+        </div>
+
+        <footer className={styles.drawerFooter}>
+          <button
+            type="button"
+            className={styles.drawerBtnSecondary}
+            onClick={onClose}
+          >
+            Închide
+          </button>
+        </footer>
+      </aside>
+    </div>
+  );
+
+  return createPortal(node, document.body);
+}
+
+/* =========================================================
+   INFLUENCERI - Acord Program Influenceri (influencer_terms)
+
+   Read-only: nu există nicio acțiune de editare/ștergere/
+   "marchează ca acceptat" - doar vizualizare. Acceptarea rămâne
+   exclusiv acțiunea influencerului
+   (POST /api/influencer/terms/accept).
+========================================================= */
+
+function InfluencerTermsStatusBadge({ status }) {
+  const className =
+    status === "UPDATED"
+      ? styles.termsBadgeUpdated
+      : status === "OUTDATED"
+      ? styles.termsBadgeOutdated
+      : styles.termsBadgeMissing;
+
+  return (
+    <span className={`${styles.roleBadge} ${className}`}>
+      {INFLUENCER_TERMS_STATUS_LABELS[status] || status}
+    </span>
+  );
+}
+
+function InfluencerTermsTable({
+  rows,
+  totalItems,
+  currentVersion,
+  onShowHistory,
+}) {
+  if (!rows?.length) {
+    return (
+      <p className={styles.subtle}>
+        {totalItems
+          ? "Nu există rezultate pe această pagină."
+          : "Nu există influenceri înregistrați."}
+      </p>
+    );
+  }
+
+  return (
+    <div className={styles.tableWrapper}>
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th>Influencer</th>
+            <th>Email</th>
+            <th>Status influencer</th>
+            <th>Acord acceptat</th>
+            <th>Versiune curentă</th>
+            <th>Status acord</th>
+            <th>Ultima acceptare</th>
+            <th>Acțiuni</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.influencerId}>
+              <td>
+                <div style={{ fontWeight: 700 }}>{r.name || "—"}</div>
+                <div
+                  style={{ fontSize: 12, opacity: 0.65, marginTop: 2 }}
+                  title={`InfluencerProfile.id: ${r.influencerId} · User.id: ${r.userId}`}
+                >
+                  ID profil: {r.influencerId}
+                </div>
+              </td>
+
+              <td>{r.email || "—"}</td>
+
+              <td>
+                <span
+                  className={
+                    r.influencerStatus === "ACTIVE"
+                      ? styles.vendorStatusActive
+                      : styles.vendorStatusInactive
+                  }
+                >
+                  {r.influencerStatus === "ACTIVE" ? "Activ" : "Dezactivat"}
+                </span>
+              </td>
+
+              <td>{r.acceptedVersion ? `v${r.acceptedVersion}` : "—"}</td>
+
+              <td>{currentVersion ? `v${currentVersion}` : "—"}</td>
+
+              <td>
+                <InfluencerTermsStatusBadge status={r.termsStatus} />
+              </td>
+
+              <td>{r.acceptedAt ? formatDate(r.acceptedAt) : "—"}</td>
+
+              <td>
+                <button
+                  type="button"
+                  className={styles.emailBtn}
+                  onClick={() => onShowHistory?.(r)}
+                >
+                  Vezi istoric
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function InfluencerTermsHistoryDrawer({
+  influencer,
+  currentVersion,
+  documentUrl,
+  onClose,
+}) {
+  if (!influencer) return null;
+  if (typeof document === "undefined") return null;
+
+  const { name, email, influencerId, userId, history = [] } = influencer;
+
+  const node = (
+    <div className={styles.drawerOverlay} onClick={onClose}>
+      <aside
+        className={styles.drawer}
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Istoric acceptări influencer"
+      >
+        <header className={styles.drawerHeader}>
+          <div>
+            <h3 className={styles.drawerTitle}>
+              {name || "Influencer fără nume"}
+            </h3>
+            <p className={styles.drawerSub}>{email || "—"}</p>
+          </div>
+          <button
+            type="button"
+            className={styles.drawerClose}
+            onClick={onClose}
+            aria-label="Închide"
+          >
+            ×
+          </button>
+        </header>
+
+        <div className={styles.drawerBody}>
+          <section className={styles.drawerSection}>
+            <h4>Identitate</h4>
+
+            <div className={styles.drawerField}>
+              <span>InfluencerProfile.id</span>
+              <code>{influencerId}</code>
+            </div>
+
+            <div className={styles.drawerField}>
+              <span>User.id</span>
+              <code>{userId}</code>
+            </div>
+
+            <p className={styles.subtle}>
+              * UserConsent este legat de User.id (nu de
+              InfluencerProfile.id) - istoricul de mai jos e căutat după
+              User.id.
+            </p>
+          </section>
+
+          <section className={styles.drawerSection}>
+            <h4>Document curent</h4>
+
+            <div className={styles.drawerField}>
+              <span>Versiune curentă (legal manifest)</span>
+              <span>{currentVersion ? `v${currentVersion}` : "—"}</span>
+            </div>
+
+            {documentUrl && (
+              <div className={styles.drawerField}>
+                <span>Document</span>
+                <a href={documentUrl} target="_blank" rel="noreferrer">
+                  Vezi documentul curent
+                </a>
+              </div>
+            )}
+          </section>
+
+          <section className={styles.drawerSection}>
+            <h4>Istoric acceptări (INFLUENCER_TERMS)</h4>
+
+            {!history.length ? (
+              <p className={styles.subtle}>
+                Acest influencer nu a acceptat niciodată Acordul Programului
+                de Influenceri.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {history.map((item) => {
+                  const isCurrent =
+                    currentVersion && item.version === currentVersion;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={styles.drawerField}
+                      style={{
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        gap: 4,
+                        border: "1px solid var(--color-border)",
+                        borderRadius: 10,
+                        padding: "8px 10px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <span
+                          className={`${styles.roleBadge} ${
+                            isCurrent
+                              ? styles.termsBadgeUpdated
+                              : styles.termsBadgeOutdated
+                          }`}
+                        >
+                          v{item.version || "?"}
+                        </span>
+                        {isCurrent && (
+                          <span className={styles.subtle}>
+                            (versiunea curentă)
+                          </span>
+                        )}
+                      </div>
+
+                      <span>Acceptat la: {formatDate(item.givenAt)}</span>
+
+                      <span title={item.checksum || ""}>
+                        Checksum:{" "}
+                        {item.checksum
+                          ? `${item.checksum.slice(0, 12)}…`
+                          : "—"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
         </div>
 

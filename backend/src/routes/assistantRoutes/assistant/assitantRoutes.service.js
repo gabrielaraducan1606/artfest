@@ -309,15 +309,29 @@ function getPublicProductWhere({
   minPriceCents = null,
   maxPriceCents = null,
   customizableOnly = false,
+  availabilityIntent = "any",
 } = {}) {
+  /*
+   * ADĂUGAT (audit Guest, Batch 2, 2026-09-08) - filtrare reală după
+   * disponibilitate (enum ProductAvailability, câmp existent în
+   * schema.prisma). NU folosim readyQty ca prag suplimentar
+   * (readyQty Int? @default(0)) - e opțional și nesetat de mulți
+   * vânzători, gating pe el ar exclude greșit produse REAL
+   * disponibile care nu au completat acest câmp.
+   */
+  const availabilityWhere =
+    availabilityIntent === "READY"
+      ? { availability: "READY" }
+      : availabilityIntent === "MADE_TO_ORDER"
+        ? { availability: "MADE_TO_ORDER" }
+        : { availability: { not: "SOLD_OUT" } };
+
   return {
     isActive: true,
     isHidden: false,
     moderationStatus: "APPROVED",
 
-    availability: {
-      not: "SOLD_OUT",
-    },
+    ...availabilityWhere,
 
     ...buildPriceWhere({
       minPriceCents,
@@ -359,12 +373,14 @@ async function getCatalogProducts({
   minPriceCents = null,
   maxPriceCents = null,
   customizableOnly = false,
+  availabilityIntent = "any",
 } = {}) {
   return prisma.product.findMany({
     where: getPublicProductWhere({
       minPriceCents,
       maxPriceCents,
       customizableOnly,
+      availabilityIntent,
     }),
 
     select: {
@@ -390,6 +406,9 @@ specialNotes: true,
 careInstructions: true,
 
       availability: true,
+      leadTimeDays: true,
+      readyQty: true,
+      nextShipDate: true,
       acceptsCustom: true,
       orderMode: true,
 
@@ -622,7 +641,9 @@ Schema exactă:
   "occasions": [],
   "recipientTags": [],
   "keywords": [],
-  "customizableOnly": false
+  "customizableOnly": false,
+  "sort": "relevance",
+  "availabilityIntent": "any"
 }
 
 Reguli:
@@ -646,6 +667,21 @@ Reguli:
   setează customizableOnly la true.
 - Pentru recomandările de cadouri poți deduce stiluri și ocazii rezonabile.
 - Nu deduce și nu include date sensibile despre persoană.
+- sort trebuie să fie una din: "relevance", "price_asc", "price_desc",
+  "popular", "newest".
+  - "produse noi"/"cele mai noi"/"recent adăugate" => "newest"
+  - "produse populare"/"cele mai populare"/"cele mai vândute" => "popular"
+  - "mai ieftine"/"cele mai ieftine" => "price_asc"
+  - "mai scumpe"/"premium" => "price_desc"
+  - altfel => "relevance"
+- availabilityIntent trebuie să fie una din: "any", "READY", "MADE_TO_ORDER".
+  - "gata de livrare"/"disponibil rapid"/"cadou până mâine"/"livrare rapidă"
+    => "READY" (înseamnă produs deja făcut, nu la comandă - NU e o
+    garanție de livrare până la o dată anume, doar că produsul e deja
+    gata de expediere)
+  - "făcute la comandă"/"la comandă"/"personalizat, făcut special" =>
+    "MADE_TO_ORDER"
+  - altfel => "any"
 `,
             },
           ],
@@ -673,8 +709,24 @@ Reguli:
       ),
 
       customizableOnly: false,
+      sort: "relevance",
+      availabilityIntent: "any",
     };
   }
+
+  const ALLOWED_SORTS = new Set([
+    "relevance",
+    "price_asc",
+    "price_desc",
+    "popular",
+    "newest",
+  ]);
+
+  const ALLOWED_AVAILABILITY_INTENTS = new Set([
+    "any",
+    "READY",
+    "MADE_TO_ORDER",
+  ]);
 
   return {
     productType: normalizeText(
@@ -717,6 +769,16 @@ Reguli:
 
     customizableOnly:
       parsed.customizableOnly === true,
+
+    sort: ALLOWED_SORTS.has(parsed.sort)
+      ? parsed.sort
+      : "relevance",
+
+    availabilityIntent: ALLOWED_AVAILABILITY_INTENTS.has(
+      parsed.availabilityIntent
+    )
+      ? parsed.availabilityIntent
+      : "any",
   };
 }
 
@@ -783,12 +845,14 @@ Schema exactă:
     "occasions": [],
     "recipientTags": [],
     "keywords": [],
-    "customizableOnly": false
+    "customizableOnly": false,
+    "availabilityIntent": "any"
   },
   "filters": {
     "minPriceCents": null,
     "maxPriceCents": null,
     "customizableOnly": false,
+    "availabilityIntent": "any",
     "sort": "relevance"
   },
   "nextSuggestions": []
@@ -806,11 +870,20 @@ Reguli:
 - „mai premium” și „arată-mi produse mai premium”
   trebuie să folosească sort = "price_desc", la fel fără să modifice
   minPriceCents/maxPriceCents.
+- „cele mai noi”/„produse noi” trebuie să folosească sort = "newest".
+- „cele mai populare”/„produse populare” trebuie să folosească
+  sort = "popular".
 - „doar produse personalizabile”,
   „arată-mi produse personalizabile” și
   „arată-mi produse personalizate”
   setează customizableOnly = true atât în analysis,
   cât și în filters.
+- „gata de livrare”/„disponibile rapid”/„până mâine”/„livrare rapidă”
+  setează availabilityIntent = "READY" atât în analysis, cât și în
+  filters (înseamnă produs deja făcut, NU o garanție de livrare la o
+  dată anume).
+- „făcute la comandă”/„la comandă” setează availabilityIntent =
+  "MADE_TO_ORDER" atât în analysis, cât și în filters.
 - „păstrează doar culorile” păstrează colors și golește
   category, materials, styles și keywords.
 - „păstrează doar stilul” păstrează styles și golește
@@ -908,6 +981,14 @@ const analysis = {
       true ||
     currentAnalysis?.customizableOnly ===
       true,
+
+  availabilityIntent:
+    ["READY", "MADE_TO_ORDER"].includes(
+      parsedAnalysis.availabilityIntent
+    )
+      ? parsedAnalysis.availabilityIntent
+      : currentAnalysis?.availabilityIntent ||
+        "any",
 };
   const allowedSorts = new Set([
     "relevance",
@@ -920,6 +1001,9 @@ const analysis = {
   const requestedSort =
     normalizeText(parsedFilters.sort)
       .replaceAll(" ", "_");
+
+  const allowedAvailabilityIntents =
+    new Set(["any", "READY", "MADE_TO_ORDER"]);
 
   const filters = {
     minPriceCents:
@@ -938,6 +1022,13 @@ const analysis = {
       parsedFilters.customizableOnly ===
         true ||
       analysis.customizableOnly === true,
+
+    availabilityIntent:
+      allowedAvailabilityIntents.has(
+        parsedFilters.availabilityIntent
+      )
+        ? parsedFilters.availabilityIntent
+        : analysis.availabilityIntent,
 
     sort: allowedSorts.has(
       requestedSort
@@ -1779,7 +1870,11 @@ export async function searchByText({
     customizableOnly:
       analysis.customizableOnly,
 
-    sort: "relevance",
+    availabilityIntent:
+      analysis.availabilityIntent ||
+      "any",
+
+    sort: analysis.sort || "relevance",
   };
 
   const products =
@@ -1798,6 +1893,19 @@ const rankedProducts =
     }
   );
 
+  /*
+   * ADĂUGAT (audit Guest, Batch 2, 2026-09-08) - onestitate: filtrarea
+   * READY înseamnă doar "produsul e deja făcut, nu la comandă" - NU
+   * garantează o dată de livrare, pentru că timpul curierului nu e
+   * urmărit per produs/vânzător.
+   */
+  const availabilityNote =
+    filters.availabilityIntent === "READY"
+      ? " Sunt produse gata de expediere (nu se fac la comandă) - timpul de livrare al curierului depinde totuși de vânzător, nu pot garanta o dată exactă de livrare."
+      : filters.availabilityIntent === "MADE_TO_ORDER"
+        ? " Sunt produse realizate la comandă - vezi termenul de realizare (lead time) afișat pe fiecare produs, unde e disponibil."
+        : "";
+
   return createSearchResponse({
     type: "text",
     query: cleanedQuery,
@@ -1807,9 +1915,10 @@ const rankedProducts =
     userId,
 
     message:
-      rankedProducts.length > 0
+      (rankedProducts.length > 0
         ? "Am găsit produse care se potrivesc descrierii tale."
-        : "Nu am găsit produse potrivite pentru descrierea oferită.",
+        : "Nu am găsit produse potrivite pentru descrierea oferită.") +
+      availabilityNote,
   });
 }
 
@@ -2023,6 +2132,8 @@ export async function searchByBudget({
           recipientTags: [],
           keywords: [],
           customizableOnly,
+          sort: "relevance",
+          availabilityIntent: "any",
         };
 
   if (customizableOnly) {
@@ -2036,7 +2147,11 @@ export async function searchByBudget({
     customizableOnly:
       analysis.customizableOnly,
 
-    sort: "relevance",
+    availabilityIntent:
+      analysis.availabilityIntent ||
+      "any",
+
+    sort: analysis.sort || "relevance",
   };
 
   const products =

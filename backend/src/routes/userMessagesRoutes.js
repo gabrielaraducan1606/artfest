@@ -22,6 +22,38 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024, files: 10 },
 });
 
+const MAX_MESSAGE_LENGTH = 5000;
+
+/*
+ * ETAPA 5 (idempotency clientMessageId) - opțional, dar dacă e prezent
+ * trebuie să fie exact acest format: 1-100 caractere, doar
+ * [A-Za-z0-9_-]. Regexul respinge deja whitespace și string gol (min 1
+ * caracter din charset-ul permis).
+ */
+const CLIENT_MESSAGE_ID_REGEX = /^[A-Za-z0-9_-]{1,100}$/;
+
+function validateClientMessageId(raw) {
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (typeof raw !== "string") return { ok: false };
+  if (!CLIENT_MESSAGE_ID_REGEX.test(raw)) return { ok: false };
+  return { ok: true, value: raw };
+}
+
+/*
+ * Verifică defensiv că un P2002 aparține EXACT constrângerii
+ * (threadId, clientMessageId) - nu tratăm orice P2002 ca duplicate
+ * de mesaj. `meta.target` poate fi array sau string, în funcție de
+ * driver/versiune Prisma.
+ */
+function isClientMessageIdConflict(err) {
+  if (!err || err.code !== "P2002") return false;
+  const target = err.meta?.target;
+  const fields = Array.isArray(target) ? target : typeof target === "string" ? [target] : [];
+  const hasThreadId = fields.some((f) => String(f).toLowerCase().includes("threadid"));
+  const hasClientMessageId = fields.some((f) => String(f).toLowerCase().includes("clientmessageid"));
+  return hasThreadId && hasClientMessageId;
+}
+
 const r2 = new S3Client({
   region: "auto",
   endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -88,6 +120,136 @@ function storeNameFromThread(t) {
   );
 }
 
+/*
+ * ETAPA 2 (audit Mesaje, privacy attachment-uri) - nu mai expunem
+ * niciodată url-ul R2 brut către client. Doar id/filename/mime/size
+ * + rutele interne autenticate de preview/download (proxy pe
+ * /attachments/:id/download, care citește url-ul din DB server-side).
+ */
+function attachmentPublicShape(a) {
+  return {
+    id: a.id,
+    name: a.filename,
+    size: a.size,
+    mime: a.mime,
+    previewUrl: `/api/user-inbox/attachments/${a.id}/download`,
+    downloadUrl: `/api/user-inbox/attachments/${a.id}/download?download=1`,
+  };
+}
+
+/*
+ * ETAPA 4 (paginare thread + load older) - paginare cursor pe mesaje.
+ * Cursor = id-ul unui mesaj deja cunoscut de client (nu un token opac
+ * codat) - server-ul rezolvă createdAt-ul lui și paginează prin
+ * createdAt, cu id ca tiebreak pentru mesaje create în aceeași
+ * milisecundă. Nu atinge schema/migrations - doar interogări noi peste
+ * modelul Message existent.
+ */
+const DEFAULT_MESSAGE_PAGE_SIZE = 50;
+const MAX_MESSAGE_PAGE_SIZE = 200;
+
+const MESSAGE_SELECT = {
+  id: true,
+  body: true,
+  createdAt: true,
+  authorType: true,
+  authorName: true,
+  deletedByUserAt: true,
+  attachments: {
+    select: { id: true, filename: true, url: true, size: true, mime: true },
+  },
+};
+
+function parsePageLimit(raw) {
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_MESSAGE_PAGE_SIZE;
+  return Math.min(n, MAX_MESSAGE_PAGE_SIZE);
+}
+
+/*
+ * Rezolvă cursorul (id de mesaj) la { id, createdAt } în cadrul
+ * thread-ului dat. Returnează null dacă id-ul nu există sau aparține
+ * altui thread - apelantul trebuie să trateze asta ca 400, nu să
+ * ignore silențios (cursor "robust" cerut explicit).
+ */
+async function resolveMessageCursor(threadId, cursorId) {
+  if (!cursorId) return null;
+  return prisma.message.findFirst({
+    where: { id: String(cursorId), threadId },
+    select: { id: true, createdAt: true },
+  });
+}
+
+/*
+ * Încarcă o pagină de mesaje pentru un thread, în funcție de query-ul
+ * cerut de client:
+ *  - ?before=<id>  -> pagină mai veche decât cursor (load older)
+ *  - ?after=<id>   -> doar mesaje mai noi decât cursor (poll latest-only)
+ *  - fără cursor   -> ultimele `limit` mesaje (load inițial)
+ *
+ * Returnează { items, hasMoreOlder } sau { error: "invalid_cursor" }.
+ */
+async function loadMessagePage(threadId, query) {
+  const limit = parsePageLimit(query.limit);
+  const beforeId = query.before ? String(query.before) : null;
+  const afterId = query.after ? String(query.after) : null;
+
+  if (beforeId) {
+    const cursor = await resolveMessageCursor(threadId, beforeId);
+    if (!cursor) return { error: "invalid_cursor" };
+
+    const page = await prisma.message.findMany({
+      where: {
+        threadId,
+        OR: [
+          { createdAt: { lt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+        ],
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      select: MESSAGE_SELECT,
+    });
+
+    return {
+      items: page.slice(0, limit).reverse(),
+      hasMoreOlder: page.length > limit,
+    };
+  }
+
+  if (afterId) {
+    const cursor = await resolveMessageCursor(threadId, afterId);
+    if (!cursor) return { error: "invalid_cursor" };
+
+    const items = await prisma.message.findMany({
+      where: {
+        threadId,
+        OR: [
+          { createdAt: { gt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+        ],
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: limit,
+      select: MESSAGE_SELECT,
+    });
+
+    return { items, hasMoreOlder: false };
+  }
+
+  const page = await prisma.message.findMany({
+    where: { threadId },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: limit + 1,
+    select: MESSAGE_SELECT,
+  });
+
+  return {
+    items: page.slice(0, limit).reverse(),
+    hasMoreOlder: page.length > limit,
+  };
+}
+
 /* =========================
    GET /api/user-inbox/unread-count
 ========================= */
@@ -95,31 +257,20 @@ function storeNameFromThread(t) {
 router.get("/unread-count", async (req, res) => {
   const userId = req.user.sub;
 
-  const threads = await prisma.messageThread.findMany({
-    where: {
-      userId,
-      archivedByUser: false,
-      deletedByUserAt: null,
-    },
-    select: { id: true, userLastReadAt: true },
-  });
+  const rows = await prisma.$queryRaw`
+    SELECT COUNT(m.*)::int as "count"
+    FROM "MessageThread" t
+    JOIN "Message" m ON m."threadId" = t.id
+    WHERE t."userId" = ${userId}
+      AND t."archivedByUser" = false
+      AND t."deletedByUserAt" IS NULL
+      AND m."deletedByUserAt" IS NULL
+      AND m."authorType" <> 'USER'
+      AND m."createdAt" > COALESCE(t."userLastReadAt", to_timestamp(0))
+  `;
 
-  let totalUnread = 0;
-
-  for (const t of threads) {
-    const unreadCount = await prisma.message.count({
-      where: {
-        threadId: t.id,
-        deletedByUserAt: null,
-        NOT: { authorType: "USER" },
-        ...(t.userLastReadAt ? { createdAt: { gt: t.userLastReadAt } } : {}),
-      },
-    });
-
-    totalUnread += unreadCount;
-  }
-
-  res.json({ count: totalUnread });
+  const count = rows?.[0]?.count ?? 0;
+  res.json({ count });
 });
 
 /* =========================
@@ -197,20 +348,34 @@ router.get("/threads", async (req, res) => {
     },
   });
 
-  const threadsWithUnread = await Promise.all(
-    threadsRaw.map(async (t) => {
-      const unreadCount = await prisma.message.count({
-        where: {
-          threadId: t.id,
-          deletedByUserAt: null,
-          NOT: { authorType: "USER" },
-          ...(t.userLastReadAt ? { createdAt: { gt: t.userLastReadAt } } : {}),
-        },
-      });
+  const threadIds = threadsRaw.map((t) => t.id);
+  const unreadByThreadId = new Map();
 
-      return { ...t, unreadCount };
-    })
-  );
+  if (threadIds.length) {
+    const unreadRows = await prisma.$queryRaw`
+      SELECT
+        t.id as "threadId",
+        COUNT(m.*)::int as "unreadCount"
+      FROM "MessageThread" t
+      LEFT JOIN "Message" m
+        ON m."threadId" = t.id
+       AND m."authorType" <> 'USER'
+       AND m."deletedByUserAt" IS NULL
+       AND m."createdAt" > COALESCE(t."userLastReadAt", to_timestamp(0))
+      WHERE t.id = ANY(${threadIds})
+        AND t."deletedByUserAt" IS NULL
+      GROUP BY t.id
+    `;
+
+    for (const r of unreadRows || []) {
+      unreadByThreadId.set(r.threadId, r.unreadCount);
+    }
+  }
+
+  const threadsWithUnread = threadsRaw.map((t) => ({
+    ...t,
+    unreadCount: unreadByThreadId.get(t.id) ?? 0,
+  }));
 
   let threads = threadsWithUnread;
 
@@ -460,36 +625,13 @@ router.get(
           },
         });
 
-      const msgs =
-        await prisma.message.findMany({
-          where: {
-            threadId,
-          },
+      const page = await loadMessagePage(threadId, req.query);
 
-          orderBy: {
-            createdAt: "asc",
-          },
+      if (page.error) {
+        return res.status(400).json({ error: page.error });
+      }
 
-          select: {
-            id: true,
-            body: true,
-            createdAt: true,
-            authorType: true,
-            authorName: true,
-            deletedByUserAt:
-              true,
-
-            attachments: {
-              select: {
-                id: true,
-                filename: true,
-                url: true,
-                size: true,
-                mime: true,
-              },
-            },
-          },
-        });
+      const msgs = page.items;
 
       const items =
         msgs.map((message) => {
@@ -543,30 +685,17 @@ router.get(
                     message.attachments ||
                     []
                   ).map(
-                    (
-                      attachment
-                    ) => ({
-                      id:
-                        attachment.id,
-
-                      name:
-                        attachment.filename,
-
-                      url:
-                        attachment.url,
-
-                      size:
-                        attachment.size,
-
-                      mime:
-                        attachment.mime,
-                    })
+                    attachmentPublicShape
                   ),
           };
         });
 
       return res.json({
         items,
+
+        hasMoreOlder: page.hasMoreOlder,
+
+        peerLastReadAt: thread.vendorLastReadAt,
 
         threadMeta: {
           id: thread.id,
@@ -686,10 +815,7 @@ router.get(
             "server_error",
 
           details:
-            String(
-              error?.message ||
-                error
-            ),
+            "Nu am putut procesa solicitarea.",
         });
     }
   }
@@ -725,10 +851,38 @@ router.patch("/threads/:id/read", async (req, res) => {
 router.post("/threads/:id/messages", async (req, res) => {
   const userId = req.user.sub;
   const threadId = String(req.params.id || "");
-  const { body } = req.body || {};
+  const { body, clientMessageId: rawClientMessageId } = req.body || {};
 
   if (!body || !String(body).trim()) {
     return res.status(400).json({ error: "Mesajul nu poate fi gol" });
+  }
+
+  if (String(body).length > MAX_MESSAGE_LENGTH) {
+    return res.status(400).json({
+      error: "Mesajul este prea lung. Maxim 5000 de caractere.",
+    });
+  }
+
+  const clientMessageIdCheck = validateClientMessageId(rawClientMessageId);
+  if (!clientMessageIdCheck.ok) {
+    return res.status(400).json({ error: "invalid_client_message_id" });
+  }
+  const clientMessageId = clientMessageIdCheck.value;
+
+  /*
+   * ETAPA 5 - fast path de idempotency: ÎNAINTE de moderare (nu re-moderăm
+   * un mesaj deja acceptat) și înainte de orice alt side-effect. Dacă
+   * există deja un Message cu (threadId, clientMessageId), e un retry -
+   * întoarcem exact același răspuns ca la create, fără să mai creăm nimic.
+   */
+  if (clientMessageId) {
+    const existing = await prisma.message.findFirst({
+      where: { threadId, clientMessageId },
+      select: { id: true, createdAt: true },
+    });
+    if (existing) {
+      return res.status(201).json({ ok: true, id: existing.id, createdAt: existing.createdAt });
+    }
   }
 
   const moderation =
@@ -790,15 +944,37 @@ if (
 
   if (!thread) return res.status(404).json({ error: "Thread not found" });
 
-  const msg = await prisma.message.create({
-    data: {
-      threadId,
-      vendorId: thread.vendorId,
-      body: String(body).trim(),
-      authorType: "USER",
-    },
-    select: { id: true, createdAt: true, body: true },
-  });
+  let msg;
+  try {
+    msg = await prisma.message.create({
+      data: {
+        threadId,
+        vendorId: thread.vendorId,
+        body: String(body).trim(),
+        authorType: "USER",
+        clientMessageId,
+      },
+      select: { id: true, createdAt: true, body: true },
+    });
+  } catch (err) {
+    /*
+     * ETAPA 5 - cursă reală: alt request cu același (threadId,
+     * clientMessageId) a câștigat între fast-path și acest create.
+     * Constrângerea DB e sursa de adevăr - întoarcem mesajul câștigător,
+     * fără să mai rulăm actualizarea de thread/notificarea de mai jos
+     * (aparțin request-ului care a creat efectiv rândul).
+     */
+    if (clientMessageId && isClientMessageIdConflict(err)) {
+      const existing = await prisma.message.findFirst({
+        where: { threadId, clientMessageId },
+        select: { id: true, createdAt: true },
+      });
+      if (existing) {
+        return res.status(201).json({ ok: true, id: existing.id, createdAt: existing.createdAt });
+      }
+    }
+    throw err;
+  }
 
   await prisma.messageThread.update({
     where: { id: threadId },
@@ -1007,19 +1183,13 @@ for (const file of files) {
       ok: true,
       messageId: result.msg.id,
       createdAt: result.msg.createdAt,
-      attachments: result.created.map((a) => ({
-        id: a.id,
-        name: a.filename,
-        url: a.url,
-        size: a.size,
-        mime: a.mime,
-      })),
+      attachments: result.created.map(attachmentPublicShape),
     });
   } catch (e) {
     console.error("POST /threads/:id/attachments error:", e);
     return res.status(500).json({
       error: "server_error",
-      details: String(e?.message || e),
+      details: "Nu am putut procesa solicitarea.",
     });
   }
 });
@@ -1254,10 +1424,12 @@ router.get("/attachments/:attId/download", async (req, res) => {
     const contentType =
       att.mime || upstream.headers.get("content-type") || "application/octet-stream";
 
+    const forceDownload = req.query.download === "1" || req.query.download === "true";
+
     res.setHeader("Content-Type", contentType);
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
+      `${forceDownload ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(filename)}`
     );
 
     const len = upstream.headers.get("content-length");
@@ -1383,6 +1555,12 @@ router.patch("/threads/:id/messages/:mid", async (req, res) => {
 
   if (!body || !String(body).trim()) {
     return res.status(400).json({ error: "Mesajul nu poate fi gol" });
+  }
+
+  if (String(body).length > MAX_MESSAGE_LENGTH) {
+    return res.status(400).json({
+      error: "Mesajul este prea lung. Maxim 5000 de caractere.",
+    });
   }
 
   const moderation =

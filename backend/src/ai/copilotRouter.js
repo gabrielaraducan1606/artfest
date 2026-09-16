@@ -51,6 +51,81 @@ import {
 
 import { resolveVendorByUserId } from "../services/costProfitService.js";
 
+/*
+ * BATCH 2 (audit regression Vendor Assistant, 2026-09-06) - "Statistici/
+ * performanță" (trafic, vizite, vizualizări de produse, surse de trafic).
+ * Serviciu subțire, read-only, care reutilizează EXACT modelele Prisma
+ * deja folosite de pagina reală /vendor/visitors (vendorVisitorsRoutes.js)
+ * - vezi comentariile din vendorAssistantAnalytics.js.
+ */
+import { answerVendorVisitorAnalyticsQuestion } from "../services/vendorAssistantAnalytics.js";
+
+/*
+ * BATCH 3 (audit regression Vendor Assistant, 2026-09-06) - "Cereri de
+ * ofertă / CRM lead status" (câte cereri am, noi/în discuții/ofertă
+ * trimisă/rezervate/pierdute). Reutilizează EXACT câmpul Prisma
+ * MessageThread.leadStatus deja folosit de PATCH .../meta-advanced și
+ * GET /api/inbox/threads?status=... (vendorMessageRoutes.js) - vezi
+ * comentariile din vendorAssistantQuoteLeads.js.
+ */
+import { answerVendorQuoteLeadQuestion } from "../services/vendorAssistantQuoteLeads.js";
+
+/*
+ * BATCH 4 (audit regression Vendor Assistant, 2026-09-06) - "Comenzi"
+ * (câte comenzi am / noi / în lucru / așteaptă expedierea / livrate /
+ * anulate / plătite). Reutilizează EXACT granularitatea de
+ * shipment.status deja folosită de PATCH /api/vendor/orders/:id/status
+ * (vendorOrdersRoutes.js) - vezi comentariile din
+ * vendorAssistantOrders.js.
+ */
+import { answerVendorOrderLiveQuestion } from "../services/vendorAssistantOrders.js";
+
+/*
+ * BATCH D (audit regression Vendor Assistant, 2026-09-07) - "Promovări/
+ * campanii" (sunt produsul zilei? / sunt artizanul săptămânii? / ce
+ * promovări active am / ce campanii am active). Reutilizează EXACT
+ * where-clause-urile deja folosite de GET /api/vendor/homepage-features
+ * și GET /api/vendor/campaigns - vezi comentariile din
+ * vendorAssistantPromotions.js.
+ */
+import { answerVendorPromotionsQuestion } from "../services/vendorAssistantPromotions.js";
+
+/*
+ * BATCH E (audit regression Vendor Assistant, 2026-09-07) - "câte
+ * recenzii am / ratingul meu / câte notificări necitite am".
+ * Reutilizează EXACT query-urile din GET /vendors/me/reviews/kpi
+ * (reviewsProductRoutes.js) + StoreRatingStats + GET /vendor/
+ * notifications/unread-count (vendorNotificationsRoutes.js) - vezi
+ * comentariile din vendorAssistantReviews.js.
+ */
+import { answerVendorReviewsQuestion } from "../services/vendorAssistantReviews.js";
+
+/*
+ * BATCH 5 (audit regression Vendor Assistant, 2026-09-06) - "Plăți/
+ * facturi/Stripe/comision" (cât am câștigat / ce comision datorez / ce
+ * facturi sunt neachitate / ce comision am plătit luna trecută).
+ * Reutilizează EXACT modelele VendorEarningEntry/Invoice deja folosite
+ * de vendorInvoices.js/adminInvoicesRoutes.js - vezi comentariile din
+ * vendorAssistantPayments.js.
+ */
+import { answerVendorPaymentsQuestion } from "../services/vendorAssistantPayments.js";
+
+/*
+ * BATCH 2 (FINAL GAP PASS, 2026-09-07) - 4 domenii noi, exact același
+ * pattern subțire/read-only ca cele de mai sus. Vezi comentariile din
+ * fiecare fișier pentru sursa de adevăr (query-uri reutilizate, nu
+ * duplicate).
+ */
+import { answerVendorProductQuestion } from "../services/vendorAssistantProducts.js";
+import { answerVendorSalesQuestion } from "../services/vendorAssistantSales.js";
+import { answerVendorMessagesQuestion } from "../services/vendorAssistantMessages.js";
+import { answerVendorSupportQuestion } from "../services/vendorAssistantSupport.js";
+import { answerUserMessagesQuestion } from "../services/userAssistantMessages.js";
+import { answerUserQuotesQuestion } from "../services/userAssistantQuotes.js";
+import { answerUserNotificationsQuestion } from "../services/userAssistantNotifications.js";
+import { answerUserSupportQuestion } from "../services/userAssistantSupport.js";
+import { answerUserReviewsQuestion } from "../services/userAssistantReviews.js";
+
 import { prisma } from "../db.js";
 
 import {
@@ -64,12 +139,34 @@ import {
   evaluateSupportRequest,
   buildTicketDraft,
   detectYesNo,
+  mapEntityTypeToEntities,
 } from "./supportEscalationService.js";
 
 import {
   getVendorInsights,
   getInsightItemsList,
 } from "./insightsService.js";
+
+/*
+ * INFLUENCER (FAZA 2) - reutilizează STRICT funcțiile determinste
+ * deja construite în influencerAssistantCommands.js (niciun calcul
+ * nou aici) și requireActiveInfluencer din influencerRoutes.js
+ * (aceeași verificare de rol/status ca ruta HTTP reală
+ * GET /api/influencer/me etc.).
+ */
+import { requireActiveInfluencer } from "../routes/influencerRoutes.js";
+
+import {
+  detectInfluencerQueryScope,
+  composeInfluencerAnswer,
+  getInfluencerSummary,
+  getInfluencerResources,
+  getInfluencerOrders,
+  getInfluencerEarnings,
+  getInfluencerCollections,
+  getInfluencerDiscountCodes,
+  getInfluencerTodayRecommendations,
+} from "../services/influencerAssistantCommands.js";
 
 const ROUTER_MODEL = "gpt-4.1-mini";
 
@@ -118,9 +215,12 @@ function safeJsonParse(text) {
 function buildClassifierPrompt({
   message,
   history,
+  audience,
 }) {
   return `
 Ești routerul general al platformei Artfest (marketplace de produse handmade). Clasifici DOAR - nu răspunzi la întrebare, nu execuți nimic.
+
+Rolul userului curent: ${audience || "USER"}. FOLOSEȘTE-L ACTIV la deciziile de mai jos (vezi în special EXISTING_FLOW și ORDER_HELP) - NU presupune un rol generic, aceleași cuvinte ("comenzile mele", "produsele mele") înseamnă lucruri diferite pentru un VENDOR (magazinul lui) față de un USER/GUEST (cumpărăturile lui).
 
 PASUL 1 - determină ÎNTÂI intentMode-ul mesajului (înainte de orice categorie), pe baza FORMEI propoziției, NU a cuvintelor specifice din ea (nume de produse, integrări, magazine etc. - acelea sunt doar conținut, nu schimbă intentMode):
 
@@ -132,16 +232,20 @@ PASUL 1 - determină ÎNTÂI intentMode-ul mesajului (înainte de orice categori
 
 - TROUBLESHOOT: userul RAPORTEAZĂ o problemă/eroare, fără să ceară explicit o explicație sau o acțiune. Exemple: "Nu merge importul Excel.", "Shopify nu funcționează.", "Îmi dă eroare.".
 
-- MARKETPLACE_SEARCH: userul caută/descrie ce vrea să CUMPERE sau să descopere pe platformă - un produs, un cadou, ceva după o fotografie - fără să numească o funcționalitate a platformei și fără să ceară o acțiune asupra propriului magazin. NU contează rolul userului (USER, GUEST sau VENDOR - un vendor rămâne și cumpărător, vezi regula explicită mai jos). Marcatori: "caut", "vreau", "găsește-mi", "idei", numele unui obiect/ocazie/persoană ("cadou", "pentru mama", "pentru nuntă", "pentru botez"), sau o cerere de căutare vizuală ("găsește produse asemănătoare cu poza asta", "unde găsesc ceva ca în imagine"). ATENȚIE: acest intentMode are prioritate față de EXPLAIN și EXECUTE ori de câte ori mesajul e despre a GĂSI/CUMPĂRA ceva concret de pe platformă, nu despre a afla CUM funcționează platforma și nu despre a modifica magazinul PROPRIU al vendorului. Exemple: "caut un cadou pentru mama", "idei cadou mama", "caut cutii pentru cadouri", "vreau ambalaje pentru lumânări", "găsește-mi ceva pentru nuntă", "caut un produs personalizat pentru copil", "găsește produse asemănătoare cu poza asta".
+- MARKETPLACE_SEARCH: userul caută/descrie ce vrea să CUMPERE sau să descopere pe platformă - un produs, un cadou, ceva după o fotografie - fără să numească o funcționalitate a platformei și fără să ceară o acțiune asupra propriului magazin. NU contează rolul userului (USER, GUEST sau VENDOR - un vendor rămâne și cumpărător, vezi regula explicită mai jos). Marcatori: "caut", "vreau", "găsește-mi", "idei", numele unui obiect/ocazie/persoană ("cadou", "pentru mama", "pentru nuntă", "pentru botez"), o cerere despre DISPONIBILITATEA unui produs de cumpărat ("gata de livrare", "disponibil rapid", "livrare rapidă", "făcut la comandă", "disponibilitate produs" - astea descriu produsul căutat, NU o comandă existentă, vezi ATENȚIE de la ORDER_HELP), sau o cerere de căutare vizuală ("găsește produse asemănătoare cu poza asta", "unde găsesc ceva ca în imagine"). ATENȚIE: acest intentMode are prioritate față de EXPLAIN și EXECUTE ori de câte ori mesajul e despre a GĂSI/CUMPĂRA ceva concret de pe platformă, nu despre a afla CUM funcționează platforma și nu despre a modifica magazinul PROPRIU al vendorului. Exemple: "caut un cadou pentru mama", "idei cadou mama", "caut cutii pentru cadouri", "vreau ambalaje pentru lumânări", "găsește-mi ceva pentru nuntă", "caut un produs personalizat pentru copil", "găsește produse asemănătoare cu poza asta", "arată-mi produse gata de livrare", "vreau un produs disponibil rapid", "arată-mi produse făcute la comandă", "vreau un cadou până mâine".
   ATENȚIE la o confuzie frecventă cu EXPLAIN: "cum găsesc X" / "unde găsesc X" / "mă ajuți să găsesc X" / "cum caut X", unde X e un OBIECT DE CUMPĂRAT concret (un produs, un tip de produs, un cadou, ceva pentru o ocazie - ex. "mărturii pentru nuntă", "ceva sub 100 lei", "un cadou pentru botez") rămâne MARKETPLACE_SEARCH, NU EXPLAIN, chiar dacă începe cu "cum"/"unde" (marcatori EXPLAIN tipici) - userul vrea să i se arate rezultate, nu o explicație despre motorul de căutare. Diferența față de un EXPLAIN real: acolo X e o FUNCȚIONALITATE a platformei ("cum caut produse pe Artfest" fără să numească niciun obiect anume, "cum funcționează căutarea", "unde găsesc comenzile mele" - "comenzile mele" nu e un obiect de cumpărat) sau lipsește complet obiectul de cumpărat. Exemple MARKETPLACE_SEARCH: "cum găsesc mărturii pentru nuntă?", "unde găsesc invitații de botez?", "mă ajuți să găsesc ceva sub 100 lei?". Exemple EXPLAIN (rămân PLATFORM_KNOWLEDGE): "cum caut un produs pe Artfest?" (întreabă despre mecanismul de căutare în sine, fără niciun obiect concret), "unde găsesc comenzile mele?".
   NU confunda cu VENDOR_INSIGHTS: "recomandă-mi un cadou"/"idei de cadou" (cere SĂ I SE ARATE produse de cumpărat) e MARKETPLACE_SEARCH, dar "ce recomandări ai?"/"ce îmi recomanzi?"/"ai recomandări pentru mine?" (fără obiect de cumpărat, despre STAREA CONTULUI/magazinului vendorului) rămâne ÎNTOTDEAUNA VENDOR_INSIGHTS - vezi definiția și regulile VENDOR_INSIGHTS mai jos, care au prioritate.
+  BUGFIX (audit Guest Batch 3, 2026-09-08) - CONTINUARE eliptică a unui subiect PLATFORM_KNOWLEDGE: dacă ultima tură din istoricul conversației a fost PLATFORM_KNOWLEDGE pe un subiect clar (NU MARKETPLACE_SEARCH), și mesajul curent e un follow-up scurt, eliptic, care întregește ACEEAȘI întrebare fără verb de căutare/cumpărare ("Și telefonul?", "Și emailul?", "Și adresa?", "Cât este?", "Și ramburs?" și similare - de regulă începe cu "Și"/"Dar" sau e doar o sintagmă scurtă, fără "vreau"/"caut"/"găsește-mi"/"idei") - NU devine MARKETPLACE_SEARCH doar pentru că substantivul din el (ex. "telefon", "adresă") ar putea fi și un produs de cumpărat în alt context; rămâne PE ACELAȘI subiect ca tura anterioară (de regulă tot PLATFORM_KNOWLEDGE). Diferența față de o căutare reală: un verb explicit de căutare/cumpărare ("Vreau un telefon.", "Caut o adresă de..." - dacă ar exista un asemenea produs) rămâne MARKETPLACE_SEARCH normal, INDIFERENT de istoric - regula asta se aplică STRICT unui follow-up fără verb propriu, care nu are sens de sine stătător ca o căutare nouă.
 
 PASUL 2 - alege categoria pe baza intentMode-ului determinat la pasul 1:
 - intentMode MARKETPLACE_SEARCH → ÎNTOTDEAUNA EXISTING_FLOW, cu prioritate față de orice altă regulă din acest pas - inclusiv când mesajul conține "vreau"/un verb care ar putea părea EXECUTE ("vreau ambalaje pentru lumânări" NU e o cerere de a adăuga un cost/produs în magazinul propriu, e o căutare de cumpărător pe marketplace) sau când seamănă cu o întrebare EXPLAIN ("idei cadou" nu întreabă cum funcționează ceva). Diferența față de o cerere de acțiune asupra magazinului propriu: MARKETPLACE_SEARCH nu numește NICIODATĂ o entitate din contul vendorului (propriul produs/comandă/cost) - descrie ce caută userul SĂ CUMPERE, generic.
 - intentMode EXPLAIN → aproape întotdeauna PLATFORM_KNOWLEDGE. DOUĂ EXCEPȚII OBLIGATORII, cu prioritate față de orice altă regulă din acest pas:
   1. orice mesaj EXPLAIN despre recomandările/sugestiile/atenția/starea PROPRIE a vendorului ("Ce recomandări ai?", "Ce îmi recomanzi?", "Ai recomandări pentru mine?", "Ce îmi sugerezi?", "Cum merge magazinul meu?", "Ce ar trebui să verific?", "Cum funcționează recomandările [pentru mine]?" și orice altă formulare echivalentă) NU este PLATFORM_KNOWLEDGE, este ÎNTOTDEAUNA VENDOR_INSIGHTS - vezi definiția VENDOR_INSIGHTS și regulile explicite mai jos. Forma de întrebare ("ce", "ai", "cum funcționează") nu schimbă asta - aici userul vrea să i se arate recomandările live, nu o explicație despre mecanism.
+  ACEEAȘI excepție #1, pentru un INFLUENCER (starea/recomandările PROPRII ale contului lui de influencer, nu ale unui magazin) - NU este PLATFORM_KNOWLEDGE, este ÎNTOTDEAUNA VENDOR_INSIGHTS: "Ce am de repostat?", "Ce trebuie să repostez?", "Ce produse noi sunt azi?", "Ce vânzători noi sunt azi?", "Ce să postez azi?", "Ce ar trebui să promovez?", "Ce funcționalități n-am mai promovat?", "Ce am de făcut azi?" și orice altă formulare echivalentă despre propriul cont de influencer.
   2. small talk/conversație casuală care conține din întâmplare un cuvânt de întrebare, dar NU întreabă nimic despre platformă ("Ce mai faci?", "Ce faci?", "Cum ești?", "Salut, ce mai e nou?") - acestea NU sunt PLATFORM_KNOWLEDGE, sunt ÎNTOTDEAUNA GENERAL_CONVERSATION. Diferența: dacă întrebarea nu numește NICIUN subiect/funcționalitate concretă a platformei (produs, cont, comandă, plată, vânzător, etc.), e small talk, nu o întrebare despre platformă - chiar dacă începe cu "ce"/"cum".
 - intentMode EXECUTE → PLATFORM_ACTION DOAR dacă ținta e explicit o entitate din contul PROPRIU al vendorului (un produs/preț/stoc/comandă/cost/magazin pe care îl deține) sau flow-ul existent relevant (ADD_PRODUCT etc., tratat separat de acest router, vezi mai jos). Un "vreau X"/"adaugă X" fără nicio legătură cu magazinul propriu al vendorului (X e un obiect generic pe care userul vrea să îl găsească/cumpere, nu un produs/cost al LUI) e MARKETPLACE_SEARCH, nu EXECUTE.
+  FIX #2 (FINAL E2E FIX PASS, 2026-09-07) - CONTINUARE de căutare marketplace: dacă istoricul conversației arată clar că ultima tură a fost o căutare de tip MARKETPLACE_SEARCH (userul căuta un produs/cadou de cumpărat, ex. "Vreau un cadou.", "Caut ceva pentru nuntă") și mesajul curent e o RAFINARE scurtă a acelei căutări - "mai ieftin"/"mai scump"/"altă variantă"/"altă culoare"/"personalizat"/"sub X lei"/"arată-mi alte opțiuni" și similare, FĂRĂ să numească explicit o entitate din magazinul PROPRIU (nu spune "produsele mele"/"comenzile mele"/"catalogul meu") - rămâne MARKETPLACE_SEARCH (deci EXISTING_FLOW), NICIODATĂ EXECUTE/PLATFORM_ACTION, indiferent de forma imperativă ("Arată-mi variante mai ieftine." pare o comandă, dar continuă căutarea de cumpărător, nu cere o acțiune asupra magazinului vânzătorului). Diferența: "Arată-mi PRODUSELE MELE mai ieftine"/"Arată-mi produsele mele" (menționează explicit magazinul propriu) rămâne EXECUTE/EXISTING_FLOW pe date proprii, ca de obicei - regula de mai sus se aplică STRICT când nu există nicio referire la "al meu"/"propriu"/"magazinul meu".
+  EXCEPȚIE pentru INFLUENCER: o formă imperativă despre propriul cont de influencer ("Arată-mi colecțiile.", "Deschide colecțiile mele.", "Arată-mi resursele.", "Arată-mi comenzile.", "Arată-mi promovarea.", "Du-mă la resurse.", "Du-mă la comenzi." și orice altă formulare echivalentă) NU este PLATFORM_ACTION (nu există niciun handler PLATFORM_ACTION pentru un influencer, doar pentru vendor) - rămâne ORDER_HELP dacă e despre comenzi, altfel VENDOR_INSIGHTS (categoria deja folosită pentru datele live proprii ale influencerului, vezi excepția EXPLAIN de mai sus).
 - intentMode QUERY_LIVE_DATA → EXISTING_FLOW sau VENDOR_INSIGHTS, NICIODATĂ PLATFORM_KNOWLEDGE (datele live nu vin din manifeste statice).
 - intentMode TROUBLESHOOT → INCIDENT_OR_BUG (sau domeniul specific dacă e menționat explicit, vezi regulile de mai jos).
 
@@ -158,10 +262,15 @@ Categorii posibile:
 
 - VENDOR_INSIGHTS: INTENȚIA generală - vânzătorul cere o privire de ansamblu PROACTIVĂ asupra contului său: recomandări, sugestii, ce ar trebui să verifice/facă, ce necesită atenție, cum stă magazinul, ce probleme are - fără să numească un produs/comandă anume și fără să ceară o singură metrică precisă (aceea e EXISTING_FLOW, vezi mai jos). NU te lega de fraze exacte - recunoaște intenția indiferent de formulare: verbe ca "recomanzi"/"sugerezi"/"ar trebui să..." sau substantive ca "recomandări"/"sugestii"/"probleme"/"atenție", combinate cu o întrebare despre STAREA GENERALĂ a contului (nu despre CUM funcționează o funcționalitate anume - acela e PLATFORM_KNOWLEDGE). Exemple din TOATE formulările posibile: "Ce ar trebui să verific azi?", "Am ceva urgent?", "Ce produse au probleme?", "Ce comenzi necesită atenție?", "Cum merge magazinul meu?", "Ce recomandări ai?", "Ce îmi recomanzi?", "Ai recomandări pentru mine?", "Ce îmi sugerezi?", "Am ceva de făcut?", "Ce mai am de rezolvat?". Poate fi și restrânsă la un domeniu, dacă vânzătorul îl menționează ("recomandări pentru produse", "recomandări pentru comenzi", "recomandări pentru costuri") - tot VENDOR_INSIGHTS rămâne, doar cu scop mai îngust. Diferă de EXISTING_FLOW/"Ce produse am sub cost?" (acela e o interogare PRECISĂ, pe UN singur criteriu de profitabilitate deja calculat) - aici userul vrea o privire de ansamblu, peste mai multe domenii (produse, comenzi, cereri de ofertă), nu doar costuri.
   ATENȚIE la o confuzie posibilă: "recomandări"/"recomand" pentru VENDOR_INSIGHTS înseamnă sugestii despre CONTUL propriu al vânzătorului - e un cuvânt DIFERIT de "programul de recomandare"/"cod de recomandare"/"invit alți vânzători" (acela e programul de ambasadori, PLATFORM_KNOWLEDGE, alt subiect complet). Alege PLATFORM_KNOWLEDGE pentru recomandare/ambasadori DOAR dacă mesajul menționează EXPLICIT invitarea altor vânzători, cod/link de recomandare sau programul de ambasadori - altfel, orice "recomandare" despre ce ar trebui să facă VÂNZĂTORUL ÎNSUȘI e VENDOR_INSIGHTS, inclusiv "Cum funcționează recomandările [pentru mine]?" (nu există o pagină statică despre asta, cel mai util e să arăți recomandările reale, nu să explici mecanismul).
+  ACELAȘI tipar, pentru un INFLUENCER (privire de ansamblu proactivă asupra propriului cont de influencer, nu al unui magazin) - tot VENDOR_INSIGHTS: "Ce fac azi?", "Ce să postez?", "Ce ar trebui să postez azi?", "Ce am de repostat?", "Ce n-am mai promovat?", "Care este produsul zilei?", "Care este artizanul săptămânii?", "Ce produse noi sunt azi?", "Ce vânzători noi sunt?", "Care este codul meu [de reducere]?", "Care este linkul meu?", "Ce colecții am?", "Cât am câștigat?" (câștigul influencerului, NU comisionul de vânzător).
+  EXCEPȚIE explicită de la regula generală "NAVIGARE explicită spre o pagină = PLATFORM_KNOWLEDGE" (vezi mai jos, secțiunea Reguli): "Deschide produsul zilei"/"Deschide artizanul săptămânii" (formă IMPERATIVĂ, nu întrebare) rămân TOT VENDOR_INSIGHTS, la fel ca "Care este produsul zilei?" - userul vrea resursa REALĂ (cu link, dacă există), nu o explicație despre unde e pagina. Nu confunda cu o navigare generică fără subiect ("du-mă la resurse", "deschide comenzile") - acelea rămân PLATFORM_KNOWLEDGE, neschimbat.
 
 - ACCOUNT_HELP: probleme sau întrebări legate de cont, autentificare, parolă, email de verificare.
 
-- ORDER_HELP: întrebări, probleme SAU cereri de date live despre comenzile PROPRII ale unui cumpărător (USER/GUEST) - fie despre O comandă anume deja plasată (status, livrare, "comanda mea nu apare", "unde este comanda mea"), fie despre lista comenzilor proprii ("ce comenzi am", "câte comenzi am plasat"). Rămâne ORDER_HELP indiferent dacă e o problemă (intentMode TROUBLESHOOT) sau o cerere simplă de date (intentMode QUERY_LIVE_DATA) - diferența dintre ele o face intentMode, nu categoria.
+- ORDER_HELP: întrebări, probleme SAU cereri de date live despre comenzile PROPRII ale unui cumpărător (rolul curent USER/GUEST) - fie despre O comandă anume deja plasată ("comanda mea nu apare", "unde este comanda mea", "când ajunge coletul meu", "comanda mea a fost livrată", "AWB-ul comenzii"), fie despre lista comenzilor proprii ("ce comenzi am", "câte comenzi am plasat"). Rămâne ORDER_HELP indiferent dacă e o problemă (intentMode TROUBLESHOOT) sau o cerere simplă de date (intentMode QUERY_LIVE_DATA) - diferența dintre ele o face intentMode, nu categoria.
+  ATENȚIE (BUGFIX audit Guest, 2026-09-08) la o confuzie frecventă cu MARKETPLACE_SEARCH: cuvântul "livrare"/"disponibil" SINGUR, fără referire la O COMANDĂ/COLET AL USERULUI, NU declanșează ORDER_HELP. "Gata de livrare"/"disponibil rapid"/"livrare rapidă"/"făcut la comandă"/"disponibilitate produs" descriu disponibilitatea unui PRODUS DE CUMPĂRAT (căutare pe marketplace, MARKETPLACE_SEARCH), nu statusul unei comenzi existente. ORDER_HELP cere o referire explicită și clară la o comandă/colet AL USERULUI - "comanda mea", "coletul meu", "comanda a fost livrată", un număr/ID de comandă, sau echivalent - fără o asemenea referire explicită, rămâne MARKETPLACE_SEARCH.
+  Pentru un INFLUENCER, "comenzile mele"/"ce comenzi am adus"/"ce comenzi am generat" înseamnă comenzile ATRIBUITE prin promovarea lui (link/cod), nu comenzi de cumpărător - rămâne tot ORDER_HELP (aceeași formă de întrebare, doar sursa datelor diferă după rol).
+  STRICT NU pentru rolul VENDOR - "comenzile mele"/"ce comenzi am" de la un VÂNZĂTOR înseamnă mereu comenzile primite în magazinul lui, categorie EXISTING_FLOW (vezi definiția de mai sus și regula explicită din secțiunea Reguli) - vânzătorul rămâne teoretic și cumpărător pe platformă, dar formularea neutră, fără alt context, se referă mereu la magazinul lui.
 
 - PAYMENT_HELP: întrebări sau probleme despre plată, facturare, comision, rambursare.
 
@@ -173,7 +282,15 @@ Categorii posibile:
 
 - EXISTING_FLOW: mesajul se potrivește mai bine cu un flow deja existent și stabil al platformei, NU cu categoriile de mai sus:
   - căutare de produse (după text sau imagine), recomandări cadou, căutare după buget, cerere de ofertă personalizată (quote) formulată ca o cerere nouă de căutare/recomandare - ORICE mesaj cu intentMode MARKETPLACE_SEARCH (vezi PASUL 1/2) intră aici, INDIFERENT de rolul userului. Un vendor rămâne și cumpărător - "caut un cadou pentru mama"/"idei cadou mama"/"vreau ambalaje pentru lumânări" sunt EXISTING_FLOW și pentru un vendor autentificat, NU PLATFORM_KNOWLEDGE (nu există manifest de răspuns pentru asta) și NU PLATFORM_ACTION (nu e o cerere despre magazinul propriu);
-  - ORICE întrebare despre DATELE PROPRII deja existente ale VÂNZĂTORULUI (magazinul lui) în Costuri & Profit, care NU cere o schimbare explicită - ex. "Ce produse am sub cost?", "Cât mă costă produsul X?", "Ce profit am la produsul Y?", "Ce am în biblioteca de costuri?", "Recalculează produsele care folosesc X", "Recalculează toate produsele cu costuri neactualizate" - acestea sunt interogări/comenzi de date pentru MAI MULTE produse sau după un criteriu, nu întrebări generale despre platformă, și au deja un flow dedicat funcțional. STRICT despre produse/costuri/profit de VÂNZĂTOR - NU alege EXISTING_FLOW pentru întrebări despre comenzile PROPRII ale unui cumpărător ("Ce comenzi am?", "Câte comenzi am plasat?") - acelea sunt ÎNTOTDEAUNA ORDER_HELP, indiferent de rol, pentru că un cumpărător nu are "produse"/"costuri" proprii pe platformă, doar comenzi.
+  - ORICE întrebare despre DATELE PROPRII deja existente ale unui VÂNZĂTOR (rolul curent = VENDOR), despre gestiunea magazinului lui, care NU cere o schimbare explicită - acoperă TOATE domeniile lui de date live (BATCH 1, FINAL GAP PASS, 2026-09-07 - extins de la strict Costuri & Profit, care era singurul domeniu menționat aici când au fost adăugate celelalte 6 domenii live în copilotRouter.js, fără să se actualizeze și acest prompt - risc real de rutare greșită, corectat acum):
+    - produse/costuri/profit: "Ce produse am sub cost?", "Cât mă costă produsul X?", "Ce profit am la produsul Y?", "Ce am în biblioteca de costuri?", "Recalculează produsele care folosesc X", "Recalculează toate produsele cu costuri neactualizate".
+    - comenzi PRIMITE în magazinul lui: "Câte comenzi am?", "Ce comenzi noi am?", "Ce comenzi sunt livrate/anulate/plătite?", "Câte comenzi am avut luna asta?", "Ce comenzi mi-au adus câștig?".
+    - trafic/vizite ale magazinului: "Câți oameni mi-au văzut magazinul?", "Ce produse sunt cele mai văzute?", "De unde vin vizitatorii?", "Câte vizite am avut azi?".
+    - cereri de ofertă primite: "Câte cereri de ofertă am?", "Ce cereri sunt noi/în discuții/pierdute/cu ofertă trimisă?".
+    - plăți/comision/facturi proprii: "Cât am câștigat luna asta?", "Cât comision datorez?", "Ce facturi sunt neachitate?", "Ce comision am plătit luna trecută?".
+    - promovări/campanii proprii: "Sunt produsul zilei?", "Sunt artizanul săptămânii?", "Ce campanii am active?", "Ce promovări active am?".
+    - recenzii/notificări proprii: "Câte recenzii am?", "Care este ratingul meu?", "Câte notificări necitite am?".
+    Toate acestea sunt interogări/comenzi de date pentru domeniul magazinului VÂNZĂTORULUI, nu întrebări generale despre platformă, și au deja flow-uri dedicate funcționale (STRICT pentru rolul VENDOR - vezi regula explicită de mai jos despre diferența față de un cumpărător).
   NU alege asta pentru întrebări despre CUM funcționează platforma în general (acelea sunt PLATFORM_KNOWLEDGE) sau pentru cereri de modificare a UNUI produs/cost anume, cu valoare nouă specificată sau cerută (acelea sunt PLATFORM_ACTION).
   NU alege asta pentru "recalculează-l"/"recalculează produsul ăsta"/"recalculează-i costingul" - o comandă despre UN SINGUR produs, referit prin pronume sau implicit, fără nume și fără criteriu de filtrare (acelea sunt PLATFORM_ACTION - serverul rezolvă produsul din pagina curentă, vezi currentEntity).
 
@@ -184,7 +301,9 @@ Reguli:
 - "Ce produse am sub cost?" / "Cât mă costă produsul X?" = EXISTING_FLOW (interogare de date proprii, nu o întrebare generală și nu o cerere de schimbare).
 - "Recalculează produsele care folosesc X" = EXISTING_FLOW (mai multe produse, după criteriu) DAR "Recalculează-l" / "Recalculează produsul ăsta" = PLATFORM_ACTION (un singur produs, referit prin pronume/context).
 - "caut un cadou pentru mama" / "idei cadou mama" / "vreau ambalaje pentru lumânări" / "găsește-mi ceva pentru nuntă" = EXISTING_FLOW (MARKETPLACE_SEARCH) ÎNTOTDEAUNA, inclusiv pentru un vendor autentificat - vendorul rămâne și cumpărător, nu confunda "vreau X"/"caut X" (obiect generic, de cumpărat) cu o cerere despre magazinul PROPRIU al vendorului (aceea ar numi explicit un produs/cost/comandă deținut de el).
-- "Ce comenzi am?" / "Câte comenzi am plasat?" / "Unde este comanda mea?" = ORDER_HELP ÎNTOTDEAUNA (NICIODATĂ EXISTING_FLOW) - "comenzile mele" sunt datele unui cumpărător, nu ale unui vânzător; EXISTING_FLOW e strict pentru "produsele mele"/"costurile mele" ale unui VÂNZĂTOR.
+- "Ce comenzi am?" / "Câte comenzi am plasat?" / "Unde este comanda mea?" - DEPINDE STRICT de rolul curent (BATCH 1, FINAL GAP PASS: regulă corectată - varianta veche era necondiționată de rol și contrazicea EXISTING_FLOW pentru un VENDOR):
+  - rolul curent USER/GUEST/INFLUENCER (cumpărător) = ORDER_HELP ÎNTOTDEAUNA (NICIODATĂ EXISTING_FLOW) - "comenzile mele" sunt comenzile PLASATE de el ca cumpărător.
+  - rolul curent VENDOR (vânzător) = EXISTING_FLOW ÎNTOTDEAUNA (NICIODATĂ ORDER_HELP) - "comenzile mele" înseamnă comenzile PRIMITE în magazinul lui, date live de gestiune (vezi definiția EXISTING_FLOW mai sus) - un vânzător rămâne și el, teoretic, cumpărător pe platformă, dar "Câte comenzi am?" fără alt context înseamnă mereu magazinul lui, niciodată propriile achiziții.
 - "Creează o campanie" / "Fă-mi o campanie" - deși e formulat imperativ (EXECUTE), NU e PLATFORM_ACTION - nu există niciun handler conversațional pentru creare de campanie (are mai multe câmpuri: nume, reducere, produse incluse - se face din interfață, nu conversațional). Rămâne PLATFORM_KNOWLEDGE, care explică UNDE se creează.
 - "Ce recomandări ai?" / "Ce îmi recomanzi?" / "Cum funcționează recomandările [pentru mine]?" = VENDOR_INSIGHTS ÎNTOTDEAUNA (inclusiv formularea "cum funcționează", care altfel ar trage spre PLATFORM_KNOWLEDGE) - "recomandare" aici înseamnă sugestie despre contul propriu, NU programul de ambasadori. NUMAI "Cum funcționează programul de ambasadori?" / "Cum invit alți vânzători?" / "Ce e codul meu de recomandare?" (menționează EXPLICIT ambasadori/invitat/cod-link) = PLATFORM_KNOWLEDGE.
 - Dacă mesajul e ambiguu între INCIDENT_OR_BUG și un domeniu specific (ORDER_HELP/PAYMENT_HELP/ACCOUNT_HELP), alege domeniul specific dacă e menționat explicit (ex. "nu îmi merge plata" = PAYMENT_HELP, nu INCIDENT_OR_BUG generic).
@@ -221,6 +340,7 @@ const KNOWN_AUDIENCE_ROLES = ["USER", "VENDOR", "GUEST"];
 export async function classifyCopilotMessage({
   message,
   history = [],
+  audience = "USER",
 }) {
   const response = await openai.responses.create({
     model: ROUTER_MODEL,
@@ -238,6 +358,7 @@ export async function classifyCopilotMessage({
             text: buildClassifierPrompt({
               message,
               history,
+              audience,
             }),
           },
         ],
@@ -335,8 +456,9 @@ Reguli:
   - dacă întrebarea e despre CUM DEVINE utilizatorul eligibil pentru acel rol (ex. "cum devin vânzător?"), explică pasul de eligibilitate folosind informația din manifest, apoi poți descrie pe scurt ce urmează să poată face.
   - dacă utilizatorul CHIAR are audience-ul cerut, răspunde normal, la persoana a doua, ca disponibil.
 - NICIODATĂ nu scrie literal cuvintele "USER"/"VENDOR"/"GUEST"/"ADMIN" în răspuns (sunt etichete tehnice interne, nu vocabular pentru utilizator) - folosește formulări naturale: "vizitator"/"cumpărător"/"client" (nu USER/GUEST), "vânzător" (nu VENDOR), "echipa Artfest" (nu ADMIN).
+- FIX #5 (FINAL E2E FIX PASS, 2026-09-07) - manifestele de mai jos sunt ordonate DESCRESCĂTOR după scor de relevanță pentru mesajul curent: PRIMUL manifest din listă e candidatul DOMINANT (cel mai relevant, inclusiv atunci când relevanța vine din faptul că e subiectul turei anterioare de conversație). Manifestele următoare (al 2-lea, al 3-lea) sunt STRICT context suplimentar, folosit DOAR dacă adaugă detalii relevante pentru ACELAȘI subiect ca primul manifest. NU folosi un manifest secundar ca să schimbi subiectul răspunsului către alt domeniu, complet diferit de primul - confirmat prin audit ca eroare reală (întrebarea "Unde o văd?" despre o factură a primit, greșit, un răspuns despre cereri de ofertă, pentru că manifestul secundar "quotes" era prezent alături de cel corect "checkout-payments"). Dacă niciun manifest secundar nu se leagă de subiectul primului, IGNORĂ-l complet.
 
-Manifeste relevante:
+Manifeste relevante (ordonate descrescător după relevanță - primul e dominant):
 ${JSON.stringify(manifests, null, 2)}
 
 Istoric conversație:
@@ -699,6 +821,27 @@ function detectInsightScope(message) {
   return "all";
 }
 
+/*
+ * FINAL E2E FIX PASS (2026-09-07) - fix #1 (E2E#3 confirmat 100%
+ * reproductibil): "Poate AI-ul să îmi spună ce produse nu au stoc?"
+ * și variante clasifică EXISTING_FLOW + QUERY_LIVE_DATA (cerere de
+ * date proprii precisă, NU o cerere de "recomandări"/"probleme" -
+ * promptul clasificatorului nu are niciun cuvânt-declanșator
+ * VENDOR_INSIGHTS aici), dar datele cerute (stoc/ascunse/inactive/
+ * incomplete) există STRICT în insightsService.js, accesibil altfel
+ * doar din categoria VENDOR_INSIGHTS. Poartă STRICTĂ, verificată
+ * DUPĂ toate cele 10 tool-uri live existente (dacă vreunul răspunde
+ * deja, nu ajunge niciodată aici) - reutilizează EXACT
+ * handleVendorInsightsQuery, zero duplicare de query.
+ */
+const CATALOG_HEALTH_FALLBACK_RE =
+  /stoc|ascun|inactiv|problem|incomplet|imbunatat|îmbunătăț/i;
+
+function isCatalogHealthQuestion(message) {
+  const t = String(message || "");
+  return PRODUCT_DOMAIN_HINT_RE.test(t) && CATALOG_HEALTH_FALLBACK_RE.test(t);
+}
+
 function scopeInsights(insights, scope) {
   if (scope === "urgent") {
     return insights.filter((i) => i.severity === "IMPORTANT");
@@ -839,6 +982,7 @@ const ROLE_LABELS = {
   VENDOR: "vânzător",
   GUEST: "vizitator neautentificat",
   ADMIN: "admin",
+  INFLUENCER: "influencer",
 };
 
 function buildHelpOverviewAnswer(
@@ -1143,8 +1287,79 @@ async function handleUserOrderCancelFlow({
  * ORDER_HELP vs EXISTING_FLOW din classifier).
  */
 const USER_ORDERS_LIST_LIMIT = 5;
+const USER_ORDERS_QUERY_LIMIT = 100;
 
-async function handleUserOrdersLiveQuery({ userSub }) {
+/*
+ * BATCH 2 (audit USER, 2026-09-08) - extins de la un simplu "listă
+ * ultimele 5 comenzi" la detectare de subiect (topic), mirror exact al
+ * tiparului din vendorAssistantOrders.js (detectOrderLiveTopic +
+ * shipmentStatusFilterFor), dar adaptat la statusul UI de CUMPĂRĂTOR
+ * (computeUiStatus - PENDING/PROCESSING/SHIPPED/DELIVERED/CANCELED/
+ * RETURNED), NU la statusul intern de shipment al vânzătorului (alt
+ * vocabular, altă granularitate). NU duplică business logic - statusul
+ * e calculat STRICT cu computeUiStatus, deja importat din
+ * userOrdersRoutes.js (aceeași funcție folosită de ruta reală a
+ * userului). Ownership: where:{userId: userSub}, niciodată vendorId.
+ */
+const USER_ORDER_UI_STATUS_LABEL = {
+  PENDING: "în așteptare",
+  PROCESSING: "în procesare",
+  SHIPPED: "expediate",
+  DELIVERED: "livrate",
+  CANCELED: "anulate",
+  RETURNED: "returnate",
+};
+
+function detectUserOrderTopic(message, { lastCategory } = {}) {
+  const t = normalizeForCancelDetection(message);
+
+  /*
+   * BUGFIX (audit USER Batch 2, 2026-09-08) - această funcție e apelată
+   * STRICT din interiorul ramurii ORDER_HELP + QUERY_LIVE_DATA (deja
+   * confirmată de clasificator că e despre comenzi) - NU mai are nevoie
+   * de propria "poartă" de intrare, doar de sub-clasificare pe topic.
+   * O poartă suplimentară pe regex ("\bcomand\b") era greșită și bloca
+   * silențios "comenzi" (plural) - "comenzi" NU se potrivea, doar
+   * "comandă"/"comenzii" - orice întrebare cu plural pica pe TOTAL.
+   */
+  if (/ultima|ultimul/.test(t)) return "LAST";
+  if (/activ/.test(t)) return "ACTIVE";
+  if (/procesar/.test(t)) return "PROCESSING";
+  if (/exped|trimis/.test(t)) return "SHIPPED";
+  if (/livrat/.test(t)) return "DELIVERED";
+  if (/anulat/.test(t)) return "CANCELED";
+  if (/returnat/.test(t)) return "RETURNED";
+  if (/avans/.test(t)) return "DEPOSIT";
+  if (/platit|de plata|metoda de plata|statusul comenzii/.test(t))
+    return "LAST";
+  if (/vanzator|de la cine/.test(t)) return "LAST";
+
+  return "TOTAL";
+}
+
+function resolveUserOrderDateRange(t) {
+  const now = new Date();
+
+  if (/luna\s*trecut/.test(t)) {
+    const from = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)
+    );
+    const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    return { from, to, label: "luna trecută" };
+  }
+
+  if (/luna\s*asta|luna\s*aceasta/.test(t)) {
+    const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const to = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)
+    );
+    return { from, to, label: "luna asta" };
+  }
+
+  return null;
+}
+
+async function handleUserOrdersLiveQuery({ userSub, message = "", lastCategory = null }) {
   if (!userSub) {
     return {
       resultType: "answer",
@@ -1154,31 +1369,163 @@ async function handleUserOrdersLiveQuery({ userSub }) {
     };
   }
 
+  const t = normalizeForCancelDetection(message);
+  const topic = detectUserOrderTopic(message, { lastCategory }) || "TOTAL";
+  const dateRange = resolveUserOrderDateRange(t);
+
   const orders = await prisma.order.findMany({
-    where: { userId: userSub },
+    where: {
+      userId: userSub,
+      ...(dateRange
+        ? { createdAt: { gte: dateRange.from, lt: dateRange.to } }
+        : {}),
+    },
     orderBy: { createdAt: "desc" },
-    take: USER_ORDERS_LIST_LIMIT,
-    include: { shipments: true },
+    take: USER_ORDERS_QUERY_LIMIT,
+    include: {
+      shipments: {
+        include: {
+          vendor: { select: { displayName: true } },
+        },
+      },
+    },
   });
 
-  if (!orders.length) {
+  const withStatus = orders.map((order) => ({
+    order,
+    uiStatus: computeUiStatus(order, order.shipments),
+  }));
+
+  const periodSuffix = dateRange ? ` ${dateRange.label}` : "";
+
+  if (topic === "LAST") {
+    if (!withStatus.length) {
+      return {
+        resultType: "answer",
+        topicId: "orders",
+        message: `Nu am găsit nicio comandă în contul tău${periodSuffix}.`,
+      };
+    }
+
+    const { order, uiStatus } = withStatus[0];
+    const vendorNames = Array.from(
+      new Set(
+        (order.shipments || [])
+          .map((s) => s.vendor?.displayName)
+          .filter(Boolean)
+      )
+    );
+    const deposit = (order.shipments || [])
+      .map((s) => ({
+        status: s.depositStatus,
+        requested: s.depositRequestedAmount,
+        paid: s.depositPaidAmount,
+      }))
+      .find((d) => d.status && d.status !== "NOT_REQUESTED");
+
+    const statusLabel =
+      USER_ORDER_UI_STATUS_LABEL[uiStatus] || uiStatus.toLowerCase();
+    const paymentLabel =
+      order.paymentMethod === "CARD" ? "card" : "ramburs (COD)";
+    const paidLabel =
+      order.paymentMethod === "CARD"
+        ? order.paidAt || order.status === "PAID"
+          ? "plătită"
+          : "neplătită încă"
+        : "se achită la livrare (ramburs)";
+
+    const depositLine = deposit
+      ? `\nAvans: ${
+          deposit.status === "PAID"
+            ? `plătit (${Number(deposit.paid || 0).toFixed(2)} RON)`
+            : deposit.status === "PENDING"
+              ? `solicitat, neplătit încă (${Number(deposit.requested || 0).toFixed(2)} RON)`
+              : deposit.status.toLowerCase()
+        }`
+      : "";
+
     return {
       resultType: "answer",
-      message: "Nu am găsit nicio comandă în contul tău.",
+      topicId: "orders",
+
+      message:
+        `Ultima ta comandă: ${formatOrderShortLabel(order)} - ${statusLabel}.\n` +
+        `Vânzător: ${vendorNames.join(", ") || "necunoscut"}\n` +
+        `Metodă de plată: ${paymentLabel} (${paidLabel})${depositLine}\n\n` +
+        `Spune-mi numărul comenzii dacă vrei să o anulezi sau alte detalii.`,
     };
   }
 
-  const lines = orders.map((order, index) => {
-    const uiStatus = computeUiStatus(order, order.shipments);
-    const label = ORDER_UI_STATUS_LABELS[uiStatus] || uiStatus.toLowerCase();
+  if (topic === "DEPOSIT") {
+    const withDeposit = withStatus.filter(({ order }) =>
+      (order.shipments || []).some(
+        (s) => s.depositStatus && s.depositStatus !== "NOT_REQUESTED"
+      )
+    );
 
-    return `${index + 1}. ${formatOrderShortLabel(order)} - ${label}`;
-  });
+    if (!withDeposit.length) {
+      return {
+        resultType: "answer",
+        topicId: "orders",
+        message: "Nu ai nicio comandă cu avans solicitat momentan.",
+      };
+    }
+
+    const lines = withDeposit
+      .slice(0, 5)
+      .map(
+        ({ order }, i) => `${i + 1}. ${formatOrderShortLabel(order)}`
+      );
+
+    return {
+      resultType: "answer",
+      topicId: "orders",
+      message: `Ai ${withDeposit.length === 1 ? "1 comandă" : `${withDeposit.length} comenzi`} cu avans solicitat:\n\n${lines.join("\n")}`,
+    };
+  }
+
+  const filtered =
+    topic === "TOTAL"
+      ? withStatus
+      : topic === "ACTIVE"
+        ? withStatus.filter(
+            ({ uiStatus }) =>
+              uiStatus === "PENDING" || uiStatus === "PROCESSING" || uiStatus === "SHIPPED"
+          )
+        : withStatus.filter(({ uiStatus }) => uiStatus === topic);
+
+  if (!filtered.length) {
+    return {
+      resultType: "answer",
+      topicId: "orders",
+
+      message:
+        topic === "TOTAL"
+          ? `Nu ai avut nicio comandă${periodSuffix || " momentan"}.`
+          : `Momentan nu ai comenzi ${USER_ORDER_UI_STATUS_LABEL[topic] || topic.toLowerCase()}${periodSuffix}.`,
+    };
+  }
+
+  const lines = filtered
+    .slice(0, 5)
+    .map(({ order, uiStatus }, index) => {
+      const label = USER_ORDER_UI_STATUS_LABEL[uiStatus] || uiStatus.toLowerCase();
+      return `${index + 1}. ${formatOrderShortLabel(order)} - ${label}`;
+    });
+
+  const countPhrase =
+    filtered.length === 1 ? "1 comandă" : `${filtered.length} comenzi`;
+
+  const heading =
+    topic === "TOTAL"
+      ? `Ai ${countPhrase}${periodSuffix || " în total"}.`
+      : `Ai ${countPhrase} ${USER_ORDER_UI_STATUS_LABEL[topic] || topic.toLowerCase()}${periodSuffix}.`;
 
   return {
     resultType: "answer",
+    topicId: "orders",
 
-    message: `Ultimele tale comenzi:\n\n${lines.join(
+    message: `${heading}\n\nCele mai recente:\n\n${lines.join(
       "\n"
     )}\n\nSpune-mi numărul unei comenzi dacă vrei detalii sau vrei s-o anulezi.`,
   };
@@ -1248,6 +1595,604 @@ async function handleVendorInsightsQuery({
     insights: scoped,
 
     insightContext: buildActiveInsightContext(scope, scoped),
+  };
+}
+
+/*
+ * BATCH 2 (audit regression Vendor Assistant, 2026-09-06) - mirror al
+ * lui handleVendorInsightsQuery de mai sus, dar pentru domeniul
+ * trafic/vizite/vizualizări (nu "insight-uri" acționabile). Întoarce
+ * `null` dacă mesajul nu ține de acest domeniu (vezi
+ * detectVisitorAnalyticsTopic din vendorAssistantAnalytics.js) - în
+ * acest caz apelantul (mai jos, în EXISTING_FLOW) cade pe
+ * comportamentul existent, NESCHIMBAT, pentru comenzi/câștiguri/stoc.
+ */
+async function handleVendorVisitorAnalyticsQuery({ userSub, message }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca vânzător pentru asta.",
+    };
+  }
+
+  const vendor = await resolveVendorByUserId(userSub);
+
+  if (!vendor) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un magazin de vânzător asociat contului tău.",
+    };
+  }
+
+  const analytics = await answerVendorVisitorAnalyticsQuestion({
+    vendorId: vendor.id,
+    message,
+  });
+
+  if (!analytics) return null;
+
+  return {
+    resultType: "answer",
+    message: analytics.message,
+  };
+}
+
+/*
+ * BATCH 3 (audit regression Vendor Assistant, 2026-09-06) - mirror al
+ * lui handleVendorVisitorAnalyticsQuery de mai sus, dar pentru
+ * "câte cereri de ofertă am / noi / în discuții / ofertă trimisă /
+ * rezervate / pierdute". Întoarce `null` dacă mesajul nu ține de acest
+ * domeniu (vezi detectQuoteLeadTopic din vendorAssistantQuoteLeads.js).
+ */
+async function handleVendorQuoteLeadQuery({ userSub, message }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca vânzător pentru asta.",
+    };
+  }
+
+  const vendor = await resolveVendorByUserId(userSub);
+
+  if (!vendor) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un magazin de vânzător asociat contului tău.",
+    };
+  }
+
+  const leads = await answerVendorQuoteLeadQuestion({
+    vendorId: vendor.id,
+    message,
+  });
+
+  if (!leads) return null;
+
+  return {
+    resultType: "answer",
+    message: leads.message,
+  };
+}
+
+/*
+ * BATCH 4 (audit regression Vendor Assistant, 2026-09-06) - mirror al
+ * lui handleVendorQuoteLeadQuery de mai sus, dar pentru "câte comenzi
+ * am / noi / în lucru / așteaptă expedierea / livrate / anulate /
+ * plătite". Întoarce `null` dacă mesajul nu ține de acest domeniu (vezi
+ * detectOrderLiveTopic din vendorAssistantOrders.js).
+ */
+async function handleVendorOrderLiveQuery({ userSub, message, lastCategory }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca vânzător pentru asta.",
+    };
+  }
+
+  const vendor = await resolveVendorByUserId(userSub);
+
+  if (!vendor) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un magazin de vânzător asociat contului tău.",
+    };
+  }
+
+  const orders = await answerVendorOrderLiveQuestion({
+    vendorId: vendor.id,
+    message,
+    lastCategory,
+  });
+
+  if (!orders) return null;
+
+  return {
+    resultType: "answer",
+    message: orders.message,
+  };
+}
+
+/*
+ * BATCH 5 (audit regression Vendor Assistant, 2026-09-06) - mirror al
+ * lui handleVendorOrderLiveQuery de mai sus, dar pentru "cât am câștigat
+ * / ce comision datorez / ce facturi sunt neachitate / ce comision am
+ * plătit luna trecută". Întoarce `null` dacă mesajul nu ține de acest
+ * domeniu (vezi detectPaymentsLiveTopic din vendorAssistantPayments.js).
+ */
+async function handleVendorPaymentsLiveQuery({ userSub, message }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca vânzător pentru asta.",
+    };
+  }
+
+  const vendor = await resolveVendorByUserId(userSub);
+
+  if (!vendor) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un magazin de vânzător asociat contului tău.",
+    };
+  }
+
+  const payments = await answerVendorPaymentsQuestion({
+    vendorId: vendor.id,
+    message,
+  });
+
+  if (!payments) return null;
+
+  return {
+    resultType: "answer",
+    message: payments.message,
+  };
+}
+
+/*
+ * BATCH D (audit regression Vendor Assistant, 2026-09-07) - mirror al
+ * lui handleVendorPaymentsLiveQuery de mai sus, dar pentru "sunt produsul
+ * zilei? / sunt artizanul săptămânii? / ce promovări active am / ce
+ * campanii am active". Întoarce `null` dacă mesajul nu ține de acest
+ * domeniu (vezi detectPromotionsLiveTopic din vendorAssistantPromotions.js).
+ */
+async function handleVendorPromotionsLiveQuery({ userSub, message }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca vânzător pentru asta.",
+    };
+  }
+
+  const vendor = await resolveVendorByUserId(userSub);
+
+  if (!vendor) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un magazin de vânzător asociat contului tău.",
+    };
+  }
+
+  const promotions = await answerVendorPromotionsQuestion({
+    vendorId: vendor.id,
+    message,
+  });
+
+  if (!promotions) return null;
+
+  return {
+    resultType: "answer",
+    message: promotions.message,
+  };
+}
+
+/*
+ * BATCH E (audit regression Vendor Assistant, 2026-09-07) - mirror al
+ * lui handleVendorPromotionsLiveQuery de mai sus, dar pentru "câte
+ * recenzii am / ratingul meu / câte notificări necitite am". Întoarce
+ * `null` dacă mesajul nu ține de acest domeniu (vezi
+ * detectReviewsLiveTopic din vendorAssistantReviews.js).
+ */
+async function handleVendorReviewsLiveQuery({ userSub, message }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca vânzător pentru asta.",
+    };
+  }
+
+  const vendor = await resolveVendorByUserId(userSub);
+
+  if (!vendor) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un magazin de vânzător asociat contului tău.",
+    };
+  }
+
+  const reviews = await answerVendorReviewsQuestion({
+    vendorId: vendor.id,
+    message,
+  });
+
+  if (!reviews) return null;
+
+  return {
+    resultType: "answer",
+    message: reviews.message,
+  };
+}
+
+/*
+ * BATCH 2 (FINAL GAP PASS, 2026-09-07) - mirror al lui
+ * handleVendorReviewsLiveQuery de mai sus, dar pentru "câte produse
+ * am". Întoarce `null` dacă mesajul nu ține de acest domeniu (vezi
+ * detectProductLiveTopic din vendorAssistantProducts.js).
+ */
+async function handleVendorProductLiveQuery({ userSub, message }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca vânzător pentru asta.",
+    };
+  }
+
+  const vendor = await resolveVendorByUserId(userSub);
+
+  if (!vendor) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un magazin de vânzător asociat contului tău.",
+    };
+  }
+
+  const products = await answerVendorProductQuestion({
+    vendorId: vendor.id,
+    message,
+  });
+
+  if (!products) return null;
+
+  return {
+    resultType: "answer",
+    message: products.message,
+  };
+}
+
+/*
+ * BATCH 2 (FINAL GAP PASS, 2026-09-07) - mirror al lui
+ * handleVendorProductLiveQuery de mai sus, dar pentru "cât am vândut /
+ * cele mai vândute produse / produse nevândute". Întoarce `null` dacă
+ * mesajul nu ține de acest domeniu (vezi detectSalesLiveTopic din
+ * vendorAssistantSales.js).
+ */
+async function handleVendorSalesLiveQuery({ userSub, message }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca vânzător pentru asta.",
+    };
+  }
+
+  const vendor = await resolveVendorByUserId(userSub);
+
+  if (!vendor) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un magazin de vânzător asociat contului tău.",
+    };
+  }
+
+  const sales = await answerVendorSalesQuestion({
+    vendorId: vendor.id,
+    message,
+  });
+
+  if (!sales) return null;
+
+  return {
+    resultType: "answer",
+    message: sales.message,
+  };
+}
+
+/*
+ * BATCH 2 (FINAL GAP PASS, 2026-09-07) - mirror al lui
+ * handleVendorSalesLiveQuery de mai sus, dar pentru "câte mesaje
+ * necitite am / ce conversații am necitite / cine mi-a scris ultima
+ * dată / ce conversații nu au răspuns". Întoarce `null` dacă mesajul
+ * nu ține de acest domeniu (vezi detectMessagesLiveTopic din
+ * vendorAssistantMessages.js).
+ */
+async function handleVendorMessagesLiveQuery({ userSub, message }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca vânzător pentru asta.",
+    };
+  }
+
+  const vendor = await resolveVendorByUserId(userSub);
+
+  if (!vendor) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un magazin de vânzător asociat contului tău.",
+    };
+  }
+
+  const messages = await answerVendorMessagesQuestion({
+    vendorId: vendor.id,
+    message,
+  });
+
+  if (!messages) return null;
+
+  return {
+    resultType: "answer",
+    message: messages.message,
+  };
+}
+
+/*
+ * BATCH 2 (FINAL GAP PASS, 2026-09-07) - mirror al lui
+ * handleVendorMessagesLiveQuery de mai sus, dar pentru domeniul
+ * "tichete de suport" ("a răspuns cineva la tichet / ce tichete sunt
+ * deschise/rezolvate / deschide ultimul tichet"). Întoarce `null` dacă
+ * mesajul nu ține de acest domeniu (vezi detectSupportLiveTopic din
+ * vendorAssistantSupport.js).
+ *
+ * OWNERSHIP: SupportTicket.requesterId e User.id (userSub), NU
+ * Vendor.id - verificăm totuși că userSub e într-adevăr un vendor
+ * (`resolveVendorByUserId`), pentru consistență cu restul domeniilor
+ * live, dar interogarea reală de tichete folosește userSub direct
+ * (vezi comentariul din vendorAssistantSupport.js).
+ */
+async function handleVendorSupportLiveQuery({ userSub, message }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca vânzător pentru asta.",
+    };
+  }
+
+  const vendor = await resolveVendorByUserId(userSub);
+
+  if (!vendor) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un magazin de vânzător asociat contului tău.",
+    };
+  }
+
+  const support = await answerVendorSupportQuestion({
+    userSub,
+    message,
+  });
+
+  if (!support) return null;
+
+  return {
+    resultType: "answer",
+    message: support.message,
+  };
+}
+
+/*
+ * INFLUENCER - "privire de ansamblu" (FAZA 2). Mirror EXACT al
+ * handleVendorInsightsQuery de mai sus (aceeași categorie
+ * VENDOR_INSIGHTS, reutilizată), dar cu propriul sub-router
+ * determinist (detectInfluencerQueryScope) în loc de
+ * detectInsightScope/scopeInsights, pentru că influencerul are mai
+ * multe "domenii" posibile (rezurse/câștiguri/coduri/colecții) decât
+ * simplele domenii ale insight-urilor de vânzător.
+ *
+ * LIVE DATA - recalculat de fiecare dată, nimic din
+ * conversationContext (aceeași disciplină ca la vendor).
+ */
+async function handleInfluencerLiveQuery({ userSub, message }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca influencer pentru asta.",
+    };
+  }
+
+  const auth = await requireActiveInfluencer(userSub);
+
+  if (auth.error) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un cont de influencer activ asociat contului tău.",
+    };
+  }
+
+  const { influencerId } = auth;
+  const scope = detectInfluencerQueryScope(message);
+
+  let data;
+
+  switch (scope) {
+    case "TODAY":
+      data = await getInfluencerTodayRecommendations({ influencerId });
+      break;
+
+    case "REPOST":
+      data = await getInfluencerResources({
+        influencerId,
+        category: "all",
+        activity: "toRepost",
+      });
+      break;
+
+    case "PRODUCT_OF_DAY":
+      data = await getInfluencerResources({
+        influencerId,
+        category: "PRODUCT_OF_DAY",
+        activity: "all",
+      });
+      break;
+
+    case "ARTISAN_OF_WEEK":
+      data = await getInfluencerResources({
+        influencerId,
+        category: "ARTISAN_OF_WEEK",
+        activity: "all",
+      });
+      break;
+
+    case "NEW_PRODUCTS":
+      data = await getInfluencerResources({
+        influencerId,
+        category: "new_products",
+      });
+      break;
+
+    case "NEW_VENDORS":
+      data = await getInfluencerResources({
+        influencerId,
+        category: "new_vendors",
+      });
+      break;
+
+    case "DISCOUNT_CODES":
+      data = await getInfluencerDiscountCodes({ influencerId });
+      break;
+
+    case "EARNINGS":
+      data = await getInfluencerEarnings({ influencerId });
+      break;
+
+    case "COLLECTIONS":
+      data = await getInfluencerCollections({ influencerId });
+      break;
+
+    case "RESOURCES":
+      data = await getInfluencerResources({
+        influencerId,
+        category: "all",
+        activity: "all",
+      });
+      break;
+
+    default:
+      data = await getInfluencerSummary({ influencerId });
+      break;
+  }
+
+  return {
+    resultType: "answer",
+    message: composeInfluencerAnswer(scope, data),
+    influencerScope: scope,
+    data,
+  };
+}
+
+/*
+ * INFLUENCER - comenzi atribuite (FAZA 2). Mirror EXACT al
+ * handleUserOrdersLiveQuery de mai jos, pentru un cumpărător - vezi
+ * ramura "audience === INFLUENCER" din routeCopilotMessage, alături
+ * de ramura existentă "audience === USER" pentru ORDER_HELP.
+ */
+async function handleInfluencerOrdersLiveQuery({ userSub }) {
+  if (!userSub) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Trebuie să fii autentificat ca influencer pentru asta.",
+    };
+  }
+
+  const auth = await requireActiveInfluencer(userSub);
+
+  if (auth.error) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu am găsit un cont de influencer activ asociat contului tău.",
+    };
+  }
+
+  const result = await getInfluencerOrders({
+    influencerId: auth.influencerId,
+  });
+
+  if (!result.items.length) {
+    return {
+      resultType: "answer",
+
+      message:
+        "Nu ai încă nicio comandă atribuită prin promovarea ta.",
+
+      orders: result.items,
+      target: result.target,
+    };
+  }
+
+  const lines = result.items
+    .slice(0, 5)
+    .map(
+      (order, index) =>
+        `${index + 1}. Comanda ${order.orderNumber || "—"} - ${
+          order.status
+        } - ${order.earningStatus}`
+    );
+
+  return {
+    resultType: "answer",
+
+    message: `Ultimele tale comenzi atribuite:\n\n${lines.join(
+      "\n"
+    )}`,
+
+    orders: result.items,
+    target: result.target,
   };
 }
 
@@ -1655,6 +2600,16 @@ async function handleSupportIntelligence({
 
   /*
    * OFFER_TICKET / HIGH_PRIORITY_ESCALATION - propunem, NU creăm.
+   *
+   * FAZA 3 (bugfix audit): `currentEntity` e parametrul care CHIAR
+   * primește entitatea curentă de la frontend (entityFromUrl /
+   * resolvedCurrentEntity - vezi derivePageContext.js/
+   * CurrentEntityContext.jsx) - `conversationContext?.entityType` de
+   * mai jos, dinainte, NU era populat NICIODATĂ de niciun apelant
+   * (conversationContext trimis de AiAssistant.jsx/VendorAssistant.jsx
+   * conține doar lastCategory/topicChangeStreak/starea de triaj, fără
+   * entityType/entityId) - "Entitate legată" nu apărea de fapt
+   * NICIODATĂ într-un tichet real, deși parametrul corect exista deja.
    */
   const ticketDraft = buildTicketDraft({
     category: effectiveCategory,
@@ -1666,8 +2621,10 @@ async function handleSupportIntelligence({
     stepsAttempted,
     summary: evaluation.summary,
     domain: evaluation.domain,
-    entityType: conversationContext?.entityType || null,
-    entityId: conversationContext?.entityId || null,
+    entities: mapEntityTypeToEntities(
+      currentEntity?.type,
+      currentEntity?.id
+    ),
   });
 
   return {
@@ -1740,6 +2697,7 @@ export async function routeCopilotMessage({
       const topicCheck = await classifyCopilotMessage({
         message: safeMessage,
         history,
+        audience,
       });
 
       if (isTopicChange(topicCheck)) {
@@ -1844,6 +2802,7 @@ export async function routeCopilotMessage({
       const topicCheck = await classifyCopilotMessage({
         message: safeMessage,
         history,
+        audience,
       });
 
       if (isTopicChange(topicCheck)) {
@@ -1908,6 +2867,7 @@ export async function routeCopilotMessage({
       const topicCheck = await classifyCopilotMessage({
         message: safeMessage,
         history,
+        audience,
       });
 
       if (isTopicChange(topicCheck)) {
@@ -1956,11 +2916,96 @@ export async function routeCopilotMessage({
     }
   }
 
+  /*
+   * FINAL E2E FIX PASS (2026-09-07) - fix #3/#4: "Sunt produsul
+   * zilei?"/"A răspuns cineva la tichet?" (și restul topicurilor din
+   * vendorAssistantPromotions.js/vendorAssistantSupport.js) sunt date
+   * LIVE despre contul PROPRIU al vânzătorului - NU trebuie să
+   * depindă de interpretarea stocastică a clasificatorului LLM.
+   * Confirmat prin testare repetată (E2E): aceleași mesaje, exact
+   * identice, au produs 3 categorii diferite ("Sunt produsul zilei?")
+   * sau au fost "furate" de triajul generic de suport în ~2/3 din
+   * cazuri ("A răspuns cineva la tichet?").
+   *
+   * Verificăm STRICT aceleași porți deterministe deja scrise și
+   * testate în Batch 2 (handleVendorPromotionsLiveQuery/
+   * handleVendorSupportLiveQuery, care la rândul lor apelează
+   * detectPromotionsLiveTopic/detectSupportLiveTopic - NEMODIFICATE)
+   * - dacă mesajul NU se potrivește STRICT unui topic determinist,
+   * funcțiile întorc `null` și continuăm normal mai jos, prin
+   * clasificare, EXACT ca înainte. Verificat explicit în audit că
+   * aceste porți NU prind formulări generice ("Am o problemă cu
+   * pagina" nu conține niciun cuvânt din porțile de status tichet).
+   */
+  if (audience === "VENDOR" && userSub) {
+    const earlyPromotionsResult = await handleVendorPromotionsLiveQuery({
+      userSub,
+      message: safeMessage,
+    });
+
+    if (earlyPromotionsResult) {
+      return {
+        handled: true,
+        category: "EXISTING_FLOW",
+        confidence: null,
+        intentMode: "QUERY_LIVE_DATA",
+        ...earlyPromotionsResult,
+      };
+    }
+
+    const earlySupportResult = await handleVendorSupportLiveQuery({
+      userSub,
+      message: safeMessage,
+    });
+
+    if (earlySupportResult) {
+      return {
+        handled: true,
+        category: "EXISTING_FLOW",
+        confidence: null,
+        intentMode: "QUERY_LIVE_DATA",
+        ...earlySupportResult,
+      };
+    }
+  }
+
+  /*
+   * BUGFIX (audit USER, aprobat 2026-09-08) - "A răspuns cineva la
+   * tichetul meu de suport?" / "Care este ultimul meu tichet?" erau
+   * misclasificate ORDER_HELP de clasificatorul LLM în 4 din 5
+   * încercări (variație de eșantionare, nu determinist - vezi raportul
+   * USER BATCH 2), întorcând date despre COMENZI la o întrebare despre
+   * TICHETE. Fix determinist, ÎNAINTE de clasificator, mirror EXACT al
+   * porții VENDOR de mai sus (aceeași structură, aceeași garanție:
+   * detectUserSupportTopic e STRICT - o mențiune goală a cuvântului
+   * "tichet" fără status/listare explicit întoarce null și cade
+   * neschimbat pe clasificare normală, vezi comentariile din
+   * userAssistantSupport.js).
+   */
+  if (audience === "USER" && userSub) {
+    const earlyUserSupportResult = await answerUserSupportQuestion({
+      userSub,
+      message: safeMessage,
+      lastCategory: effectiveConversationContext?.lastCategory,
+    });
+
+    if (earlyUserSupportResult) {
+      return {
+        handled: true,
+        category: "EXISTING_FLOW",
+        confidence: null,
+        intentMode: "QUERY_LIVE_DATA",
+        ...earlyUserSupportResult,
+      };
+    }
+  }
+
   const { category, confidence, intentMode, mentionedRole } =
     precomputedClassification ||
     (await classifyCopilotMessage({
       message: safeMessage,
       history,
+      audience,
     }));
 
   if (category === "HELP_OVERVIEW") {
@@ -1979,6 +3024,34 @@ export async function routeCopilotMessage({
   }
 
   if (category === "PLATFORM_KNOWLEDGE") {
+    /*
+     * BATCH 2 (FINAL GAP PASS, 2026-09-07) - "Deschide ultimul tichet."
+     * e o formă imperativă de NAVIGARE fără parametru de modificat -
+     * per regula deja existentă a clasificatorului ("NAVIGARE explicită
+     * spre o pagină = PLATFORM_KNOWLEDGE", vezi buildClassifierPrompt),
+     * ajunge cel mai probabil AICI, nu în lanțul EXISTING_FLOW - nu
+     * putea fi rezolvat din knowledge retrieval (nu există id de tichet
+     * într-un manifest static). Interceptăm STRICT acest caz, înainte
+     * de retrieval, pentru un VENDOR autentificat - restul PLATFORM_
+     * KNOWLEDGE rămâne complet neschimbat.
+     */
+    if (audience === "VENDOR" && userSub) {
+      const supportResult = await handleVendorSupportLiveQuery({
+        userSub,
+        message: safeMessage,
+      });
+
+      if (supportResult) {
+        return {
+          handled: true,
+          category,
+          confidence,
+          intentMode,
+          ...supportResult,
+        };
+      }
+    }
+
     const manifests = await getRelevantPlatformKnowledge(
       {
         query: safeMessage,
@@ -2065,6 +3138,28 @@ export async function routeCopilotMessage({
   }
 
   if (category === "VENDOR_INSIGHTS") {
+    /*
+     * INFLUENCER (FAZA 2) - aceeași categorie (VENDOR_INSIGHTS,
+     * reutilizată - "privire de ansamblu asupra propriului cont"),
+     * dar cu handler-ul dedicat influencerului, care își are propriul
+     * sub-router determinist (detectInfluencerQueryScope), nu
+     * detectInsightScope (specific vendor).
+     */
+    if (audience === "INFLUENCER") {
+      const result = await handleInfluencerLiveQuery({
+        userSub,
+        message: safeMessage,
+      });
+
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...result,
+      };
+    }
+
     const result = await handleVendorInsightsQuery({
       audience,
       userSub,
@@ -2096,6 +3191,32 @@ export async function routeCopilotMessage({
       userSub
     ) {
       const result = await handleUserOrdersLiveQuery({
+        userSub,
+        message: safeMessage,
+        lastCategory: effectiveConversationContext?.lastCategory,
+      });
+
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...result,
+      };
+    }
+
+    /*
+     * INFLUENCER (FAZA 2) - "comenzile mele" înseamnă comenzile
+     * ATRIBUITE prin promovare, nu comenzi de cumpărător - mirror
+     * exact al ramurii USER de mai sus, propriul handler.
+     */
+    if (
+      category === "ORDER_HELP" &&
+      intentMode === "QUERY_LIVE_DATA" &&
+      audience === "INFLUENCER" &&
+      userSub
+    ) {
+      const result = await handleInfluencerOrdersLiveQuery({
         userSub,
       });
 
@@ -2144,22 +3265,426 @@ export async function routeCopilotMessage({
    * (intentMode, calculat deja de classifyCopilotMessage), nu o
    * listă de fraze.
    */
+  /*
+   * BATCH 2 (audit regression Vendor Assistant, 2026-09-06) - trafic/
+   * vizite/vizualizări de produse/surse de trafic, pentru un vendor
+   * autentificat. Interceptează STRICT întrebările din acest domeniu
+   * (detectVisitorAnalyticsTopic) - orice altă întrebare EXISTING_FLOW/
+   * QUERY_LIVE_DATA pentru VENDOR (comenzi, câștiguri, stoc) întoarce
+   * `null` de aici și cade neschimbat pe comportamentul de mai jos.
+   */
+  if (
+    category === "EXISTING_FLOW" &&
+    intentMode === "QUERY_LIVE_DATA" &&
+    audience === "VENDOR"
+  ) {
+    const analyticsResult = await handleVendorVisitorAnalyticsQuery({
+      userSub,
+      message: safeMessage,
+    });
+
+    if (analyticsResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...analyticsResult,
+      };
+    }
+
+    /*
+     * BATCH 3 - încercăm și domeniul "cereri de ofertă/CRM" înainte de
+     * a cădea pe comportamentul existent (comenzi/câștiguri/stoc rămân
+     * neatinse, deliberat).
+     */
+    const quoteLeadResult = await handleVendorQuoteLeadQuery({
+      userSub,
+      message: safeMessage,
+    });
+
+    if (quoteLeadResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...quoteLeadResult,
+      };
+    }
+
+    /*
+     * BATCH 1 (FINAL GAP PASS, 2026-09-07) - ORDINE INVERSATĂ față de
+     * varianta inițială (plăți ÎNAINTE de comenzi): coliziune reală,
+     * confirmată prin rulare directă pe DB - "Ce comenzi mi-au adus
+     * câștig?" trecea de poarta largă a lui detectOrderLiveTopic
+     * ("ce comenzi ..."), care rula PRIMUL, și niciodată nu ajungea la
+     * detectPaymentsLiveTopic (EARNING_ORDERS, poartă STRICT mai
+     * specifică: "comenzi" + "castig" împreună) - întorcea numărul
+     * total de comenzi, nu lista comenzilor cu câștig. Verificat că
+     * inversarea NU introduce coliziunea inversă: niciun pattern din
+     * detectPaymentsLiveTopic nu se declanșează pe un "ce comenzi ..."
+     * simplu, fără cuvintele de plată/comision proprii (comision,
+     * factura, suma, castigat) - vezi vendorAssistantPayments.js.
+     *
+     * BATCH 5 - domeniul "plăți/facturi/comision".
+     */
+    const paymentsLiveResult = await handleVendorPaymentsLiveQuery({
+      userSub,
+      message: safeMessage,
+    });
+
+    if (paymentsLiveResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...paymentsLiveResult,
+      };
+    }
+
+    /*
+     * BATCH 4 - încercăm și domeniul "comenzi" înainte de a cădea pe
+     * comportamentul existent (stoc rămâne neatins, deliberat, alt
+     * batch).
+     */
+    const orderLiveResult = await handleVendorOrderLiveQuery({
+      userSub,
+      message: safeMessage,
+      lastCategory: effectiveConversationContext?.lastCategory,
+    });
+
+    if (orderLiveResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...orderLiveResult,
+      };
+    }
+
+    /*
+     * BATCH D - încercăm și domeniul "promovări/campanii" înainte de a
+     * cădea pe comportamentul existent (stoc rămâne neatins, deliberat,
+     * alt batch).
+     */
+    const promotionsLiveResult = await handleVendorPromotionsLiveQuery({
+      userSub,
+      message: safeMessage,
+    });
+
+    if (promotionsLiveResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...promotionsLiveResult,
+      };
+    }
+
+    /*
+     * BATCH E - încercăm și domeniul "recenzii/notificări" înainte de
+     * a cădea pe comportamentul existent.
+     */
+    const reviewsLiveResult = await handleVendorReviewsLiveQuery({
+      userSub,
+      message: safeMessage,
+    });
+
+    if (reviewsLiveResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...reviewsLiveResult,
+      };
+    }
+
+    /*
+     * BATCH 2 (FINAL GAP PASS, 2026-09-07) - 4 domenii noi. Gate-urile
+     * proprii (produse/vânzări/mesaje/tichete) nu se suprapun cu nimic
+     * din cele 6 de mai sus - verificat explicit în fiecare detect*
+     * function (ex. vendorAssistantProducts.js exclude "vandut"/"stoc"
+     * ca să nu fure de la vendorAssistantSales.js/insightsService.js).
+     */
+    const productLiveResult = await handleVendorProductLiveQuery({
+      userSub,
+      message: safeMessage,
+    });
+
+    if (productLiveResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...productLiveResult,
+      };
+    }
+
+    const salesLiveResult = await handleVendorSalesLiveQuery({
+      userSub,
+      message: safeMessage,
+    });
+
+    if (salesLiveResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...salesLiveResult,
+      };
+    }
+
+    const messagesLiveResult = await handleVendorMessagesLiveQuery({
+      userSub,
+      message: safeMessage,
+    });
+
+    if (messagesLiveResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...messagesLiveResult,
+      };
+    }
+
+    const supportLiveResult = await handleVendorSupportLiveQuery({
+      userSub,
+      message: safeMessage,
+    });
+
+    if (supportLiveResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...supportLiveResult,
+      };
+    }
+
+    /*
+     * FIX #1 (vezi isCatalogHealthQuestion mai sus) - ULTIMA încercare
+     * din acest lanț, DOAR dacă niciun tool determinist de mai sus
+     * (produse/vânzări/mesaje/suport/comenzi/plăți/promovări/recenzii/
+     * trafic/cereri) n-a răspuns deja ȘI mesajul e clar despre
+     * sănătatea catalogului (stoc/ascuns/inactiv/probleme/incomplet/
+     * de îmbunătățit) - cade pe EXACT același handler ca categoria
+     * VENDOR_INSIGHTS, fără duplicare de query.
+     */
+    if (isCatalogHealthQuestion(safeMessage)) {
+      const insightsFallbackResult = await handleVendorInsightsQuery({
+        audience,
+        userSub,
+        message: safeMessage,
+      });
+
+      if (insightsFallbackResult) {
+        return {
+          handled: true,
+          category,
+          confidence,
+          intentMode,
+          ...insightsFallbackResult,
+        };
+      }
+    }
+  }
+
+  /*
+   * BUGFIX (audit USER, 2026-09-08) - CORECTAT: acest fallback
+   * afirma orbește "disponibil doar pentru vânzători" pentru
+   * ORICE non-VENDOR/ADMIN care ajunge aici cu QUERY_LIVE_DATA -
+   * FALS pentru un USER care întreabă despre propriile mesaje/
+   * cereri de ofertă/notificări/tichete (funcții reale de
+   * cumpărător, doar fără live tool dedicat încă, vezi
+   * handleUserOrdersLiveQuery - singurul domeniu USER implementat
+   * momentan). Confirmat reproductibil (4/4): "Câte mesaje
+   * necitite am?"/"Câte cereri de ofertă am?"/"Câte notificări
+   * necitite am?"/"Câte tichete am?" primeau toate acest răspuns
+   * fals. NU construim live tools noi aici (scop STRICT minim,
+   * aprobat) - doar oprim dezinformarea, cădem pe ACELAȘI fallback
+   * de knowledge retrieval+sinteză ca FIX #6 de mai jos (EXISTING_
+   * FLOW+EXPLAIN) - dacă există cunoștință relevantă (ex.
+   * messages.manifest.js spune deja onest "e calculat live, nu am
+   * o valoare statică"), o folosește; altfel buildKnowledgeAnswer
+   * cade singur pe "Nu am suficiente informații sigure...", niciodată
+   * pe afirmația falsă de rol.
+   */
+  /*
+   * USER BATCH 2 (audit USER, 2026-09-08) - Messages Live: interceptează
+   * STRICT întrebările reale despre propriile mesaje/conversații
+   * ("câte mesaje necitite am", "ce conversații nu au răspuns" etc.)
+   * pentru un USER autentificat, ÎNAINTE de fallback-ul generic de mai
+   * jos. Ownership identic cu userMessagesRoutes.js (where: { userId }).
+   * Dacă mesajul nu e despre mesaje (answerUserMessagesQuestion
+   * întoarce null), cade neschimbat pe fallback-ul de knowledge.
+   */
+  if (
+    category === "EXISTING_FLOW" &&
+    intentMode === "QUERY_LIVE_DATA" &&
+    audience === "USER" &&
+    userSub
+  ) {
+    const messagesLiveResult = await answerUserMessagesQuestion({
+      userSub,
+      message: safeMessage,
+      lastCategory: effectiveConversationContext?.lastCategory,
+    });
+
+    if (messagesLiveResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...messagesLiveResult,
+      };
+    }
+
+    const quotesLiveResult = await answerUserQuotesQuestion({
+      userSub,
+      message: safeMessage,
+      lastCategory: effectiveConversationContext?.lastCategory,
+    });
+
+    if (quotesLiveResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...quotesLiveResult,
+      };
+    }
+
+    const notificationsLiveResult = await answerUserNotificationsQuestion({
+      userSub,
+      message: safeMessage,
+      lastCategory: effectiveConversationContext?.lastCategory,
+    });
+
+    if (notificationsLiveResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...notificationsLiveResult,
+      };
+    }
+
+    const supportLiveUserResult = await answerUserSupportQuestion({
+      userSub,
+      message: safeMessage,
+      lastCategory: effectiveConversationContext?.lastCategory,
+    });
+
+    if (supportLiveUserResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...supportLiveUserResult,
+      };
+    }
+
+    const reviewsLiveUserResult = await answerUserReviewsQuestion({
+      userSub,
+      message: safeMessage,
+      lastCategory: effectiveConversationContext?.lastCategory,
+    });
+
+    if (reviewsLiveUserResult) {
+      return {
+        handled: true,
+        category,
+        confidence,
+        intentMode,
+        ...reviewsLiveUserResult,
+      };
+    }
+  }
+
   if (
     category === "EXISTING_FLOW" &&
     intentMode === "QUERY_LIVE_DATA" &&
     audience !== "VENDOR" &&
     audience !== "ADMIN"
   ) {
+    const manifests = await getRelevantPlatformKnowledge({
+      query: safeMessage,
+      audience,
+      currentPage,
+      currentEntity,
+      conversationContext: effectiveConversationContext,
+    });
+
+    const answer = await buildKnowledgeAnswer({
+      message: safeMessage,
+      history,
+      audience,
+      manifests,
+    });
+
     return {
       handled: true,
       category,
       confidence,
       intentMode,
+      topicId: manifests?.[0]?.id || null,
+      ...answer,
+    };
+  }
 
-      resultType: "answer",
+  /*
+   * FIX #6 (FINAL E2E FIX PASS, 2026-09-07) - "EXISTING_FLOW +
+   * EXPLAIN" e o combinație pe care clasificatorul n-ar trebui s-o
+   * producă (regula PASUL 2 spune explicit "intentMode EXPLAIN →
+   * aproape întotdeauna PLATFORM_KNOWLEDGE"), dar a fost confirmată,
+   * ocazional, prin testare E2E repetată ("Unde văd comenzile?" ->
+   * handled:false, mesaj gol, o dată din 4 încercări identice -
+   * variație de eșantionare LLM, nu bug determinist). Indiferent de
+   * cauză, un mesaj EXPLAIN nu trebuie NICIODATĂ să rămână fără
+   * răspuns - fallback sigur, robust în ROUTER (nu în classifier):
+   * tratăm exact ca PLATFORM_KNOWLEDGE, aceeași retrieval + sinteză.
+   * Nu schimbă nimic pentru cazul normal (EXISTING_FLOW + EXPLAIN
+   * apare STRICT ca eroare de clasificare, nu ca flux valid - toate
+   * EXISTING_FLOW valide sunt QUERY_LIVE_DATA sau MARKETPLACE_SEARCH,
+   * tratate deja mai sus).
+   */
+  if (category === "EXISTING_FLOW" && intentMode === "EXPLAIN") {
+    const manifests = await getRelevantPlatformKnowledge({
+      query: safeMessage,
+      audience,
+      currentPage,
+      currentEntity,
+      conversationContext: effectiveConversationContext,
+    });
 
-      message:
-        "Această funcție este disponibilă doar pentru conturile de vânzător - ține de gestiunea propriului magazin (produse, costuri, comenzi), nu de contul unui cumpărător.",
+    const answer = await buildKnowledgeAnswer({
+      message: safeMessage,
+      history,
+      audience,
+      manifests,
+    });
+
+    return {
+      handled: true,
+      category,
+      confidence,
+      intentMode,
+      topicId: manifests?.[0]?.id || null,
+      ...answer,
     };
   }
 

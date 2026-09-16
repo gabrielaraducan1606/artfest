@@ -3278,6 +3278,9 @@ router.post(
         await createUserNotification(
           quote.userId,
           {
+            preferenceCategory:
+              "message",
+
             type:
               "message",
 

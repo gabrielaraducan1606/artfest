@@ -58,7 +58,7 @@ function leiToCents(value) {
    Componenta principală
 ========================================================= */
 
-export default function CostLibraryPage() {
+export default function CostLibraryPage({ embedded = false }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -231,7 +231,13 @@ export default function CostLibraryPage() {
   }
 
   return (
-    <div className={styles.page}>
+    <div
+      className={
+        embedded
+          ? `${styles.page} ${styles.pageEmbedded}`
+          : styles.page
+      }
+    >
       <div className={styles.header}>
         <div>
           <h1 className={styles.title}>Biblioteca de costuri</h1>

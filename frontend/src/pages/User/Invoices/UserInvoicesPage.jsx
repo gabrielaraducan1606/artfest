@@ -30,7 +30,6 @@ export default function UserInvoicesPage() {
         setLoading(true);
         setErr("");
 
-        // 👇 endpoint pentru facturile userului – îl vei implementa în backend
         const res = await api("/api/users/me/invoices").catch(() => ({ items: [] }));
         if (!alive) return;
 

@@ -623,11 +623,12 @@ async function handleContinueWithOffer(
     }
 
     /*
-     * Mergem pe homepage și deschidem
-     * direct oferta în asistentul AI.
+     * Rămânem pe pagina cererii - doar adăugăm query params pe ruta
+     * curentă, ca FloatingHub să deschidă asistentul peste pagină
+     * (fără navigare pe homepage, fără reload).
      */
     navigate(
-      `/?assistant=quote&quoteId=${encodeURIComponent(
+      `/cereri/${id}?assistant=quote&quoteId=${encodeURIComponent(
         quoteId
       )}`
     );

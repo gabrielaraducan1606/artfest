@@ -37,6 +37,8 @@ router.get("/me/profile", authRequired, async (req, res) => {
       lastName: true,
       name: true, // nume afișat (dacă îl folosești în alte părți)
       avatarUrl: true,
+      phone: true,
+      city: true,
       createdAt: true,
       preferences: true,
     },
@@ -79,11 +81,21 @@ router.patch("/me/profile", authRequired, async (req, res) => {
     typeof req.body.avatarUrl === "string"
       ? req.body.avatarUrl.trim()
       : undefined;
+  const phone =
+    typeof req.body.phone === "string"
+      ? req.body.phone.trim()
+      : undefined;
+  const city =
+    typeof req.body.city === "string"
+      ? req.body.city.trim()
+      : undefined;
 
   if (
     firstName === undefined &&
     lastName === undefined &&
-    avatarUrl === undefined
+    avatarUrl === undefined &&
+    phone === undefined &&
+    city === undefined
   ) {
     return error(res, "nothing_to_update", 400, {
       message: "Nu ai modificat niciun câmp.",
@@ -110,6 +122,8 @@ router.patch("/me/profile", authRequired, async (req, res) => {
       ...(firstName !== undefined ? { firstName } : {}),
       ...(lastName !== undefined ? { lastName } : {}),
       ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+      ...(phone !== undefined ? { phone: phone || null } : {}),
+      ...(city !== undefined ? { city: city || null } : {}),
       ...(nameUpdate !== undefined ? { name: nameUpdate } : {}),
     },
     select: {
@@ -119,6 +133,8 @@ router.patch("/me/profile", authRequired, async (req, res) => {
       lastName: true,
       name: true,
       avatarUrl: true,
+      phone: true,
+      city: true,
       createdAt: true,
     },
   });
@@ -375,7 +391,7 @@ router.get("/change-email/confirm", async (req, res) => {
   // dacă avem APP_URL, redirect către frontend cu un query param
   if (APP_URL) {
     return res.redirect(
-      `${APP_URL}/setari-cont?tab=security&emailChange=ok`
+      `${APP_URL}/cont/setari?tab=security&emailChange=ok`
     );
   }
 

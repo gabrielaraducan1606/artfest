@@ -13,189 +13,34 @@ import {
   Loader2,
   Archive,
   Inbox,
-  Filter,
   Pencil,
   Paperclip,
   ChevronLeft,
   Trash2,
   X,
-  Download,
-  FileText,
 } from "lucide-react";
 import styles from "./UserMessages.module.css";
+import { useMessageThreads } from "../../../features/messages/hooks/useMessageThreads";
+import { useThreadMessages } from "../../../features/messages/hooks/useThreadMessages";
+import { useMessageSend } from "../../../features/messages/hooks/useMessageSend";
+import MessageBubble from "../../../features/messages/components/MessageBubble";
+import {
+  nowIso,
+  fmtTime,
+  fmtDate,
+  initialsOf,
+  autoResize,
+  formatBytes,
+} from "../../../features/messages/utils/messageFormatters";
 
 const API_BASE = "/api/user-inbox";
 
-/* ========= Utils ========= */
-const nowIso = () => new Date().toISOString();
-
-function fmtTime(ts) {
-  if (!ts) return "";
-  const d = new Date(ts);
-  const today = new Date();
-  const isToday = d.toDateString() === today.toDateString();
-  const diffDays = Math.floor((+today - +d) / 86400000);
-  if (isToday)
-    return d.toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" });
-  if (diffDays < 7)
-    return d.toLocaleDateString("ro-RO", {
-      weekday: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  return d.toLocaleDateString("ro-RO", { day: "2-digit", month: "short" });
-}
-
-function fmtDate(ts) {
-  if (!ts) return "";
-  const d = new Date(ts);
-  return d.toLocaleDateString("ro-RO", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function initialsOf(name = "U") {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
-
+/* ========= Utils specifice User ========= */
 function shortOrderId(orderSummary) {
   if (!orderSummary) return null;
   const baseId = orderSummary.id;
   if (!baseId) return null;
   return String(baseId).slice(-6).toUpperCase();
-}
-
-function autoResize(el) {
-  if (!el) return;
-  el.style.height = "auto";
-  const max = 80;
-  el.style.height = Math.min(el.scrollHeight, max) + "px";
-}
-
-function isImageMime(mime = "") {
-  return /^image\//i.test(mime);
-}
-
-function niceBytes(n) {
-  if (!n && n !== 0) return "";
-  const units = ["B", "KB", "MB", "GB"];
-  let v = Number(n);
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  const fixed = i === 0 ? 0 : v < 10 ? 1 : 0;
-  return `${v.toFixed(fixed)} ${units[i]}`;
-}
-
-/* ========= Hooks ========= */
-function useThreads({ scope, q, groupByStore }) {
-  const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState([]);
-  const [error, setError] = useState(null);
-
-  const [dq, setDq] = useState(q);
-  useEffect(() => {
-    const id = setTimeout(() => setDq(q), 300);
-    return () => clearTimeout(id);
-  }, [q]);
-
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      params.set("scope", scope || "all");
-      if (dq) params.set("q", dq);
-      if (groupByStore) params.set("groupBy", "store");
-
-      const url = `${API_BASE}/threads?${params.toString()}`;
-      const d = await api(url).catch(() => null);
-      if (d?.items) setItems(d.items);
-      else setItems([]);
-    } catch (e) {
-      setError(e?.message || "Eroare la încărcarea conversațiilor");
-    } finally {
-      setLoading(false);
-    }
-  }, [scope, dq, groupByStore]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  useEffect(() => {
-    const id = setInterval(reload, 15000);
-    return () => clearInterval(id);
-  }, [reload]);
-
-  return { loading, items, error, reload, setItems };
-}
-
-function useMessages(threadId) {
-  const [loading, setLoading] = useState(false);
-  const [msgs, setMsgs] = useState([]);
-  const [error, setError] = useState(null);
-  const [threadMeta, setThreadMeta] = useState(null);
-  const [quoteRequest, setQuoteRequest] = useState(null);
-
-  const reload = useCallback(async () => {
-    if (!threadId) {
-      setMsgs([]);
-      setThreadMeta(null);
-      setQuoteRequest(null);
-      setError(null);
-      return;
-    }
-
-    setLoading((msgs.length || 0) === 0);
-    setError(null);
-
-    try {
-      const data = await api(`${API_BASE}/threads/${threadId}/messages`);
-
-      setMsgs(Array.isArray(data?.items) ? data.items : []);
-      setThreadMeta(data?.threadMeta || null);
-      setQuoteRequest(data?.quoteRequest || null);
-
-      await api(`${API_BASE}/threads/${threadId}/read`, {
-        method: "PATCH",
-      }).catch(() => {});
-    } catch (error) {
-      setError(error?.message || "Eroare la încărcarea mesajelor");
-    } finally {
-      setLoading(false);
-    }
-  }, [threadId, msgs.length]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  useEffect(() => {
-    if (!threadId) return;
-    const id = setInterval(reload, 8000);
-    return () => clearInterval(id);
-  }, [threadId, reload]);
-
-  return {
-    loading,
-    msgs,
-    error,
-    setMsgs,
-    reload,
-    threadMeta,
-    quoteRequest,
-  };
 }
 
 /* ========= Pagina ========= */
@@ -207,13 +52,24 @@ export default function UserMessagesPage() {
   const [q, setQ] = useState("");
   const [groupByStore, setGroupByStore] = useState(false);
 
+  const buildThreadsUrl = useCallback(
+    (dq) => {
+      const params = new URLSearchParams();
+      params.set("scope", scope || "all");
+      if (dq) params.set("q", dq);
+      if (groupByStore) params.set("groupBy", "store");
+      return `${API_BASE}/threads?${params.toString()}`;
+    },
+    [scope, groupByStore]
+  );
+
   const {
     loading: loadingThreads,
     items: threads,
     error: errThreads,
     reload: reloadThreads,
     setItems: setThreads,
-  } = useThreads({ scope, q, groupByStore });
+  } = useMessageThreads({ q, buildUrl: buildThreadsUrl });
 
   const [selectedId, setSelectedId] = useState(null);
   const [activeThreadId, setActiveThreadId] = useState(null);
@@ -273,29 +129,118 @@ export default function UserMessagesPage() {
 
   const currentThreadId = activeThread?.threadId || activeThread?.id || null;
 
+  const buildMessagesEndpoint = useCallback((id) => `${API_BASE}/threads/${id}`, []);
+
   const {
     loading: loadingMsgs,
+    loadingOlder,
+    hasMoreOlder,
     msgs,
     error: errMsgs,
     setMsgs,
     reload: reloadMsgs,
+    loadOlder,
     threadMeta,
     quoteRequest,
-  } = useMessages(currentThreadId);
+  } = useThreadMessages(currentThreadId, { buildEndpoint: buildMessagesEndpoint });
 
   void threadMeta;
 
   const listRef = useRef(null);
+
+  /*
+   * ETAPA 1 (audit Mesaje, #1 HIGH) - auto-scroll DOAR când: thread-ul
+   * tocmai s-a deschis, userul era deja aproape de bottom, sau userul
+   * tocmai a trimis propriul mesaj. Altfel (userul a scrolat în sus
+   * să citească istoric), poll-ul de 8s (neschimbat) nu-l mai trage
+   * înapoi jos.
+   */
+  const nearBottomRef = useRef(true);
+  const prevThreadIdRef = useRef(null);
+  const justSentRef = useRef(false);
+
+  /*
+   * ETAPA 4 (paginare thread + load older) - trigger de "load older" la
+   * scroll aproape de top. Refs (nu state) pentru hasMoreOlder/loadingOlder
+   * ca handleScroll să nu citească valori stale - closure-ul e creat o
+   * dată per thread (effect-ul depinde de currentThreadId), dar aceste
+   * două flag-uri se schimbă des în timp ce threadul rămâne același.
+   */
+  const hasMoreOlderRef = useRef(false);
+  const isLoadingOlderRef = useRef(false);
+
+  useEffect(() => {
+    hasMoreOlderRef.current = hasMoreOlder;
+  }, [hasMoreOlder]);
+
+  useEffect(() => {
+    isLoadingOlderRef.current = loadingOlder;
+  }, [loadingOlder]);
+
+  const NEAR_BOTTOM_THRESHOLD = 80;
+  const NEAR_TOP_THRESHOLD = 120;
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+
+    function maybeLoadOlder() {
+      if (!hasMoreOlderRef.current || isLoadingOlderRef.current) return;
+
+      // Preservare poziție de scroll la prepend: capturăm înălțimea și
+      // poziția ÎNAINTE, corectăm scrollTop DUPĂ ce DOM-ul s-a actualizat
+      // (requestAnimationFrame garantează că React a comis re-randarea),
+      // ca mesajele deja vizibile să rămână exact în același loc pe ecran.
+      const prevScrollHeight = el.scrollHeight;
+      const prevScrollTop = el.scrollTop;
+
+      loadOlder().then((result) => {
+        if (result?.appended > 0) {
+          requestAnimationFrame(() => {
+            const delta = el.scrollHeight - prevScrollHeight;
+            el.scrollTop = prevScrollTop + delta;
+          });
+        }
+      });
+    }
+
+    function handleScroll() {
+      const distanceFromBottom =
+        el.scrollHeight - el.scrollTop - el.clientHeight;
+
+      nearBottomRef.current = distanceFromBottom < NEAR_BOTTOM_THRESHOLD;
+
+      if (el.scrollTop < NEAR_TOP_THRESHOLD) {
+        maybeLoadOlder();
+      }
+    }
+
+    handleScroll();
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [currentThreadId, loadOlder]);
+
   useEffect(() => {
     if (!listRef.current) return;
-    listRef.current.scrollTop = listRef.current.scrollHeight + 1000;
+
+    const threadJustOpened = prevThreadIdRef.current !== currentThreadId;
+    prevThreadIdRef.current = currentThreadId;
+
+    const shouldAutoScroll =
+      threadJustOpened || nearBottomRef.current || justSentRef.current;
+
+    justSentRef.current = false;
+
+    if (shouldAutoScroll) {
+      listRef.current.scrollTop = listRef.current.scrollHeight + 1000;
+      nearBottomRef.current = true;
+    }
 
     const ta = document.querySelector(`.${styles.input}`);
     if (ta) autoResize(ta);
   }, [msgs, currentThreadId, loadingMsgs]);
 
   const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
 
   const [quoteActionLoading, setQuoteActionLoading] = useState(false);
   const [quoteActionError, setQuoteActionError] = useState("");
@@ -493,39 +438,36 @@ export default function UserMessagesPage() {
     }
   }
 
-  async function handleSend() {
-    const content = text.trim();
-    if (!content || !currentThreadId) return;
-
-    const optimistic = {
-      id: `local_${Date.now()}`,
-      threadId: currentThreadId,
-      from: "me",
-      body: content,
-      createdAt: nowIso(),
-      pending: true,
-      readByPeer: false,
-      attachments: [],
-    };
-
-    setMsgs((m) => [...m, optimistic]);
-    setText("");
-    setSending(true);
-
-    try {
-      await api(`${API_BASE}/threads/${currentThreadId}/messages`, {
-        method: "POST",
-        body: { body: content },
-      });
+  /*
+   * ETAPA 3 (refactor comun Mesaje) - nucleul de trimitere (gardă
+   * double-submit, mesaj optimist, POST, marcare "failed", dispatch
+   * messages:changed) e acum în useMessageSend. User golește
+   * composer-ul IMEDIAT (optimist) și nu îl restaurează la eșec -
+   * comportament păstrat exact prin onBeforeSend, fără onError.
+   */
+  const { sending, send, retryMessage } = useMessageSend({
+    threadId: currentThreadId,
+    buildEndpoint: buildMessagesEndpoint,
+    setMsgs,
+    onBeforeSend: () => {
+      justSentRef.current = true;
+      setText("");
+    },
+    onSuccess: async () => {
       await reloadMsgs();
       await reloadThreads();
-    } catch {
-      setMsgs((m) =>
-        m.map((x) => (x.id === optimistic.id ? { ...x, failed: true, pending: false } : x))
-      );
-    } finally {
-      setSending(false);
-    }
+    },
+  });
+
+  async function handleSend() {
+    await send(text);
+  }
+
+  // ETAPA 6 - retry manual pe mesaj failed; onSuccess de mai sus e deja
+  // sigur de reutilizat (nu atinge composer-ul), deci nu are nevoie de
+  // onRetrySuccess separat.
+  async function handleRetry(msg) {
+    await retryMessage(msg);
   }
 
   // ✅ Edit mesaj USER (presupune că ai ruta PATCH în backend)
@@ -728,9 +670,6 @@ export default function UserMessagesPage() {
               onChange={(e) => setQ(e.target.value)}
               placeholder="Caută magazin, telefon, mesaj…"
             />
-            <button className={styles.iconBtn} title="Filtre (în curând)" type="button">
-              <Filter size={16} />
-            </button>
           </div>
 
           <div className={styles.groupToggleRow}>
@@ -947,12 +886,20 @@ export default function UserMessagesPage() {
     </div>
   )}
 
- 
+  {loadingOlder && (
+    <div className={styles.loading}>
+      Se încarcă mesaje mai vechi…
+    </div>
+  )}
+
+
   {msgs.map((m) => (
     <MessageBubble
       key={m.id}
       mine={m.from === "me"}
       msg={m}
+      styles={styles}
+      actionIconSize={14}
       onEdit={(body) =>
         editMessage(
           m.id,
@@ -964,6 +911,7 @@ export default function UserMessagesPage() {
           m.id
         )
       }
+      onRetry={handleRetry}
     />
   ))}
 
@@ -1010,7 +958,7 @@ export default function UserMessagesPage() {
                       {pickedFiles.map((f, idx) => (
                         <div key={`${f.name}_${idx}`} className={styles.attachChip}>
                           <span className={styles.attachChipName}>{f.name}</span>
-                          <span className={styles.attachChipSize}>{niceBytes(f.size)}</span>
+                          <span className={styles.attachChipSize}>{formatBytes(f.size)}</span>
                           <button
                             type="button"
                             className={styles.attachChipRemove}
@@ -1836,329 +1784,6 @@ function UserQuoteOfferModal({
             </div>
           )}
       </section>
-    </div>
-  );
-}
-
-function MessageBubble({ mine, msg, onEdit, onDelete }) {
-  const isPending = msg.pending;
-  const isFailed = msg.failed;
-  const readByPeer = !!msg.readByPeer;
-function isDeletedPlaceholder(m) {
-  // 1) dacă backend trimite un flag (recomandat) — ex: m.deleted === true
-  if (m?.deleted) return true;
-
-  // 2) dacă noi îl marcăm local după DELETE
-  if (m?._deletedLocal) return true;
-
-  // 3) fallback: dacă body e gol și nu are attachments (opțional)
-  // return !String(m?.body || "").trim() && !(m?.attachments?.length > 0);
-
-  return false;
-}
-
-const isDeleted = isDeletedPlaceholder(msg);
-const deletedText = mine ? "Mesaj șters de tine" : "Mesaj șters";
-
-  const atts = useMemo(() => {
-    const a = msg?.attachments;
-    return Array.isArray(a) ? a : [];
-  }, [msg?.attachments]);
-
-  const hasAttachments = atts.length > 0;
-
-  function shouldRenderBody(m) {
-    const b = (m?.body || "").trim();
-    if (!b) return false;
-    if (Array.isArray(m?.attachments) && m.attachments.length) {
-      if (b === "📎 Atașament") return false;
-      if (/^📎\s+\d+\s+atașamente$/i.test(b)) return false;
-      if (/^📎\s+.+/.test(b) && m.attachments.length === 1) return false;
-    }
-    return true;
-  }
-
-  const hasBody = !isDeleted && shouldRenderBody(msg);
-  const bubbleKind = hasAttachments && !hasBody ? "att" : "msg";
-
-  const imgAtts = useMemo(() => atts.filter((a) => isImageMime(a.mime)), [atts]);
-  const fileAtts = useMemo(() => atts.filter((a) => !isImageMime(a.mime)), [atts]);
-
-  const [isEditing, setIsEditing] = useState(false);
-  const [editText, setEditText] = useState(msg.body || "");
-
-  // ✅ long-press actions (mobile)
-  const [showActions, setShowActions] = useState(false);
-  const pressTimerRef = useRef(null);
-
-  const isTouchDevice =
-    typeof window !== "undefined" &&
-    window.matchMedia &&
-    window.matchMedia("(pointer: coarse)").matches;
-
-  const LONG_PRESS_MS = 320;
-
-  const startPress = () => {
-    if (!isTouchDevice) return;
-    if (isPending) return;
-    if (isEditing) return;
-    clearTimeout(pressTimerRef.current);
-    pressTimerRef.current = setTimeout(() => {
-      setShowActions(true);
-      if (navigator?.vibrate) navigator.vibrate(10);
-    }, LONG_PRESS_MS);
-  };
-
-  const cancelPress = () => {
-    clearTimeout(pressTimerRef.current);
-    pressTimerRef.current = null;
-  };
-
-  useEffect(() => {
-    setEditText(msg.body || "");
-  }, [msg.body]);
-
-  useEffect(() => {
-    setShowActions(false);
-  }, [msg.id, isEditing]);
-
-  function triggerBrowserDownload(url) {
-    if (!url) return;
-    const a = document.createElement("a");
-    a.href = url;
-    a.rel = "noreferrer";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
-
-  const handleDownload = () => {
-    const att = atts?.[0];
-    if (!att) return;
-    const url = att?.id ? `${API_BASE}/attachments/${att.id}/download` : att?.url;
-    triggerBrowserDownload(url);
-  };
-
-  async function saveEdit() {
-    const v = (editText || "").trim();
-    if (!v) return;
-    await onEdit?.(v);
-    setIsEditing(false);
-  }
-
-  // ✅ nu arăta edit/delete pentru mesaje locale (optimistic)
- const canMutate =
-  mine && !isPending && !isDeleted && !String(msg.id || "").startsWith("local_");
-
-  let tickLabel = "";
-  let tickClass = "";
-  if (isFailed) {
-    tickLabel = "!";
-    tickClass = styles.readTickFailed;
-  } else if (isPending) {
-    tickLabel = "…";
-    tickClass = styles.readTickPending;
-  } else if (mine) {
-    tickLabel = readByPeer ? "✓✓" : "✓";
-    tickClass = readByPeer ? `${styles.readTick} ${styles.readTickRead}` : styles.readTick;
-  }
-
-  return (
-    <div className={`${styles.bubbleRow} ${mine ? styles.right : styles.left}`}>
-      <div
-        className={`${styles.bubbleWrap} ${showActions ? styles.bubbleWrapActive : ""}`}
-        onTouchStart={startPress}
-        onTouchEnd={cancelPress}
-        onTouchMove={cancelPress}
-        onTouchCancel={cancelPress}
-        onContextMenu={(e) => {
-          if (isTouchDevice) {
-            e.preventDefault();
-            if (!isPending && (hasAttachments || canMutate)) setShowActions(true);
-          }
-        }}
-      >
-        <div
-          className={`${styles.bubble} ${mine ? styles.mine : styles.theirs}`}
-          data-state={isFailed ? "failed" : isPending ? "pending" : "ok"}
-          data-kind={bubbleKind}
-        >
-          {isEditing ? (
-            <textarea
-              className={styles.editInput}
-              rows={2}
-              value={editText}
-              onChange={(e) => setEditText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  saveEdit();
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setIsEditing(false);
-                  setEditText(msg.body || "");
-                }
-              }}
-            />
-          ) : (
-            <>
-             {isDeleted ? (
-  <div className={styles.bodyText} style={{ opacity: 0.65, fontStyle: "italic" }}>
-    {deletedText}
-  </div>
-) : (
-  hasBody && <div className={styles.bodyText}>{msg.body}</div>
-)}
-
-
-              {!!atts.length && (
-                <div className={styles.attWrap}>
-                  {!!imgAtts.length && (
-                    <div className={styles.attGrid} data-count={imgAtts.length}>
-                      {imgAtts.map((a) => {
-                        const href = a?.url;
-                        return (
-                          <a
-                            key={a.id || a.name}
-                            className={styles.attThumb}
-                            href={href || "#"}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(e) => {
-                              if (!href) e.preventDefault();
-                            }}
-                            title={a.name}
-                          >
-                            {href ? (
-                              <img src={href} alt={a.name || "Imagine"} loading="lazy" />
-                            ) : (
-                              <div className={styles.attThumbPlaceholder}>IMG</div>
-                            )}
-                          </a>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {!!fileAtts.length && (
-                    <div className={styles.attFiles}>
-                      {fileAtts.map((a) => {
-                        const href = a?.id ? `${API_BASE}/attachments/${a.id}/download` : a?.url;
-
-                        return (
-                          <a
-                            key={a.id || a.name}
-                            className={styles.attFileCard}
-                            href={href || "#"}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(e) => {
-                              if (!href) e.preventDefault();
-                            }}
-                            title={a.name}
-                          >
-                            <span className={styles.attFileIcon}>
-                              <FileText size={16} />
-                            </span>
-
-                            <span className={styles.attFileMeta}>
-                              <span className={styles.attFileName}>{a.name || "Fișier"}</span>
-                              <span className={styles.attFileSub}>
-                                {a.size ? niceBytes(a.size) : ""}
-                                {a.pending ? " · în curs…" : ""}
-                              </span>
-                            </span>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-
-          <div className={styles.meta}>
-            <span>{fmtTime(msg.createdAt)}</span>
-            {mine && tickLabel && (
-              <span className={tickClass} title={readByPeer ? "Citit" : "Trimis"}>
-                {tickLabel}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* actions */}
-        {!isPending && (hasAttachments || canMutate) && (
-          <div className={`${styles.msgActions} ${showActions ? styles.msgActionsOpen : ""}`}>
-            {!isEditing ? (
-              <>
-                {hasAttachments && (
-                  <button
-                    type="button"
-                    className={styles.msgIconBtn}
-                    title="Descarcă atașamentul"
-                    onClick={() => {
-                      setShowActions(false);
-                      handleDownload();
-                    }}
-                  >
-                    <Download size={14} />
-                  </button>
-                )}
-
-                {canMutate && (
-                  <>
-                    <button
-                      type="button"
-                      className={styles.msgIconBtn}
-                      title="Editează"
-                      onClick={() => {
-                        setShowActions(false);
-                        setIsEditing(true);
-                      }}
-                    >
-                      <Pencil size={14} />
-                    </button>
-
-                    <button
-                      type="button"
-                      className={`${styles.msgIconBtn} ${styles.msgIconBtnDanger}`}
-                      title="Șterge"
-                      onClick={() => {
-                        setShowActions(false);
-                        onDelete?.();
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </>
-                )}
-              </>
-            ) : (
-              canMutate && (
-                <>
-                  <button type="button" className={styles.msgSaveBtn} onClick={saveEdit}>
-                    Salvează
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.msgIconBtn}
-                    title="Renunță"
-                    onClick={() => {
-                      setIsEditing(false);
-                      setEditText(msg.body || "");
-                    }}
-                  >
-                    <X size={14} />
-                  </button>
-                </>
-              )
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

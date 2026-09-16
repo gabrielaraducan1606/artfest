@@ -1,6 +1,7 @@
 // backend/src/routes/adminHomepageFeatureRoutes.js
 
 import express from "express";
+import { toFile } from "openai/uploads";
 
 import { prisma } from "../db.js";
 
@@ -11,16 +12,28 @@ import {
 } from "../api/auth.js";
 
 import {
-  notifyVendorOnHomepageFeatureCreated,
-} from "../services/notifications.js";
-
-import {
   generateHomepageSchedule,
+  notifyVendorAboutFeatureCreated,
+  getDayRange,
+  getWeekRange,
+  getDayKey,
+  getWeekKey,
 } from "../services/homepageFeatureScheduler.js";
 
+import { openai } from "../lib/openai.js";
+
 import {
-  sendHomepageFeatureSelectedEmail,
-} from "../lib/mailer.js";
+  uploadToR2,
+} from "../services/r2Storage.js";
+
+import {
+  composeProductOfDayImage,
+  buildProductOfDayBackgroundPrompt,
+} from "../services/productOfDayTemplate.js";
+
+import {
+  calculateProductPromotionPricing,
+} from "../services/productPromotionPrice.js";
 
 const router = express.Router();
 
@@ -184,112 +197,63 @@ function parseDateInput(value) {
   return date;
 }
 
-function getDayKey(date) {
+/*
+ * Audit promoții 2026-09-15: getDayKey/getWeekKey/getDayRange/
+ * getWeekRange erau duplicate identice ale celor din
+ * homepageFeatureScheduler.js (aceeași greșeală de timezone -
+ * oră locală server, nu Europe/Bucharest explicit). Importate
+ * acum din sursa unică centralizată (lib/bucharestDate.js, prin
+ * homepageFeatureScheduler.js) - nicio schimbare de semnătură
+ * pentru codul de mai jos.
+ */
+
+function formatRomanianDateTime(value) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
   const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
 
-  const month = String(
-    date.getMonth() + 1
-  ).padStart(2, "0");
-
-  const day = String(
-    date.getDate()
-  ).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
+  return `${day}.${month}.${year}, ${hours}:${minutes}`;
 }
 
-function getWeekKey(date) {
-  const d = new Date(
-    Date.UTC(
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate()
-    )
-  );
+/*
+ * Descarcă poza originală a produsului și o pregătește pentru
+ * OpenAI images.edit (are nevoie de un File, nu de un URL brut).
+ * Variantă locală a helperului din aiRoutes.js, ca ruta homepage-
+ * features să nu depindă de acel fișier (izolare cerută explicit).
+ */
+async function fetchImageAsOpenAIFile(imageUrl) {
+  const response = await fetch(imageUrl);
 
-  const dayNum =
-    d.getUTCDay() || 7;
+  if (!response.ok) {
+    throw new Error(
+      "Nu am putut descărca imaginea produsului."
+    );
+  }
 
-  d.setUTCDate(
-    d.getUTCDate() + 4 - dayNum
-  );
+  const contentType =
+    response.headers.get("content-type") ||
+    "image/png";
 
-  const yearStart = new Date(
-    Date.UTC(
-      d.getUTCFullYear(),
-      0,
-      1
-    )
-  );
+  if (!contentType.startsWith("image/")) {
+    throw new Error(
+      "Imaginea produsului nu este validă."
+    );
+  }
 
-  const weekNo = Math.ceil(
-    (
-      (d - yearStart) /
-        86400000 +
-      1
-    ) / 7
-  );
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
 
-  return `${d.getUTCFullYear()}-W${String(
-    weekNo
-  ).padStart(2, "0")}`;
-}
-
-function getDayRange(date) {
-  const startsAt = new Date(date);
-
-  startsAt.setHours(
-    0,
-    0,
-    0,
-    0
-  );
-
-  const endsAt = new Date(startsAt);
-
-  endsAt.setDate(
-    endsAt.getDate() + 1
-  );
-
-  return {
-    startsAt,
-    endsAt,
-  };
-}
-
-function getWeekRange(date) {
-  const startsAt = new Date(date);
-
-  startsAt.setHours(
-    0,
-    0,
-    0,
-    0
-  );
-
-  const day =
-    startsAt.getDay();
-
-  const diffToMonday =
-    day === 0
-      ? -6
-      : 1 - day;
-
-  startsAt.setDate(
-    startsAt.getDate() +
-      diffToMonday
-  );
-
-  const endsAt = new Date(startsAt);
-
-  endsAt.setDate(
-    endsAt.getDate() + 7
-  );
-
-  return {
-    startsAt,
-    endsAt,
-  };
+  return toFile(buffer, "product-of-day-source.png", {
+    type: contentType,
+  });
 }
 
 function validateAdvance({
@@ -431,275 +395,14 @@ async function findEligibleService(
   });
 }
 
-async function sendVendorNotificationSafely(
-  feature
-) {
-  const featureId =
-    feature?.id;
-
-  if (!featureId) {
-    return {
-      ok: false,
-      notification: null,
-      notificationSent: false,
-      emailSent: false,
-      emailSkipped: false,
-      notificationError:
-        new Error(
-          "Missing homepage feature"
-        ),
-      emailError: null,
-    };
-  }
-
-  let notification =
-    null;
-
-  let notificationSent =
-    false;
-
-  let emailSent =
-    false;
-
-  let emailSkipped =
-    false;
-
-  let notificationError =
-    null;
-
-  let emailError =
-    null;
-
-  /*
-   * 1. Notificarea din platformă
-   */
-  try {
-    notification =
-      await notifyVendorOnHomepageFeatureCreated(
-        featureId
-      );
-
-    if (notification) {
-      notificationSent =
-        true;
-
-      await prisma.homepageFeature.update({
-        where: {
-          id:
-            featureId,
-        },
-
-        data: {
-          vendorNotifiedAt:
-            new Date(),
-        },
-      });
-    }
-  } catch (error) {
-    notificationError =
-      error;
-
-    console.error(
-      "[admin-homepage-features] vendor notification failed",
-      error
-    );
-  }
-
-  /*
-   * 2. Emailul
-   */
-  if (
-    feature.vendorEmailedAt
-  ) {
-    emailSkipped =
-      true;
-  } else {
-    try {
-      const vendor =
-        feature.vendor ||
-        feature.service?.vendor ||
-        feature.product?.service
-          ?.vendor ||
-        null;
-
-      const vendorEmail =
-        String(
-          vendor?.user?.email ||
-            vendor?.email ||
-            ""
-        ).trim();
-
-      if (!vendorEmail) {
-        throw new Error(
-          "Vendorul nu are o adresă de email."
-        );
-      }
-
-      const accountName =
-        String(
-          vendor?.user?.name ||
-            ""
-        ).trim();
-
-      const composedAccountName =
-        [
-          vendor?.user
-            ?.firstName,
-          vendor?.user
-            ?.lastName,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .trim();
-
-      const vendorName =
-        accountName ||
-        composedAccountName ||
-        vendor?.displayName ||
-        feature.service?.profile
-          ?.displayName ||
-        feature.product?.service
-          ?.profile?.displayName ||
-        "creator";
-
-      const storeName =
-        feature.service?.profile
-          ?.displayName ||
-        feature.product?.service
-          ?.profile?.displayName ||
-        vendor?.displayName ||
-        null;
-
-      console.log(
-        "[HOMEPAGE FEATURE EMAIL RECIPIENT]",
-        {
-          featureId:
-            feature.id,
-
-          vendorId:
-            vendor?.id ||
-            null,
-
-          userId:
-            vendor?.userId ||
-            null,
-
-          accountEmail:
-            vendor?.user
-              ?.email ||
-            null,
-
-          vendorEmail:
-            vendor?.email ||
-            null,
-
-          selectedEmail:
-            vendorEmail,
-        }
-      );
-
-      await sendHomepageFeatureSelectedEmail({
-        to:
-          vendorEmail,
-
-        userId:
-          vendor?.userId ||
-          null,
-
-        vendorName,
-
-        featureId:
-          feature.id,
-
-        featureType:
-          feature.type,
-
-        productTitle:
-          feature.product
-            ?.title ||
-          null,
-
-        storeName,
-
-        startsAt:
-          feature.startsAt,
-
-        endsAt:
-          feature.endsAt,
-
-        platformDiscountPercent:
-          feature
-            .platformDiscountPercent,
-      });
-
-      emailSent =
-        true;
-
-      await prisma.homepageFeature.update({
-        where: {
-          id:
-            featureId,
-        },
-
-        data: {
-          vendorEmailedAt:
-            new Date(),
-
-          vendorEmailError:
-            null,
-        },
-      });
-    } catch (error) {
-      emailError =
-        error;
-
-      const errorMessage =
-        String(
-          error?.message ||
-            error ||
-            "Email error"
-        ).slice(
-          0,
-          1000
-        );
-
-      console.error(
-        "[admin-homepage-features] vendor email failed",
-        error
-      );
-
-      await prisma.homepageFeature
-        .update({
-          where: {
-            id:
-              featureId,
-          },
-
-          data: {
-            vendorEmailError:
-              errorMessage,
-          },
-        })
-        .catch(
-          () => null
-        );
-    }
-  }
-
-  return {
-    ok:
-      !notificationError &&
-      !emailError,
-
-    notification,
-    notificationSent,
-    emailSent,
-    emailSkipped,
-
-    notificationError,
-    emailError,
-  };
-}
+/*
+ * Audit promoții 2026-09-15: sendVendorNotificationSafely era
+ * duplicatul local (notificare in-app idempotentă + email vendor,
+ * fără să blocheze generarea feature-ului) al logicii mutate acum
+ * în notifyVendorAboutFeatureCreated (homepageFeatureScheduler.js),
+ * unde e apelată automat la creare. Ruta de mai jos (retrimitere
+ * manuală invitație) refolosește aceeași funcție unică.
+ */
 /* =========================================================
    LISTĂ PROMOVĂRI
 ========================================================= */
@@ -1956,7 +1659,7 @@ router.post(
       }
 
       const result =
-  await sendVendorNotificationSafely(
+  await notifyVendorAboutFeatureCreated(
     feature
   );
 
@@ -2138,6 +1841,312 @@ router.delete(
 
         message:
           "Nu am putut șterge promovarea.",
+      });
+    }
+  }
+);
+
+/* =========================================================
+   GENERARE IMAGINE - PRODUSUL ZILEI
+========================================================= */
+
+/**
+ * POST /api/admin/homepage-features/:id/generate-image
+ *
+ * Generează (sau regenerează) materialul social media 1:1 pentru
+ * un feature de tip PRODUCT_OF_DAY, pornind STRICT de la poza reală
+ * a produsului asociat acelui feature (citit din DB, nu primit din
+ * body - nu acceptă productId arbitrar din frontend).
+ *
+ * Aceeași rută servește și Generate și Regenerate: rezultatul
+ * suprascrie generatedImageUrl/generatedImageGeneratedAt, fără
+ * istoric de versiuni. Vechiul obiect din R2 (dacă exista) NU este
+ * șters, ca să nu complicăm fluxul în această primă versiune.
+ */
+router.post(
+  "/:id/generate-image",
+  async (req, res) => {
+    try {
+      const id = String(
+        req.params.id || ""
+      ).trim();
+
+      if (!id) {
+        return res.status(400).json({
+          ok: false,
+
+          message:
+            "ID-ul promovării nu este valid.",
+        });
+      }
+
+      const feature =
+        await prisma.homepageFeature.findUnique({
+          where: {
+            id,
+          },
+
+          include:
+            featureInclude,
+        });
+
+      if (!feature) {
+        return res.status(404).json({
+          ok: false,
+
+          message:
+            "Promovarea nu există.",
+        });
+      }
+
+      if (
+        feature.type !==
+        "PRODUCT_OF_DAY"
+      ) {
+        return res.status(400).json({
+          ok: false,
+
+          message:
+            "Generarea de imagine este disponibilă doar pentru Produsul zilei.",
+        });
+      }
+
+      if (!feature.product) {
+        return res.status(404).json({
+          ok: false,
+
+          message:
+            "Produsul asociat acestei promovări nu mai există.",
+        });
+      }
+
+      /*
+       * TIME GUARD - sursa de adevăr este feature.startsAt din DB,
+       * nu starea butonului din frontend. Un feature UPCOMING nu
+       * poate genera imaginea încă; ACTIVE și PAST sunt permise
+       * (regenerarea din istoric e permisă la nivel de backend -
+       * frontendul cere doar o confirmare suplimentară pentru PAST).
+       */
+      const startsAtMs = new Date(
+        feature.startsAt
+      ).getTime();
+
+      if (
+        Number.isFinite(startsAtMs) &&
+        Date.now() < startsAtMs
+      ) {
+        return res.status(409).json({
+          ok: false,
+
+          code:
+            "FEATURE_NOT_ACTIVE_YET",
+
+          message: `Acest Produs al zilei devine activ pe ${formatRomanianDateTime(
+            feature.startsAt
+          )}. Imaginea poate fi generată doar de la acel moment.`,
+        });
+      }
+
+      const sourceImageUrl =
+        Array.isArray(
+          feature.product.images
+        )
+          ? feature.product.images.find(
+              (url) =>
+                typeof url === "string" &&
+                /^https?:\/\//i.test(url)
+            )
+          : null;
+
+      if (!sourceImageUrl) {
+        return res.status(409).json({
+          ok: false,
+
+          code:
+            "NO_PRODUCT_IMAGE",
+
+          message:
+            "Produsul nu are o imagine validă pentru generarea materialului.",
+        });
+      }
+
+      const imageFile =
+        await fetchImageAsOpenAIFile(
+          sourceImageUrl
+        );
+
+      const result =
+        await openai.images.edit({
+          model:
+            "gpt-image-1",
+
+          image:
+            imageFile,
+
+          prompt:
+            buildProductOfDayBackgroundPrompt(),
+
+          size:
+            "1024x1536",
+
+          quality:
+            "high",
+        });
+
+      const b64 =
+        result.data?.[0]?.b64_json;
+
+      if (!b64) {
+        return res.status(500).json({
+          ok: false,
+
+          code:
+            "NO_IMAGE_GENERATED",
+
+          message:
+            "OpenAI nu a returnat imaginea generată.",
+        });
+      }
+
+      const aiImageBuffer =
+        Buffer.from(b64, "base64");
+
+      /*
+       * Preț/reducere - EXACT formula folosită de homepage/pricing
+       * (calculateProductPromotionPricing), nu recalculăm nimic
+       * separat. vendorDiscountPercent contează doar dacă vendorul
+       * a acceptat explicit (identic cu homepageFeatureToPromotion
+       * din productPromotionPrice.js).
+       */
+      const platformDiscountPercent =
+        Math.min(
+          100,
+          Math.max(
+            0,
+            Math.round(
+              Number(
+                feature.platformDiscountPercent
+              ) || 0
+            )
+          )
+        );
+
+      const vendorDiscountPercent =
+        feature.vendorDiscountStatus ===
+        "ACCEPTED"
+          ? Math.min(
+              100,
+              Math.max(
+                0,
+                Math.round(
+                  Number(
+                    feature.vendorDiscountPercent
+                  ) || 0
+                )
+              )
+            )
+          : 0;
+
+      const totalDiscountPercent =
+        Math.min(
+          100,
+          platformDiscountPercent +
+            vendorDiscountPercent
+        );
+
+      const promotion =
+        totalDiscountPercent > 0
+          ? {
+              active: true,
+              source: "PRODUCT_OF_DAY",
+              label: "Produsul zilei",
+              totalDiscountPercent,
+              platformDiscountPercent,
+              vendorDiscountPercent,
+            }
+          : null;
+
+      const pricing =
+        calculateProductPromotionPricing(
+          feature.product,
+          promotion
+        );
+
+      const isQuoteOnly =
+        feature.product.orderMode ===
+        "QUOTE_ONLY";
+
+      const vendorName =
+        feature.product.service
+          ?.profile?.displayName ||
+        feature.product.service
+          ?.vendor?.displayName ||
+        feature.product.service
+          ?.title ||
+        "";
+
+      const finalImageBuffer =
+        await composeProductOfDayImage({
+          aiImageBuffer,
+          title:
+            feature.product.title,
+          vendorName,
+          pricing,
+          isQuoteOnly,
+        });
+
+      const uploaded =
+        await uploadToR2({
+          file: {
+            buffer:
+              finalImageBuffer,
+
+            mimetype:
+              "image/png",
+
+            originalname: `product-of-day-${feature.id}-${Date.now()}.png`,
+          },
+
+          folder:
+            "product-of-day",
+
+          userId:
+            feature.id,
+        });
+
+      const updated =
+        await prisma.homepageFeature.update({
+          where: {
+            id: feature.id,
+          },
+
+          data: {
+            generatedImageUrl:
+              uploaded.url,
+
+            generatedImageGeneratedAt:
+              new Date(),
+          },
+
+          include:
+            featureInclude,
+        });
+
+      return res.json({
+        ok: true,
+        feature: updated,
+      });
+    } catch (error) {
+      console.error(
+        "[admin-homepage-features] generate-image",
+        error
+      );
+
+      return res.status(500).json({
+        ok: false,
+
+        message:
+          "Nu am putut genera imaginea pentru Produsul zilei.",
       });
     }
   }

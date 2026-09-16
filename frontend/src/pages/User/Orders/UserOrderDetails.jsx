@@ -51,6 +51,7 @@ const SHIPMENT_STATUS_LABEL = {
   IN_TRANSIT: "În livrare",
   DELIVERED: "Livrată",
   RETURNED: "Returnată / Anulată",
+  REFUSED: "Refuzată / Anulată",
 };
 
 const SHIPMENT_STATUS_HELP = {
@@ -68,6 +69,8 @@ const SHIPMENT_STATUS_HELP = {
     "Pachetul a fost livrat.",
   RETURNED:
     "Pachetul a fost returnat sau livrarea a eșuat.",
+  REFUSED:
+    "Comanda a fost anulată/refuzată. Dacă a fost achitată online, plata este rambursată.",
 };
 
 function money(cents = 0, currency = "RON") {
@@ -133,6 +136,9 @@ function getDepositStatusLabel(
 
     case "FAILED":
       return "Plata nu a fost finalizată";
+
+    case "REFUNDED":
+      return "Avans rambursat";
 
     default:
       return "";
@@ -937,6 +943,24 @@ export default function MyOrderDetailsPage() {
       order?.paidAt
     );
 
+  /*
+   * order.paidAt nu este niciodată șters la refund (istoric), deci
+   * isPaid rămâne adevărat și după o rambursare CARD integrală -
+   * derivăm starea de "rambursată" din statusul shipment-urilor
+   * (RETURNED/REFUSED), singurul semnal disponibil fără câmpuri noi.
+   */
+  const isRefunded =
+    isCardPayment &&
+    shipments.length >
+      0 &&
+    shipments.every(
+      (s) =>
+        s?.status ===
+          "RETURNED" ||
+        s?.status ===
+          "REFUSED"
+    );
+
   const paymentPending =
     isCardPayment &&
     !isPaid;
@@ -1727,13 +1751,30 @@ export default function MyOrderDetailsPage() {
                 Status
                 plată:{" "}
                 <strong>
-                  {isPaid
+                  {isRefunded
+                    ? "Rambursată"
+                    : isPaid
                     ? "Plătită"
                     : "Plată în așteptare"}
                 </strong>
               </div>
 
+              {isRefunded && (
+                <div
+                  className={
+                    styles.itemMeta
+                  }
+                  style={{
+                    marginTop: 4,
+                  }}
+                >
+                  Plata a fost rambursată integral. Suma nu mai este
+                  reținută.
+                </div>
+              )}
+
               {isPaid &&
+                !isRefunded &&
                 order?.paidAt && (
                   <div
                     className={
@@ -2496,6 +2537,26 @@ export default function MyOrderDetailsPage() {
                               activă, poți
                               încerca din
                               nou.
+                            </p>
+                          )}
+
+                          {shipment
+                            .deposit
+                            .status ===
+                            "REFUNDED" && (
+                            <p
+                              className={
+                                styles.subtle
+                              }
+                              style={{
+                                margin:
+                                  0,
+                              }}
+                            >
+                              Avansul
+                              plătit a
+                              fost
+                              rambursat.
                             </p>
                           )}
                         </div>

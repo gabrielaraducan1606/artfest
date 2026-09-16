@@ -16,6 +16,10 @@ import {
   getCatalogProductsRoute,
 } from "../ai/manifests/catalogProducts.manifest.js";
 
+import {
+  isGpsrComplete,
+} from "../lib/gpsrCompliance.js";
+
 const router =
   express.Router();
 
@@ -342,6 +346,9 @@ function mapCatalogProduct(
 
     updatedAt:
       product.updatedAt,
+
+    gpsrComplete:
+      isGpsrComplete(product),
   };
 }
 
@@ -396,6 +403,17 @@ router.get(
               repeatedGroups: true,
               createdAt: true,
               updatedAt: true,
+
+              isOwnManufacturer: true,
+              manufacturerName: true,
+              manufacturerAddress: true,
+              manufacturerEmail: true,
+              manufacturerInEU: true,
+              responsiblePersonName: true,
+              responsiblePersonAddress: true,
+              responsiblePersonEmail: true,
+              safetyWarnings: true,
+              isForChildren: true,
 
               service: {
                 select: {

@@ -15,6 +15,9 @@ export const PROMOTION_SOURCES = {
   ARTISAN_OF_WEEK:
     "ARTISAN_OF_WEEK",
 
+  DISCOUNT_CODE:
+    "DISCOUNT_CODE",
+
   COLLECTION:
     "COLLECTION",
 
@@ -27,14 +30,19 @@ export const PROMOTION_SOURCES = {
  *
  * 1. Produsul zilei
  * 2. Artizanul săptămânii
- * 3. Colecție
- * 4. Campanie vendor
+ * 3. Cod de reducere (acțiune explicită a clientului la checkout,
+ *    dar sub promoțiile editoriale de mai sus)
+ * 4. Colecție
+ * 5. Campanie vendor
  */
 const PROMOTION_PRIORITY = {
   [PROMOTION_SOURCES.PRODUCT_OF_DAY]:
-    3,
+    4,
 
   [PROMOTION_SOURCES.ARTISAN_OF_WEEK]:
+    3,
+
+  [PROMOTION_SOURCES.DISCOUNT_CODE]:
     2,
 
   [PROMOTION_SOURCES.COLLECTION]:
@@ -848,9 +856,56 @@ export async function getActiveHomepagePromotionsForProducts(
    nu se separă platformă/vendor ca la HomepageFeature.
 ========================================================= */
 
+/*
+ * Split platformă/vendor din fundingSource/platformFundingBps/
+ * vendorFundingBps - SURSA UNICĂ, reutilizată de campaignToPromotion
+ * și discountCodeToPromotion (identică formă, un singur loc care
+ * decide bps-urile efective din cele 3 câmpuri brute).
+ *
+ * fundingSource absent/necunoscut (campanii vechi, create înainte de
+ * split) => tratat ca VENDOR 100%, EXACT comportamentul dinainte de
+ * split (platformDiscountPercent: 0, vendorDiscountPercent: total).
+ */
+function resolveFundingBps({
+  fundingSource,
+  platformFundingBps = 0,
+  vendorFundingBps = 0,
+} = {}) {
+  if (fundingSource === "PLATFORM") {
+    return { platformBps: 10000, vendorBps: 0 };
+  }
+
+  if (fundingSource === "VENDOR") {
+    return { platformBps: 0, vendorBps: 10000 };
+  }
+
+  if (fundingSource === "SHARED") {
+    return {
+      platformBps: Math.max(0, Math.min(10000, Number(platformFundingBps) || 0)),
+      vendorBps: Math.max(0, Math.min(10000, Number(vendorFundingBps) || 0)),
+    };
+  }
+
+  /*
+   * Fără fundingSource (null/undefined) - legacy, dinainte de split.
+   * Comportamentul ISTORIC era 100% vendor-funded pentru campanii.
+   */
+  return { platformBps: 0, vendorBps: 10000 };
+}
+
+/**
+ * `fundingSource`/`platformFundingBps`/`vendorFundingBps` - split
+ * Artfest/Vendor, IDENTIC ca formă cu discountCodeToPromotion (aceleași
+ * câmpuri, aceeași funcție de rezolvare - resolveFundingBps). Absente
+ * (campanie legacy) => 100% vendor, comportamentul de dinainte de
+ * split, neschimbat.
+ */
 export function campaignToPromotion({
   discountPercent,
   campaignName,
+  fundingSource,
+  platformFundingBps = 0,
+  vendorFundingBps = 0,
 } = {}) {
   const totalDiscountPercent =
     clampPercent(discountPercent);
@@ -859,14 +914,24 @@ export function campaignToPromotion({
     return null;
   }
 
+  const { platformBps, vendorBps } = resolveFundingBps({
+    fundingSource,
+    platformFundingBps,
+    vendorFundingBps,
+  });
+
   return {
     active: true,
     source: PROMOTION_SOURCES.CAMPAIGN,
     label: campaignName || "Campanie vendor",
 
     totalDiscountPercent,
-    platformDiscountPercent: 0,
-    vendorDiscountPercent: totalDiscountPercent,
+    platformDiscountPercent: round2(
+      (totalDiscountPercent * platformBps) / 10000
+    ),
+    vendorDiscountPercent: round2(
+      (totalDiscountPercent * vendorBps) / 10000
+    ),
 
     startsAt: null,
     endsAt: null,
@@ -875,8 +940,82 @@ export function campaignToPromotion({
     collectionSlug: null,
     homepageFeatureId: null,
 
-    fundingSource: "VENDOR_CAMPAIGN",
+    fundingSource: fundingSource || "VENDOR",
   };
+}
+
+/**
+ * Candidat de promoție pentru un cod de reducere, pentru UN produs.
+ *
+ * `discountPercent` e deja procentul EFECTIV pentru acest produs:
+ * - pentru DiscountCodeType.PERCENT, e direct discountCode.discountPercent;
+ * - pentru FIXED_AMOUNT, apelantul (discountCodeValidation.js) a convertit
+ *   deja suma fixă într-un procent echivalent, calculat o singură dată
+ *   pe subtotalul produselor eligibile ale codului (plafonat la
+ *   maxDiscountCents) - ca să concureze corect, per produs, cu
+ *   promoțiile procentuale existente.
+ *
+ * Split platformă/vendor din platformFundingBps/vendorFundingBps -
+ * identic ca formă cu collectionToPromotion/campaignToPromotion.
+ */
+export function discountCodeToPromotion({
+  discountCodeId,
+  code,
+  discountPercent,
+  fundingSource,
+  platformFundingBps = 0,
+  vendorFundingBps = 0,
+} = {}) {
+  const totalDiscountPercent =
+    clampPercent(discountPercent);
+
+  if (totalDiscountPercent <= 0) {
+    return null;
+  }
+
+  /*
+   * Notă: pentru un cod de reducere, fundingSource e mereu unul din
+   * PLATFORM/VENDOR/SHARED (niciodată absent - vezi
+   * discountCodeValidation.js), deci ramura "legacy" (fără
+   * fundingSource) din resolveFundingBps nu se atinge practic aici -
+   * există doar pentru campanii.
+   */
+  const { platformBps, vendorBps } = resolveFundingBps({
+    fundingSource,
+    platformFundingBps,
+    vendorFundingBps,
+  });
+
+  return {
+    active: true,
+    source: PROMOTION_SOURCES.DISCOUNT_CODE,
+    label: code ? `Cod ${code}` : "Cod de reducere",
+
+    totalDiscountPercent,
+    platformDiscountPercent: round2(
+      (totalDiscountPercent * platformBps) / 10000
+    ),
+    vendorDiscountPercent: round2(
+      (totalDiscountPercent * vendorBps) / 10000
+    ),
+
+    startsAt: null,
+    endsAt: null,
+
+    collectionId: null,
+    collectionSlug: null,
+    homepageFeatureId: null,
+
+    fundingSource,
+
+    discountCodeId: discountCodeId || null,
+    discountCodeText: code || null,
+    discountCodeFundingSource: fundingSource || null,
+  };
+}
+
+function round2(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
 }
 
 /* =========================================================
@@ -1037,6 +1176,18 @@ export function calculateProductPromotionPricing(
             promotion.fundingSource ||
             null,
 
+          discountCodeId:
+            promotion.discountCodeId ||
+            null,
+
+          discountCodeText:
+            promotion.discountCodeText ||
+            null,
+
+          discountCodeFundingSource:
+            promotion.discountCodeFundingSource ||
+            null,
+
           eligible:
             true,
         }
@@ -1075,6 +1226,15 @@ export function calculateProductPromotionPricing(
             null,
 
           fundingSource:
+            null,
+
+          discountCodeId:
+            null,
+
+          discountCodeText:
+            null,
+
+          discountCodeFundingSource:
             null,
 
           eligible,
@@ -1162,6 +1322,14 @@ export async function getPromotionPricingForProducts(
      * fluxului de checkout (ex. listare produse normală).
      */
     campaignPromotionsByProductId = null,
+
+    /*
+     * Map<productId, promotionCandidate> - candidat de cod de
+     * reducere deja rezolvat/validat server-side (fresh din DB,
+     * vezi discountCodeValidation.js). Opțional - lipsește complet
+     * în afara fluxului de checkout cu cod aplicat.
+     */
+    discountCodePromotionsByProductId = null,
   } = {}
 ) {
   const pricingByProductId =
@@ -1213,6 +1381,13 @@ export async function getPromotionPricingForProducts(
           ) || null
         : null;
 
+    const discountCodePromotion =
+      discountCodePromotionsByProductId
+        ? discountCodePromotionsByProductId.get(
+            product.id
+          ) || null
+        : null;
+
     /*
      * Nu cumulăm promoțiile.
      * Alegem promoția cu procentul cel mai mare.
@@ -1222,6 +1397,7 @@ export async function getPromotionPricingForProducts(
         collectionPromotion,
         homepagePromotion,
         campaignPromotion,
+        discountCodePromotion,
       ]);
 
     const pricing =

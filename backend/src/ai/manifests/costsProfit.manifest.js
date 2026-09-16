@@ -118,6 +118,29 @@ export const COSTS_PROFIT_MANIFEST = {
       q: "Ce produse am sub cost?",
       a: "Din Costuri & Profit poți filtra produsele cu preț sub prețul minim recomandat, sau poți întreba direct asistentul „Ce produse am sub cost?”.",
     },
+
+    /*
+     * FINAL BATCH 3 (audit regression, 2026-09-07) - completate STRICT
+     * pe fapte deja confirmate în cod/notes existente ale acestui
+     * manifest (priceRecommendation = calcul determinist, NU AI real;
+     * costItemLibrary = biblioteca de costuri reutilizabile).
+     */
+    {
+      q: "Poate AI-ul să îmi recomande prețul?",
+      a: "Nu prin AI/machine learning - prețul recomandat vine dintr-un calcul determinist (materiale + manoperă + ambalaj + profitul dorit), nu dintr-un model AI care „învață” sau „prezice” prețul. Rezultatul e previzibil și explicabil, nu o estimare probabilistică.",
+    },
+    {
+      q: "Cum folosesc calculatorul de preț?",
+      a: "Din Costuri & Profit, completezi materialele folosite (cu cantități), manopera (ore x tarif), ambalajul/alte costuri și profitul dorit - calculatorul îți dă prețul recomandat, determinist. Poți face asta și conversațional, cerând direct asistentului „Calculează prețul pentru produsul X”.",
+    },
+    {
+      q: "Cum văd dacă un produs este profitabil?",
+      a: "Din Costuri & Profit ai o privire de ansamblu asupra profitabilității produselor tale (preț vs. cost calculat) - poți filtra produsele sub prețul minim recomandat sau întreba direct asistentul „Ce produse am sub cost?”.",
+    },
+    {
+      q: "Cum salvez costurile recurente (materiale, ambalaje, tarife)?",
+      a: "Din biblioteca de costuri (Costuri & Profit) - adaugi o singură dată un cost (material, ambalaj, tarif) și îl reutilizezi la calculul prețului pentru orice produs, fără să-l retastezi de fiecare dată.",
+    },
   ],
 
   unavailableFeatures: [],

@@ -32,6 +32,23 @@ export const HOMEPAGE_FEATURES_MANIFEST = {
     "cum devin artizanul saptamanii",
     "ce reduceri pot seta",
     "cum apar pe homepage",
+    "pot refuza produsul zilei",
+    "pot refuza sa fiu artizanul saptamanii",
+    "nu vreau sa fiu produsul zilei",
+    "cat e reducerea totala maxima",
+    "care e limita de discount la produsul zilei",
+
+    /*
+     * BATCH D (2026-09-07) - fraze LIVE ("sunt produsul zilei acum",
+     * "ce promovări active am") nu sunt răspunse din acest FAQ static
+     * (vezi vendorAssistantPromotions.js, copilotRouter.js) - alias-urile
+     * de mai jos există STRICT ca să ancoreze retrieval-ul pe acest
+     * manifest când răspunsul LIVE nu se potrivește (ex. întrebare
+     * ambiguă) și userul cade pe explicația mecanismului.
+     */
+    "sunt produsul zilei acum",
+    "ce promovari active am",
+    "ce promovari viitoare am",
   ],
 
   uiLocations: [
@@ -47,6 +64,17 @@ export const HOMEPAGE_FEATURES_MANIFEST = {
     vendorDeclineOrReopen: { available: true },
     vendorNotification: { available: true },
     publicDisplay: { available: true },
+
+    /*
+     * Confirmat direct în cod (BATCH D, 2026-09-07):
+     * vendorHomepageFeatureRoutes.js, buildFeaturePayload -
+     * `Math.min(50, platformDiscountPercent + vendorDiscountPercent)`.
+     */
+    totalDiscountCap: {
+      available: true,
+      notes:
+        "Reducerea TOTALĂ afișată clientului (platformă + suplimentul tău) este plafonată la 50%, indiferent cât de mari sunt cele două reduceri însumate.",
+    },
   },
 
   limitations: [
@@ -134,12 +162,44 @@ export const HOMEPAGE_FEATURES_MANIFEST = {
 
   faq: [
     {
+      q: "Ce este produsul zilei?",
+      a: "O secțiune de pe homepage-ul Artfest care afișează, prin rotație zilnică, un produs selectat automat de platformă sau manual de echipa Artfest - vânzătorii nu pot aplica pentru asta. Produsul selectat poate avea o reducere (finanțată de platformă și/sau opțional de vânzător).",
+    },
+    {
+      q: "Cum găsesc produsul zilei?",
+      a: "Direct pe homepage-ul Artfest - e afișat public, într-o secțiune dedicată, vizibilă tuturor vizitatorilor, fără cont.",
+    },
+    {
+      q: "Ce este artizanul săptămânii?",
+      a: "La fel ca produsul zilei, dar cu rotație săptămânală și centrat pe un vânzător (nu un produs anume) - afișat public pe homepage, selectat automat sau manual de echipa Artfest.",
+    },
+    {
+      q: "Cum găsesc artizanul săptămânii?",
+      a: "Direct pe homepage-ul Artfest, într-o secțiune dedicată, vizibilă public, fără cont.",
+    },
+    {
       q: "Cum devin Produsul zilei / Artizanul săptămânii?",
       a: "Nu poți aplica direct. Selecția e făcută automat (rotație generată de platformă) sau manual de echipa Artfest. Când ești selectat, primești o notificare și poți alege opțional o reducere suplimentară (0-20%).",
     },
     {
       q: "Ce reduceri pot seta?",
       a: "Doar când ești selectat pentru Produsul zilei sau Artizanul săptămânii, poți alege o reducere suplimentară proprie din setul fix: 0%, 5%, 10%, 15% sau 20%. Alegerea 0% înseamnă că refuzi reducerea suplimentară (rămâi doar cu reducerea platformei, dacă există una).",
+    },
+    {
+      q: "Pot refuza produsul zilei?",
+      a: "Nu poți refuza să fii selectat/afișat - odată ales, apari pe homepage indiferent. Ce POȚI face e să refuzi reducerea suplimentară proprie, setând-o la 0% (rămâne doar reducerea finanțată de platformă, dacă există una). Nu există o opțiune reală de „nu vreau să fiu Produsul zilei”.",
+    },
+    {
+      q: "Cât e reducerea totală maximă?",
+      a: "50%, indiferent cât de mari sunt reducerea platformei și reducerea ta suplimentară însumate - suma e plafonată la acest total.",
+    },
+    {
+      q: "Primesc notificare când sunt ales produsul zilei?",
+      a: "Da - când unul din produsele tale e selectat ca Produsul zilei, primești o notificare (in-app și, opțional, prin email), ca să poți alege opțional o reducere suplimentară proprie.",
+    },
+    {
+      q: "Primesc notificare când sunt artizanul săptămânii?",
+      a: "Da - la fel ca la Produsul zilei, primești o notificare (in-app și, opțional, prin email) când ești selectat ca Artizanul săptămânii.",
     },
   ],
 

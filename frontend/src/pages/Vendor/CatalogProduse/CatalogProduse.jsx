@@ -25,6 +25,9 @@ import {
   buildProductSavePayload,
 } from "../../../components/AIAssistant/VendorAIAssistant/services/productEditMapping.js";
 import CampaignsTab from "./VendorCampaigns/CampaignsTab.jsx";
+import VendorReferralEarnings from "./VendorReferralEarnings/VendorReferralEarnings.jsx";
+import VendorDiscountCodesTab from "./VendorDiscountCodesTab/VendorDiscountCodesTab.jsx";
+import VendorHomepagePromotions from "../Promotions/VendorPromotions.jsx";
 import {
   useAnnounceCurrentEntity,
   useAnnouncePageType,
@@ -125,7 +128,10 @@ const [
   setActiveTab,
 ] = useState(
   tabFromUrl === "campaigns" ||
-  tabFromUrl === "imports"
+  tabFromUrl === "imports" ||
+  tabFromUrl === "codes" ||
+  tabFromUrl === "referrals" ||
+  tabFromUrl === "promotions"
     ? tabFromUrl
     : "products"
 );
@@ -137,7 +143,10 @@ useEffect(() => {
   if (
     tab === "products" ||
     tab === "imports" ||
-    tab === "campaigns"
+    tab === "campaigns" ||
+    tab === "codes" ||
+    tab === "referrals" ||
+    tab === "promotions"
   ) {
     setActiveTab(tab);
   }
@@ -164,12 +173,19 @@ function changeTab(tab) {
    * /vendor/catalog e O SINGURĂ rută cu tab-uri ținute în state
    * React (NU în URL) - vezi derivePageContext.js, care nu poate
    * distinge tab-urile din pathname. Anunțăm explicit pageType-ul
-   * DOAR pentru tab-ul Importuri (singurul cu manifest propriu,
-   * catalog-imports); pe "products"/"campaigns" lăsăm pageType-ul
+   * pentru tab-urile cu manifest propriu - Importuri (catalog-imports)
+   * și, de când tabul „Promoții” a fost mutat aici de la ruta veche
+   * /vendor/promovari, HOMEPAGE_FEATURES (homepageFeatures.manifest.js) -
+   * ca asistentul AI să păstreze exact același context ca înainte.
+   * Pe "products"/"campaigns"/"codes"/"referrals" lăsăm pageType-ul
    * derivat din URL (PRODUCT_CATALOG) să rămână.
    */
   useAnnouncePageType(
-    activeTab === "imports" ? "CATALOG_IMPORT" : null
+    activeTab === "imports"
+      ? "CATALOG_IMPORT"
+      : activeTab === "promotions"
+      ? "HOMEPAGE_FEATURES"
+      : null
   );
 
   /* =======================================================
@@ -237,6 +253,7 @@ const [
     showAiModal,
     setShowAiModal,
   ] = useState(false);
+
 
   const [
     openProductMenuId,
@@ -2509,8 +2526,8 @@ async function handleSaveProductFromWizard(event) {
               : styles.tab
           }
           onClick={() =>
-  changeTab("imports")
-}
+            changeTab("products")
+          }
         >
           Produse
         </button>
@@ -2543,8 +2560,50 @@ async function handleSaveProductFromWizard(event) {
   changeTab("campaigns")
 }
 >
-  Campanii
+  Colecții
 </button>
+
+        <button
+          type="button"
+          className={
+            activeTab === "codes"
+              ? styles.activeTab
+              : styles.tab
+          }
+          onClick={() =>
+            changeTab("codes")
+          }
+        >
+          Coduri
+        </button>
+
+        <button
+          type="button"
+          className={
+            activeTab === "referrals"
+              ? styles.activeTab
+              : styles.tab
+          }
+          onClick={() =>
+            changeTab("referrals")
+          }
+        >
+          Recomandări
+        </button>
+
+        <button
+          type="button"
+          className={
+            activeTab === "promotions"
+              ? styles.activeTab
+              : styles.tab
+          }
+          onClick={() =>
+            changeTab("promotions")
+          }
+        >
+          Promoții
+        </button>
       </nav>
 
       {activeTab ===
@@ -2557,9 +2616,20 @@ async function handleSaveProductFromWizard(event) {
       )}
 
       {activeTab === "campaigns" && (
-  <CampaignsTab products={products} />
-)}
+        <CampaignsTab products={products} />
+      )}
 
+      {activeTab === "codes" && (
+        <VendorDiscountCodesTab />
+      )}
+
+      {activeTab === "referrals" && (
+        <VendorReferralEarnings />
+      )}
+
+      {activeTab === "promotions" && (
+        <VendorHomepagePromotions />
+      )}
 
       {/* ===================================================
           MODAL AI

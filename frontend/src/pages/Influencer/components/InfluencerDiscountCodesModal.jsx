@@ -8,11 +8,20 @@ import { api } from "../../../lib/api.js";
 
 import styles from "./InfluencerDiscountCodesModal.module.css";
 
+const SCOPE_ALL_PRODUCTS =
+  "ALL_PRODUCTS";
+
+const SCOPE_COLLECTION =
+  "INFLUENCER_COLLECTION";
+
 const EMPTY_FORM = {
   code: "",
   name: "",
   description: "",
-  influencerCollectionId: "",
+  scope:
+    SCOPE_ALL_PRODUCTS,
+  influencerCollectionId:
+    "",
   discountPercent: 5,
   startsAt: "",
   endsAt: "",
@@ -91,66 +100,73 @@ export default function InfluencerDiscountCodesModal({
      MODAL
   ========================================================= */
 
- useEffect(() => {
-  const previous =
-    document.body.style
-      .overflow;
+  useEffect(() => {
+    const previous =
+      document.body.style
+        .overflow;
 
-  document.body.style.overflow =
-    "hidden";
-
-  function onKeyDown(
-    event
-  ) {
-    if (
-      event.key !==
-      "Escape"
-    ) {
-      return;
-    }
-
-    if (formOpen) {
-      setFormOpen(false);
-      setEditCode(null);
-
-      setForm({
-        ...EMPTY_FORM,
-        discountPercent:
-          Math.min(
-            5,
-            maxDiscountPercent
-          ),
-      });
-
-      return;
-    }
-
-    onClose?.();
-  }
-
-  document.addEventListener(
-    "keydown",
-    onKeyDown
-  );
-
-  return () => {
     document.body.style.overflow =
-      previous;
+      "hidden";
 
-    document.removeEventListener(
+    function onKeyDown(
+      event
+    ) {
+      if (
+        event.key !==
+        "Escape"
+      ) {
+        return;
+      }
+
+      if (formOpen) {
+        setFormOpen(
+          false
+        );
+
+        setEditCode(
+          null
+        );
+
+        setForm({
+          ...EMPTY_FORM,
+
+          discountPercent:
+            Math.min(
+              5,
+              maxDiscountPercent
+            ),
+        });
+
+        return;
+      }
+
+      onClose?.();
+    }
+
+    document.addEventListener(
       "keydown",
       onKeyDown
     );
-  };
-}, [
-  onClose,
-  formOpen,
-  maxDiscountPercent,
-]);
+
+    return () => {
+      document.body.style.overflow =
+        previous;
+
+      document.removeEventListener(
+        "keydown",
+        onKeyDown
+      );
+    };
+  }, [
+    onClose,
+    formOpen,
+    maxDiscountPercent,
+  ]);
 
   /* =========================================================
      LOAD
   ========================================================= */
+
   const loadData =
     useCallback(
       async () => {
@@ -173,34 +189,42 @@ export default function InfluencerDiscountCodesModal({
 
           setDiscountCodes(
             Array.isArray(
-              codesData?.discountCodes
+              codesData
+                ?.discountCodes
             )
-              ? codesData.discountCodes
+              ? codesData
+                  .discountCodes
               : []
           );
 
           setMaxDiscountPercent(
             Number(
-              codesData?.maxDiscountPercent ||
+              codesData
+                ?.maxDiscountPercent ||
                 5
             )
           );
 
           setCollections(
             Array.isArray(
-              collectionsData?.collections
+              collectionsData
+                ?.collections
             )
-              ? collectionsData.collections
+              ? collectionsData
+                  .collections
               : []
           );
         } catch (err) {
           setError(
-            err?.data?.message ||
+            err?.data
+              ?.message ||
               err?.message ||
               "Nu am putut încărca codurile de reducere."
           );
         } finally {
-          setLoading(false);
+          setLoading(
+            false
+          );
         }
       },
       []
@@ -208,7 +232,9 @@ export default function InfluencerDiscountCodesModal({
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [
+    loadData,
+  ]);
 
   /* =========================================================
      FORM
@@ -248,6 +274,12 @@ export default function InfluencerDiscountCodesModal({
       code
     );
 
+    const scope =
+      code.scope ===
+      SCOPE_COLLECTION
+        ? SCOPE_COLLECTION
+        : SCOPE_ALL_PRODUCTS;
+
     setForm({
       code:
         code.code ||
@@ -261,9 +293,14 @@ export default function InfluencerDiscountCodesModal({
         code.description ||
         "",
 
+      scope,
+
       influencerCollectionId:
-        code.influencerCollectionId ||
-        "",
+        scope ===
+        SCOPE_COLLECTION
+          ? code.influencerCollectionId ||
+            ""
+          : "",
 
       discountPercent:
         Number(
@@ -326,6 +363,28 @@ export default function InfluencerDiscountCodesModal({
     resetForm();
   }
 
+  function changeScope(
+    nextScope
+  ) {
+    setForm(
+      (
+        current
+      ) => ({
+        ...current,
+
+        scope:
+          nextScope,
+
+        influencerCollectionId:
+          nextScope ===
+          SCOPE_COLLECTION
+            ? current
+                .influencerCollectionId
+            : "",
+      })
+    );
+  }
+
   /* =========================================================
      SAVE
   ========================================================= */
@@ -358,7 +417,23 @@ export default function InfluencerDiscountCodesModal({
     }
 
     if (
-      !form.influencerCollectionId
+      form.scope !==
+        SCOPE_ALL_PRODUCTS &&
+      form.scope !==
+        SCOPE_COLLECTION
+    ) {
+      setError(
+        "Alege unde se aplică reducerea."
+      );
+
+      return;
+    }
+
+    if (
+      form.scope ===
+        SCOPE_COLLECTION &&
+      !form
+        .influencerCollectionId
     ) {
       setError(
         "Alege colecția pe care se aplică acest cod."
@@ -410,7 +485,8 @@ export default function InfluencerDiscountCodesModal({
         !Number.isFinite(
           minimumOrderLei
         ) ||
-        minimumOrderLei < 0
+        minimumOrderLei <
+          0
       )
     ) {
       setError(
@@ -427,7 +503,8 @@ export default function InfluencerDiscountCodesModal({
         !Number.isFinite(
           maxDiscountLei
         ) ||
-        maxDiscountLei <= 0
+        maxDiscountLei <=
+          0
       )
     ) {
       setError(
@@ -446,11 +523,19 @@ export default function InfluencerDiscountCodesModal({
         null,
 
       description:
-        form.description.trim() ||
+        form.description
+          .trim() ||
         null,
 
+      scope:
+        form.scope,
+
       influencerCollectionId:
-        form.influencerCollectionId,
+        form.scope ===
+        SCOPE_COLLECTION
+          ? form
+              .influencerCollectionId
+          : null,
 
       discountPercent,
 
@@ -477,10 +562,12 @@ export default function InfluencerDiscountCodesModal({
           : null,
 
       usageLimitPerUser:
-        form.usageLimitPerUser !==
+        form
+          .usageLimitPerUser !==
         ""
           ? Number(
-              form.usageLimitPerUser
+              form
+                .usageLimitPerUser
             )
           : null,
 
@@ -503,7 +590,9 @@ export default function InfluencerDiscountCodesModal({
           : null,
     };
 
-    setSaving(true);
+    setSaving(
+      true
+    );
 
     try {
       if (
@@ -543,12 +632,15 @@ export default function InfluencerDiscountCodesModal({
       await loadData();
     } catch (err) {
       setError(
-        err?.data?.message ||
+        err?.data
+          ?.message ||
           err?.message ||
           "Nu am putut salva codul de reducere."
       );
     } finally {
-      setSaving(false);
+      setSaving(
+        false
+      );
     }
   }
 
@@ -588,7 +680,8 @@ export default function InfluencerDiscountCodesModal({
       await loadData();
     } catch (err) {
       setError(
-        err?.data?.message ||
+        err?.data
+          ?.message ||
           err?.message ||
           "Nu am putut modifica statusul codului."
       );
@@ -636,7 +729,8 @@ export default function InfluencerDiscountCodesModal({
       await loadData();
     } catch (err) {
       setError(
-        err?.data?.message ||
+        err?.data
+          ?.message ||
           err?.message ||
           "Nu am putut șterge codul."
       );
@@ -721,7 +815,7 @@ export default function InfluencerDiscountCodesModal({
                   maxDiscountPercent
                 }%
               </strong>{" "}
-              pentru colecțiile tale Artfest.
+              pentru comunitatea ta Artfest.
             </p>
           </div>
 
@@ -803,7 +897,7 @@ export default function InfluencerDiscountCodesModal({
             </strong>
 
             <p>
-              Creează un cod pentru una dintre colecțiile tale și distribuie-l comunității tale.
+              Creează un cod de reducere pentru comunitatea ta. Îl poți aplica tuturor produselor Artfest eligibile sau doar unei colecții create de tine.
             </p>
 
             <button
@@ -897,11 +991,14 @@ export default function InfluencerDiscountCodesModal({
                       }
                     >
                       <span>
-                        Colecție:{" "}
+                        Se aplică la:{" "}
                         <strong>
-                          {code.collection
-                            ?.title ||
-                            "—"}
+                          {code.scope ===
+                          SCOPE_COLLECTION
+                            ? code.collection
+                                ?.title ||
+                              "Colecție"
+                            : "Toate produsele Artfest eligibile"}
                         </strong>
                       </span>
 
@@ -1212,62 +1309,117 @@ export default function InfluencerDiscountCodesModal({
                   />
                 </label>
 
+                {/* ===============================================
+                    SCOPE
+                =============================================== */}
+
                 <label
                   className={
                     styles.field
                   }
                 >
                   <span>
-                    Colecție *
+                    Unde se aplică reducerea *
                   </span>
 
                   <select
                     value={
-                      form.influencerCollectionId
+                      form.scope
                     }
                     onChange={(event) =>
-                      setForm(
-                        (
-                          current
-                        ) => ({
-                          ...current,
-
-                          influencerCollectionId:
-                            event.target.value,
-                        })
+                      changeScope(
+                        event.target
+                          .value
                       )
                     }
                   >
-                    <option value="">
-                      Alege colecția
+                    <option
+                      value={
+                        SCOPE_ALL_PRODUCTS
+                      }
+                    >
+                      Toate produsele Artfest eligibile
                     </option>
 
-                    {collections.map(
-                      (
-                        collection
-                      ) => (
-                        <option
-                          key={
-                            collection.id
-                          }
-                          value={
-                            collection.id
-                          }
-                        >
-                          {
-                            collection.title
-                          }
-                        </option>
-                      )
-                    )}
+                    <option
+                      value={
+                        SCOPE_COLLECTION
+                      }
+                    >
+                      Doar o colecție de-a mea
+                    </option>
                   </select>
 
-                  {!collections.length && (
-                    <small>
-                      Creează mai întâi o colecție.
-                    </small>
-                  )}
+                  <small>
+                    Poți distribui codul direct fără să creezi o colecție.
+                  </small>
                 </label>
+
+                {/* ===============================================
+                    COLLECTION — DOAR DACĂ ESTE ALEASĂ
+                =============================================== */}
+
+                {form.scope ===
+                  SCOPE_COLLECTION && (
+                  <label
+                    className={
+                      styles.field
+                    }
+                  >
+                    <span>
+                      Colecție *
+                    </span>
+
+                    <select
+                      value={
+                        form
+                          .influencerCollectionId
+                      }
+                      onChange={(event) =>
+                        setForm(
+                          (
+                            current
+                          ) => ({
+                            ...current,
+
+                            influencerCollectionId:
+                              event.target
+                                .value,
+                          })
+                        )
+                      }
+                    >
+                      <option value="">
+                        Alege colecția
+                      </option>
+
+                      {collections.map(
+                        (
+                          collection
+                        ) => (
+                          <option
+                            key={
+                              collection.id
+                            }
+                            value={
+                              collection.id
+                            }
+                          >
+                            {
+                              collection.title
+                            }
+                          </option>
+                        )
+                      )}
+                    </select>
+
+                    {!collections.length && (
+                      <small>
+                        Nu ai încă nicio colecție. Alege „Toate produsele Artfest eligibile” sau creează mai întâi o colecție.
+                      </small>
+                    )}
+                  </label>
+                )}
 
                 <div
                   className={
@@ -1384,7 +1536,8 @@ export default function InfluencerDiscountCodesModal({
                       min="1"
                       max="10"
                       value={
-                        form.usageLimitPerUser
+                        form
+                          .usageLimitPerUser
                       }
                       onChange={(event) =>
                         setForm(
@@ -1535,7 +1688,14 @@ export default function InfluencerDiscountCodesModal({
                       maxDiscountPercent
                     }%
                   </strong>
-                  . Reducerea se aplică doar produselor din colecția selectată și, în această etapă, este suportată de Artfest.
+                  .{" "}
+
+                  {form.scope ===
+                  SCOPE_COLLECTION
+                    ? "Reducerea se aplică doar produselor din colecția selectată."
+                    : "Reducerea se aplică tuturor produselor Artfest eligibile."}
+
+                  {" "}În această etapă, reducerea este suportată de Artfest.
                 </div>
 
                 <div
@@ -1549,8 +1709,7 @@ export default function InfluencerDiscountCodesModal({
                       styles.primaryButton
                     }
                     disabled={
-                      saving ||
-                      !collections.length
+                      saving
                     }
                   >
                     {saving

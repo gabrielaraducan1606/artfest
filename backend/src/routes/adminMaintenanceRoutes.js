@@ -6,6 +6,7 @@ import {
   sendPasswordStaleReminderEmail,
   sendSuspiciousLoginWarningEmail,
 } from "../lib/mailer.js";
+import { deleteOrAnonymizeAccount } from "../services/accountDeletionService.js";
 
 const router = Router();
 
@@ -300,27 +301,41 @@ router.post("/run-cleanup", async (_req, res) => {
         const lastActivity = u.lastLoginAt || u.createdAt;
         const monthsInactive = monthsBetween(lastActivity);
 
-        await prisma.$transaction([
-          prisma.inactiveUserLog.create({
-            data: {
-              userId: u.id,
-              email: u.email,
-              hadOrders: ordersCount > 0,
-              monthsInactive: monthsInactive ?? null,
-              lastLoginAt: u.lastLoginAt,
-              createdAt: u.createdAt,
-              scheduledDeletionAt: u.scheduledDeletionAt,
-              reason: "INACTIVE_CLEANUP",
-              meta: {
-                status: u.status,
-                role: u.role,
-              },
+        await prisma.inactiveUserLog.create({
+          data: {
+            userId: u.id,
+            email: u.email,
+            hadOrders: ordersCount > 0,
+            monthsInactive: monthsInactive ?? null,
+            lastLoginAt: u.lastLoginAt,
+            createdAt: u.createdAt,
+            scheduledDeletionAt: u.scheduledDeletionAt,
+            reason: "INACTIVE_CLEANUP",
+            meta: {
+              status: u.status,
+              role: u.role,
             },
-          }),
-          prisma.user.delete({
-            where: { id: u.id },
-          }),
-        ]);
+          },
+        });
+
+        /*
+         * Anonimizare, NU ștergere fizică - același helper folosit
+         * de DELETE /api/account/me (accountDeleteRoutes.js), ca să
+         * nu existe două implementări divergente. Respectă retenția
+         * facturilor/payout-urilor (Vendor/InfluencerProfile nu sunt
+         * niciodată șterse) și a dovezilor de acceptare (User nu e
+         * niciodată șters fizic) - vezi accountDeletionService.js.
+         */
+        const result = await deleteOrAnonymizeAccount({
+          userId: u.id,
+          reason: "INACTIVE_CLEANUP",
+        });
+
+        if (!result.ok) {
+          throw new Error(
+            `deleteOrAnonymizeAccount failed: ${result.error || "unknown"}`
+          );
+        }
 
         deleted += 1;
       } catch (err) {

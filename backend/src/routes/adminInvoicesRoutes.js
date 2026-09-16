@@ -10,10 +10,9 @@ import path from "path";
 import { htmlToPdfBuffer } from "../lib/htmlToPdf.js";
 import { renderInvoiceHtml } from "../lib/invoiceHtmlTemplate.js";
 import {
-  createSmartBillInvoice,
-  getSmartBillInvoicePdfBuffer,
-} from "../lib/smartbill.js";
-import { sendVendorCommissionInvoiceEmail } from "../lib/mailer.js";
+  generateVendorCommissionInvoice,
+  getPreviousBucharestMonthBoundaries,
+} from "../services/vendorCommissionInvoiceService.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -888,281 +887,404 @@ router.get("/billing/vendors-due", requireAdmin, async (_req, res) => {
   }
 });
 
+/* =========================================================
+   6.5) GET /api/admin/billing/vendor-commission-breakdown
+   (audit 2026-09-15, Admin Billing - transparență comision)
+
+   STRICT READ-ONLY - NU calculează nimic financiar nou. Citește
+   EXCLUSIV ce e deja scris în ledger la DELIVERED/RETURNED/REFUSED
+   (VendorEarningEntry / VendorReferralEarningEntry /
+   InfluencerEarningEntry, create în vendorOrdersRoutes.js) - aceeași
+   sursă folosită de generateVendorCommissionInvoice (comisionul
+   FACTURAT vendorului) și de Admin Order Details
+   (buildShipmentFinancialsForAdmin, adminOrdersRoutes.js). Nici o
+   valoare de aici NU poate diferi de acele două surse pentru
+   aceeași perioadă/shipment - dacă diferă, e bug, nu feature nou.
+
+   Reconciliere SALE + REFUND (regulă EXISTENTĂ, neschimbată):
+   - VendorEarningEntry(REFUND) are shipmentId=null (coloana e
+     @unique), legătura la shipment-ul original e prin
+     meta.refShipmentId - vezi ensureRefundLedgerEntry.
+   - VendorReferralEarningEntry/InfluencerEarningEntry(REFUND) au
+     aceeași convenție. earningNet e deja SEMNAT (SALE pozitiv,
+     REFUND negativ) - SUM simplu netește corect (identic cu
+     influencerPayoutService.js / getVendorReferralConfirmedTotals).
+
+   "Artfest net final" per shipment = commissionNet (facturat
+   vendorului, NESCHIMBAT de promoter) - promoterEarningNet (SALE+
+   REFUND netate) - EXACT formula deja folosită în
+   vendorFinancials.netArtfestAfterAttribution (adminOrdersRoutes.js),
+   nu o formulă nouă.
+========================================================= */
+router.get("/billing/vendor-commission-breakdown", requireAdmin, async (req, res) => {
+  try {
+    const vendorId = String(req.query.vendorId || "").trim();
+    if (!vendorId) {
+      return res.status(400).json({ error: "missing_vendorId" });
+    }
+
+    const periodFrom = req.query.periodFrom ? new Date(String(req.query.periodFrom)) : null;
+    const periodTo = req.query.periodTo ? new Date(String(req.query.periodTo)) : null;
+
+    if (!periodFrom || !periodTo || Number.isNaN(periodFrom.getTime()) || Number.isNaN(periodTo.getTime())) {
+      return res.status(400).json({ error: "invalid_period" });
+    }
+
+    const vendor = await prisma.vendor.findUnique({
+      where: { id: vendorId },
+      select: { id: true, displayName: true },
+    });
+    if (!vendor) return res.status(404).json({ error: "vendor_not_found" });
+
+    const entries = await prisma.vendorEarningEntry.findMany({
+      where: {
+        vendorId,
+        type: { in: ["SALE", "REFUND", "ADJUSTMENT"] },
+        occurredAt: { gte: periodFrom, lt: periodTo },
+      },
+      orderBy: { occurredAt: "asc" },
+    });
+
+    const saleEntries = entries.filter((e) => e.type === "SALE" && e.shipmentId);
+    const adjustmentEntries = entries.filter((e) => e.type === "ADJUSTMENT");
+
+    const refundByOriginalShipmentId = new Map();
+    for (const e of entries) {
+      const refShipmentId = e.type === "REFUND" ? e?.meta?.refShipmentId : null;
+      if (refShipmentId) refundByOriginalShipmentId.set(refShipmentId, e);
+    }
+
+    const currency = entries[0]?.currency || "RON";
+    const shipmentIds = saleEntries.map((e) => e.shipmentId);
+    const orderIds = [...new Set(saleEntries.map((e) => e.orderId).filter(Boolean))];
+
+    const [shipments, referralEntries, influencerEntries] = await Promise.all([
+      prisma.shipment.findMany({
+        where: { id: { in: shipmentIds } },
+        select: {
+          id: true,
+          orderId: true,
+          order: { select: { orderNumber: true } },
+          campaignId: true,
+          referrerVendorId: true,
+          referrerVendor: { select: { id: true, displayName: true } },
+          referrerVendorCommissionBpsSnapshot: true,
+          referrerVendorReferralCodeSnapshot: true,
+          influencerId: true,
+          influencer: { select: { id: true, displayName: true } },
+          influencerCommissionBpsSnapshot: true,
+        },
+      }),
+      orderIds.length
+        ? prisma.vendorReferralEarningEntry.findMany({ where: { orderId: { in: orderIds } } })
+        : Promise.resolve([]),
+      orderIds.length
+        ? prisma.influencerEarningEntry.findMany({ where: { orderId: { in: orderIds } } })
+        : Promise.resolve([]),
+    ]);
+
+    const shipmentById = new Map(shipments.map((s) => [s.id, s]));
+
+    /*
+     * Netează SALE + REFUND pentru un promoter (vendor referral SAU
+     * influencer) pe un shipment dat - identic ca strategie cu
+     * getVendorReferralConfirmedTotals/influencerPayoutService.js
+     * (SUM(earningNet), REFUND deja negativ).
+     */
+    function netPromoterEarningForShipment(list, shipmentId) {
+      let sum = 0;
+      for (const e of list) {
+        if (e.type === "SALE" && e.shipmentId === shipmentId) {
+          sum += Number(e.earningNet || 0);
+        } else if (e.type === "REFUND" && e?.meta?.refShipmentId === shipmentId) {
+          sum += Number(e.earningNet || 0);
+        }
+      }
+      return money2(sum);
+    }
+
+    function attributionSourceLabel(snapshot) {
+      if (typeof snapshot === "string" && snapshot.startsWith("COLLECTION:")) {
+        return { source: "VENDOR_COLLECTION_REFERRAL", collectionSlug: snapshot.slice("COLLECTION:".length) || null };
+      }
+      return { source: "VENDOR_REFERRAL", collectionSlug: null };
+    }
+
+    const COMMISSION_SOURCE_LABELS = {
+      plan: "Comenzi normale (plan standard)",
+      vendor_referral_own_sale: "Vendor own-sale (cod personal)",
+      vendor_collection_own_sale: "VendorCollection own-sale",
+      campaign: "Campanie vendor",
+      mixed: "Comision mixt",
+    };
+
+    const shipmentRows = [];
+    const bySourceMap = new Map();
+
+    function addToBySource(commissionSourceKey, row) {
+      const key = commissionSourceKey || "plan";
+      if (!bySourceMap.has(key)) {
+        bySourceMap.set(key, {
+          source: key,
+          label: COMMISSION_SOURCE_LABELS[key] || key,
+          count: 0,
+          commissionGross: 0,
+          platformSubsidyAmount: 0,
+          commissionNet: 0,
+        });
+      }
+      const bucket = bySourceMap.get(key);
+      bucket.count += 1;
+      bucket.commissionGross = money2(bucket.commissionGross + row.commissionGross);
+      bucket.platformSubsidyAmount = money2(bucket.platformSubsidyAmount + row.platformSubsidyAmount);
+      bucket.commissionNet = money2(bucket.commissionNet + row.commissionNetBilled);
+    }
+
+    const promoterBreakdown = {
+      VENDOR_REFERRAL: { count: 0, artfestCommissionNet: 0, earningNet: 0 },
+      VENDOR_COLLECTION_REFERRAL: { count: 0, artfestCommissionNet: 0, earningNet: 0 },
+      INFLUENCER: { count: 0, artfestCommissionNet: 0, earningNet: 0 },
+    };
+
+    for (const sale of saleEntries) {
+      const shipment = shipmentById.get(sale.shipmentId);
+      const refund = refundByOriginalShipmentId.get(sale.shipmentId) || null;
+      const isReversed = Boolean(refund);
+
+      const commissionNetBilled = money2(
+        Number(sale.commissionNet || 0) + Number(refund?.commissionNet || 0)
+      );
+
+      const commissionSourceKey = sale.meta?.commissionSource || "plan";
+
+      let promoterType = null;
+      let promoterId = null;
+      let promoterName = null;
+      let promoterBps = null;
+      let promoterEarningNet = 0;
+
+      if (shipment?.referrerVendorId) {
+        const { source } = attributionSourceLabel(shipment.referrerVendorReferralCodeSnapshot);
+        promoterType = source; // VENDOR_REFERRAL | VENDOR_COLLECTION_REFERRAL
+        promoterId = shipment.referrerVendorId;
+        promoterName = shipment.referrerVendor?.displayName || null;
+        promoterBps = shipment.referrerVendorCommissionBpsSnapshot ?? null;
+        promoterEarningNet = netPromoterEarningForShipment(referralEntries, sale.shipmentId);
+
+        promoterBreakdown[source].count += 1;
+        promoterBreakdown[source].artfestCommissionNet = money2(
+          promoterBreakdown[source].artfestCommissionNet + commissionNetBilled
+        );
+        promoterBreakdown[source].earningNet = money2(
+          promoterBreakdown[source].earningNet + promoterEarningNet
+        );
+      } else if (shipment?.influencerId) {
+        promoterType = "INFLUENCER";
+        promoterId = shipment.influencerId;
+        promoterName = shipment.influencer?.displayName || null;
+        promoterBps = shipment.influencerCommissionBpsSnapshot ?? null;
+        promoterEarningNet = netPromoterEarningForShipment(influencerEntries, sale.shipmentId);
+
+        promoterBreakdown.INFLUENCER.count += 1;
+        promoterBreakdown.INFLUENCER.artfestCommissionNet = money2(
+          promoterBreakdown.INFLUENCER.artfestCommissionNet + commissionNetBilled
+        );
+        promoterBreakdown.INFLUENCER.earningNet = money2(
+          promoterBreakdown.INFLUENCER.earningNet + promoterEarningNet
+        );
+      }
+
+      const row = {
+        orderNumber: shipment?.order?.orderNumber || null,
+        orderId: sale.orderId,
+        shipmentId: sale.shipmentId,
+        source: commissionSourceKey,
+        commissionSource: commissionSourceKey,
+        commissionBps: sale.meta?.commissionBps ?? null,
+        isMixedCommission: Boolean(sale.meta?.isMixedCommission),
+        commissionGross: Number(sale.meta?.commissionAmount || 0),
+        platformSubsidyAmount: Number(sale.meta?.platformSubsidyAmount || 0),
+        commissionNetBilled,
+        promoterType,
+        promoterId,
+        promoterName,
+        promoterBps,
+        promoterEarningNet,
+        isReversed,
+        artfestNetFinal: money2(commissionNetBilled - promoterEarningNet),
+        occurredAt: sale.occurredAt,
+      };
+
+      shipmentRows.push(row);
+      addToBySource(commissionSourceKey, row);
+    }
+
+    const adjustmentCommissionNet = money2(
+      adjustmentEntries.reduce((sum, e) => sum + Number(e.commissionNet || 0), 0)
+    );
+
+    const totalItemsNet = money2(
+      entries.reduce((sum, e) => sum + Number(e.itemsNet || 0), 0)
+    );
+    const grossSales = money2(
+      saleEntries.reduce((s, e) => s + Number(e.meta?.commissionBaseGross || 0), 0)
+    );
+    const refundsItemsNet = money2(
+      entries
+        .filter((e) => e.type === "REFUND")
+        .reduce((s, e) => s + Number(e.itemsNet || 0), 0)
+    );
+    const totalCommissionGross = money2(
+      shipmentRows.reduce((s, r) => s + r.commissionGross, 0)
+    );
+    const totalPlatformSubsidy = money2(
+      shipmentRows.reduce((s, r) => s + r.platformSubsidyAmount, 0)
+    );
+    const totalCommissionNetBilled = money2(
+      money2(shipmentRows.reduce((s, r) => s + r.commissionNetBilled, 0)) + adjustmentCommissionNet
+    );
+    const totalPromoterEarnings = money2(
+      shipmentRows.reduce((s, r) => s + r.promoterEarningNet, 0)
+    );
+    const artfestNetFinal = money2(totalCommissionNetBilled - totalPromoterEarnings);
+
+    const refundsCount = shipmentRows.filter((r) => r.isReversed).length;
+
+    return res.json({
+      vendor,
+      period: { from: periodFrom, to: periodTo },
+      currency,
+      summary: {
+        entryCount: saleEntries.length,
+        refundsCount,
+        grossSales,
+        refundsItemsNet,
+        netSales: totalItemsNet,
+        commissionGross: totalCommissionGross,
+        platformFundedDiscounts: totalPlatformSubsidy,
+        commissionNetBilled: totalCommissionNetBilled,
+        promoterEarnings: totalPromoterEarnings,
+        artfestNetFinal,
+        adjustmentCommissionNet,
+      },
+      bySource: [...bySourceMap.values()],
+      promoterBreakdown: {
+        VENDOR_REFERRAL: promoterBreakdown.VENDOR_REFERRAL,
+        VENDOR_COLLECTION_REFERRAL: promoterBreakdown.VENDOR_COLLECTION_REFERRAL,
+        INFLUENCER: promoterBreakdown.INFLUENCER,
+      },
+      shipments: shipmentRows,
+    });
+  } catch (err) {
+    console.error("GET /api/admin/billing/vendor-commission-breakdown FAILED:", err);
+    return res.status(500).json({
+      error: "vendor_commission_breakdown_failed",
+      message: err?.message || "Nu am putut încărca detaliile de comision.",
+    });
+  }
+});
+
 const CreateVendorCommissionInvoicePayload = z.object({
   vendorId: z.string().min(6),
   vatRate: z.number().min(0).max(100).default(0),
+
+  /*
+   * FAZA 2 (2026-09-07) - perioadă EXPLICITĂ, opțională. Dacă lipsesc,
+   * default determinist: luna calendaristică anterioară, Europe/
+   * Bucharest (vezi getPreviousBucharestMonthBoundaries). Nu se mai
+   * derivează din min/max al entry-urilor nefacturate.
+   */
+  periodFrom: z.string().datetime().optional(),
+  periodTo: z.string().datetime().optional(),
 });
 
 /* =========================================================
    7) POST /api/admin/billing/create-vendor-commission-invoice
-   - emite factură SmartBill către vendor
+   - emite factură SmartBill către vendor - STRICT manual, apăsat de
+     admin; nu există (și nu se adaugă aici) niciun scheduler/cron.
+   - Deleagă generarea efectivă către
+     services/vendorCommissionInvoiceService.js (aceeași funcție ar
+     putea fi apelată și de un job automat în viitor, dacă se decide
+     asta - NU e cazul acum).
 ========================================================= */
 router.post("/billing/create-vendor-commission-invoice", requireAdmin, async (req, res) => {
   try {
-    const { vendorId, vatRate } = CreateVendorCommissionInvoicePayload.parse(req.body || {});
+    const parsed = CreateVendorCommissionInvoicePayload.parse(req.body || {});
+    const { vendorId, vatRate } = parsed;
 
-    const vendor = await prisma.vendor.findUnique({
-      where: { id: vendorId },
-      include: {
-  billing: true,
-  user: {
-    select: { email: true },
-  },
-  earningEntries: {
-          where: {
-            payoutId: null,
-            type: { in: ["SALE", "REFUND", "ADJUSTMENT"] },
-          },
-          orderBy: { occurredAt: "asc" },
-        },
-      },
+    const { periodFrom, periodTo } =
+      parsed.periodFrom && parsed.periodTo
+        ? { periodFrom: new Date(parsed.periodFrom), periodTo: new Date(parsed.periodTo) }
+        : getPreviousBucharestMonthBoundaries();
+
+    const result = await generateVendorCommissionInvoice({
+      vendorId,
+      periodFrom,
+      periodTo,
+      vatRate,
     });
 
-    if (!vendor) return res.status(404).json({ error: "vendor_not_found" });
+    switch (result.status) {
+      case "CREATED":
+        return res.json({ ok: true, invoice: result.invoice });
 
-    if (!vendor.billing) {
-      return res.status(409).json({
-        error: "vendor_billing_missing",
-        message: "Vendorul nu are date de facturare completate.",
-      });
+      case "SKIPPED_ALREADY_EXISTS":
+        return res.status(409).json({
+          error: "already_invoiced_for_period",
+          message: "Există deja o factură de comision pentru acest vendor și această perioadă.",
+          periodFrom: result.periodFrom,
+          periodTo: result.periodTo,
+        });
+
+      case "SKIPPED_NO_COMMISSION":
+        if (result.reason === "zero_or_negative_commission") {
+          return res.status(409).json({
+            error: "zero_commission",
+            message: "Comisionul calculat este 0.",
+          });
+        }
+        return res.status(409).json({
+          error: "no_entries_to_invoice",
+          message: "Nu există comisioane nefacturate pentru acest vendor în perioada selectată.",
+        });
+
+      case "ERROR":
+        if (result.reason === "vendor_not_found") {
+          return res.status(404).json({ error: "vendor_not_found" });
+        }
+        if (result.reason === "vendor_billing_missing") {
+          return res.status(409).json({
+            error: "vendor_billing_missing",
+            message: "Vendorul nu are date de facturare completate.",
+          });
+        }
+        if (result.reason === "smartbill_create_failed") {
+          return res.status(502).json({
+            error: "smartbill_create_failed",
+            message:
+              result.error ||
+              "Factura nu a putut fi emisă în SmartBill. Verifică datele vendorului și credențialele SmartBill.",
+          });
+        }
+        if (result.reason === "smartbill_missing_invoice_number") {
+          return res.status(502).json({
+            error: "smartbill_missing_invoice_number",
+            message: "SmartBill nu a returnat numărul facturii.",
+          });
+        }
+
+        console.error("POST /billing/create-vendor-commission-invoice:", result);
+        return res.status(500).json({
+          error: "create_vendor_commission_invoice_failed",
+          message: result.error || "Nu am putut crea factura de comision.",
+        });
+
+      default:
+        return res.status(500).json({
+          error: "create_vendor_commission_invoice_failed",
+          message: "Stare neașteptată la generarea facturii.",
+        });
     }
-
-    if (!vendor.earningEntries.length) {
-      return res.status(409).json({
-        error: "no_entries_to_invoice",
-        message: "Nu există comisioane nefacturate pentru acest vendor.",
-      });
-    }
-
-    const commissionNet = money2(
-      vendor.earningEntries.reduce((sum, e) => sum + Number(e.commissionNet || 0), 0)
-    );
-
-    if (commissionNet <= 0) {
-      return res.status(409).json({
-        error: "zero_commission",
-        message: "Comisionul calculat este 0.",
-      });
-    }
-
-    const currency = vendor.earningEntries[0]?.currency || "RON";
-    const totalVat = money2((commissionNet * vatRate) / 100);
-    const totalGross = money2(commissionNet + totalVat);
-
-    const issueDate = new Date();
-    const dueDate = new Date(issueDate);
-    dueDate.setDate(dueDate.getDate() + 7);
-
-    const periodFrom = vendor.earningEntries[0].occurredAt;
-    const periodTo = vendor.earningEntries[vendor.earningEntries.length - 1].occurredAt;
-
-    const platform = await getPlatformBillingOrThrow();
-    const smartBillSeries = process.env.SMARTBILL_SERIES || platform.invoiceSeries || "AF";
-
-    const clientName =
-      vendor.billing.companyName ||
-      vendor.billing.vendorName ||
-      vendor.billing.contactPerson ||
-      vendor.displayName;
-
-    const description = `Comision platformă ArtFest pentru ${vendor.earningEntries.length} tranzacții`;
-
-    let smartBill;
-    try {
-      smartBill = await createSmartBillInvoice({
-        client: {
-          name: clientName,
-          vatCode: vendor.billing.cui || "",
-          regCom: vendor.billing.regCom || "",
-          address: vendor.billing.address || "",
-          email: vendor.billing.email || "",
-          isTaxPayer: vendor.billing.vatStatus === "payer",
-        },
-        issueDate,
-        dueDate,
-        seriesName: smartBillSeries,
-        currency,
-        totalNet: commissionNet,
-        vatRate,
-        description,
-      });
-    } catch (smartBillErr) {
-      console.error("SmartBill invoice create failed:", smartBillErr?.details || smartBillErr);
-      return res.status(502).json({
-        error: "smartbill_create_failed",
-        message:
-          smartBillErr?.message ||
-          "Factura nu a putut fi emisă în SmartBill. Verifică datele vendorului și credențialele SmartBill.",
-        details: smartBillErr?.details || null,
-      });
-    }
-
-    const providerSeries = smartBill.series || smartBillSeries;
-    const providerNumber = String(
-      smartBill.number || smartBill.invoiceNumber || smartBill.documentNumber || smartBill.id
-    );
-
-    if (!providerNumber || providerNumber === "undefined") {
-      return res.status(502).json({
-        error: "smartbill_missing_invoice_number",
-        message: "SmartBill nu a returnat numărul facturii.",
-        details: smartBill,
-      });
-    }
-
-    const created = await prisma.$transaction(async (tx) => {
-      const invoice = await tx.invoice.create({
-        data: {
-          vendorId: vendor.id,
-          direction: "PLATFORM_TO_VENDOR",
-          type: "COMMISSION",
-          periodFrom,
-          periodTo,
-          series: providerSeries,
-          number: providerNumber,
-          issueDate,
-          dueDate,
-          currency,
-          clientName,
-          clientEmail: vendor.billing.email,
-          clientPhone: vendor.billing.phone,
-          clientAddress: vendor.billing.address,
-          totalNet: commissionNet,
-          totalVat,
-          totalGross,
-          status: "UNPAID",
-          provider: "SMARTBILL",
-          providerInvoiceId: smartBill.id ? String(smartBill.id) : null,
-          providerSeries,
-          providerNumber,
-          providerStatus: "ISSUED",
-          providerPayload: smartBill,
-          providerSyncedAt: new Date(),
-          lines: {
-            create: [
-              {
-                type: "COMMISSION",
-                description,
-                quantity: 1,
-                unitNet: commissionNet,
-                vatRate,
-                totalNet: commissionNet,
-                totalVat,
-                totalGross,
-                vendorId: vendor.id,
-              },
-            ],
-          },
-        },
-        include: { lines: true },
-      });
-
-      const payout = await tx.vendorPayout.create({
-        data: {
-          vendorId: vendor.id,
-          periodFrom,
-          periodTo,
-          currency,
-          totalItemsNet: money2(
-            vendor.earningEntries.reduce((sum, e) => sum + Number(e.itemsNet || 0), 0)
-          ),
-          totalCommissionNet: commissionNet,
-          totalVendorNet: money2(
-            vendor.earningEntries.reduce((sum, e) => sum + Number(e.vendorNet || 0), 0)
-          ),
-          invoiceId: invoice.id,
-          status: "UNPAID",
-          issuedAt: issueDate,
-        },
-      });
-
-      await tx.vendorEarningEntry.updateMany({
-        where: {
-          id: { in: vendor.earningEntries.map((e) => e.id) },
-        },
-        data: {
-          payoutId: payout.id,
-        },
-      });
-
-      return invoice;
-    });
-
-    let updatedInvoice = created;
-
-    try {
-      const pdfBuffer = await getSmartBillInvoicePdfBuffer({
-        seriesName: created.providerSeries || created.series,
-        number: created.providerNumber || created.number,
-      });
-
-      const dir = path.join(process.cwd(), "uploads", "invoices");
-      await fs.mkdir(dir, { recursive: true });
-
-      const fileName = `${created.providerSeries || created.series}-${
-        created.providerNumber || created.number
-      }.pdf`;
-      const absPath = path.join(dir, fileName);
-
-      await fs.writeFile(absPath, pdfBuffer);
-
-      const pdfUrl = `/uploads/invoices/${fileName}`;
-
-      updatedInvoice = await prisma.invoice.update({
-        where: { id: created.id },
-        data: {
-          pdfUrl,
-          providerPdfUrl: pdfUrl,
-        },
-        include: { lines: true },
-      });
-    } catch (pdfErr) {
-      console.error("SmartBill PDF save failed:", pdfErr);
-    }
-try {
-  const to =
-    vendor.billing?.email ||
-    vendor.email ||
-    vendor.user?.email;
-
-  if (to) {
-    const invoiceNumber = `${updatedInvoice.providerSeries || updatedInvoice.series}-${
-  updatedInvoice.providerNumber || updatedInvoice.number
-}`;
-
-const pdfPath =
-  updatedInvoice.providerPdfUrl || updatedInvoice.pdfUrl
-    ? path.join(
-        process.cwd(),
-        (updatedInvoice.providerPdfUrl || updatedInvoice.pdfUrl).replace(/^\//, "")
-      )
-    : null;
-
-await sendVendorCommissionInvoiceEmail({
-  to,
-  vendorName: vendor.displayName || vendor.billing?.vendorName || vendor.billing?.companyName,
-  invoiceNumber,
-  totalGross: updatedInvoice.totalGross,
-  currency: updatedInvoice.currency || "RON",
-  attachments: pdfPath
-  ? [
-      {
-        filename: `Factura-comision-${invoiceNumber}.pdf`,
-        content: await fs.readFile(pdfPath),
-        contentType: "application/pdf",
-      },
-    ]
-  : [],
-});
-  }
-} catch (emailErr) {
-  console.error("Vendor commission invoice email send failed:", emailErr);
-}
-
-    return res.json({
-      ok: true,
-      invoice: updatedInvoice,
-    });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ error: "invalid_payload", details: err.errors });

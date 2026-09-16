@@ -5,6 +5,7 @@ import {
 } from "react";
 
 import { api } from "../../../../lib/api";
+import ProductGpsrSection from "../../../Vendor/ProfilMagazin/modals/ProductModal/components/ProductGpsrSection.jsx";
 
 /* =========================================================
    Helpers
@@ -858,6 +859,33 @@ export default function AdminProductEditForm({
               10
             )
           : "",
+
+      isOwnManufacturer:
+        product.isOwnManufacturer === true ||
+        product.isOwnManufacturer === false
+          ? product.isOwnManufacturer
+          : null,
+      manufacturerName: product.manufacturerName || "",
+      manufacturerAddress: product.manufacturerAddress || "",
+      manufacturerEmail: product.manufacturerEmail || "",
+      manufacturerInEU:
+        product.manufacturerInEU === true ||
+        product.manufacturerInEU === false
+          ? product.manufacturerInEU
+          : null,
+      responsiblePersonName: product.responsiblePersonName || "",
+      responsiblePersonAddress: product.responsiblePersonAddress || "",
+      responsiblePersonEmail: product.responsiblePersonEmail || "",
+      safetyWarnings:
+        product.safetyWarnings === null ||
+        product.safetyWarnings === undefined
+          ? null
+          : product.safetyWarnings,
+      isForChildren:
+        product.isForChildren === true ||
+        product.isForChildren === false
+          ? product.isForChildren
+          : null,
     });
 
     setError("");
@@ -1742,6 +1770,31 @@ export default function AdminProductEditForm({
             }}
           />
         </label>
+      </section>
+
+      {/* =====================
+          GPSR (Reg. UE 2023/988)
+
+          Adminul poate corecta aceste date (ex. la cererea
+          vendorului prin suport), dar NU le completează
+          automat/nu inventează valori în locul vendorului.
+      ====================== */}
+
+      <section
+        style={{
+          display: "grid",
+          gap: 12,
+        }}
+      >
+        <ProductGpsrSection
+          form={form}
+          setForm={setForm}
+          vendorPreview={{
+            displayName: product?.vendor?.displayName || "",
+            address: product?.vendor?.address || "",
+            email: product?.vendor?.email || "",
+          }}
+        />
       </section>
 
       {/* =====================

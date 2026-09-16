@@ -24,6 +24,7 @@ export default function ProductModal({
   onSave,
   uploadFile,
   storeSlug,
+  vendorPreview,
 }) {
   const controller = useProductEditorController({
     open,
@@ -277,6 +278,7 @@ removeQuoteFieldOption={
           setPriceWarningConfirmed={
             setPriceWarningConfirmed
           }
+          vendorPreview={vendorPreview}
         />
             </div>
     </Modal>

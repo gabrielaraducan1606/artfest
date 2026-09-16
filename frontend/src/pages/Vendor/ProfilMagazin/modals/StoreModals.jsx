@@ -17,7 +17,14 @@ export default function StoreModals({
   categories,
   handleSaveProduct,
   storeSlug,
+  sellerData,
 }) {
+  const vendorPreview = {
+    displayName: sellerData?.displayName || "",
+    address: sellerData?.address || "",
+    email: sellerData?.publicEmail || sellerData?.email || "",
+  };
+
   return (
     <Suspense fallback={null}>
       <VendorGateModal
@@ -57,6 +64,7 @@ export default function StoreModals({
           return url;
         }}
         storeSlug={storeSlug}
+        vendorPreview={vendorPreview}
       />
     </Suspense>
   );

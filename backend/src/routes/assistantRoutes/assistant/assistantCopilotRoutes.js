@@ -502,6 +502,12 @@ const ACTIVE_INSIGHT_TYPES = new Set([
   "PRODUCT_BELOW_MIN_PRICE",
   "PRODUCT_NEEDS_RECALCULATION",
   "PRODUCT_OUT_OF_STOCK",
+  /*
+   * BATCH B (audit regression Vendor Assistant, 2026-09-07) -
+   * "sănătatea" listării de produs (insightsService.js).
+   */
+  "PRODUCT_HIDDEN_OR_INACTIVE",
+  "PRODUCT_INCOMPLETE_LISTING",
   "ORDER_NEEDS_ACTION",
   "QUOTE_REQUEST_UNANSWERED",
   "CUSTOMER_REQUEST_UNANSWERED",
@@ -588,6 +594,15 @@ function resolveAudience(req) {
 
   if (role === "VENDOR" || role === "ADMIN") {
     return role;
+  }
+
+  /*
+   * INFLUENCER (FAZA 2) - strict additiv, ramură nouă înainte de
+   * fallback-ul generic "USER" - GUEST/USER/VENDOR/ADMIN rămân
+   * neschimbate.
+   */
+  if (role === "INFLUENCER") {
+    return "INFLUENCER";
   }
 
   if (req.user?.sub) {

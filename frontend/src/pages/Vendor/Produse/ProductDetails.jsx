@@ -10,7 +10,10 @@ import React, {
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { api } from "../../../lib/api.js";
 import { SEO } from "../../../components/Seo/SeoProvider";
-import { humanizeOptionValue } from "../../../utils/optionLabels.js";
+import {
+  normalizeOptionChoice,
+  resolveOptionDisplayLabel,
+} from "../../../utils/optionLabels.js";
 import styles from "./ProductDetails.module.css";
 import {
   FaChevronLeft,
@@ -191,39 +194,14 @@ const emptyProdForm = {
 };
 
 /*
- * Label vizual pentru o valoare de variantă (ex. "brown_light").
- * Respectă un label explicit setat de vendor pe opțiune; altfel
- * folosește humanizarea generică. Nu atinge valoarea reală stocată
- * în selectedOptions.
+ * Label vizual pentru o valoare de variantă (ex. "grey_light").
+ * Nu atinge valoarea reală stocată în selectedOptions - vezi ordinea
+ * de rezolvare din resolveOptionDisplayLabel (label explicit pe
+ * opțiune -> label din schema câmpului -> constante canonice ->
+ * fallback determinist).
  */
 function getOptionDisplayLabel(field, rawValue) {
-  const value = rawValue === null || rawValue === undefined ? "" : String(rawValue);
-  if (!value) return "";
-
-  const values = Array.isArray(field?.options)
-    ? field.options
-    : Array.isArray(field?.values)
-      ? field.values
-      : [];
-
-  for (const rawOption of values) {
-    if (typeof rawOption === "string") {
-      if (rawOption === value) return humanizeOptionValue(rawOption);
-      continue;
-    }
-
-    const optionValue = String(
-      rawOption?.value || rawOption?.key || rawOption?.label || ""
-    );
-
-    if (optionValue === value) {
-      return rawOption?.label
-        ? String(rawOption.label)
-        : humanizeOptionValue(optionValue);
-    }
-  }
-
-  return humanizeOptionValue(value);
+  return resolveOptionDisplayLabel(rawValue, field);
 }
 
 function ProductDetailsSkeleton({ preview }) {
@@ -1536,24 +1514,55 @@ const onRequestQuote = useCallback(() => {
 
 const onStartPersonalizationAssistant =
   useCallback(() => {
+    // eslint-disable-next-line no-console
+    console.log(
+      "[PERSONALIZATION DEBUG] button handler fired",
+      {
+        productId: product?.id,
+        isOwner,
+        hasOrderOptions,
+        options:
+          topLevelOptionsSchema?.length,
+        custom:
+          topLevelCustomSchema?.length,
+        repeated:
+          repeatedGroups?.length,
+      }
+    );
+
     if (
       !product ||
       isOwner ||
       !hasOrderOptions
     ) {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[PERSONALIZATION DEBUG] guard blocked dispatch",
+        {
+          hasProduct: !!product,
+          isOwner,
+          hasOrderOptions,
+        }
+      );
+
       return;
     }
 
-    window.dispatchEvent(
-      new CustomEvent(
-        "artfest:personalization-start",
-        {
-          detail: {
+    const dispatchDetail = {
             productId:
               product.id,
 
             productTitle:
               product.title,
+
+            /*
+             * Folosit doar pentru UX-ul mesajului final
+             * (QUOTE_ONLY vs restul) - nu schimbă mecanismul
+             * de personalizare în sine.
+             */
+            orderMode:
+              product.orderMode ||
+              null,
 
             image:
               Array.isArray(
@@ -1592,9 +1601,26 @@ const onStartPersonalizationAssistant =
               customAnswers,
               repeatedGroupAnswers,
             },
-          },
+    };
+
+    // eslint-disable-next-line no-console
+    console.log(
+      "[PERSONALIZATION DEBUG] dispatching personalization-start",
+      dispatchDetail
+    );
+
+    window.dispatchEvent(
+      new CustomEvent(
+        "artfest:personalization-start",
+        {
+          detail: dispatchDetail,
         }
       )
+    );
+
+    // eslint-disable-next-line no-console
+    console.log(
+      "[PERSONALIZATION DEBUG] dispatch call returned"
     );
   }, [
     product,
@@ -3579,6 +3605,59 @@ const uploadCustomizationFile = useCallback(
             </div>
           )}
 
+          {product?.gpsr && (
+            <div
+              style={{
+                margin: "10px 0",
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1px solid rgba(0,0,0,0.08)",
+                background: "rgba(0,0,0,0.02)",
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              <strong style={{ display: "block", marginBottom: 4 }}>
+                Informații despre produs și siguranță
+              </strong>
+
+              {product.gpsr.manufacturer && (
+                <p style={{ margin: "4px 0" }}>
+                  <strong>Producător:</strong>{" "}
+                  {product.gpsr.manufacturer.name}
+                  {product.gpsr.manufacturer.address
+                    ? `, ${product.gpsr.manufacturer.address}`
+                    : ""}
+                  {product.gpsr.manufacturer.email
+                    ? ` — ${product.gpsr.manufacturer.email}`
+                    : ""}
+                </p>
+              )}
+
+              {product.gpsr.responsiblePerson && (
+                <p style={{ margin: "4px 0" }}>
+                  <strong>Persoană responsabilă în UE:</strong>{" "}
+                  {product.gpsr.responsiblePerson.name},{" "}
+                  {product.gpsr.responsiblePerson.address} —{" "}
+                  {product.gpsr.responsiblePerson.email}
+                </p>
+              )}
+
+              {product.gpsr.safetyWarnings && (
+                <p style={{ margin: "4px 0" }}>
+                  <strong>Avertismente de siguranță:</strong>{" "}
+                  {product.gpsr.safetyWarnings}
+                </p>
+              )}
+
+              {product.gpsr.isForChildren && (
+                <p style={{ margin: "4px 0" }}>
+                  Acest produs este destinat copiilor.
+                </p>
+              )}
+            </div>
+          )}
+
           {displayPrice != null && !isQuoteOnly && (
   <>
     {hasHomepageDiscount ? (
@@ -3764,41 +3843,28 @@ const uploadCustomizationFile = useCallback(
                 aria-label={field.label || "Opțiune produs"}
               >
                 {rawValues.map((rawOption, index) => {
-                  const option =
-                    typeof rawOption === "string"
-                      ? {
-                          value: rawOption,
-                          label: humanizeOptionValue(rawOption),
-                          colorHex: null,
-                          imageUrl: null,
-                          imageIndex: null,
-                          disabled: false,
-                        }
-                      : {
-                          value: String(
-                            rawOption?.value ||
-                              rawOption?.key ||
-                              rawOption?.label ||
-                              ""
-                          ),
-                          label: rawOption?.label
-                            ? String(rawOption.label)
-                            : humanizeOptionValue(
-                                rawOption?.value || rawOption?.key || ""
-                              ),
-                          colorHex:
-                            rawOption?.colorHex ||
-                            rawOption?.color ||
-                            null,
-                          imageUrl:
-                            rawOption?.imageUrl ||
-                            rawOption?.image ||
-                            null,
-                          imageIndex: Number.isInteger(rawOption?.imageIndex)
-                            ? rawOption.imageIndex
-                            : null,
-                          disabled: !!rawOption?.disabled,
-                        };
+                  const choice = normalizeOptionChoice(rawOption);
+
+                  const option = {
+                    value: choice.value,
+                    label: choice.label,
+
+                    colorHex:
+                      rawOption?.colorHex ||
+                      rawOption?.color ||
+                      null,
+
+                    imageUrl:
+                      rawOption?.imageUrl ||
+                      rawOption?.image ||
+                      null,
+
+                    imageIndex: Number.isInteger(rawOption?.imageIndex)
+                      ? rawOption.imageIndex
+                      : null,
+
+                    disabled: !!rawOption?.disabled,
+                  };
 
                   if (!option.value) return null;
 

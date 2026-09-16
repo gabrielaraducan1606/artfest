@@ -1220,21 +1220,27 @@ export function getOptionPresets(
 ) {
   return res.json({
     colors: COLORS_DETAILED.map(
-      (item) =>
-        item.label ||
-        item.name ||
-        item.key ||
-        item.value
-    ).filter(Boolean),
-
-    materials:
-      MATERIALS_DETAILED.map(
-        (item) =>
+      (item) => ({
+        value: item.key || item.value,
+        label:
           item.label ||
           item.name ||
           item.key ||
-          item.value
-      ).filter(Boolean),
+          item.value,
+      })
+    ).filter((item) => item.value),
+
+    materials:
+      MATERIALS_DETAILED.map(
+        (item) => ({
+          value: item.key || item.value,
+          label:
+            item.label ||
+            item.name ||
+            item.key ||
+            item.value,
+        })
+      ).filter((item) => item.value),
 
     scents: [
       "Lavandă",

@@ -490,7 +490,7 @@
   box-shadow: none;
 }
 
-.bodyText { white-space: pre-wrap; }
+.bodyText { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 
 .meta {
   margin-top: 6px;
@@ -510,6 +510,29 @@
 .readTickRead { color: color-mix(in srgb, #fff 90%, transparent); }
 .readTickPending { font-size: 11px; color: var(--color-muted); }
 .readTickFailed { font-size: 11px; color: var(--color-danger); }
+
+/* ETAPA 6: retry pe mesaj failed - padding+margin negativ mărește zona
+   de tap fără să strice layout-ul rândului de meta. */
+.msgRetryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 6px 4px;
+  margin: -6px -4px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-danger);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.msgRetryBtn:hover,
+.msgRetryBtn:focus-visible {
+  opacity: 0.8;
+}
 
 /* ============ Acțiuni mesaj ============ */
 .msgActions {
@@ -911,6 +934,9 @@
 
 @media (max-width: 768px) {
   .wrap {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+
     flex-direction: column;
     max-width: 100%;
     margin: 0;
@@ -920,6 +946,8 @@
     border-right: none;
     height: 100vh;
     max-height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
   }
 
   .sidebar {
@@ -957,6 +985,8 @@
     max-width: 100%;
     height: 80vh;
     max-height: 80vh;
+    height: 80dvh;
+    max-height: 80dvh;
     background: var(--chat-bg);
     display: flex;
     flex-direction: column;
@@ -971,6 +1001,14 @@
     pointer-events: none;
     transition: transform 0.2s ease-out, opacity 0.2s ease-out;
     z-index: 10001;
+  }
+
+  .composer {
+    position: sticky;
+    bottom: 0;
+    z-index: 6;
+    padding: 10px 10px calc(10px + var(--safe-bottom));
+    background: var(--surface);
   }
 
   .wrap[data-mobile-open="1"] .chat {

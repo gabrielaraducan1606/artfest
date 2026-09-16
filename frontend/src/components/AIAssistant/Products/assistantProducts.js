@@ -84,8 +84,24 @@ const VISUAL_REFINEMENT_CHOICES =
  * widget-ul de client, unde acest parametru rămâne true, cuvintele
  * astea n-ar apărea într-o cerere de cumpărare oricum).
  */
-const OWN_ENTITY_ACTION_RE =
+export const OWN_ENTITY_ACTION_RE =
   /\b(produsul|produsului|pretul|pretului|stocul|stocului|comanda mea|comenzii mele|costul|costului)\b/;
+
+/*
+ * BUGFIX (audit, regresie "vreau ajutor" -> shopping flow, VENDOR) -
+ * productSearchRe (mai jos) prinde "vreau" ca substring simplu, fără
+ * nicio graniță semantică - "vreau ajutor"/"vreau suport"/"am o
+ * problemă" treceau drept căutare de produs, pentru că "vreau" apărea
+ * în text, indiferent de restul propoziției. Exportat, ca să poată fi
+ * reutilizat și de VendorAssistant.jsx pentru a ÎNTRERUPE un flow de
+ * marketplace deja activ (handleSubmit) - nu doar la pornire.
+ *
+ * NU scoatem "vreau" din productSearchRe (ar rupe "vreau un cadou"/
+ * "vreau o lumânare") - adăugăm doar o excludere ÎNAINTEA lui, pentru
+ * formulările explicite de ajutor/suport/problemă.
+ */
+export const HELP_SUPPORT_INTENT_RE =
+  /\b(vreau\s+(ajutor|suport)|am\s+nevoie\s+de\s+(ajutor|suport)|ajuta\s+ma|vorbesc\s+cu\s+suportul|am\s+o\s+problema)\b/;
 
 /*
  * BUGFIX (audit) - două confuzii semantice GENERALE, nu specifice
@@ -143,8 +159,8 @@ export function detectMaxPriceCentsFromText(text = "") {
 const CREATION_INTENT_RE =
   /\b(adaug|adauga|creez|creeaza|creaza|listez|listeaza|public|publica)\b[\s\w]{0,25}\bprodus/;
 
-const OWN_VENDOR_DATA_RE =
-  /(produsele mele|produsul meu|produse[\s\w]{0,15}\b(sub|peste|fara)\b|comenzile mele|comand[aă]\s+(mea|mele)|comenzi\s+(care|ce)\s+necesit|recalcul|biblioteca de costuri|costuri\s+si\s+profit)/;
+export const OWN_VENDOR_DATA_RE =
+  /(produsele mele|produsul meu|produse[\s\w]{0,15}\b(sub|peste|fara)\b|comenzile mele|comand[aă]\s+(mea|mele)|comenzi\s+(care|ce)\s+necesit|cate\s+comenzi|comenzi\s+am|recalcul|biblioteca de costuri|costuri\s+si\s+profit)/;
 
 /*
  * BUGFIX (raportat manual, doar VENDOR): "Ce recomandări ai pentru
@@ -189,6 +205,17 @@ export function detectMarketplaceIntent(
     CREATION_INTENT_RE.test(normalized) ||
     OWN_VENDOR_DATA_RE.test(normalized)
   ) {
+    return null;
+  }
+
+  /*
+   * BUGFIX (audit, regresie "vreau ajutor" -> shopping flow) - verificat
+   * ÎNAINTE de productSearchRe (mai jos), care altfel prinde "vreau" ca
+   * substring simplu ("vreau ajutor" conține "vreau"). Necondiționat de
+   * includeGenericProductWords - o cerere de ajutor/suport nu e
+   * căutare de produs pentru NICIO audiență.
+   */
+  if (HELP_SUPPORT_INTENT_RE.test(normalized)) {
     return null;
   }
 

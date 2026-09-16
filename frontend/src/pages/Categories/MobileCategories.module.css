@@ -9,61 +9,143 @@
 .page {
   width: 100%;
 
-  min-height:
-    calc(
-      100vh -
-      var(--appbar-h, 57px)
-    );
+  min-height: calc(
+    100vh -
+    var(--appbar-h, 57px)
+  );
 
-  padding-bottom:
-    calc(
-      28px +
-      var(--bottombar-h, 64px) +
-      env(safe-area-inset-bottom)
-    );
-
-  background:
-    var(--color-bg);
-
-  color:
-    var(--color-text);
-
-  overscroll-behavior:
-    contain;
-}
-
-/* =========================================================
-   HERO
-========================================================= */
-
-.hero {
-  padding:
-    24px
-    18px
-    18px;
+  padding-bottom: calc(
+    28px +
+    var(--bottombar-h, 64px) +
+    env(safe-area-inset-bottom)
+  );
 
   background:
     linear-gradient(
       180deg,
       color-mix(
         in srgb,
-        var(--color-primary) 7%,
-        var(--surface)
-      ),
-      var(--color-bg)
+        var(--color-primary) 3%,
+        var(--color-bg)
+      ) 0,
+      var(--color-bg) 230px
     );
+
+  color: var(--color-text);
+
+  overflow: visible;
 }
 
-.eyebrow {
-  display: block;
 
-  margin-bottom: 7px;
+/* =========================================================
+   HERO
+========================================================= */
+
+.hero {
+  position: relative;
+
+  width: 100%;
+  max-width: 1200px;
+
+  margin: 0 auto;
+
+  padding:
+    30px
+    18px
+    23px;
+
+  overflow: hidden;
+}
+
+
+.hero::before {
+  content: "";
+
+  position: absolute;
+
+  top: -90px;
+  right: -90px;
+
+  width: 220px;
+  height: 220px;
+
+  border-radius: 50%;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-primary) 9%,
+      transparent
+    );
+
+  filter: blur(6px);
+
+  pointer-events: none;
+}
+
+
+.hero::after {
+  content: "";
+
+  position: absolute;
+
+  left: -100px;
+  bottom: -120px;
+
+  width: 200px;
+  height: 200px;
+
+  border-radius: 50%;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-primary) 4%,
+      transparent
+    );
+
+  pointer-events: none;
+}
+
+
+.eyebrow {
+  position: relative;
+  z-index: 1;
+
+  display: inline-flex;
+
+  align-items: center;
+
+  min-height: 26px;
+
+  margin-bottom: 10px;
+
+  padding:
+    0
+    10px;
+
+  border:
+    1px solid
+    color-mix(
+      in srgb,
+      var(--color-primary) 15%,
+      transparent
+    );
+
+  border-radius: 999px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-primary) 7%,
+      var(--surface)
+    );
 
   color:
     var(--color-primary);
 
   font-size:
-    0.68rem;
+    0.65rem;
 
   font-weight:
     900;
@@ -75,24 +157,30 @@
     uppercase;
 
   letter-spacing:
-    0.12em;
+    0.11em;
 }
 
+
 .pageTitle {
+  position: relative;
+  z-index: 1;
+
   margin: 0;
+
+  max-width: 620px;
 
   font-family:
     var(--font-title);
 
   font-size:
     clamp(
-      1.75rem,
+      1.8rem,
       7vw,
-      2.25rem
+      2.6rem
     );
 
   line-height:
-    1.05;
+    1.03;
 
   font-weight:
     900;
@@ -104,12 +192,16 @@
     -0.045em;
 }
 
+
 .pageIntro {
+  position: relative;
+  z-index: 1;
+
   max-width:
-    520px;
+    560px;
 
   margin:
-    10px
+    11px
     0
     0;
 
@@ -117,22 +209,19 @@
     var(--color-muted);
 
   font-size:
-    0.86rem;
+    0.88rem;
 
   line-height:
-    1.55;
+    1.58;
 }
+
 
 /* =========================================================
    TABS
 ========================================================= */
 
 .tabs {
-  position:
-    sticky;
-
-  z-index:
-    20;
+  position: sticky;
 
   top:
     var(
@@ -140,41 +229,52 @@
       57px
     );
 
-  display:
-    flex;
+  z-index: 30;
 
-  align-items:
-    center;
+  display: flex;
 
-  width:
-    100%;
+  align-items: center;
+
+  width: 100%;
+
+  max-width: 1200px;
+
+  margin: 0 auto;
 
   padding:
     8px
     12px;
 
-  gap:
-    6px;
+  gap: 6px;
 
-  overflow-x:
-    auto;
+  overflow-x: auto;
+  overflow-y: hidden;
 
-  overflow-y:
-    hidden;
+  touch-action:
+    pan-x pan-y;
+
+  border:
+    1px solid
+    color-mix(
+      in srgb,
+      var(--color-border) 80%,
+      transparent
+    );
+
+  border-left: 0;
+  border-right: 0;
 
   background:
     color-mix(
       in srgb,
-      var(--surface) 94%,
+      var(--surface) 92%,
       transparent
     );
 
-  border-bottom:
-    1px solid
-    var(--color-border);
-
   box-shadow:
-    0 4px 14px
+    0
+    6px
+    22px
     rgba(
       0,
       0,
@@ -183,21 +283,25 @@
     );
 
   backdrop-filter:
-    blur(12px);
+    blur(16px);
 
   -webkit-backdrop-filter:
-    blur(12px);
+    blur(16px);
 
-  scrollbar-width:
-    none;
+  scrollbar-width: none;
 
-  -webkit-overflow-scrolling:
-    touch;
+  -webkit-overflow-scrolling: touch;
 }
+
 
 .tabs::-webkit-scrollbar {
   display: none;
 }
+
+
+/* =========================================================
+   TAB
+========================================================= */
 
 .tab {
   flex:
@@ -206,14 +310,23 @@
     auto;
 
   min-width:
-    78px;
+    80px;
 
   min-height:
-    38px;
+    40px;
+
+  display:
+    inline-flex;
+
+  align-items:
+    center;
+
+  justify-content:
+    center;
 
   padding:
     0
-    13px;
+    14px;
 
   border:
     1px solid
@@ -232,10 +345,13 @@
     var(--font-body);
 
   font-size:
-    0.76rem;
+    0.75rem;
 
   font-weight:
     800;
+
+  line-height:
+    1;
 
   white-space:
     nowrap;
@@ -243,35 +359,46 @@
   cursor:
     pointer;
 
+  -webkit-tap-highlight-color:
+    transparent;
+
   transition:
     background 0.18s ease,
     color 0.18s ease,
     border-color 0.18s ease,
+    box-shadow 0.18s ease,
     transform 0.18s ease;
 }
 
+
 .tab:hover {
+  color:
+    var(--color-primary);
+
   background:
     color-mix(
       in srgb,
       var(--color-primary) 6%,
       var(--surface)
     );
-
-  color:
-    var(--color-primary);
 }
+
 
 .tab:active {
   transform:
     scale(0.97);
 }
 
+
+/* =========================================================
+   TAB ACTIV
+========================================================= */
+
 .tabActive {
   border-color:
     color-mix(
       in srgb,
-      var(--color-primary) 25%,
+      var(--color-primary) 50%,
       transparent
     );
 
@@ -282,7 +409,9 @@
     #ffffff;
 
   box-shadow:
-    0 6px 16px
+    0
+    6px
+    18px
     color-mix(
       in srgb,
       var(--color-primary) 20%,
@@ -290,152 +419,203 @@
     );
 }
 
+
 .tabActive:hover {
   background:
-    var(--color-hover);
+    var(--color-primary);
 
   color:
     #ffffff;
 }
+
 
 /* =========================================================
    PANEL
 ========================================================= */
 
 .panel {
-  width:
-    100%;
+  width: 100%;
 
-  max-width:
-    980px;
+  max-width: 980px;
 
-  margin:
-    0 auto;
+  margin: 0 auto;
 
   padding:
-    22px
+    24px
     16px
     20px;
+
+  overflow: visible;
 }
+
 
 /* =========================================================
    EMBEDDED MARKETPLACE
-   PRODUSE + MAGAZINE + DIGITALE
 ========================================================= */
 
 .marketplacePanel {
-  width:
-    100%;
+  width: 100%;
 
-  max-width:
-    1200px;
+  max-width: 1200px;
 
-  margin:
-    0 auto;
+  margin: 0 auto;
 
   padding:
-    8px
+    10px
     0
-    20px;
+    24px;
+
+  overflow: visible;
 }
+
 
 .productsEmbed,
 .storesEmbed,
 .digitalEmbed {
-  width:
-    100%;
+  width: 100%;
 
-  min-width:
-    0;
+  min-width: 0;
+
+  overflow: visible;
+
+  animation:
+    marketplaceFadeIn
+    0.24s
+    ease;
 }
+
 
 .productsEmbed > *,
 .storesEmbed > *,
 .digitalEmbed > * {
-  width:
-    100%;
+  width: 100%;
 
-  min-width:
-    0;
+  min-width: 0;
 }
+
 
 /* =========================================================
    SERVICII INDISPONIBILE
 ========================================================= */
 
 .unavailableState {
-  width:
-    100%;
+  position: relative;
 
-  max-width:
-    620px;
+  width: 100%;
+
+  max-width: 620px;
 
   margin:
-    18px
+    16px
     auto
     0;
 
   padding:
-    34px
-    24px;
+    40px
+    28px;
 
-  display:
-    flex;
+  display: flex;
 
-  flex-direction:
-    column;
+  flex-direction: column;
 
-  align-items:
-    center;
+  align-items: center;
 
-  text-align:
-    center;
+  text-align: center;
+
+  overflow: hidden;
 
   border:
     1px solid
-    var(--color-border);
+    color-mix(
+      in srgb,
+      var(--color-primary) 10%,
+      var(--color-border)
+    );
 
   border-radius:
-    24px;
+    28px;
 
   background:
     linear-gradient(
       145deg,
       color-mix(
         in srgb,
-        var(--color-primary) 6%,
+        var(--color-primary) 5%,
         var(--surface)
       ),
       var(--surface)
+      58%
     );
 
   box-shadow:
-    var(--shadow-sm);
+    0
+    14px
+    36px
+    rgba(
+      0,
+      0,
+      0,
+      0.055
+    );
+
+  animation:
+    marketplaceFadeIn
+    0.24s
+    ease;
 }
 
-.unavailableIcon {
-  width:
-    58px;
 
-  height:
-    58px;
+.unavailableState::before {
+  content: "";
 
-  display:
-    grid;
+  position: absolute;
 
-  place-items:
-    center;
+  width: 190px;
 
-  margin-bottom:
-    14px;
+  height: 190px;
 
-  border-radius:
-    18px;
+  top: -100px;
+
+  right: -70px;
+
+  border-radius: 50%;
 
   background:
     color-mix(
       in srgb,
-      var(--color-primary) 10%,
+      var(--color-primary) 8%,
+      transparent
+    );
+
+  pointer-events: none;
+}
+
+
+/* =========================================================
+   ICON SERVICII
+========================================================= */
+
+.unavailableIcon {
+  position: relative;
+
+  z-index: 1;
+
+  width: 62px;
+
+  height: 62px;
+
+  display: grid;
+
+  place-items: center;
+
+  margin-bottom: 16px;
+
+  border-radius: 20px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-primary) 9%,
       var(--surface)
     );
 
@@ -449,20 +629,38 @@
     1px solid
     color-mix(
       in srgb,
-      var(--color-primary) 18%,
+      var(--color-primary) 16%,
+      transparent
+    );
+
+  box-shadow:
+    0
+    7px
+    20px
+    color-mix(
+      in srgb,
+      var(--color-primary) 7%,
       transparent
     );
 }
 
+
+/* =========================================================
+   SERVICII TEXT
+========================================================= */
+
 .unavailableEyebrow {
-  margin-bottom:
-    7px;
+  position: relative;
+
+  z-index: 1;
+
+  margin-bottom: 8px;
 
   color:
     var(--color-primary);
 
   font-size:
-    0.68rem;
+    0.65rem;
 
   font-weight:
     900;
@@ -471,15 +669,18 @@
     uppercase;
 
   letter-spacing:
-    0.1em;
+    0.12em;
 }
 
-.unavailableTitle {
-  max-width:
-    480px;
 
-  margin:
-    0;
+.unavailableTitle {
+  position: relative;
+
+  z-index: 1;
+
+  max-width: 480px;
+
+  margin: 0;
 
   color:
     var(--color-text);
@@ -488,7 +689,11 @@
     var(--font-title);
 
   font-size:
-    1.45rem;
+    clamp(
+      1.35rem,
+      5vw,
+      1.65rem
+    );
 
   font-weight:
     900;
@@ -500,12 +705,16 @@
     -0.035em;
 }
 
+
 .unavailableText {
-  max-width:
-    500px;
+  position: relative;
+
+  z-index: 1;
+
+  max-width: 500px;
 
   margin:
-    12px
+    13px
     0
     0;
 
@@ -516,24 +725,34 @@
     0.82rem;
 
   line-height:
-    1.6;
+    1.65;
 }
 
+
+/* =========================================================
+   BADGE
+========================================================= */
+
 .unavailableBadge {
+  position: relative;
+
+  z-index: 1;
+
   display:
     inline-flex;
 
-  align-items:
-    center;
+  align-items: center;
 
-  justify-content:
-    center;
+  justify-content: center;
 
   margin-top:
-    18px;
+    20px;
+
+  min-height:
+    31px;
 
   padding:
-    8px
+    0
     13px;
 
   border-radius:
@@ -542,7 +761,7 @@
   background:
     color-mix(
       in srgb,
-      var(--color-primary) 8%,
+      var(--color-primary) 7%,
       var(--surface)
     );
 
@@ -550,7 +769,7 @@
     1px solid
     color-mix(
       in srgb,
-      var(--color-primary) 18%,
+      var(--color-primary) 15%,
       var(--color-border)
     );
 
@@ -558,76 +777,105 @@
     var(--color-primary);
 
   font-size:
-    0.7rem;
+    0.68rem;
 
   font-weight:
     850;
+
+  letter-spacing:
+    0.01em;
 }
+
 
 /* =========================================================
    EMPTY STATE
 ========================================================= */
 
 .emptyState {
-  display:
-    flex;
+  display: flex;
 
-  flex-direction:
-    column;
+  flex-direction: column;
 
-  align-items:
-    center;
+  align-items: center;
 
-  justify-content:
-    center;
+  justify-content: center;
 
-  gap:
-    10px;
+  gap: 10px;
 
   min-height:
-    140px;
+    150px;
 
   padding:
-    22px;
+    24px;
 
   border:
     1px dashed
-    var(--color-border);
+    color-mix(
+      in srgb,
+      var(--color-primary) 20%,
+      var(--color-border)
+    );
 
   border-radius:
-    20px;
+    22px;
 
   background:
-    var(--surface);
+    color-mix(
+      in srgb,
+      var(--color-primary) 2%,
+      var(--surface)
+    );
 
   color:
     var(--color-muted);
 
-  text-align:
-    center;
+  text-align: center;
 }
+
 
 .emptyState svg {
   color:
     var(--color-primary);
 
   font-size:
-    1.35rem;
+    1.4rem;
 }
 
+
 .emptyState p {
-  margin:
-    0;
+  margin: 0;
 
   font-size:
     0.78rem;
 
   line-height:
-    1.4;
+    1.45;
 }
 
+
 /* =========================================================
-   TABLET / DESKTOP
+   ANIMATION
+========================================================= */
+
+@keyframes marketplaceFadeIn {
+  from {
+    opacity: 0;
+
+    transform:
+      translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+
+    transform:
+      translateY(0);
+  }
+}
+
+
+/* =========================================================
+   TABLET
 ========================================================= */
 
 @media (
@@ -635,23 +883,101 @@
 ) {
   .hero {
     padding:
-      30px
+      38px
       28px
-      22px;
-  }
-
-  .panel {
-    padding:
       28px;
   }
 
+
+  .pageIntro {
+    font-size:
+      0.92rem;
+  }
+
+
+  .tabs {
+    padding:
+      9px
+      20px;
+
+    gap: 8px;
+  }
+
+
+  .tab {
+    min-height:
+      42px;
+
+    font-size:
+      0.78rem;
+
+    padding:
+      0
+      18px;
+  }
+
+
+  .panel {
+    padding:
+      30px
+      28px;
+  }
+
+
   .marketplacePanel {
     padding:
-      8px
+      12px
       0
-      20px;
+      26px;
+  }
+
+
+  .unavailableState {
+    padding:
+      48px
+      38px;
   }
 }
+
+
+/* =========================================================
+   DESKTOP
+========================================================= */
+
+@media (
+  min-width: 1024px
+) {
+  .hero {
+    padding-top:
+      42px;
+
+    padding-bottom:
+      30px;
+  }
+
+
+  .tabs {
+    border-radius:
+      16px;
+
+    border-left:
+      1px solid
+      var(--color-border);
+
+    border-right:
+      1px solid
+      var(--color-border);
+  }
+
+
+  .tab {
+    flex:
+      0
+      1
+      180px;
+  }
+}
+
 
 /* =========================================================
    MOBILE
@@ -660,56 +986,154 @@
 @media (
   max-width: 768px
 ) {
+  .hero {
+    padding:
+      24px
+      16px
+      19px;
+  }
+
+
+  .eyebrow {
+    min-height:
+      24px;
+
+    padding:
+      0
+      9px;
+
+    margin-bottom:
+      9px;
+
+    font-size:
+      0.6rem;
+  }
+
+
+  .pageTitle {
+    font-size:
+      clamp(
+        1.75rem,
+        8vw,
+        2.15rem
+      );
+  }
+
+
+  .pageIntro {
+    max-width:
+      440px;
+
+    margin-top:
+      9px;
+
+    font-size:
+      0.81rem;
+
+    line-height:
+      1.52;
+  }
+
+
+  .tabs {
+    padding:
+      7px
+      9px;
+
+    gap:
+      5px;
+  }
+
+
+  .tab {
+    min-width:
+      76px;
+
+    min-height:
+      38px;
+
+    padding:
+      0
+      12px;
+
+    font-size:
+      0.72rem;
+  }
+
+
   .marketplacePanel {
     padding:
-      4px
+      5px
       0
-      16px;
+      18px;
   }
+
 
   .productsEmbed,
   .storesEmbed,
   .digitalEmbed {
     width:
       100%;
+
+    overflow: visible;
   }
+
 
   .unavailableState {
     margin-top:
-      8px;
+      7px;
 
     padding:
-      28px
-      18px;
+      32px
+      19px;
 
     border-radius:
-      20px;
+      22px;
   }
+
 
   .unavailableIcon {
     width:
-      52px;
+      54px;
 
     height:
-      52px;
+      54px;
+
+    margin-bottom:
+      14px;
 
     border-radius:
-      16px;
+      17px;
 
     font-size:
       1.15rem;
   }
 
+
   .unavailableTitle {
     font-size:
-      1.25rem;
+      1.28rem;
   }
 
+
   .unavailableText {
+    margin-top:
+      11px;
+
     font-size:
       0.78rem;
+
+    line-height:
+      1.58;
+  }
+
+
+  .unavailableBadge {
+    margin-top:
+      17px;
   }
 }
+
 
 /* =========================================================
    TELEFOANE MICI
@@ -720,101 +1144,152 @@
 ) {
   .hero {
     padding:
-      20px
+      21px
       13px
-      16px;
+      17px;
   }
+
+
+  .pageTitle {
+    font-size:
+      1.7rem;
+  }
+
+
+  .pageIntro {
+    font-size:
+      0.77rem;
+  }
+
+
+  .tabs {
+    padding-left:
+      7px;
+
+    padding-right:
+      7px;
+
+    gap:
+      4px;
+  }
+
+
+  .tab {
+    min-width:
+      70px;
+
+    min-height:
+      36px;
+
+    padding:
+      0
+      9px;
+
+    font-size:
+      0.68rem;
+  }
+
 
   .panel {
     padding:
       18px
-      11px
-      18px;
+      11px;
   }
+
 
   .marketplacePanel {
     padding:
       4px
       0
-      14px;
-  }
-
-  .tabs {
-    padding-left:
-      8px;
-
-    padding-right:
-      8px;
-  }
-
-  .tab {
-    min-width:
-      72px;
-
-    padding:
-      0
-      10px;
-
-    font-size:
-      0.7rem;
-  }
-
-  .unavailableState {
-    padding:
-      24px
       15px;
   }
 
+
+  .unavailableState {
+    padding:
+      27px
+      15px;
+  }
+
+
   .unavailableTitle {
     font-size:
-      1.12rem;
+      1.16rem;
   }
+
 
   .unavailableText {
     font-size:
-      0.75rem;
+      0.74rem;
   }
+
 
   .unavailableBadge {
     margin-top:
       15px;
 
+    min-height:
+      29px;
+
     padding:
-      7px
+      0
       11px;
 
     font-size:
-      0.66rem;
+      0.64rem;
   }
 }
+
 
 /* =========================================================
    DARK MODE
 ========================================================= */
 
 html[data-theme="dark"]
+.page {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(
+        in srgb,
+        var(--color-primary) 3%,
+        var(--color-bg)
+      ),
+      var(--color-bg)
+      230px
+    );
+}
+
+
+html[data-theme="dark"]
 .tabs {
   box-shadow:
-    0 4px 18px
+    0
+    6px
+    24px
     rgba(
       0,
       0,
       0,
-      0.25
+      0.22
     );
 }
+
 
 html[data-theme="dark"]
 .unavailableState {
   box-shadow:
-    0 8px 22px
+    0
+    12px
+    30px
     rgba(
       0,
       0,
       0,
-      0.16
+      0.17
     );
 }
+
 
 /* =========================================================
    ACCESSIBILITY
@@ -826,8 +1301,9 @@ html[data-theme="dark"]
     var(--color-primary);
 
   outline-offset:
-    3px;
+    2px;
 }
+
 
 /* =========================================================
    REDUCED MOTION
@@ -839,6 +1315,15 @@ html[data-theme="dark"]
 ) {
   .tab {
     transition:
+      none;
+  }
+
+
+  .productsEmbed,
+  .storesEmbed,
+  .digitalEmbed,
+  .unavailableState {
+    animation:
       none;
   }
 }

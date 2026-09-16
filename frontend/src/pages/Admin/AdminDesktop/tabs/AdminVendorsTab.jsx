@@ -302,6 +302,37 @@ export default function AdminVendorsTab({ vendors }) {
     }
   };
 
+  /*
+   * Salvează Vendor.referralCommissionBps - ADMIN-only (vezi
+   * PATCH /api/admin/vendors/:id/referral-commission din
+   * adminRoutes.js). Nu există nicio rută prin care vendorul să
+   * apeleze acest endpoint - protejat de router.use(authRequired,
+   * requireRole("ADMIN")) la nivelul întregului fișier admin.
+   */
+  const handleSaveReferralCommission = async (vendor, referralCommissionBps) => {
+    setActionError("");
+    setBusyId(vendor.id);
+
+    try {
+      const resp = await api(`/api/admin/vendors/${vendor.id}/referral-commission`, {
+        method: "PATCH",
+        body: { referralCommissionBps },
+      });
+
+      if (resp?.vendor) updateVendorInState({ ...vendor, ...resp.vendor });
+
+      return resp?.vendor;
+    } catch (e) {
+      const message =
+        e?.data?.message || e?.data?.error || e?.message || "Nu am putut salva comisionul de referral.";
+
+      setActionError(message);
+      throw new Error(message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   if (!localVendors?.length) {
     return <p className={styles.subtle}>Nu există vendori sau nu au fost încărcați încă.</p>;
   }
@@ -491,6 +522,7 @@ export default function AdminVendorsTab({ vendors }) {
           onSendReset={handleSendReset}
           onForceAgreementsReset={handleForceAgreementsReset}
           onStripeSync={handleStripeSync}
+          onSaveReferralCommission={handleSaveReferralCommission}
         />
       )}
     </>
@@ -506,7 +538,28 @@ function VendorDetailsDrawer({
   onSendReset,
   onForceAgreementsReset,
   onStripeSync,
+  onSaveReferralCommission,
 }) {
+  /*
+   * Hook-uri ÎNAINTEA oricărui return condiționat (vendor poate fi
+   * null/undefined pentru o fracțiune de randare) - Rules of Hooks.
+   * Editorul de comision referral e resetat de fiecare dată când se
+   * schimbă vendorul selectat sau când valoarea salvată se schimbă
+   * (ex. după alt admin/tab), ca să nu rămână un input "murdar" pe
+   * ecran cu date vechi.
+   */
+  const [referralPercentInput, setReferralPercentInput] = useState("0");
+  const [referralSaving, setReferralSaving] = useState(false);
+  const [referralError, setReferralError] = useState("");
+  const [referralSuccess, setReferralSuccess] = useState("");
+
+  useEffect(() => {
+    const bps = Number(vendor?.referralCommissionBps || 0);
+    setReferralPercentInput(String(bps / 100));
+    setReferralError("");
+    setReferralSuccess("");
+  }, [vendor?.id, vendor?.referralCommissionBps]);
+
   if (!vendor || typeof document === "undefined") return null;
 
   const billing = vendor.billing;
@@ -516,6 +569,41 @@ function VendorDetailsDrawer({
   const stripeConnected = !!vendor.stripeAccountId;
   const isBusiness = billing?.sellerType === "verified_business";
   const isIndependent = billing?.sellerType === "independent_creator";
+
+  const currentReferralBps = Number(vendor.referralCommissionBps || 0);
+
+  const parsedReferralPercent = Number(referralPercentInput);
+
+  const referralPercentValid =
+    referralPercentInput.trim() !== "" &&
+    Number.isFinite(parsedReferralPercent) &&
+    parsedReferralPercent >= 0 &&
+    parsedReferralPercent <= 100;
+
+  const referralDirty =
+    referralPercentValid && Math.round(parsedReferralPercent * 100) !== currentReferralBps;
+
+  async function saveReferralCommission() {
+    if (!referralPercentValid) {
+      setReferralError("Introdu un procent între 0 și 100.");
+      return;
+    }
+
+    const nextBps = Math.round(parsedReferralPercent * 100);
+
+    setReferralSaving(true);
+    setReferralError("");
+    setReferralSuccess("");
+
+    try {
+      await onSaveReferralCommission?.(vendor, nextBps);
+      setReferralSuccess("Comisionul de referral a fost salvat.");
+    } catch (e) {
+      setReferralError(e?.message || "Nu am putut salva comisionul de referral.");
+    } finally {
+      setReferralSaving(false);
+    }
+  }
 
   const node = (
     <div className={styles.drawerOverlay} onClick={onClose}>
@@ -880,6 +968,63 @@ function VendorDetailsDrawer({
                 </div>
               </>
             )}
+          </section>
+
+          <section className={styles.drawerSection}>
+            <h4>Referral (vendor promotor)</h4>
+
+            <div className={styles.drawerField}>
+              <span>Cod de recomandare</span>
+              <span>{vendor.referralCode ? <code>{vendor.referralCode}</code> : "Nesetat încă (generat de vendor)"}</span>
+            </div>
+
+            <div className={styles.drawerField}>
+              <span>Comision referral curent</span>
+              <span>
+                {currentReferralBps > 0
+                  ? `${(currentReferralBps / 100).toLocaleString("ro-RO")}%`
+                  : "Implicit platformă (20%)"}
+              </span>
+            </div>
+
+            {referralError && <div className={styles.error}>{referralError}</div>}
+            {referralSuccess && <div className={styles.success}>{referralSuccess}</div>}
+
+            <div className={styles.referralEditRow}>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                className={styles.referralPercentInput}
+                value={referralPercentInput}
+                disabled={referralSaving}
+                onChange={(e) => {
+                  setReferralPercentInput(e.target.value);
+                  setReferralError("");
+                  setReferralSuccess("");
+                }}
+                aria-label="Comision referral (%)"
+              />
+
+              <span>%</span>
+
+              <button
+                type="button"
+                className={styles.drawerBtnSecondary}
+                disabled={referralSaving || !referralDirty}
+                onClick={saveReferralCommission}
+              >
+                {referralSaving ? "Se salvează…" : "Salvează"}
+              </button>
+            </div>
+
+            <p className={styles.referralHint}>
+              Procentul se aplică din marja Artfest rămasă (platformNet) pe comenzile în care acest vendor a fost
+              promotor pentru produse ale altor vendori - NU din prețul produsului. 0% = foloseşte valoarea implicită
+              de platformă (20%); setează o valoare explicită doar dacă acest vendor trebuie să aibă alt procent
+              (promovarea propriilor produse nu depinde de acest procent).
+            </p>
           </section>
 
           <section className={styles.drawerSection}>

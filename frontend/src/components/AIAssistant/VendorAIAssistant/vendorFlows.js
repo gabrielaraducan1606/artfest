@@ -198,18 +198,38 @@ AI-ul va pregăti un draft, iar echipa Artfest te poate ajuta să îl finalizezi
     return true;
   }
 
+  /*
+   * FIX regresie (bug pre-existent, nu introdus de fazele Support) -
+   * acest placeholder era scris ÎNAINTE ca sistemul real de suport
+   * AI-first (supportEscalationService.js/handleSupportIntelligence,
+   * FAZA 8-10) să existe și nu fusese niciodată reconectat. "Ajutor"
+   * intră acum DIRECT în pipeline-ul normal de chat liber - NU
+   * pornește un flow separat de clasificare (nu există aici, în
+   * vendorFlows.js, niciun cod de clasificare nou) - doar arată un
+   * mesaj scurt, invitațional, și lasă următorul mesaj tastat de
+   * vendor să treacă prin askCopilot -> routeCopilotMessage
+   * (INCIDENT_OR_BUG/HUMAN_SUPPORT -> handleSupportIntelligence),
+   * EXACT calea deja folosită și verificată pentru orice mesaj liber.
+   *
+   * setActiveFlow(null) - explicit, ca să nu rămână niciun state
+   * "blocat" pe un flow special: activeFlow-ul vechi ("vendor-support")
+   * nu era consumat nicăieri, dar golirea lui aici garantează că
+   * următorul mesaj (chiar și unul NELEGAT de suport, ex. "Câte
+   * produse am?") ajunge la dispatch-ul general normal, nu la vreun
+   * cod mort care ar putea fi adăugat ulterior pentru acest flow.
+   */
   if (
     actionId ===
     VENDOR_ACTION_IDS.SUPPORT
   ) {
     setActiveFlow(
-      VENDOR_ACTION_IDS.SUPPORT
+      null
     );
 
     addMessage(
       createMessage(
         "assistant",
-        "Ajutorul și suportul vor fi conectate la sistemul actual de tichete."
+        "Spune-mi cu ce problemă te confrunți și încerc să te ajut. Dacă e nevoie, putem trimite cazul către suport."
       )
     );
 

@@ -3457,6 +3457,7 @@ export async function sendVendorDepositPaidEmail({
 export async function sendInfluencerInviteEmail({
   to,
   name,
+  firstName,
   inviteUrl,
   expiresAt,
 }) {
@@ -3477,9 +3478,17 @@ export async function sendInfluencerInviteEmail({
       .replace(/'/g, "&#039;");
   }
 
+  /*
+   * Salutul din email trebuie să fie pe prenume ("Bună, Dora,"), nu pe
+   * numele complet ("Bună, Dora Popescu,") - vezi raportul de
+   * standardizare Prenume/Nume. `firstName` vine explicit de la
+   * apelant (adminInfluencersRoutes.js) - deja calculat corect acolo
+   * (firstName real sau derivat best-effort din `name`-ul legacy).
+   */
   const safeName =
     escapeHtml(
-      name ||
+      firstName ||
+        name ||
         "creator"
     );
 

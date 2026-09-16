@@ -77,10 +77,14 @@ import {
 ========================================================= */
 import {
   submitProductPersonalizationMessage,
+  handlePersonalizationChoice,
+  getTopLevelFields,
+  createFieldQuestionMessage,
 } from "./Personalization/productPersonalizationFlow.js";
 import {
   HELP_ACTIONS,
   SUPPORT_FLOWS,
+  SUPPORT_ACTIONS,
   startSupportFlow,
   handleSupportChoice,
   submitSupportMessage,
@@ -96,6 +100,7 @@ import {
   markSupportTicketRead,
   createSupportTicket,
 } from "./Support/supportApi.js";
+import { api } from "../../lib/api.js";
 import {
   SupportIcon,
 } from "./Support/SupportIcons.jsx";
@@ -109,7 +114,6 @@ import {
   BackIcon,
   ChevronRightIcon,
   CloseIcon,
-  DragIcon,
   HomeIcon,
   RefreshIcon,
   SendIcon,
@@ -157,6 +161,8 @@ import {
   ASSISTANT_ROLES,
   ASSISTANT_ACTION_TYPES,
   resolveAssistantAction,
+  buildAssistantActionUrl,
+  buildDynamicAssistantRoute,
 } from "./assistantActionRegistry.js";
 
 import { prefetchChunk } from "../../lib/smartPrefetch.js";
@@ -176,15 +182,32 @@ const SUPPORT_POLL_INTERVAL =
 const QUOTE_POLL_INTERVAL =
   8 * 1000;
   
-const INITIAL_MESSAGES = [
-  {
-    id: "welcome",
-    role: "assistant",
-    type: "text",
-    content:
-      "Bună! Sunt asistentul Artfest. Poți alege una dintre opțiuni sau îmi poți scrie direct ce cauți — de exemplu «vreau un cadou sub 100 lei», «unde este comanda mea?» sau «vreau să caut după o fotografie».",
-  },
-];
+/*
+ * FAZA 7 (polish vizual, mesaj introductiv) - NU mai e un mesaj
+ * seedat în `messages` (nu mai apare în istoricul real trimis către
+ * backend ca "assistant" - vezi `history` din askCopilot, construit
+ * din messagesRef.current) - text static, randat separat, DUPĂ
+ * quick actions (vezi JSX, gated pe `showMenu`, ca și ActionMenu).
+ */
+function getAssistantIntroText({
+  isInfluencer,
+  isVendor,
+  isAuthenticated,
+}) {
+  if (isInfluencer) {
+    return "Întreabă-mă despre promovare, resurse, comenzi sau câștiguri. Te pot duce direct unde ai nevoie.";
+  }
+
+  if (isVendor) {
+    return "Întreabă-mă despre produse, comenzi, prețuri, promovare sau magazin. Te pot duce direct la pagina potrivită.";
+  }
+
+  if (isAuthenticated) {
+    return "Întreabă-mă despre produse, comenzi, personalizare sau cum funcționează Artfest. Te ajut să găsești ce cauți.";
+  }
+
+  return "Întreabă-mă orice despre Artfest, produse, comenzi sau cum funcționează platforma.";
+}
 
 /* =========================================================
    Meniuri
@@ -218,6 +241,89 @@ const USER_ROOT_ACTIONS = [
     description:
       "Primește ajutor sau discută cu echipa Artfest.",
     icon: SupportIcon,
+  },
+];
+
+/*
+ * FAZA 3 (INFLUENCER) - listă EXACTĂ cerută (9 quick actions), nu
+ * meniuri vendor, nu amestecată cu USER_ROOT_ACTIONS - același
+ * pattern ca VENDOR_ROOT_ACTIONS (propriul set, nu o extindere a
+ * celui de USER). Fiecare are un `prompt` - clickul trimite acel
+ * text prin ACELAȘI pipeline ca și cum influencerul l-ar fi tastat
+ * (askCopilot), nu un flow local nou - vezi handleAction.
+ */
+const INFLUENCER_ROOT_ACTIONS = [
+  {
+    id: "influencer-today",
+    title: "Ce să postez azi?",
+    description: "Recomandările tale pentru azi.",
+    icon: SparkleIcon,
+    prompt: "Ce să postez azi?",
+    group: "Promovare",
+  },
+  {
+    id: "influencer-repost",
+    title: "De repostat",
+    description: "Resurse promovate de mult timp.",
+    icon: RefreshIcon,
+    prompt: "Arată-mi ce am de repostat.",
+    group: "Promovare",
+  },
+  {
+    id: "influencer-product-of-day",
+    title: "Produsul zilei",
+    description: "Materialul pregătit pentru azi.",
+    icon: SparkleIcon,
+    prompt: "Care este produsul zilei?",
+    group: "Promovare",
+  },
+  {
+    id: "influencer-new-products",
+    title: "Produse noi azi",
+    description: "Produse publicate azi pe Artfest.",
+    icon: ShoppingBagIcon,
+    prompt: "Ce produse noi au apărut azi?",
+    group: "Promovare",
+  },
+  {
+    id: "influencer-new-vendors",
+    title: "Vânzători noi",
+    description: "Magazine noi pe Artfest.",
+    icon: HomeIcon,
+    prompt: "Ce vânzători noi sunt?",
+    group: "Promovare",
+  },
+  {
+    id: "influencer-orders",
+    title: "Comenzile mele",
+    description: "Comenzi atribuite promovării tale.",
+    icon: OrdersIcon,
+    prompt: "Arată-mi comenzile mele.",
+    group: "Contul meu",
+  },
+  {
+    id: "influencer-earnings",
+    title: "Câștigurile mele",
+    description: "Câștig confirmat și estimat.",
+    icon: PersonalizationIcon,
+    prompt: "Cât am câștigat?",
+    group: "Contul meu",
+  },
+  {
+    id: "influencer-code",
+    title: "Codul meu",
+    description: "Codul tău de reducere și linkul personal.",
+    icon: SupportIcon,
+    prompt: "Care este codul meu?",
+    group: "Contul meu",
+  },
+  {
+    id: "influencer-collections",
+    title: "Colecțiile mele",
+    description: "Selecțiile tale de produse.",
+    icon: ShoppingBagIcon,
+    prompt: "Arată-mi colecțiile mele.",
+    group: "Contul meu",
   },
 ];
 
@@ -255,17 +361,34 @@ const VENDOR_ROOT_ACTIONS = [
   },
 ];
 
+/*
+ * Derivat din INFLUENCER_ROOT_ACTIONS - un singur loc de adevăr
+ * pentru maparea id -> prompt trimis prin askCopilot (vezi
+ * handleAction).
+ */
+const INFLUENCER_ACTION_PROMPTS = Object.fromEntries(
+  INFLUENCER_ROOT_ACTIONS.map((action) => [
+    action.id,
+    action.prompt,
+  ])
+);
+
 function getMenus(
-  isVendor
+  isVendor,
+  isInfluencer = false
 ) {
   return {
     root: {
       title: isVendor
         ? "Administrare magazin"
+        : isInfluencer
+        ? "Panoul tău de influencer"
         : "Cu ce te putem ajuta?",
 
       actions: isVendor
         ? VENDOR_ROOT_ACTIONS
+        : isInfluencer
+        ? INFLUENCER_ROOT_ACTIONS
         : USER_ROOT_ACTIONS,
 
       parent: null,
@@ -331,6 +454,63 @@ function createMessage(
     content,
     ...extra,
   };
+}
+
+/*
+ * FAZA 3 (INFLUENCER) - construiește lista de CTA-uri (choices) din
+ * răspunsul handleInfluencerLiveQuery/handleInfluencerOrdersLiveQuery
+ * (copilotRouter.js, FAZA 2) - NU inventează text, doar transformă
+ * `target`-urile deja calculate de backend în butoane clicabile.
+ *
+ * Trei forme posibile în `result`, vezi FAZA 2:
+ * - influencerScope === "TODAY": result.data e un ARRAY de
+ *   recomandări, fiecare cu propriul `target` - un buton per
+ *   recomandare (cerința #7: "fiecare recomandare... trebuie să
+ *   poată deveni CTA").
+ * - result.orders (array) + result.target: un singur buton, spre
+ *   comenzile complete.
+ * - result.data.target (celelalte scopuri - resources/collections/
+ *   discountCodes/earnings/summary): un singur buton.
+ */
+function buildInfluencerActionChoices(result) {
+  if (
+    result?.influencerScope === "TODAY" &&
+    Array.isArray(result?.data)
+  ) {
+    return result.data
+      .filter((item) => item?.target)
+      .map((item, index) => ({
+        id: `today-${item.type || index}`,
+        label: item.title || "Deschide",
+        target: item.target,
+      }));
+  }
+
+  if (Array.isArray(result?.orders) && result?.target) {
+    return [
+      {
+        id: "orders-target",
+        label: result.target.label
+          ? `Vezi ${result.target.label}`
+          : "Vezi comenzile",
+        target: result.target,
+      },
+    ];
+  }
+
+  if (result?.data?.target) {
+    return [
+      {
+        id: "scope-target",
+        label: result.data.target.label
+          ? `Vezi ${result.data.target.label}`
+          : "Deschide",
+        target: result.data.target,
+      },
+    ];
+  }
+
+  return [];
 }
 
 function normalizeIntentText(value) {
@@ -708,17 +888,67 @@ function clampPosition(
 export default function AiAssistant({
   isVendor = false,
   isAuthenticated = false,
+  role = null,
+  embedded = false,
+
+  /*
+   * BUGFIX (audit - race event/mount) - payload-ul deep-link-urilor
+   * "artfest:personalization-start"/"artfest:quote-request" vine ca
+   * PROP de la FloatingHub, nu ca `window.addEventListener` propriu
+   * (vezi FloatingHub.jsx) - elimină race-ul în care evenimentul era
+   * dispatch-uit înainte ca acest component să fi apucat să se
+   * monteze și să-și înregistreze listenerul.
+   */
+  pendingAssistantEvent = null,
+  onPendingAssistantEventHandled = null,
 }) {
   /*
    * Widget-ul ăsta nu e montat deloc pentru VENDOR (vezi AppLayout.jsx
    * - VendorAssistant separat, isVendor mereu false aici) - rolul
    * pentru rezolvarea de acțiuni (assistantActionRegistry.js) e deci
-   * strict GUEST sau USER, derivat din starea reală de autentificare
-   * primită de la AppLayout (useAuth().me), NU dintr-un apel API nou.
+   * GUEST/USER (derivat din starea reală de autentificare primită de
+   * la AppLayout - useAuth().me, NU dintr-un apel API nou) SAU
+   * INFLUENCER, dacă AppLayout.jsx a trimis explicit `role="INFLUENCER"`
+   * (FAZA 3) - singurul caz în care rolul REAL, nu doar boolean-ul
+   * isAuthenticated, contează pentru acest widget.
    */
-  const currentRole = isAuthenticated
+  const isInfluencer =
+    role === ASSISTANT_ROLES.INFLUENCER;
+
+  const currentRole = isInfluencer
+    ? ASSISTANT_ROLES.INFLUENCER
+    : isAuthenticated
     ? ASSISTANT_ROLES.USER
     : ASSISTANT_ROLES.GUEST;
+
+  /*
+   * FAZA 6 (polish vizual, header) - text/badge DOAR pe baza
+   * rolurilor deja rezolvate mai sus (isInfluencer/isVendor/
+   * isAuthenticated) - nicio rezolvare de rol nouă. isVendor e mereu
+   * false aici (VendorAssistant.jsx tratează VENDOR separat, vezi
+   * AppLayout.jsx), dar ramura rămâne corectă/completă dacă asta se
+   * schimbă vreodată.
+   */
+  const headerSubtitle = isInfluencer
+    ? "Promovare, resurse și activitatea ta"
+    : isVendor
+    ? "Produse, comenzi și magazinul tău"
+    : isAuthenticated
+    ? "Te ajut să găsești și să comanzi"
+    : "Îți răspund la întrebări despre Artfest";
+
+  const panelRoleHint = isInfluencer
+    ? "Panoul tău de influencer"
+    : isVendor
+    ? "Panoul tău de vânzător"
+    : null;
+
+  const assistantIntroText =
+    getAssistantIntroText({
+      isInfluencer,
+      isVendor,
+      isAuthenticated,
+    });
 
   const location =
   useLocation();
@@ -763,11 +993,32 @@ const selfRecoveryAttemptedRef =
   useRef(false);
 
 const messagesRef =
-  useRef(
-    INITIAL_MESSAGES
-  );
+  useRef([]);
  const quoteDeepLinkHandledRef =
   useRef(null);
+
+/*
+ * Referință, nu ID - `pendingAssistantEvent` e un obiect nou de
+ * fiecare dată la un eveniment real (vezi FloatingHub.jsx), deci
+ * compararea prin `===` e suficientă pentru "o singură dată".
+ */
+const processedPendingAssistantEventRef =
+  useRef(null);
+
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.log(
+      "[PERSONALIZATION DEBUG] AiAssistant MOUNTED",
+      {
+        embedded,
+        isVendor,
+        pendingAssistantEventAtMount:
+          pendingAssistantEvent,
+      }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const dragRef = useRef({
     active: false,
     moved: false,
@@ -791,9 +1042,7 @@ const messagesRef =
 const [
   messages,
   setMessages,
-] = useState(
-  INITIAL_MESSAGES
-);
+] = useState([]);
 useEffect(() => {
   messagesRef.current =
     messages;
@@ -909,7 +1158,8 @@ const [
 
 const menus =
   getMenus(
-    isVendor
+    isVendor,
+    isInfluencer
   );
 
 const menu =
@@ -924,10 +1174,7 @@ const menu =
   /* =======================================================
      Persistență poziție
   ======================================================= */
-useEffect(() => {
-  function handleQuoteRequest(event) {
-    const detail = event?.detail || {};
-
+function handleQuoteRequest(detail) {
     // IMPORTANT:
     // poziția curentă este posibil să fie calculată pentru
     // butonul mic de 64px, nu pentru panoul deschis.
@@ -1006,27 +1253,21 @@ Pentru început, de câte bucăți ai nevoie?`
     setIsOpen(true);
   }
 
-  window.addEventListener(
-    "artfest:quote-request",
-    handleQuoteRequest
-  );
-
-  return () => {
-    window.removeEventListener(
-      "artfest:quote-request",
-      handleQuoteRequest
-    );
-  };
-}, []);
-
-useEffect(() => {
   function handlePersonalizationStart(
-    event
+    detail
   ) {
-    const detail =
-      event?.detail || {};
+    // eslint-disable-next-line no-console
+    console.log(
+      "[PERSONALIZATION DEBUG] handlePersonalizationStart fired",
+      detail
+    );
 
     if (!detail.productId) {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[PERSONALIZATION DEBUG] handlePersonalizationStart bailed - no detail.productId"
+      );
+
       return;
     }
 
@@ -1140,99 +1381,180 @@ useEffect(() => {
     setShowMenu(false);
 
     /*
-     * Identificăm prima întrebare.
+     * Identificăm prima întrebare - reutilizăm exact aceleași
+     * helpere ca restul flow-ului de personalizare
+     * (getTopLevelFields/createFieldQuestionMessage), ca prima
+     * întrebare să arate identic cu următoarele (progres, butoane
+     * pentru variante cu puține valori).
      */
-    const firstOption =
-      optionsSchema[0] || null;
+    const topFields =
+      getTopLevelFields({
+        optionsSchema,
+        customSchema,
+      });
 
-    const firstCustom =
-      customSchema[0] || null;
+    const firstField =
+      topFields[0] || null;
 
     const firstGroup =
       repeatedGroups[0] || null;
 
-    let firstQuestion = "";
-
-    if (firstOption) {
-      const values =
-        Array.isArray(
-          firstOption.options
-        )
-          ? firstOption.options
-          : Array.isArray(
-                firstOption.values
-              )
-            ? firstOption.values
-            : [];
-
-      firstQuestion = [
-        firstOption.label ||
-          "Ce variantă dorești?",
-
-        values.length
-          ? `Poți alege: ${values
-              .map((item) =>
-                typeof item ===
-                "string"
-                  ? item
-                  : item?.label ||
-                    item?.value ||
-                    item?.key ||
-                    ""
-              )
-              .filter(Boolean)
-              .join(", ")}.`
-          : null,
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-    } else if (firstCustom) {
-      firstQuestion =
-        firstCustom.label ||
-        "Spune-mi detaliile de personalizare.";
-    } else if (firstGroup) {
-      firstQuestion =
-        `Pentru câte persoane dorești ${
-          firstGroup.label ||
-          "acest set"
-        }?`;
-    }
-
-    const intro =
+    const productLabel =
       detail.productTitle
-        ? `Te ajut să personalizezi „${detail.productTitle}”. 💛`
-        : "Te ajut să personalizezi produsul. 💛";
+        ? `«${detail.productTitle}»`
+        : "produsul";
 
-    setMessages([
-      createMessage(
-        "assistant",
-        firstQuestion
-          ? `${intro}
-
-Îți voi pune câteva întrebări, iar la final voi completa automat formularul produsului.
-
-${firstQuestion}`
-          : `${intro}
+    if (!firstField && !firstGroup) {
+      setMessages([
+        createMessage(
+          "assistant",
+          `Te ajut să personalizezi ${productLabel} 🤍
 
 Produsul nu are momentan informații de personalizare de completat.`
-      ),
+        ),
+      ]);
+
+      setIsOpen(true);
+      return;
+    }
+
+    /*
+     * BUGFIX (audit UX) - mesajul introductiv NU mai include prima
+     * întrebare în aceeași bulă - două mesaje separate, ca restul
+     * conversației (introducere + pași, apoi întrebarea propriu-zisă
+     * cu progres "Pasul X din Y · Câmp").
+     */
+    const hasRepeatedGroups =
+      repeatedGroups.length > 0;
+
+    const stepsLine =
+      topFields.length > 0
+        ? `Sunt ${
+            topFields.length
+          } ${
+            topFields.length ===
+            1
+              ? "pas"
+              : "pași"
+          }${
+            hasRepeatedGroups
+              ? ", plus câteva detalii suplimentare"
+              : ""
+          } și îți voi pune întrebările pe rând.`
+        : "Îți voi pune întrebările pe rând.";
+
+    const introMessage =
+      createMessage(
+        "assistant",
+        `Te ajut să personalizezi ${productLabel} 🤍
+
+${stepsLine}
+
+Poți reveni oricând la pasul anterior.`
+      );
+
+    const firstQuestionMessage =
+      firstField
+        ? createFieldQuestionMessage(
+            {
+              field: firstField,
+
+              progress: {
+                current: 1,
+                total:
+                  topFields.length,
+              },
+
+              createMessage,
+            }
+          )
+        : createMessage(
+            "assistant",
+            `Pentru câte persoane dorești ${
+              firstGroup.label ||
+              firstGroup.title ||
+              "acest set"
+            }?`
+          );
+
+    setMessages([
+      introMessage,
+      firstQuestionMessage,
     ]);
 
     setIsOpen(true);
   }
 
-  window.addEventListener(
-    "artfest:personalization-start",
-    handlePersonalizationStart
-  );
-
-  return () => {
-    window.removeEventListener(
-      "artfest:personalization-start",
-      handlePersonalizationStart
+  /*
+   * BUGFIX (audit - race event/mount) - payload-ul primit ca prop de
+   * la FloatingHub (vezi comentariul de la props, sus) - NU mai
+   * ascultăm `window.addEventListener` direct aici, ca să eliminăm
+   * fereastra în care evenimentul era dispatch-uit înainte ca acest
+   * efect să apuce să se înregistreze (posibil doar la primul
+   * montare a componentei, exact cazul care se pierdea). Guard pe
+   * REFERINȚA obiectului (nu pe conținut) - `pendingAssistantEvent`
+   * e mereu un obiect nou la fiecare eveniment real, deci livrarea e
+   * garantat o singură dată per eveniment, inclusiv sub dublul-invoke
+   * al efectelor din React StrictMode (dev) - a doua rulare vede
+   * aceeași referință deja procesată și iese fără efect.
+   */
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.log(
+      "[PERSONALIZATION DEBUG] AiAssistant received pending event",
+      pendingAssistantEvent
     );
-  };
-}, []);
+
+    if (!pendingAssistantEvent) {
+      return;
+    }
+
+    if (
+      processedPendingAssistantEventRef.current ===
+      pendingAssistantEvent
+    ) {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[PERSONALIZATION DEBUG] pending event already processed (ref guard) - skipping"
+      );
+
+      return;
+    }
+
+    processedPendingAssistantEventRef.current =
+      pendingAssistantEvent;
+
+    if (
+      pendingAssistantEvent.type ===
+      "artfest:personalization-start"
+    ) {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[PERSONALIZATION DEBUG] calling handlePersonalizationStart"
+      );
+
+      handlePersonalizationStart(
+        pendingAssistantEvent.detail ||
+          {}
+      );
+    } else if (
+      pendingAssistantEvent.type ===
+      "artfest:quote-request"
+    ) {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[PERSONALIZATION DEBUG] calling handleQuoteRequest"
+      );
+
+      handleQuoteRequest(
+        pendingAssistantEvent.detail ||
+          {}
+      );
+    }
+
+    onPendingAssistantEventHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAssistantEvent]);
 
 /* =======================================================
    Deschidere automată cerere ofertă din notificare
@@ -1297,8 +1619,13 @@ const shouldOpenVendorQuote =
     return;
   }
 
- quoteDeepLinkHandledRef.current =
-  deepLinkKey;
+  /*
+   * BUGFIX (audit) - `quoteDeepLinkHandledRef` NU se mai marchează
+   * aici, înainte de `await openUserQuote/openVendorQuote` - dacă
+   * deschiderea eșuează, link-ul rămânea "handled" definitiv, fără
+   * nicio șansă de retry legitim. Acum se marchează abia după ce
+   * deschiderea a reușit (vezi mai jos, după `await`).
+   */
 
   let cancelled =
     false;
@@ -1370,6 +1697,14 @@ const shouldOpenVendorQuote =
 );
       }
 
+      /*
+       * Deschiderea a reușit - abia acum marcăm deep link-ul ca
+       * "handled", ca un eșec (mai jos, în catch) să lase link-ul
+       * neatins pentru un retry legitim.
+       */
+      quoteDeepLinkHandledRef.current =
+        deepLinkKey;
+
       if (
         cancelled
       ) {
@@ -1432,6 +1767,12 @@ const shouldOpenVendorQuote =
 ]);
 
   useEffect(() => {
+    // Embedded (FloatingHub): poziția e deținută/persistată de hub, nu
+    // de widget - nimic de scris aici.
+    if (embedded) {
+      return;
+    }
+
     if (
       typeof window ===
       "undefined"
@@ -1443,7 +1784,7 @@ const shouldOpenVendorQuote =
       STORAGE_KEYS.position,
       JSON.stringify(position)
     );
-  }, [position]);
+  }, [position, embedded]);
 
   /* =======================================================
      Scroll automat
@@ -1472,6 +1813,12 @@ const shouldOpenVendorQuote =
   ======================================================= */
 
   useEffect(() => {
+    // Embedded (FloatingHub): poziția/dimensiunea sunt deținute de hub -
+    // widget-ul nu mai are propriul listener de resize.
+    if (embedded) {
+      return undefined;
+    }
+
     function handleResize() {
       const currentPanelSize =
         getPanelSize();
@@ -1502,7 +1849,7 @@ const shouldOpenVendorQuote =
         "resize",
         handleResize
       );
-  }, [isOpen]);
+  }, [isOpen, embedded]);
 
   /* =======================================================
      Eliberare URL preview
@@ -1958,9 +2305,7 @@ function closeAssistant() {
 function resetConversation() {
   clearUploadedImage();
 
-  setMessages([
-    ...INITIAL_MESSAGES,
-  ]);
+  setMessages([]);
 
   setInputValue("");
   setActiveFlow(null);
@@ -2059,6 +2404,7 @@ function startNewTopic() {
   quoteRefreshRef.current = false;
 }
 
+  // eslint-disable-next-line no-unused-vars -- butonul din header a fost scos (simplificare header), rămâne apelabilă din alte puncte de intrare ale meniului
   function returnToMainMenu() {
     setCurrentMenu("root");
     setActiveFlow(null);
@@ -2105,6 +2451,31 @@ function startNewTopic() {
 ) {
   return;
 }
+
+/*
+ * FAZA 3 (INFLUENCER) - quick actions care trimit un prompt canonic
+ * prin ACELAȘI pipeline ca text liber (askCopilot), nu un flow local
+ * nou - identic cu ce ar obține influencerul dacă ar fi tastat
+ * exact acel text.
+ */
+if (INFLUENCER_ACTION_PROMPTS[actionId]) {
+  setShowMenu(false);
+
+  const prompt =
+    INFLUENCER_ACTION_PROMPTS[actionId];
+
+  addMessage(
+    createMessage(
+      "user",
+      prompt
+    )
+  );
+
+  await askCopilot(prompt);
+
+  return;
+}
+
     switch (actionId) {
       case "shopping-menu":
         openSubmenu(
@@ -2355,10 +2726,236 @@ Pentru început, de câte bucăți ai nevoie?`
      Alegeri din mesaje
   ======================================================= */
 
+  /*
+   * FAZA 3 (INFLUENCER) - execută un `target` structurat, întors de
+   * copilotRouter.js (vezi influencerAssistantCommands.js, FAZA 2) -
+   * SINGURUL loc din widget care traduce un target într-o navigare
+   * reală, ca să nu apară URL-uri hardcodate în mai multe locuri.
+   *
+   * Forme suportate (vezi comentariul din assistantActionRegistry.js):
+   * - { type: "NAVIGATE", navigateTarget, params } - target STATIC
+   *   din registru (INFLUENCER_DASHBOARD/RESOURCES/ORDERS/...),
+   *   params (category/activity) adăugate ca query string.
+   * - { type: "OPEN_PRODUCT", params: { productId } } - rută
+   *   dinamică, rezolvată prin buildDynamicAssistantRoute.
+   * - { type: "OPEN_COLLECTION", params: { slug } } - idem, spre
+   *   /selectii/:slug.
+   */
+  function executeAssistantActionTarget(target) {
+    if (!target?.type) {
+      return;
+    }
+
+    if (target.type === ASSISTANT_ACTION_TYPES.NAVIGATE) {
+      const resolution = resolveAssistantAction(
+        target.navigateTarget,
+        {
+          role: currentRole,
+          isAuthenticated,
+        }
+      );
+
+      if (resolution.status !== "ok") {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Nu am putut deschide asta chiar acum."
+          )
+        );
+
+        return;
+      }
+
+      const route = buildAssistantActionUrl(
+        resolution.entry,
+        target.params
+      );
+
+      navigate(route);
+      closeAssistant();
+
+      return;
+    }
+
+    /*
+     * OPEN_PRODUCT poate veni și cu un `url` deja rezolvat de backend
+     * (nu doar `productId`) - ex. targetUrl-ul unei resurse de
+     * influencer, setat liber de admin (poate fi intern sau extern),
+     * spre deosebire de un id de produs Artfest cunoscut. Verificat
+     * ÎNAINTEA rutelor dinamice statice (buildDynamicAssistantRoute),
+     * care presupun doar productId/slug interne.
+     */
+    if (
+      target.type === ASSISTANT_ACTION_TYPES.OPEN_PRODUCT &&
+      !target.params?.productId &&
+      target.params?.url
+    ) {
+      const url = String(target.params.url);
+
+      if (url.startsWith("/")) {
+        navigate(url);
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+
+      closeAssistant();
+
+      return;
+    }
+
+    const dynamicRoute = buildDynamicAssistantRoute(
+      target.type,
+      target.params
+    );
+
+    if (!dynamicRoute) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu am putut deschide asta chiar acum."
+        )
+      );
+
+      return;
+    }
+
+    navigate(dynamicRoute);
+    closeAssistant();
+  }
+
   async function handleChoice(
     choice,
     sourceMessage = null
   ) {
+    /*
+     * ANTI-ABANDON - "Continuă cu cerere de ofertă", oferit de
+     * productPersonalizationFlow.js când o schemă de personalizare
+     * e imposibil de rezolvat (câmp obligatoriu fără opțiuni,
+     * repeatedGroup fără identificator). Interceptat AICI, înaintea
+     * lui handlePersonalizationChoice (care oricum n-ar ști ce să
+     * facă cu acest choice) - face handoff-ul direct către flow-ul
+     * deja existent "quote-from-product" (assistantQuotes.js),
+     * păstrând produsul curent din personalizationContext. Nu
+     * duplică nimic din logica de quote - doar pornește flow-ul
+     * exact cum o face handleQuoteRequest mai sus, pentru ramura
+     * fără magazin.
+     */
+    if (
+      choice?.action ===
+      "personalization-fallback-quote"
+    ) {
+      addMessage(
+        createMessage(
+          "user",
+          getChoiceLabel(choice)
+        )
+      );
+
+      const currentPanelSize =
+        getPanelSize();
+
+      setPosition((current) =>
+        clampPosition(
+          current,
+          currentPanelSize.width,
+          currentPanelSize.height
+        )
+      );
+
+      setQuoteContext({
+        productId:
+          personalizationContext
+            ?.productId ||
+          null,
+
+        productTitle:
+          personalizationContext
+            ?.productTitle ||
+          null,
+
+        image:
+          personalizationContext
+            ?.image ||
+          null,
+
+        quoteSchema: [],
+      });
+
+      setQuoteDraft({
+        step: "quantity",
+        quantity: null,
+        currentFieldIndex: 0,
+        answers: {},
+      });
+
+      setActiveFlow(
+        "quote-from-product"
+      );
+
+      setCurrentMenu(
+        "personalization"
+      );
+
+      setShowMenu(false);
+
+      addMessage(
+        createMessage(
+          "assistant",
+          personalizationContext
+            ?.productTitle
+            ? `Te ajut să pregătești cererea de ofertă pentru „${personalizationContext.productTitle}”.
+
+Pentru început, de câte bucăți ai nevoie?`
+            : `Te ajut să pregătești cererea de ofertă.
+
+Pentru început, de câte bucăți ai nevoie?`
+        )
+      );
+
+      setPersonalizationContext(
+        null
+      );
+
+      setPersonalizationDraft({
+        step: "fields",
+        currentFieldIndex: 0,
+        selectedOptions: {},
+        customAnswers: {},
+        repeatedGroupAnswers: {},
+        currentGroupIndex: 0,
+        currentMemberIndex: 0,
+        currentRepeatedFieldIndex: 0,
+      });
+
+      return;
+    }
+
+    /*
+     * FAZA 3 (INFLUENCER) - click pe un CTA atașat unei recomandări/
+     * unui răspuns de la copilotRouter.js (vezi askCopilot, blocul
+     * "influencer-action" de mai jos) - `choice` e obiectul
+     * {id, label, target} construit acolo, NU un string.
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep === "influencer-action"
+    ) {
+      addMessage(
+        createMessage(
+          "user",
+          typeof choice === "object"
+            ? choice.label || "Deschide"
+            : choice
+        )
+      );
+
+      if (typeof choice === "object") {
+        executeAssistantActionTarget(choice.target);
+      }
+
+      return;
+    }
+
     /*
      * FAZA 8-10: click pe Confirmă/Renunță al ofertei de ticket
      * propuse de copilot (vezi askCopilot).
@@ -2386,6 +2983,84 @@ Pentru început, de câte bucăți ai nevoie?`
         );
 
         setSupportTroubleshootContext(null);
+      }
+
+      return;
+    }
+
+    /*
+     * FAZA 2 (attachments pe calea chat liber): răspuns la eșecul de
+     * upload al imaginii atașate, oferit de submitCopilotSupportTicket.
+     * "Reîncearcă" reia upload-ul; "Trimite fără imagine" sare direct
+     * la creare (finalizeCopilotSupportTicket cu attachment=null, fără
+     * un nou upload); "Renunță" oprește fluxul - imaginea locală NU e
+     * ștearsă în niciunul din cele 3 cazuri (userul poate încerca din
+     * nou manual).
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep ===
+        "copilot-ticket-upload-error"
+    ) {
+      addMessage(
+        createMessage("user", choice)
+      );
+
+      if (choice === "Reîncearcă") {
+        await submitCopilotSupportTicket(
+          sourceMessage.ticketDraft
+        );
+      } else if (choice === "Trimite fără imagine") {
+        await finalizeCopilotSupportTicket(
+          sourceMessage.ticketDraft,
+          null
+        );
+      } else {
+        addMessage(
+          createMessage(
+            "assistant",
+
+            "Am înțeles, nu trimit solicitarea către suport. Dacă te răzgândești, scrie-mi din nou."
+          )
+        );
+
+        setSupportTroubleshootContext(null);
+      }
+
+      return;
+    }
+
+    /*
+     * FAZA 4 (Support × AiAssistant - navigare): CTA-uri "Deschide
+     * tichetul"/"Vezi toate în pagina de suport" - amestecate în
+     * `choices` alături de OPEN_TICKET/ARCHIVE_TICKET (obiecte
+     * `{action, ticketId?, label}`, construite în assistantSupport.js).
+     * Interceptate AICI, înaintea lui handleSupportChoice (acel modul
+     * e JS pur, fără acces la useNavigate) - navigarea reală se face
+     * prin exact același mecanism ca restul asistentului
+     * (executeAssistantActionTarget/assistantActionRegistry.js), nu un
+     * URL construit manual.
+     */
+    if (
+      choice &&
+      typeof choice === "object" &&
+      (choice.action === SUPPORT_ACTIONS.OPEN_SUPPORT_PAGE ||
+        choice.action === SUPPORT_ACTIONS.OPEN_SUPPORT_TICKET_PAGE)
+    ) {
+      addMessage(
+        createMessage("user", choice.label || "Deschide")
+      );
+
+      if (choice.action === SUPPORT_ACTIONS.OPEN_SUPPORT_PAGE) {
+        executeAssistantActionTarget({
+          type: ASSISTANT_ACTION_TYPES.NAVIGATE,
+          navigateTarget: "USER_SUPPORT_TICKETS",
+        });
+      } else {
+        executeAssistantActionTarget({
+          type: ASSISTANT_ACTION_TYPES.OPEN_SUPPORT_TICKET,
+          params: { ticketId: choice.ticketId },
+        });
       }
 
       return;
@@ -2865,6 +3540,30 @@ Poți ajunge acolo din meniul principal, secțiunea Cereri, sau direct la /cerer
     };
 
     try {
+      const personalizationHandled =
+        await handlePersonalizationChoice(
+          {
+            activeFlow,
+            choice,
+
+            personalizationContext,
+            personalizationDraft,
+
+            addMessage,
+            createMessage,
+
+            setActiveFlow,
+            setPersonalizationDraft,
+          }
+        );
+
+      if (
+        personalizationHandled
+      ) {
+        removeLoadingMessages();
+        return;
+      }
+
       const quoteHandled =
   await handleQuoteChoice(
     context
@@ -3441,33 +4140,119 @@ if (
   ======================================================= */
 
   /*
+   * FAZA 2 (attachments pe calea chat liber): upload-ul se face O
+   * SINGURĂ dată, la confirmare - nu la atașare. Reutilizează EXACT
+   * endpoint-ul deja existent și deja guest-safe (nu cere
+   * autentificare) folosit de fluxul de personalizare produs -
+   * `POST /api/upload/customization` - nu un bucket/model nou. Shape-ul
+   * întors ({url, name, size, mimeType}) se mapează 1:1 pe ce așteaptă
+   * deja createAttachmentRows() pe backend (neatins).
+   */
+  async function uploadCopilotSupportAttachment(file) {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const data = await api("/api/upload/customization", {
+      method: "POST",
+      body: formData,
+    });
+
+    return {
+      url: data?.url,
+      name: data?.name,
+      size: data?.size,
+      mimeType: data?.mimeType,
+    };
+  }
+
+  /*
    * FAZA 8-10: execută crearea tichetului de suport propus de
    * copilot - reutilizează EXACT createSupportTicket() deja
    * existent (POST /api/assistant/support/tickets), nu duplicăm
    * logica de creare. ticketDraft vine gata construit
    * (subject/category/priority/message) din
    * supportEscalationService.js pe backend.
+   *
+   * `attachment` (obiectul deja uploadat, sau null) e primit gata
+   * construit - această funcție NU face upload, doar creează tichetul.
+   * Separarea asta e ce permite "Trimite fără imagine" (după un upload
+   * eșuat) să reintre direct aici, fără să reîncerce upload-ul.
    */
-  async function submitCopilotSupportTicket(
-    ticketDraft
+  async function finalizeCopilotSupportTicket(
+    ticketDraft,
+    attachment
   ) {
+    let requestPayload = {
+      subject: ticketDraft.subject,
+      category: ticketDraft.category,
+      priority: String(
+        ticketDraft.priority || "medium"
+      ).toLowerCase(),
+      message: ticketDraft.message,
+      attachments: attachment ? [attachment] : [],
+    };
+
     try {
-      await createSupportTicket({
-        subject: ticketDraft.subject,
-        category: ticketDraft.category,
-        priority: String(
-          ticketDraft.priority || "medium"
-        ).toLowerCase(),
-        message: ticketDraft.message,
-      });
+      let result;
+
+      try {
+        result = await createSupportTicket(requestPayload);
+      } catch (error) {
+        /*
+         * FAZA 1 (fix guest pe calea chat liber) - același pattern ca
+         * submitSupportMessage() din Support/assistantSupport.js:
+         * backendul cere email doar pentru utilizatorii neautentificați
+         * (POST /api/assistant/support/tickets întoarce
+         * `guest_email_required` - vezi supportApi.js, care mapează
+         * `data.error` pe `error.code`). Orice altă eroare urcă
+         * neschimbată la catch-ul exterior. `attachments` rămâne în
+         * requestPayload la retry (spread mai jos) - imaginea deja
+         * uploadată NU se re-uploadează a doua oară.
+         */
+        if (error?.code !== "guest_email_required") {
+          throw error;
+        }
+
+        const guestName = (
+          window.prompt("Introdu numele tău:") || ""
+        ).trim();
+
+        const guestEmail = (
+          window.prompt("Introdu adresa ta de email:") || ""
+        )
+          .trim()
+          .toLowerCase();
+
+        if (!guestEmail) {
+          throw new Error(
+            "Adresa de email este obligatorie pentru trimiterea solicitării."
+          );
+        }
+
+        requestPayload = {
+          ...requestPayload,
+          name: guestName,
+          email: guestEmail,
+        };
+
+        result = await createSupportTicket(requestPayload);
+      }
 
       addMessage(
         createMessage(
           "assistant",
 
-          "Am trimis solicitarea către echipa de suport. Vei fi contactat cât mai curând."
+          result.mode === "guest"
+            ? "Am trimis solicitarea către echipa de suport. Vei primi răspunsul pe email."
+            : "Am trimis solicitarea către echipa de suport. Vei fi contactat cât mai curând."
         )
       );
+
+      /*
+       * Ticket creat cu succes (cu sau fără imagine) - imaginea locală
+       * nu mai are rost în composer.
+       */
+      clearUploadedImage();
     } catch (error) {
       addMessage(
         createMessage(
@@ -3483,6 +4268,50 @@ if (
     }
   }
 
+  async function submitCopilotSupportTicket(
+    ticketDraft
+  ) {
+    const imageFile = uploadedImage?.file || null;
+
+    if (!imageFile) {
+      await finalizeCopilotSupportTicket(ticketDraft, null);
+      return;
+    }
+
+    let attachment;
+
+    try {
+      attachment = await uploadCopilotSupportAttachment(imageFile);
+    } catch {
+      /*
+       * Upload eșuat - NU trimitem tichetul silențios fără imagine.
+       * Imaginea rămâne atașată local (nu chemăm clearUploadedImage
+       * aici) - userul poate reîncerca, trimite fără ea, sau renunța.
+       */
+      addMessage(
+        createMessage(
+          "assistant",
+
+          "Nu am putut încărca imaginea atașată.",
+          {
+            type: "choices",
+            choiceStep: "copilot-ticket-upload-error",
+            ticketDraft,
+            choices: [
+              "Reîncearcă",
+              "Trimite fără imagine",
+              "Renunță",
+            ],
+          }
+        )
+      );
+
+      return;
+    }
+
+    await finalizeCopilotSupportTicket(ticketDraft, attachment);
+  }
+
   async function askCopilot(value) {
     const loadingMessageId = `${Date.now()}-copilot-loading`;
 
@@ -3490,7 +4319,10 @@ if (
       id: loadingMessageId,
       role: "assistant",
       type: "loading",
-      content: "Verific informațiile despre platformă...",
+
+      content: isInfluencer
+        ? "Mă uit în contul tău…"
+        : "Verific informațiile despre platformă...",
     });
 
     try {
@@ -3636,15 +4468,90 @@ if (
                 .join("\n")}`
             : "";
 
-        addMessage(
-          createMessage(
-            "assistant",
+        /*
+         * FAZA 5 (polish vizual, INFLUENCER) - un răspuns de date live
+         * (influencerScope setat de handleInfluencerLiveQuery SAU
+         * `orders` prezent de la handleInfluencerOrdersLiveQuery,
+         * copilotRouter.js) primește randare dedicată (mini-carduri
+         * pentru "Ce fac azi?", card cu date evidențiate pentru
+         * restul) - vezi AssistantMessage.jsx, ramura
+         * `choiceStep === "influencer-action"`. type RĂMÂNE "choices"
+         * (nu ating handleChoice - gate-ul lui existent, pe
+         * type==="choices" + choiceStep, rămâne singura sursă de
+         * adevăr pentru rutare). Interpretarea câmpurilor din `result`
+         * (message/data/influencerScope/orders/target) e neschimbată -
+         * doar ÎN CE mesaj/componentă ajung.
+         *
+         * Orice alt răspuns (inclusiv o întrebare generală de la un
+         * influencer, ex. PLATFORM_KNOWLEDGE) cade pe else - fluxul
+         * vechi, identic, neschimbat.
+         */
+        const isInfluencerLiveData =
+          isInfluencer &&
+          Boolean(
+            result.influencerScope ||
+              Array.isArray(result.orders)
+          );
 
-            (result.message ||
-              "Nu am suficiente informații pentru a răspunde.") +
-              suggestionLines
-          )
-        );
+        if (isInfluencerLiveData) {
+          const influencerChoices =
+            buildInfluencerActionChoices(result);
+
+          const hasTodayCards =
+            result.influencerScope === "TODAY" &&
+            Array.isArray(result.data) &&
+            result.data.length > 0;
+
+          if (!hasTodayCards) {
+            addMessage(
+              createMessage(
+                "assistant",
+
+                result.message ||
+                  "Nu am suficiente informații pentru a răspunde."
+              )
+            );
+          }
+
+          if (hasTodayCards || influencerChoices.length) {
+            addMessage(
+              createMessage(
+                "assistant",
+
+                "",
+
+                {
+                  type: "choices",
+                  choiceStep: "influencer-action",
+                  choices: influencerChoices,
+
+                  influencerScope:
+                    result.influencerScope || null,
+
+                  liveData:
+                    result.data === undefined
+                      ? null
+                      : result.data,
+
+                  orders:
+                    result.orders === undefined
+                      ? null
+                      : result.orders,
+                }
+              )
+            );
+          }
+        } else {
+          addMessage(
+            createMessage(
+              "assistant",
+
+              (result.message ||
+                "Nu am suficiente informații pentru a răspunde.") +
+                suggestionLines
+            )
+          );
+        }
 
         /*
          * CTA "Creează cont de vânzător" (Problema 1, cerința A+B) -
@@ -4781,6 +5688,14 @@ if (
           /*
            * Atașamentele permanente
            * vor fi conectate ulterior.
+           *
+           * TODO: paritate attachments pe calea menu Support - FAZA 2
+           * a adăugat upload-la-confirmare DOAR pe calea chat liber
+           * (submitCopilotSupportTicket/finalizeCopilotSupportTicket,
+           * mai sus în acest fișier). Fluxul de meniu ("Am nevoie de
+           * ajutor" -> categorie -> descriere, din
+           * Support/assistantSupport.js) rămâne neatins deliberat -
+           * nu modifica aici fără o cerere explicită separată.
            */
           attachments: [],
         });
@@ -5149,18 +6064,30 @@ if (personalizationHandled) {
             "artfest-assistant"
           ]
         }
-        style={{
-          left: position.x,
-          top: position.y,
-          width: isOpen
-            ? panelSize.width
-            : 64,
-          height: isOpen
-            ? panelSize.height
-            : 64,
-        }}
+        style={
+          embedded
+            ? {
+                position: "static",
+                inset: "auto",
+                left: "auto",
+                top: "auto",
+                zIndex: "auto",
+                width: "100%",
+                height: "100%",
+              }
+            : {
+                left: position.x,
+                top: position.y,
+                width: isOpen
+                  ? panelSize.width
+                  : 64,
+                height: isOpen
+                  ? panelSize.height
+                  : 64,
+              }
+        }
       >
-        {isOpen ? (
+        {(embedded || isOpen) ? (
           <section
             className={
               styles[
@@ -5170,78 +6097,89 @@ if (personalizationHandled) {
           >
             <header
               className={
-                styles[
-                  "artfest-assistant-header"
-                ]
+                styles.assistantHeader
               }
               onPointerDown={
-                handlePointerDown
+                embedded ? undefined : handlePointerDown
               }
               onPointerMove={
-                handlePointerMove
+                embedded ? undefined : handlePointerMove
               }
               onPointerUp={
-                handlePointerUp
+                embedded ? undefined : handlePointerUp
               }
               onPointerCancel={
-                handlePointerUp
+                embedded ? undefined : handlePointerUp
               }
             >
-              <div>
-                <span>
-                  <DragIcon />
-                </span>
-
-                <div>
-                  <SparkleIcon />
-                </div>
-
-                <div>
-                  <h2>
-                    Asistent Artfest
-                  </h2>
-
-                  <p>
-                    Cumpărături,
-                    comenzi și suport
-                  </p>
-                </div>
-              </div>
-
               <div
-                onPointerDown={(
-                  event
-                ) =>
-                  event.stopPropagation()
+                className={
+                  styles.assistantHeaderTop
                 }
               >
-                <button
-  type="button"
-  onClick={returnToMainMenu}
-  aria-label="Meniu principal"
-  title="Meniu principal"
->
-  <HomeIcon />
-</button>
+                <div
+                  className={
+                    styles.assistantIdentity
+                  }
+                >
+                  <div
+                    className={
+                      styles.assistantIcon
+                    }
+                  >
+                    <SparkleIcon />
+                  </div>
 
-<button
-  type="button"
-  onClick={resetConversation}
-  aria-label="Subiect nou"
-  title="Subiect nou"
->
-  <RefreshIcon />
-</button>
+                  <h2
+                    className={
+                      styles.assistantTitle
+                    }
+                  >
+                    Asistent Artfest
+                  </h2>
+                </div>
 
-<button
-  type="button"
-  onClick={closeAssistant}
-  aria-label="Închide"
-  title="Închide"
->
-  <CloseIcon />
-</button>
+                <div
+                  className={
+                    styles.assistantHeaderActions
+                  }
+                  onPointerDown={(
+                    event
+                  ) =>
+                    event.stopPropagation()
+                  }
+                >
+                  <button
+                    type="button"
+                    className={`${styles.assistantHeaderButton} ${styles.assistantRefreshButton}`}
+                    onClick={resetConversation}
+                    aria-label="Subiect nou"
+                    title="Subiect nou"
+                  >
+                    <RefreshIcon />
+                  </button>
+
+                  <button
+                    type="button"
+                    className={
+                      styles.assistantHeaderButton
+                    }
+                    onClick={closeAssistant}
+                    aria-label="Închide"
+                    title="Închide"
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
               </div>
+
+              <p
+                className={
+                  styles.assistantSubtitle
+                }
+              >
+                {headerSubtitle}
+              </p>
             </header>
 
             <div
@@ -5352,7 +6290,35 @@ if (personalizationHandled) {
                     ChevronRightIcon={
                       ChevronRightIcon
                     }
+                    compact={
+                      isInfluencer &&
+                      currentMenu ===
+                        "root"
+                    }
+                    roleHint={
+                      panelRoleHint
+                    }
                   />
+                )}
+
+                {showMenu && (
+                  <>
+                    <p
+                      className={
+                        styles.assistantIntroText
+                      }
+                    >
+                      {assistantIntroText}
+                    </p>
+
+                    <p
+                      className={
+                        styles.assistantIntroHint
+                      }
+                    >
+                      Poți și să scrii liber orice întrebare.
+                    </p>
+                  </>
                 )}
 
                 <div

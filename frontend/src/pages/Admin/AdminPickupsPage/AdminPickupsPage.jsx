@@ -604,7 +604,12 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved })
     const nextStatus = map[action];
     if (!nextStatus) return;
 
-    const ok = window.confirm(`Sigur vrei să setezi statusul la ${nextStatus}?`);
+    const confirmMsg =
+      action === "refused" || action === "returned"
+        ? `Sigur vrei să setezi statusul la ${nextStatus}?\n\nAceastă acțiune va reversa (anula) veniturile deja înregistrate pentru acest colet: comisionul vânzătorului, comisionul Artfest și, dacă e cazul, comisionul influencerului.`
+        : `Sigur vrei să setezi statusul la ${nextStatus}?`;
+
+    const ok = window.confirm(confirmMsg);
     if (!ok) return;
 
     setStatusSaving(true);

@@ -8,6 +8,8 @@ import AdminNewsletterSubscribersTab from "./AdminNewsletterTab";
 import AdminAccountEmailTab from "./AdminAccountEmailTab";
 import AdminAmbassadorsTab from "./AdminAmbassadorsTab";
 import AdminInfluencersTab from "./AdminInfluencersTab.jsx";
+import AdminVendorDiscountCodesTab from "./AdminVendorDiscountCodesTab.jsx";
+import AdminVendorCampaignsTab from "./AdminVendorCampaignsTab.jsx";
 
 function cx(...xs) {
   return xs.filter(Boolean).join(" ");
@@ -235,6 +237,28 @@ export default function AdminMarketingTab() {
           >
             Influenceri
           </button>
+
+          <button
+            type="button"
+            className={cx(
+              styles.tabBtn,
+              tab === "vendorDiscountCodes" && styles.tabBtnActive
+            )}
+            onClick={() => setTab("vendorDiscountCodes")}
+          >
+            Coduri de reducere (vendor)
+          </button>
+
+          <button
+            type="button"
+            className={cx(
+              styles.tabBtn,
+              tab === "vendorCampaigns" && styles.tabBtnActive
+            )}
+            onClick={() => setTab("vendorCampaigns")}
+          >
+            Campanii (vendor)
+          </button>
         </div>
 
         {tab === "campaign" && <AdminAccountEmailTab />}
@@ -257,6 +281,14 @@ export default function AdminMarketingTab() {
 
         {tab === "influencers" && (
           <AdminInfluencersTab />
+        )}
+
+        {tab === "vendorDiscountCodes" && (
+          <AdminVendorDiscountCodesTab />
+        )}
+
+        {tab === "vendorCampaigns" && (
+          <AdminVendorCampaignsTab />
         )}
 
         {tab === "prefs" && (

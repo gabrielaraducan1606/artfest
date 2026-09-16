@@ -636,8 +636,20 @@ padding: 5px 9px;
   font-size: 0.9rem;
 }
 
-.totalBar div {
+.totalBar > div {
   white-space: nowrap;
+}
+
+/*
+ * Textele explicative (.muted) din interiorul unei linii .totalBar
+ * (audit UI 2026-09-14) - NU trebuie să moștenească nowrap-ul liniei
+ * părinte de mai sus. Unele sunt propoziții întregi (ex: explicația
+ * reducerii Artfest/comisionului mixt) - forțate pe o singură linie,
+ * ies din ecran pe mobil. Doar linia "etichetă: valoare" (copil
+ * direct al .totalBar) trebuie să rămână nowrap.
+ */
+.totalBar .muted {
+  white-space: normal;
 }
 
 .pre {

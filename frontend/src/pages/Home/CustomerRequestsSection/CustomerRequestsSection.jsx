@@ -49,6 +49,15 @@ function getInitials(name = "") {
     .join("");
 }
 
+function getFirstName(name = "") {
+  const firstName = String(name)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)[0];
+
+  return firstName || "Client Artfest";
+}
+
 function formatRelativeDate(value) {
   if (!value) {
     return "";
@@ -564,9 +573,10 @@ useEffect(() => {
             ...request,
 
             authorName:
-              request.user
-                ?.name ||
-              "Client Artfest",
+              getFirstName(
+                request.user
+                  ?.name
+              ),
 
             authorAvatar:
               request.user

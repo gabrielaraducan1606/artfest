@@ -11,6 +11,8 @@ import {
   Megaphone,
   CreditCard,
   Truck,
+  PauseCircle,
+  PlayCircle,
 } from "lucide-react";
 import settingsStyles from "./Settings.module.css";
 
@@ -634,6 +636,214 @@ function ShippingSettings() {
   );
 }
 
+/*
+ * "Pune magazinul pe pauză" / "Reactivează magazinul" - reutilizează
+ * STRICT mecanismul existent (audit Setări Vendor, 2026-09-04):
+ * POST /api/vendors/me/services/:id/deactivate și /activate (deja
+ * folosite din Desktop.jsx, "Activează"/"Dezactivează" per serviciu).
+ * Aici ne interesează DOAR serviciul de tip "products" - acela e
+ * "magazinul" cu pagină publică (/magazin/:slug), verificat direct
+ * în vendorStoreRoutes.js/publicStoreRoutes.js. Niciun endpoint nou,
+ * niciun câmp Prisma nou.
+ */
+function StoreAvailability() {
+  const [service, setService] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [actionErr, setActionErr] = useState("");
+  const [missingFields, setMissingFields] = useState([]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadErr("");
+
+    try {
+      const data = await api("/api/vendors/me/services?includeProfile=1", {
+        method: "GET",
+      });
+
+      const items = Array.isArray(data?.items) ? data.items : [];
+
+      const productsService =
+        items.find(
+          (s) => (s?.type?.code || s?.typeCode) === "products"
+        ) || null;
+
+      setService(productsService);
+    } catch (e) {
+      setLoadErr(
+        e?.data?.message || e?.message || "Nu am putut încărca starea magazinului."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const isActive = !!(service?.isActive && service?.status === "ACTIVE");
+
+  const onPause = useCallback(async () => {
+    if (!service?.id) return;
+
+    const confirmed = window.confirm(
+      "Vrei să pui magazinul pe pauză?\n\nMagazinul și produsele nu vor mai fi vizibile public, dar datele, comenzile și mesajele tale rămân intacte. Îl poți reactiva oricând."
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
+    setActionErr("");
+    setMissingFields([]);
+
+    try {
+      await api(
+        `/api/vendors/me/services/${encodeURIComponent(service.id)}/deactivate`,
+        { method: "POST" }
+      );
+
+      await load();
+    } catch (e) {
+      setActionErr(
+        e?.data?.message || e?.message || "Nu am putut pune magazinul pe pauză."
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [service, load]);
+
+  const onReactivate = useCallback(async () => {
+    if (!service?.id) return;
+
+    setBusy(true);
+    setActionErr("");
+    setMissingFields([]);
+
+    try {
+      await api(
+        `/api/vendors/me/services/${encodeURIComponent(service.id)}/activate`,
+        { method: "POST" }
+      );
+
+      await load();
+    } catch (e) {
+      if (e?.data?.error === "missing_required_fields_profile") {
+        setMissingFields(Array.isArray(e.data.missing) ? e.data.missing : []);
+        setActionErr(
+          "Nu poți reactiva magazinul până nu completezi datele lipsă din profilul magazinului (mai jos, în secțiunea Profil magazin)."
+        );
+      } else {
+        setActionErr(
+          e?.data?.message || e?.message || "Nu am putut reactiva magazinul."
+        );
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [service, load]);
+
+  if (loading) {
+    return (
+      <div className={settingsStyles.loading}>
+        <Loader2 className={settingsStyles.spin} size={18} /> Se încarcă disponibilitatea magazinului…
+      </div>
+    );
+  }
+
+  if (loadErr) {
+    return (
+      <Section
+        icon={<PauseCircle size={18} />}
+        title="Disponibilitatea magazinului"
+        right={
+          <button
+            type="button"
+            className={settingsStyles.primary}
+            onClick={load}
+          >
+            Reîncearcă
+          </button>
+        }
+      >
+        <div className={settingsStyles.error}>{loadErr}</div>
+      </Section>
+    );
+  }
+
+  if (!service) {
+    return null;
+  }
+
+  return (
+    <Section
+      icon={isActive ? <PlayCircle size={18} /> : <PauseCircle size={18} />}
+      title="Disponibilitatea magazinului"
+      subtitle={
+        isActive
+          ? "Magazinul tău e vizibil public momentan."
+          : "Magazinul tău este momentan pe pauză."
+      }
+      right={
+        <span
+          className={settingsStyles.title}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          {isActive ? "🟢 Magazin activ" : "⏸ Magazin pe pauză"}
+        </span>
+      }
+    >
+      <div className={settingsStyles.grid1}>
+        <div>
+          {isActive
+            ? "Magazinul și produsele tale nu vor mai fi vizibile public, dar vei putea continua să îți administrezi comenzile și mesajele și îl poți reactiva oricând."
+            : "Magazinul tău este momentan pe pauză. Îl poți reactiva oricând."}
+        </div>
+
+        {isActive ? (
+          <button
+            type="button"
+            className={settingsStyles.fpBtn}
+            onClick={onPause}
+            disabled={busy}
+          >
+            {busy ? "Se pune pe pauză…" : "Pune magazinul pe pauză"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={settingsStyles.primary}
+            onClick={onReactivate}
+            disabled={busy}
+          >
+            {busy ? "Se reactivează…" : "Reactivează magazinul"}
+          </button>
+        )}
+
+        {actionErr && (
+          <div className={settingsStyles.error} role="alert">
+            {actionErr}
+
+            {missingFields.length > 0 && (
+              <ul style={{ margin: "8px 0 0 18px" }}>
+                {missingFields.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
 
@@ -906,7 +1116,7 @@ export default function SettingsPage() {
     setDeactivateOk(false);
 
     const confirmed = window.confirm(
-      "Vrei să dezactivezi contul de vendor? Magazinul și produsele vor fi ascunse. Confirmarea se face prin email."
+      "Șterge contul definitiv?\n\nAceastă acțiune este ireversibilă. Datele personale și informațiile magazinului vor fi anonimizate, contul va fi blocat, iar produsele nu vor mai fi active. Contul nu poate fi reactivat după finalizare. Confirmarea se face prin email."
     );
 
     if (!confirmed) return;
@@ -971,7 +1181,12 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {!loading && active === "profile" && <EmbeddedOnboarding tab="profil" />}
+        {!loading && active === "profile" && (
+          <>
+            <StoreAvailability />
+            <EmbeddedOnboarding tab="profil" />
+          </>
+        )}
 
         {!loading && active === "shipping" && <ShippingSettings />}
 
@@ -1266,12 +1481,15 @@ export default function SettingsPage() {
             <div className={settingsStyles.danger}>
               <div>
                 <div className={settingsStyles.title}>
-                  Dezactivează cont vendor
+                  Șterge contul definitiv
                 </div>
 
                 <div className={settingsStyles.subtitle}>
-                  Magazinul și produsele vor fi ascunse. Datele sensibile rămân în
-                  sistem pentru conformitate.
+                  Această acțiune este ireversibilă. Datele personale și informațiile
+                  magazinului vor fi anonimizate, contul va fi blocat, iar produsele nu
+                  vor mai fi active. Contul nu poate fi reactivat după finalizare.
+                  Dacă vrei doar să ascunzi temporar magazinul, fără să pierzi nimic,
+                  folosește „Pune magazinul pe pauză” din tab-ul Profil magazin.
                 </div>
               </div>
 
@@ -1281,7 +1499,7 @@ export default function SettingsPage() {
                 onClick={onRequestDeactivateVendor}
                 disabled={deactivateSending}
               >
-                {deactivateSending ? "Se trimite…" : "Trimite email de confirmare"}
+                {deactivateSending ? "Se trimite…" : "Șterge contul definitiv"}
               </button>
             </div>
 

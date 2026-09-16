@@ -41,6 +41,11 @@ export default function AdminDesktop() {
   const [orders, setOrders] = useState([]);
   const [userConsents, setUserConsents] = useState([]);
   const [vendorAgreements, setVendorAgreements] = useState([]);
+  const [influencerTerms, setInfluencerTerms] = useState({
+    currentVersion: null,
+    documentUrl: null,
+    influencers: [],
+  });
   const [vendorPlans, setVendorPlans] = useState({ total: 0, items: [] });
 
   const [loadedTabs, setLoadedTabs] = useState({
@@ -101,17 +106,27 @@ export default function AdminDesktop() {
   }, []);
 
  const loadPolicies = useCallback(async () => {
-  const [u, uc, va] = await Promise.all([
+  const [u, uc, va, it] = await Promise.all([
     api("/api/admin/users"),
     api("/api/admin/user-consents"),
     api("/api/admin/vendor-acceptances").catch(() => ({
       agreements: [],
+    })),
+    api("/api/admin/legal/influencers").catch(() => ({
+      currentVersion: null,
+      documentUrl: null,
+      influencers: [],
     })),
   ]);
 
   setUsers(u.users || []);
   setUserConsents(uc.consents || []);
   setVendorAgreements(va.agreements || []);
+  setInfluencerTerms({
+    currentVersion: it.currentVersion || null,
+    documentUrl: it.documentUrl || null,
+    influencers: it.influencers || [],
+  });
 }, []);
 
   const loadVendorPlans = useCallback(async () => {
@@ -312,6 +327,7 @@ export default function AdminDesktop() {
   users={users}
   userConsents={userConsents}
   vendorAgreements={vendorAgreements}
+  influencerTerms={influencerTerms}
 />
       );
     }

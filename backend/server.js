@@ -84,6 +84,12 @@ import adminPickupsRoutes from "./src/routes/adminPickupsRoutes.js";
 import platformBillingRouter from "./src/routes/platformBillingRoutes.js";
 import adminInvoicesRoutes from "./src/routes/adminInvoicesRoutes.js";
 import adminInfluencersRoutes from "./src/routes/adminInfluencersRoutes.js";
+import adminInfluencerTermsRoutes from "./src/routes/adminInfluencerTermsRoutes.js";
+import adminInfluencerPayoutRoutes from "./src/routes/adminInfluencerPayoutRoutes.js";
+import adminInfluencerPayoutActionsRoutes from "./src/routes/adminInfluencerPayoutActionsRoutes.js";
+import adminInfluencerResourcesRoutes from "./src/routes/adminInfluencerResourcesRoutes.js";
+import adminVendorDiscountCodesRoutes from "./src/routes/adminVendorDiscountCodesRoutes.js";
+import adminVendorCampaignsRoutes from "./src/routes/adminVendorCampaignsRoutes.js";
 import vendorsStripeConnectRoutes from "./src/routes/vendors.stripeConnect.js";
 import adminProductsRoutes from "./src/routes/adminProducts.js";
 import newsletterRoutes from "./src/routes/newsletterRoutes.js";
@@ -121,10 +127,21 @@ import vendorCampaignRoutes
   from "./src/routes/vendorCampaignRoutes.js";
   import publicCampaignRoutes
   from "./src/routes/publicCampaignRoutes.js";
+  import publicInfluencerRoutes
+  from "./src/routes/publicInfluencerRoutes.js";
   import influencerRoutes from "./src/routes/influencerRoutes.js";
+  import influencerPayoutsRoutes from "./src/routes/influencerPayoutsRoutes.js";
   import influencerDiscountCodesRoutes
   from "./src/routes/influencerDiscountCodesRoutes.js";
   import influencerCollectionsRoutes from "./src/routes/influencerCollectionRoutes.js";
+  import influencerFilesRoutes from "./src/routes/influencerFilesRoutes.js";
+  import publicVendorReferralRoutes
+  from "./src/routes/publicVendorReferralRoutes.js";
+  import vendorDiscountCodesRoutes
+  from "./src/routes/vendorDiscountCodesRoutes.js";
+  import vendorCollectionsRoutes, {
+    vendorCollectionsPublicRouter,
+  } from "./src/routes/vendorCollectionsRoutes.js";
 // Încarcă .env DOAR în development
 if (process.env.NODE_ENV !== "production") {
   dotenv.config(); // fără override
@@ -449,6 +466,31 @@ app.use(
   publicCampaignRoutes
 );
 
+// ✅ ATRIBUIRE PUBLICĂ INFLUENCER
+// La fel ca la campanii - montată înainte de routerele /api care
+// pot aplica autentificare. Endpoint separat, NU reutilizează
+// vreo rută de campanie.
+app.use(
+  "/api/public/influencer",
+  publicInfluencerRoutes
+);
+
+// ✅ ATRIBUIRE PUBLICĂ REFERRAL VENDOR
+// La fel ca la influencer - montată înainte de routerele /api care
+// pot aplica autentificare.
+app.use(
+  "/api/public/vendor-referral",
+  publicVendorReferralRoutes
+);
+
+// ✅ COLECȚII PUBLICE VENDOR (pagina publică /:slug a unei
+// VendorCollection) - la fel ca la influencer, montată înainte de
+// routerele /api care pot aplica autentificare.
+app.use(
+  "/api/public/vendor-collections",
+  vendorCollectionsPublicRouter
+);
+
 app.use(
   "/api",
   metaCatalogFeedRoutes
@@ -462,6 +504,24 @@ app.use(
 app.use(adminEmailLogsRoutes);
 
 app.use("/api/admin/influencers", adminInfluencersRoutes);
+app.use("/api/admin/influencers", adminInfluencerPayoutRoutes);
+app.use(
+  "/api/admin/vendor-discount-codes",
+  adminVendorDiscountCodesRoutes
+);
+app.use(
+  "/api/admin/vendor-campaigns",
+  adminVendorCampaignsRoutes
+);
+app.use(
+  "/api/admin/influencer-payouts",
+  adminInfluencerPayoutActionsRoutes
+);
+app.use("/api/admin/legal", adminInfluencerTermsRoutes);
+app.use(
+  "/api/admin/influencer-resources",
+  adminInfluencerResourcesRoutes
+);
 app.use(
   "/api/influencer/collections",
   influencerCollectionsRoutes
@@ -469,6 +529,18 @@ app.use(
 app.use(
   "/api/influencer/discount-codes",
   influencerDiscountCodesRoutes
+);
+app.use(
+  "/api/influencer/files",
+  influencerFilesRoutes
+);
+app.use(
+  "/api/vendor/discount-codes",
+  vendorDiscountCodesRoutes
+);
+app.use(
+  "/api/vendor/collections",
+  vendorCollectionsRoutes
 );
 app.use("/api/ambassadors", ambassadorRoutes);
 app.use("/api/admin/maintenance", adminMaintenanceRoutes);
@@ -490,6 +562,7 @@ app.use("/api/admin", adminInvoicesRoutes);
 app.use("/api/admin", adminProductsRoutes);
 app.use("/api/admin", adminCollectionsRoutes);
 app.use("/api/influencer", influencerRoutes);
+app.use("/api/influencer", influencerPayoutsRoutes);
 app.use("/api", platformBillingRouter);
 app.use("/api/ai", aiRoutes);
 app.use("/api/ai", vendorCostProfitAiRoutes);

@@ -447,6 +447,18 @@ export default function SupportPageBase({
   faqItems = DEFAULT_FAQ_ITEMS,
   listPath = "/me/tickets", // default pt user/vendor
   hideNewTicket = false, // pt admin true dacă nu vrei creare tichete
+
+  /*
+   * FAZA 4 (action target navigare Support) - id-ul din URL, ex.
+   * /account/support/tickets/:ticketId (UserSupportPage îl pasa deja
+   * aici, dar componenta îl ignora complet - ruta "exista" la nivel
+   * de router, dar nu deschidea niciodată ticketul cerut). Ownership-ul
+   * NU se verifică aici - `filteredTickets` vine din `${supportBase}
+   * ${listPath}` (`/me/tickets`), care oricum întoarce STRICT
+   * tichetele apelantului; dacă id-ul nu e în listă (nu există, sau
+   * e al altcuiva), pica pe comportamentul normal (primul din listă).
+   */
+  initialTicketId = null,
 }) {
   // server-side filters
   const [scope] = useState("all"); // all | open | pending | closed
@@ -508,6 +520,10 @@ export default function SupportPageBase({
 
   const [selectedId, setSelectedId] = useState(null);
 
+  // FAZA 4: aplică o singură dată ticketId-ul primit din URL, dacă
+  // există în lista curentă a apelantului - vezi comentariul de la prop.
+  const appliedInitialTicketRef = useRef(false);
+
   // sync selecția tichete
   useEffect(() => {
     if (isMobileView) {
@@ -518,10 +534,20 @@ export default function SupportPageBase({
       if (selectedId && !filteredTickets.some((t) => t.id === selectedId)) {
         setSelectedId(filteredTickets[0]?.id ?? null);
       } else if (!selectedId && filteredTickets.length) {
-        setSelectedId(filteredTickets[0].id);
+        if (
+          !appliedInitialTicketRef.current &&
+          initialTicketId &&
+          filteredTickets.some((t) => t.id === initialTicketId)
+        ) {
+          appliedInitialTicketRef.current = true;
+          setSelectedId(initialTicketId);
+        } else {
+          appliedInitialTicketRef.current = true;
+          setSelectedId(filteredTickets[0].id);
+        }
       }
     }
-  }, [filteredTickets, selectedId, isMobileView]);
+  }, [filteredTickets, selectedId, isMobileView, initialTicketId]);
 
   const current = useMemo(
     () => filteredTickets.find((t) => t.id === selectedId) || null,

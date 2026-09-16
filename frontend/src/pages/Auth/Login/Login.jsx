@@ -624,6 +624,14 @@ const influencerInviteToken = (() => {
     } else if (
       role === "VENDOR"
     ) {
+      /*
+       * Revenit temporar la "/desktop" (decizie 2026-09-14): profilul
+       * magazinului se încarcă prea greu ca să fie landing page-ul
+       * implicit de login acum. /vendor/store (StoreRedirect.jsx)
+       * rămâne funcțional pentru acces explicit - consecvent cu
+       * `next` din răspunsul backend-ului (authRoutes.js/
+       * authGoogleRoutes.js), care e oricum prioritar aici.
+       */
       next = "/desktop";
     } else if (
       role === "INFLUENCER"

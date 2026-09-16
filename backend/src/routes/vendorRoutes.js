@@ -1,9 +1,20 @@
 // server/routes/vendors.js
 import { Router } from "express";
 import Stripe from "stripe";
+import crypto from "node:crypto";
 import { prisma } from "../db.js";
 import { authRequired /*, requireRole*/ } from "../api/auth.js";
 import { enforcePolicyGate } from "../middleware/enforcePolicyGate.js";
+import {
+  getVendorReferralConfirmedTotals,
+  getVendorReferralEstimatedEarnings,
+  getVendorReferralAttributedTotals,
+  getVendorOwnSaleAttributedTotals,
+  getVendorOwnSaleConfirmedTotals,
+  getVendorOwnSaleEstimatedBenefit,
+  listVendorReferralAttributedOrders,
+  listVendorOwnSaleAttributedOrders,
+} from "../services/vendorReferralEarnings.js";
 
 const router = Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
@@ -1838,6 +1849,20 @@ entitySelfDeclaredMeta: true,
     stripeRequirementsDue: true,
     stripeDisabledReason: true,
 
+    /*
+     * Referral vendor (vendor ca promotor) - vezi
+     * services/vendorReferralEarnings.js / vendorAttribution.js.
+     * Doar câmpuri publice/proprii, nu date financiare sensibile.
+     */
+    referralCode: true,
+    referralCommissionBps: true,
+
+    _count: {
+      select: {
+        referralClicks: true,
+      },
+    },
+
     billing: {
       select: {
         sellerType: true,
@@ -1871,8 +1896,65 @@ entitySelfDeclaredMeta: true,
 
   if (!v) return error(res, "vendor_profile_missing", 404);
 
-  const { billing: billingRecord, ...vendor } = v;
+  const { billing: billingRecord, _count: vendorCounts, ...vendor } = v;
   const now = new Date();
+
+  /*
+   * Agregate REALE de referral vendor - "confirmat" din ledger-ul
+   * VendorReferralEarningEntry, "estimat" calculat live, "atribuit"
+   * (comenzi/vânzări) de la plasarea comenzii - vezi
+   * services/vendorReferralEarnings.js (mirror al influencerEarnings.js).
+   *
+   * INCLUDE și own-sale (audit 2026-09-14: cardurile de overview din
+   * "Recomandări" ignorau vânzările own-sale, deși "Activitate
+   * recentă" le afișa deja) - agregate SEPARAT
+   * (getVendorOwnSale*), niciodată amestecate în calculul de
+   * referralConfirmedTotals/referralAttributedTotals de mai sus, ca
+   * să nu se schimbe semnificația "câștig din recomandare" deja
+   * existentă. Vezi comentariul din vendorReferralEarnings.js:
+   * own-sale nu e un câștig plătit separat, ci o economie de comision
+   * (benefitAmount), calculată cu ACEEAȘI formulă unică
+   * (computeCommissionBreakdown), doar aplicată o dată la bps
+   * standard și o dată la bps-ul redus.
+   *
+   * Nu blocăm /me dacă agregatele eșuează - dashboard-ul vendorului
+   * nu trebuie să pice din cauza unei funcții adiționale.
+   */
+  let referralConfirmedTotals = {
+    ordersCount: 0,
+    salesAmount: 0,
+    confirmedEarningsAmount: 0,
+  };
+  let referralEstimatedEarningsAmount = 0;
+  let referralAttributedTotals = { ordersCount: 0, salesAmount: 0 };
+
+  let ownSaleConfirmedTotals = {
+    ordersCount: 0,
+    salesAmount: 0,
+    confirmedBenefitAmount: 0,
+  };
+  let ownSaleEstimatedBenefitAmount = 0;
+  let ownSaleAttributedTotals = { ordersCount: 0, salesAmount: 0 };
+
+  try {
+    [
+      referralConfirmedTotals,
+      referralEstimatedEarningsAmount,
+      referralAttributedTotals,
+      ownSaleConfirmedTotals,
+      ownSaleEstimatedBenefitAmount,
+      ownSaleAttributedTotals,
+    ] = await Promise.all([
+      getVendorReferralConfirmedTotals(vendor.id),
+      getVendorReferralEstimatedEarnings(vendor.id),
+      getVendorReferralAttributedTotals(vendor.id),
+      getVendorOwnSaleConfirmedTotals(vendor.id),
+      getVendorOwnSaleEstimatedBenefit(vendor.id),
+      getVendorOwnSaleAttributedTotals(vendor.id),
+    ]);
+  } catch (err) {
+    console.error("[vendorRoutes] GET /me referral totals failed:", err);
+  }
 
   res.json({
     vendor,
@@ -1893,6 +1975,64 @@ entitySelfDeclaredMeta: true,
   warning: getPayoutsWarning(v, now),
   ctaUrl: "/setari?tab=payouts",
 },
+    referral: {
+      referralCode: vendor.referralCode,
+      commissionBps: vendor.referralCommissionBps,
+      commissionConfigured: Number(vendor.referralCommissionBps || 0) > 0,
+      clicks: vendorCounts?.referralClicks || 0,
+
+      /*
+       * Compatibilitate: câmpurile "vechi" (ordersCount/salesAmount/
+       * confirmedEarningsAmount/estimatedEarningsAmount) rămân STRICT
+       * cross-vendor (referral), neschimbate - nu redenumim un câștig
+       * real în ceva ambiguu. Totalurile COMBINATE (referral +
+       * own-sale) sunt expuse separat mai jos, în `stats`, cu
+       * denumiri neutre ("attributed"/"benefit") care nu sugerează
+       * plată separată pentru own-sale.
+       */
+      ordersCount: referralAttributedTotals.ordersCount,
+      salesAmount: referralAttributedTotals.salesAmount,
+
+      confirmedEarningsAmount:
+        referralConfirmedTotals.confirmedEarningsAmount,
+      estimatedEarningsAmount: referralEstimatedEarningsAmount,
+
+      stats: {
+        clicks: vendorCounts?.referralClicks || 0,
+
+        totalAttributedOrders:
+          referralAttributedTotals.ordersCount +
+          ownSaleAttributedTotals.ordersCount,
+        totalAttributedSales:
+          Math.round(
+            (referralAttributedTotals.salesAmount +
+              ownSaleAttributedTotals.salesAmount) *
+              100
+          ) / 100,
+
+        /*
+         * DELIBERAT nu există totalEstimatedBenefit/totalConfirmedBenefit
+         * combinate - own-sale (economie de comision) și recomandările
+         * (câștig real, plătit) NU se însumează niciodată într-o
+         * singură cifră de "câștig", ca să nu sugereze un payout
+         * pentru vânzarea proprie. Vezi referralEstimatedEarnings/
+         * referralConfirmedEarnings (STRICT cross-vendor) vs
+         * ownSaleEstimatedBenefit/ownSaleConfirmedBenefit (STRICT
+         * economie de comision) mai jos - fiecare card din UI citește
+         * DOAR unul dintre cele două seturi, niciodată suma lor.
+         */
+        referralOrders: referralAttributedTotals.ordersCount,
+        referralSales: referralAttributedTotals.salesAmount,
+        referralEstimatedEarnings: referralEstimatedEarningsAmount,
+        referralConfirmedEarnings:
+          referralConfirmedTotals.confirmedEarningsAmount,
+
+        ownSaleOrders: ownSaleAttributedTotals.ordersCount,
+        ownSaleSales: ownSaleAttributedTotals.salesAmount,
+        ownSaleEstimatedBenefit: ownSaleEstimatedBenefitAmount,
+        ownSaleConfirmedBenefit: ownSaleConfirmedTotals.confirmedBenefitAmount,
+      },
+    },
   });
 });
 
@@ -1923,6 +2063,228 @@ router.patch("/me", authRequired, vendorAccessRequired, async (req, res) => {
 
   res.json({ ok: true, vendor: updated });
 });
+
+/* ===================== Referral code (vendor ca promotor) ===================== */
+
+/*
+ * Generare server-side a Vendor.referralCode - vendorul NU poate
+ * trimite un cod arbitrar (nu citim niciun input din body), doar
+ * declanșează generarea. Odată setat, rămâne STABIL - link-urile
+ * deja distribuite nu se stricat niciodată. Mirror al
+ * generateUniqueReferralCode din adminInfluencersRoutes.js (slug +
+ * sufix random + retry pe unicitate), reimplementat local ca să nu
+ * cuplăm cele două fișiere pe un helper intern.
+ */
+async function generateUniqueVendorReferralCode(displayName = "") {
+  const base = slugify(displayName) || "vendor";
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const suffix = crypto.randomBytes(3).toString("hex");
+    const referralCode = `${base}-${suffix}`;
+
+    const existing = await prisma.vendor.findUnique({
+      where: { referralCode },
+      select: { id: true },
+    });
+
+    if (!existing) return referralCode;
+  }
+
+  throw new Error("could_not_generate_unique_referral_code");
+}
+
+/*
+ * POST /me/referral-code/generate
+ *
+ * Idempotent - "generate once": dacă vendorul are deja un cod,
+ * întoarce codul existent NESCHIMBAT (nu regenerează, nu invalidează
+ * linkuri deja distribuite). Doar dacă e null, generează unul nou.
+ *
+ * NU modifică referralCommissionBps (rămâne 0 / ce a setat admin -
+ * vezi PATCH /api/admin/vendors/:id/referral-commission) - un cod
+ * fără comision configurat tot funcționează pentru regula own-sale
+ * (vendorReferralCommissionOverrideBps, independentă de
+ * referralCommissionBps), doar nu produce earning pe referral extern
+ * până când admin nu setează un comision > 0.
+ */
+router.post(
+  "/me/referral-code/generate",
+  authRequired,
+  vendorAccessRequired,
+  async (req, res) => {
+    try {
+      const v =
+        req.meVendor ??
+        (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
+      if (!v) return error(res, "vendor_profile_missing", 404);
+
+      if (v.referralCode) {
+        return res.json({
+          ok: true,
+          referralCode: v.referralCode,
+          created: false,
+        });
+      }
+
+      const referralCode = await generateUniqueVendorReferralCode(
+        v.displayName
+      );
+
+      const updated = await prisma.vendor.update({
+        where: { id: v.id },
+        data: { referralCode },
+        select: { referralCode: true },
+      });
+
+      res.json({
+        ok: true,
+        referralCode: updated.referralCode,
+        created: true,
+      });
+    } catch (e) {
+      console.error("POST /me/referral-code/generate error:", e);
+
+      if (e?.message === "could_not_generate_unique_referral_code") {
+        return res.status(500).json({
+          error: "could_not_generate_unique_referral_code",
+          message: "Nu am putut genera un cod unic. Încearcă din nou.",
+        });
+      }
+
+      return error(res, "referral_code_generate_failed", 500);
+    }
+  }
+);
+
+/*
+ * GET /me/referral/orders
+ *
+ * Lista de comenzi/shipment-uri în care vendorul curent a fost
+ * PROMOTOR (referrerVendorId) - pentru tab-ul "Referrals" din
+ * CatalogProduse.jsx (VendorReferralEarnings.jsx). Reutilizează
+ * listVendorReferralAttributedOrders (services/vendorReferralEarnings.js,
+ * mirror al listInfluencerAttributedOrders) - nu recalculează nimic
+ * aici, doar mapează shape-ul deja calculat pe câmpurile pe care
+ * componenta de frontend le afișează.
+ *
+ * INCLUDE și "own-sale" (vendorul își promovează propriul produs prin
+ * propriul cod/link - listVendorOwnSaleAttributedOrders, aceeași
+ * regulă de la buildShipmentAttributionFields din chekoutRoutes.js) -
+ * afișate cu type: "OWN_SALE", DOAR pentru informare; comisionul
+ * rămâne redus la 5% în ledger-ul normal al vendorului
+ * (VendorEarningEntry), neschimbat aici. Un shipment e ORICE din cele
+ * două, niciodată ambele (referrerVendorId și
+ * vendorReferralOwnSaleAttributedAt se exclud reciproc - vezi
+ * buildShipmentAttributionFields), deci nu poate apărea duplicat.
+ */
+router.get(
+  "/me/referral/orders",
+  authRequired,
+  vendorAccessRequired,
+  async (req, res) => {
+    try {
+      const v =
+        req.meVendor ??
+        (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
+      if (!v) return error(res, "vendor_profile_missing", 404);
+
+      const take = Math.min(
+        100,
+        Math.max(1, Number(req.query?.pageSize) || 50)
+      );
+
+      const skip = Math.max(0, Number(req.query?.skip) || 0);
+
+      const [referralResult, ownSaleResult] = await Promise.all([
+        listVendorReferralAttributedOrders({
+          referrerVendorId: v.id,
+          take,
+          skip,
+        }),
+        listVendorOwnSaleAttributedOrders({
+          vendorId: v.id,
+          take,
+          skip,
+        }),
+      ]);
+
+      const mergedItems = [
+        ...referralResult.items.map((item) => ({ ...item, type: "REFERRAL" })),
+        ...ownSaleResult.items,
+      ].sort(
+        (a, b) => new Date(b.attributedAt || 0) - new Date(a.attributedAt || 0)
+      );
+
+      res.json({
+        ok: true,
+        total: referralResult.total + ownSaleResult.total,
+
+        orders: mergedItems.map((item) => ({
+          id: item.shipmentId,
+          orderNumber: item.orderNumber,
+          createdAt: item.createdAt,
+
+          type: item.type,
+
+          vendorName: item.vendorName,
+
+          status: item.status,
+          earningStatus: item.earningStatus,
+
+          salesAmount: item.eligibleItemsNet,
+          platformNet: item.artfestCommissionNet,
+
+          referralPercent:
+            item.type === "OWN_SALE"
+              ? null
+              : Number(item.commissionBpsSnapshot || 0) / 100,
+
+          earningAmount: item.type === "OWN_SALE" ? null : item.earningNet,
+
+          ownCommissionPercent:
+            item.type === "OWN_SALE"
+              ? Number(item.commissionBpsSnapshot || 0) / 100
+              : null,
+
+          /*
+           * Pentru own-sale: economia de comision (comisionul standard
+           * minus cel redus efectiv reținut), NU un câștig plătit -
+           * vezi computeOwnSaleBenefit din vendorReferralEarnings.js.
+           */
+          benefitAmount: item.type === "OWN_SALE" ? item.benefitAmount : null,
+
+          source:
+            item.attributionSource === "DISCOUNT_CODE"
+              ? "CODE"
+              : item.attributionSource === "COLLECTION"
+              ? "COLLECTION"
+              : "LINK",
+          discountCode: item.discountCodeText,
+
+          /*
+           * audit 2026-09-15 - slug-ul VendorCollection, doar când
+           * source === "COLLECTION" (persistent attribution).
+           */
+          collectionSlug: item.collectionSlug || null,
+
+          /*
+           * Reducere Artfest (audit 2026-09-14) - doar pentru cross-vendor
+           * (own-sale își are propriul câmp/afișare, neschimbat).
+           */
+          platformDiscountGross:
+            item.type === "OWN_SALE" ? null : item.platformDiscountGross,
+
+          currency: item.currency,
+        })),
+      });
+    } catch (e) {
+      console.error("GET /me/referral/orders error:", e);
+      return error(res, "vendor_referral_orders_failed", 500);
+    }
+  }
+);
 
 /* ===================== Subscription cancel /me ===================== */
 

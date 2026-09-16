@@ -26,6 +26,13 @@ export const ASSISTANT_ROLES = {
   GUEST: "GUEST",
   USER: "USER",
   VENDOR: "VENDOR",
+
+  /*
+   * INFLUENCER (FAZA 3) - strict aditiv, nu schimbă GUEST/USER/VENDOR.
+   * Reutilizează același AiAssistant.jsx (nu VendorAssistant) - vezi
+   * AppLayout.jsx.
+   */
+  INFLUENCER: "INFLUENCER",
 };
 
 /*
@@ -49,7 +56,97 @@ export const ASSISTANT_ACTION_TYPES = {
   OPEN_REQUEST: "OPEN_REQUEST",
   OPEN_MESSAGES: "OPEN_MESSAGES",
   OPEN_SETTINGS: "OPEN_SETTINGS",
+
+  /*
+   * FAZA 3 (INFLUENCER) - SINGURUL tip nou adăugat, oglindă exactă a
+   * OPEN_STORE (entitate publică, deschisă după slug) - verificat
+   * înainte de adăugare (vezi raportul FAZA 2) că OPEN_STORE însuși
+   * nu rezolvă la /selectii/:slug (rută diferită de /magazin/:slug),
+   * deci nu poate fi reutilizat ca atare pentru o colecție.
+   */
+  OPEN_COLLECTION: "OPEN_COLLECTION",
+
+  /*
+   * FAZA 4 (Support × AiAssistant - navigare) - deschide tichetul
+   * individual (ticketId dinamic, cunoscut doar la runtime) - oglindă
+   * exactă a OPEN_PRODUCT/OPEN_COLLECTION. DOAR pentru USER - vezi
+   * DYNAMIC_ASSISTANT_ROUTE_BUILDERS mai jos, ruta verificată direct
+   * în App.jsx: path="/account/support/tickets/:ticketId". VENDOR nu
+   * are o rută individuală reală (verificat - doar "/vendor/support",
+   * fără segment :ticketId) - nu inventăm una; apelantul trebuie să
+   * folosească VENDOR_SUPPORT (lista) pentru rolul VENDOR.
+   */
+  OPEN_SUPPORT_TICKET: "OPEN_SUPPORT_TICKET",
 };
+
+/*
+ * FAZA 3 - construiește rute pentru entități PUBLICE, dinamice
+ * (id/slug cunoscut doar la runtime, nu un target static din
+ * ASSISTANT_ACTION_REGISTRY) - OPEN_PRODUCT/OPEN_COLLECTION erau
+ * declarate în enum de mai sus, dar NEIMPLEMENTATE (niciun handler
+ * în AiAssistant.jsx) - acesta e mecanismul de rezolvare, ca
+ * AiAssistant.jsx să nu hardcodeze niciun URL.
+ *
+ * Rute verificate direct în App.jsx:
+ * - /produs/:id -> ProductDetails
+ * - /selectii/:slug -> PublicInfluencerCollectionPage
+ */
+const DYNAMIC_ASSISTANT_ROUTE_BUILDERS = {
+  [ASSISTANT_ACTION_TYPES.OPEN_PRODUCT]: (params) =>
+    params?.productId
+      ? `/produs/${encodeURIComponent(params.productId)}`
+      : null,
+
+  [ASSISTANT_ACTION_TYPES.OPEN_COLLECTION]: (params) =>
+    params?.slug
+      ? `/selectii/${encodeURIComponent(params.slug)}`
+      : null,
+
+  [ASSISTANT_ACTION_TYPES.OPEN_SUPPORT_TICKET]: (params) =>
+    params?.ticketId
+      ? `/account/support/tickets/${encodeURIComponent(params.ticketId)}`
+      : null,
+};
+
+/**
+ * buildDynamicAssistantRoute(type, params) - rezolvă un tip de
+ * acțiune dinamică (OPEN_PRODUCT/OPEN_COLLECTION) la o rută REALĂ,
+ * folosind DOAR șabloanele verificate mai sus. Întoarce `null` dacă
+ * tipul nu are un șablon (ex. OPEN_STORE, încă neimplementat) sau
+ * dacă lipsește parametrul necesar - apelantul cade pe explicație
+ * text, nu pe un URL ghicit.
+ */
+export function buildDynamicAssistantRoute(type, params) {
+  const builder = DYNAMIC_ASSISTANT_ROUTE_BUILDERS[type];
+
+  return builder ? builder(params || {}) : null;
+}
+
+/**
+ * buildAssistantActionUrl(entry, params) - adaugă query params
+ * (ex. category/activity pentru INFLUENCER_RESOURCES) peste ruta
+ * STATICĂ a unui target NAVIGATE din registru, fără să reconstruiască
+ * URL-ul manual la fiecare punct de apel. `entry.route` poate deja
+ * conține un query string propriu (ex. "?tab=resources") - params
+ * se adaugă peste, nu îl înlocuiesc.
+ */
+export function buildAssistantActionUrl(entry, params = {}) {
+  if (!entry?.route) {
+    return entry?.route || null;
+  }
+
+  const url = new URL(entry.route, "http://internal.artfest.local");
+
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+
+    url.searchParams.set(key, value);
+  }
+
+  return `${url.pathname}${url.search}`;
+}
 
 /*
  * Acțiuni SENSIBILE (cerința #7) - NU au niciun handler de execuție
@@ -300,6 +397,39 @@ export const ASSISTANT_ACTION_REGISTRY = {
     label: "setările contului",
   },
 
+  /*
+   * FAZA 4 (Support × AiAssistant - navigare) - listă tichete USER.
+   * App.jsx (verificat): path="/account/support" -> UserSupportPage
+   * (RequireUser). Există și "/account/support/tickets/:ticketId" -
+   * vezi OPEN_SUPPORT_TICKET (rută dinamică, mai jos), NU acest target
+   * static (care e mereu lista).
+   *
+   * VENDOR NU folosește acest target - are deja VENDOR_SUPPORT
+   * (/vendor/support) mai sus, o rută diferită - nu le amestecăm.
+   */
+  USER_SUPPORT_TICKETS: {
+    route: "/account/support",
+    action: A.NAVIGATE,
+    allowedRoles: [R.USER],
+    requiresAuth: true,
+    label: "tichetele tale",
+  },
+
+  /*
+   * ADĂUGAT (audit Guest Batch 2, 2026-09-08) - App.jsx (verificat):
+   * path="/support" -> GuestSupportPage, FĂRĂ <RequireUser> - rută
+   * publică reală, distinctă de USER_SUPPORT_TICKETS (/account/support,
+   * autentificată). Un guest poate deschide aici un tichet nou
+   * (nume+email), fără cont.
+   */
+  GUEST_SUPPORT: {
+    route: "/support",
+    action: A.NAVIGATE,
+    allowedRoles: [R.GUEST],
+    requiresAuth: false,
+    label: "pagina de suport",
+  },
+
   // App.jsx: path="/facturi" -> UserInvoicesPage (lazy)
   USER_INVOICES: {
     route: "/facturi",
@@ -422,9 +552,10 @@ export const ASSISTANT_ACTION_REGISTRY = {
     label: "profilul magazinului tău",
   },
 
-  // App.jsx: path="/vendor/promovari" -> VendorHomepagePromotions
+  // Tab "Promoții" al /vendor/catalog (CatalogProduse.jsx) - "/vendor/promovari"
+  // rămâne doar ca redirect pentru linkuri vechi (email/notificări), vezi App.jsx.
   VENDOR_PROMOTIONS: {
-    route: "/vendor/promovari",
+    route: "/vendor/catalog?tab=promotions",
     action: A.NAVIGATE,
     allowedRoles: [R.VENDOR],
     requiresAuth: true,
@@ -484,7 +615,71 @@ export const ASSISTANT_ACTION_REGISTRY = {
     precondition: "cont de vânzător activ",
     label: "setările magazinului",
     notes:
-      "Nu există o rută separată doar pentru livrare - /setari e pagina generală de setări vendor.",
+      "Nu există o rută separată doar pentru livrare - /setari e pagina generală de setări vendor. Pentru un tab anume, vezi VENDOR_SETTINGS_* mai jos (fix 2026-09-04, audit Setări Vendor) - același pattern ca VENDOR_CAMPAIGNS/INFLUENCER_RESOURCES, query param pe aceeași rută, NU o rută nouă.",
+  },
+
+  /*
+   * Fix 2026-09-04 (audit Setări Vendor) - tab-uri REALE ale /setari
+   * (SettingsPage.jsx, searchParams "tab": profile|shipping|
+   * notifications|marketing|security|billing|subscription|payouts|
+   * danger - verificat direct în cod). Nu toate tab-urile au un
+   * target dedicat aici - doar cele cerute, pentru care există deja
+   * un motiv real de navigare directă din asistent. "danger"
+   * (dezactivare cont) e EXCLUS intenționat - nu se navighează
+   * direct acolo din asistent (SENSITIVE_ACTION_KEYWORDS).
+   */
+  VENDOR_SETTINGS_PROFILE: {
+    route: "/setari?tab=profile",
+    action: A.NAVIGATE,
+    allowedRoles: [R.VENDOR],
+    requiresAuth: true,
+    precondition: "cont de vânzător activ",
+    label: "profilul magazinului tău (nume, descriere, logo, adresă)",
+  },
+
+  VENDOR_SETTINGS_SHIPPING: {
+    route: "/setari?tab=shipping",
+    action: A.NAVIGATE,
+    allowedRoles: [R.VENDOR],
+    requiresAuth: true,
+    precondition: "cont de vânzător activ",
+    label: "setările de livrare și retururi",
+  },
+
+  VENDOR_SETTINGS_MARKETING: {
+    route: "/setari?tab=marketing",
+    action: A.NAVIGATE,
+    allowedRoles: [R.VENDOR],
+    requiresAuth: true,
+    precondition: "cont de vânzător activ",
+    label: "preferințele de marketing și email",
+  },
+
+  VENDOR_SETTINGS_SECURITY: {
+    route: "/setari?tab=security",
+    action: A.NAVIGATE,
+    allowedRoles: [R.VENDOR],
+    requiresAuth: true,
+    precondition: "cont de vânzător activ",
+    label: "securitatea contului (parolă, email)",
+  },
+
+  VENDOR_SETTINGS_BILLING: {
+    route: "/setari?tab=billing",
+    action: A.NAVIGATE,
+    allowedRoles: [R.VENDOR],
+    requiresAuth: true,
+    precondition: "cont de vânzător activ",
+    label: "datele de facturare",
+  },
+
+  VENDOR_SETTINGS_PAYOUTS: {
+    route: "/setari?tab=payouts",
+    action: A.NAVIGATE,
+    allowedRoles: [R.VENDOR],
+    requiresAuth: true,
+    precondition: "cont de vânzător activ",
+    label: "încasările tale Stripe",
   },
 
   // App.jsx: path="/vendor/visitors" -> VendorVisitorsPage (statistici)
@@ -513,6 +708,80 @@ export const ASSISTANT_ACTION_REGISTRY = {
     requiresAuth: true,
     precondition: "cont de vânzător activ",
     label: "notificările tale",
+  },
+
+  /* =====================================================
+     INFLUENCER (FAZA 3) - necesită cont de influencer activ.
+
+     App.jsx: path="/influencer" -> InfluencerDashboardPage.
+     Tab-urile sunt REALE (DASHBOARD_TABS din
+     InfluencerDashboardPage.jsx: home/promotion/orders/resources),
+     dar dashboardul citea starea DOAR din useState intern, nu din
+     URL - InfluencerDashboardPage.jsx a fost extins minim (FAZA 3)
+     să inițializeze activeTab din ?tab=..., ca aceste target-uri să
+     poată deep-link-a direct pe tab-ul corect.
+  ===================================================== */
+
+  INFLUENCER_DASHBOARD: {
+    route: "/influencer",
+    action: A.NAVIGATE,
+    allowedRoles: [R.INFLUENCER],
+    requiresAuth: true,
+    precondition: "cont de influencer activ",
+    label: "panoul tău de influencer",
+  },
+
+  /*
+   * category/activity se adaugă peste această rută prin
+   * buildAssistantActionUrl (nu sunt parte din `route` static) -
+   * vezi InfluencerResourcesSection.jsx, care citește aceiași
+   * parametri (category/activity) din URL la montare.
+   */
+  INFLUENCER_RESOURCES: {
+    route: "/influencer?tab=resources",
+    action: A.NAVIGATE,
+    allowedRoles: [R.INFLUENCER],
+    requiresAuth: true,
+    precondition: "cont de influencer activ",
+    label: "resursele tale",
+  },
+
+  INFLUENCER_ORDERS: {
+    route: "/influencer?tab=orders",
+    action: A.NAVIGATE,
+    allowedRoles: [R.INFLUENCER],
+    requiresAuth: true,
+    precondition: "cont de influencer activ",
+    label: "comenzile tale",
+  },
+
+  INFLUENCER_PROMOTION: {
+    route: "/influencer?tab=promotion",
+    action: A.NAVIGATE,
+    allowedRoles: [R.INFLUENCER],
+    requiresAuth: true,
+    precondition: "cont de influencer activ",
+    label: "promovarea ta",
+  },
+
+  /*
+   * Colecțiile influencerului nu au un tab dedicat - se gestionează
+   * din modalul "Colecțiile mele", deschis din tab-ul Promovare
+   * (InfluencerDashboardPage.jsx: setCollectionsOpen(true), buton
+   * "Colecțiile mele" din Acțiuni rapide/Promovare). Navigăm la cel
+   * mai apropiat tab real, nu inventăm o rută separată - pentru
+   * DESCHIDEREA unei colecții publice anume, vezi OPEN_COLLECTION
+   * (rută dinamică, nu acest target static).
+   */
+  INFLUENCER_COLLECTIONS: {
+    route: "/influencer?tab=promotion",
+    action: A.NAVIGATE,
+    allowedRoles: [R.INFLUENCER],
+    requiresAuth: true,
+    precondition: "cont de influencer activ",
+    label: "colecțiile tale",
+    notes:
+      "Nu există tab dedicat - /influencer?tab=promotion e cea mai apropiată rută reală; colecțiile se deschid din modalul 'Colecțiile mele' de acolo.",
   },
 };
 

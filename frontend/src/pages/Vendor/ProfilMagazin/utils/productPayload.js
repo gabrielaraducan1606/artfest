@@ -39,6 +39,43 @@ const quoteSchema = Array.isArray(prodForm.quoteSchema)
   const careInstructions = (prodForm.careInstructions || "").trim() || null;
   const specialNotes = (prodForm.specialNotes || "").trim() || null;
 
+  /*
+   * GPSR (Regulamentul UE 2023/988) - vezi
+   * ProductGpsrSection.jsx/gpsrCompliance.js. `null` = necompletat
+   * încă; nu presupunem valori implicite (ex. isForChildren: false).
+   */
+  const isOwnManufacturer =
+    prodForm.isOwnManufacturer === true || prodForm.isOwnManufacturer === false
+      ? prodForm.isOwnManufacturer
+      : null;
+
+  const manufacturerName = (prodForm.manufacturerName || "").trim() || null;
+  const manufacturerAddress = (prodForm.manufacturerAddress || "").trim() || null;
+  const manufacturerEmail = (prodForm.manufacturerEmail || "").trim() || null;
+
+  const manufacturerInEU =
+    prodForm.manufacturerInEU === true || prodForm.manufacturerInEU === false
+      ? prodForm.manufacturerInEU
+      : null;
+
+  const responsiblePersonName = (prodForm.responsiblePersonName || "").trim() || null;
+  const responsiblePersonAddress = (prodForm.responsiblePersonAddress || "").trim() || null;
+  const responsiblePersonEmail = (prodForm.responsiblePersonEmail || "").trim() || null;
+
+  /*
+   * "" (confirmat: nu se aplică) e distinct de null (necompletat) -
+   * NU face fallback la null.
+   */
+  const safetyWarnings =
+    prodForm.safetyWarnings === null || prodForm.safetyWarnings === undefined
+      ? null
+      : String(prodForm.safetyWarnings);
+
+  const isForChildren =
+    prodForm.isForChildren === true || prodForm.isForChildren === false
+      ? prodForm.isForChildren
+      : null;
+
   if (!title) {
     throw new Error("Te rog adaugă un titlu.");
   }
@@ -90,6 +127,17 @@ repeatedGroups:
   dimensions,
   careInstructions,
   specialNotes,
+
+  isOwnManufacturer,
+  manufacturerName,
+  manufacturerAddress,
+  manufacturerEmail,
+  manufacturerInEU,
+  responsiblePersonName,
+  responsiblePersonAddress,
+  responsiblePersonEmail,
+  safetyWarnings,
+  isForChildren,
 };
 
   const av = String(prodForm.availability || "READY").toUpperCase();

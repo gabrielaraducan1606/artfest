@@ -58,6 +58,18 @@ const PATTERNS = [
     entityType: "QUOTE",
   },
   { re: /^\/cereri$/, pageType: "QUOTES_LIST" },
+  /*
+   * FAZA 3 (context mai bogat în tichet) - pagina de detalii comandă
+   * a cumpărătorului (/comanda/:id, vezi App.jsx - MyOrderDetailsPage)
+   * lipsea complet de-aici, deși e o rută reală, autentificată -
+   * entityType "ORDER" era derivabil DOAR pe /vendor/orders/:id
+   * (vânzător), niciodată pentru cumpărător.
+   */
+  {
+    re: /^\/comanda\/([^/]+)$/,
+    pageType: "ORDER_DETAILS_USER",
+    entityType: "ORDER",
+  },
 ];
 
 /*

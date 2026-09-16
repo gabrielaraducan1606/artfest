@@ -63,6 +63,24 @@ function normalizeProductImages(images) {
     .slice(0, 12);
 }
 
+/*
+ * Fallback determinist pentru text fără corespondent în cataloagele
+ * canonice (COLORS_DETAILED/MATERIALS_DETAILED) - doar prima literă
+ * mare, fără să inventăm o traducere (ex. "model_deosebit" ->
+ * "Model deosebit").
+ */
+function naiveHumanizeLabel(value) {
+  const raw = String(value || "").trim();
+
+  if (!raw) {
+    return "";
+  }
+
+  return raw
+    .replace(/_/g, " ")
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
 function normalizeOptionImageUrl(value) {
   const url = String(value || "").trim();
 
@@ -121,8 +139,11 @@ function normalizeOptionsSchema(value) {
       const options = rawOptions
         .map((item) => {
           /*
-           * Variantă simplă:
-           * "Alb"
+           * Variantă simplă: "grey_light" sau "Alb" - normalizăm
+           * mereu la { value, label }, ca schemele generate de-acum
+           * încolo să nu mai piardă eticheta (bugfix: valorile
+           * simple ajungeau nemodificate, fără label, în
+           * optionsSchema).
            */
           if (typeof item === "string") {
             const text = item.trim();
@@ -142,7 +163,41 @@ function normalizeOptionsSchema(value) {
 
             usedOptions.add(dedupeKey);
 
-            return text;
+            const catalogMatch =
+              findCatalogItem(
+                text,
+                COLORS_DETAILED
+              ) ||
+              findCatalogItem(
+                text,
+                MATERIALS_DETAILED
+              );
+
+            return {
+              value: catalogMatch
+                ? getCatalogKey(
+                    catalogMatch
+                  )
+                : text,
+
+              label: catalogMatch
+                ? getCatalogLabel(
+                    catalogMatch
+                  )
+                : naiveHumanizeLabel(
+                    text
+                  ),
+
+              colorHex: catalogMatch
+                ? getCatalogHex(
+                    catalogMatch
+                  )
+                : null,
+
+              imageUrl: null,
+              imageIndex: null,
+              disabled: false,
+            };
           }
 
           /*

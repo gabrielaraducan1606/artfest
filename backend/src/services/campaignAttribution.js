@@ -70,6 +70,9 @@ export async function resolveVendorCampaignAttributions({
         isActive: true,
         scope: true,
         discountPercent: true,
+        platformFundingBps: true,
+        vendorFundingBps: true,
+        fundingSource: true,
         startsAt: true,
         endsAt: true,
 
@@ -96,6 +99,9 @@ export async function resolveVendorCampaignAttributions({
     result.set(vendorId, {
       campaignId: campaign.id,
       discountPercent: Number(campaign.discountPercent || 0),
+      platformFundingBps: campaign.platformFundingBps,
+      vendorFundingBps: campaign.vendorFundingBps,
+      fundingSource: campaign.fundingSource,
       scope: campaign.scope,
       selectedProductIds: new Set(
         Array.isArray(campaign.products)
@@ -111,8 +117,13 @@ export async function resolveVendorCampaignAttributions({
 /**
  * Verifică dacă un produs anume e eligibil pentru discountul
  * campaniei atribuite vendorului său (ALL_PRODUCTS vs
- * SELECTED_PRODUCTS). Comisionul redus NU depinde de asta -
- * se aplică la nivel de shipment, indiferent ce produse conține.
+ * SELECTED_PRODUCTS).
+ *
+ * SCHIMBARE (audit 2026-09-14, lifecycle VendorCampaign):
+ * comisionul redus de campanie ACUM depinde de asta - vezi
+ * getCampaignEligibilityInfo / splitItemsByCampaignEligibility mai
+ * jos. Funcția rămâne neschimbată ca semnătură/comportament (doar
+ * comentariul vechi, care spunea contrariul, era depășit).
  */
 export function isProductEligibleForCampaign(productId, attribution) {
   if (!attribution) return false;
@@ -122,6 +133,109 @@ export function isProductEligibleForCampaign(productId, attribution) {
   }
 
   return true;
+}
+
+/**
+ * Info de eligibilitate a UNEI campanii deja atribuite unui shipment
+ * (shipment.campaignId), pentru calculul comisionului - NU pentru
+ * atribuire. Diferă de `resolveVendorCampaignAttributions` prin
+ * faptul că nu verifică token/fereastră/isActive/date - la momentul
+ * calculului comisionului (checkout, ledger, refund, preview) e
+ * INTENȚIONAT să folosim campania așa cum a fost la creare
+ * shipment-ului (campaignId e deja un snapshot server-side validat
+ * o dată, la checkout), nu să o revalidăm din nou fiecare dată.
+ *
+ * @returns {Promise<{scope: string, selectedProductIds: Set<string>} | null>}
+ */
+export async function getCampaignEligibilityInfo(campaignId) {
+  if (!campaignId) return null;
+
+  const campaign = await prisma.vendorCampaign.findUnique({
+    where: { id: String(campaignId) },
+    select: {
+      scope: true,
+      products: { select: { productId: true } },
+    },
+  });
+
+  if (!campaign) return null;
+
+  return {
+    scope: campaign.scope,
+    selectedProductIds: new Set(
+      Array.isArray(campaign.products)
+        ? campaign.products.map((p) => p.productId).filter(Boolean)
+        : []
+    ),
+  };
+}
+
+/**
+ * Variantă batch a `getCampaignEligibilityInfo`, pentru CARD
+ * (computeOrderSplits), unde o comandă poate avea mai multe
+ * shipment-uri/campaignId-uri de interogat o singură dată.
+ *
+ * @returns {Promise<Map<string, {scope, selectedProductIds}>>}
+ */
+export async function getCampaignEligibilityInfoMap(campaignIds = []) {
+  const ids = Array.from(
+    new Set((campaignIds || []).map((id) => String(id || "")).filter(Boolean))
+  );
+
+  const map = new Map();
+  if (!ids.length) return map;
+
+  const campaigns = await prisma.vendorCampaign.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      scope: true,
+      products: { select: { productId: true } },
+    },
+  });
+
+  for (const campaign of campaigns) {
+    map.set(campaign.id, {
+      scope: campaign.scope,
+      selectedProductIds: new Set(
+        Array.isArray(campaign.products)
+          ? campaign.products.map((p) => p.productId).filter(Boolean)
+          : []
+      ),
+    });
+  }
+
+  return map;
+}
+
+/**
+ * Împarte itemii unui shipment/vendor în două grupuri, pe baza
+ * eligibilității REALE pentru campania atașată:
+ * - eligible: beneficiază de comisionul redus de campanie
+ * - standard: rămân pe comisionul standard (plan)
+ *
+ * ATTRIBUTION vs COMMISSION ELIGIBILITY: `eligibilityInfo === null`
+ * (fără campanie atașată, sau campanie negăsită) => toate itemii merg
+ * în `standard`. Atribuirea (campaignId pe shipment, pentru
+ * analytics) poate exista fără ca vreun item să fie eligibil pentru
+ * comision - acesta e exact cazul separat de mai jos.
+ */
+export function splitItemsByCampaignEligibility(items, eligibilityInfo) {
+  const eligible = [];
+  const standard = [];
+
+  for (const item of items || []) {
+    if (
+      eligibilityInfo &&
+      isProductEligibleForCampaign(item.productId, eligibilityInfo)
+    ) {
+      eligible.push(item);
+    } else {
+      standard.push(item);
+    }
+  }
+
+  return { eligible, standard };
 }
 
 /**
@@ -159,6 +273,9 @@ export function buildCampaignPromotionsByProductId(
 
     const promotion = campaignToPromotion({
       discountPercent: attribution.discountPercent,
+      fundingSource: attribution.fundingSource,
+      platformFundingBps: attribution.platformFundingBps,
+      vendorFundingBps: attribution.vendorFundingBps,
     });
 
     if (promotion) {

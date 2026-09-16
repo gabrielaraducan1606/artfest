@@ -387,6 +387,20 @@
   border-color: var(--color-hover);
 }
 
+/*
+ * Stare indisponibilă/epuizat - vizual clar diferită de butonul activ
+ * (nu doar prin atributul disabled nativ sau tooltip la hover):
+ * fundal neutru, fără umbra colorată, icon diferit (FaBan) în JSX.
+ */
+.iconBtnUnavailable,
+.iconBtnUnavailable:hover {
+  background: var(--surface, #f3f4f6);
+  border-color: var(--color-border, #d1d5db);
+  color: var(--color-text-muted, #9ca3af);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 .iconBtn:active,
 .iconBtnOutline:active {
   transform: translateY(1px);

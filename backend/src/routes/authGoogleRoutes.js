@@ -599,23 +599,51 @@ router.post(
         !existingUser;
 /*
  * În fluxul de înregistrare nu asociem automat
- * Google peste un cont Artfest deja existent.
+ * Google peste un cont Artfest deja existent -
+ * CU EXCEPȚIA cazului "register as vendor" (wantsVendor),
+ * unde un cont USER sau VENDOR existent poate continua
+ * fluxul de upgrade/login prin Google (vezi mai jos).
  *
- * Utilizatorul trebuie să intre din fila Login,
- * unde contul Google va fi asociat în siguranță
- * cu utilizatorul existent.
+ * Pentru orice alt cont existent (ADMIN, INFLUENCER sau
+ * orice rol diferit de USER/VENDOR), NU suprascriem rolul
+ * și NU asociem automat Google - utilizatorul trebuie să
+ * intre din fila Login.
  */
 if (
   mode === "register" &&
   existingUser
 ) {
-  return res.status(409).json({
-    error:
-      "google_email_already_registered",
+  if (wantsVendor) {
+    const currentRole =
+      existingUser.role;
 
-    message:
-      "Există deja un cont Artfest cu această adresă de email. Accesează fila Autentificare și continuă cu Google pentru a intra în contul existent.",
-  });
+    if (
+      currentRole !== "USER" &&
+      currentRole !== "VENDOR"
+    ) {
+      return res.status(409).json({
+        error:
+          "account_has_existing_role",
+
+        message:
+          "Acest cont are deja un rol activ în Artfest. Conectează-te folosind contul existent.",
+      });
+    }
+
+    /*
+     * USER -> poate continua fluxul de upgrade la VENDOR.
+     * VENDOR -> continuă/login, fără downgrade/overwrite
+     * (tranzacția de mai jos păstrează rolul VENDOR).
+     */
+  } else {
+    return res.status(409).json({
+      error:
+        "google_email_already_registered",
+
+      message:
+        "Există deja un cont Artfest cu această adresă de email. Accesează fila Autentificare și continuă cu Google pentru a intra în contul existent.",
+    });
+  }
 }
       /*
        * Din pagina de login nu permitem crearea
@@ -768,8 +796,20 @@ if (
                         hasMarketingOptIn
                       ),
 
+                    /*
+                     * A doua barieră (belt-and-suspenders) - chiar
+                     * dacă verificarea de mai sus ar fi ocolită
+                     * cumva, nu suprascriem niciodată un rol
+                     * existent diferit de USER/VENDOR.
+                     */
                     role:
-                      wantsVendor
+                      wantsVendor &&
+                      (
+                        existingUser.role ===
+                          "USER" ||
+                        existingUser.role ===
+                          "VENDOR"
+                      )
                         ? "VENDOR"
                         : existingUser.role,
 
@@ -1333,6 +1373,14 @@ if (result.user.role === "ADMIN") {
   const alreadyHadVendor =
     !!existingUser?.vendor?.id;
 
+  /*
+   * Revenit temporar la "/desktop" pentru vendor existent (decizie
+   * 2026-09-14): profilul magazinului se încarcă prea greu ca să fie
+   * landing page-ul implicit de login acum. Ruta /vendor/store
+   * (StoreRedirect.jsx) rămâne funcțională pentru acces explicit.
+   * Vendorul nou fără cont încă rămâne trimis la /onboarding,
+   * neschimbat.
+   */
   next =
     isNewUser || !alreadyHadVendor
       ? "/onboarding"

@@ -17,7 +17,12 @@ import {
   Suspense,
 } from "react";
 
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+
 import ScrollToTop from "./components/ScrollToTop.jsx";
+import InfluencerAttributionCapture from "./components/InfluencerAttributionCapture.jsx";
+import VendorReferralAttributionCapture from "./components/VendorReferralAttributionCapture.jsx";
 import AppLayout from "./components/Navbar/AppLayout.jsx";
 import Navbar from "./components/Navbar/Navbar.jsx";
 
@@ -54,6 +59,9 @@ const ProfilMagazin = lazy(() =>
   import("./pages/Vendor/ProfilMagazin/ProfilMagazin")
 );
 import StoreRedirect from "./pages/Vendor/ProfilMagazin/StoreRedirect";
+const VendorStoresPage = lazy(() =>
+  import("./pages/Vendor/VendorStoresPage/VendorStoresPage")
+);
 // Lazy - fișier mare (4700+ linii); nu are ce căuta în bundle-ul
 // inițial al paginii Produse. Prefetch-uit explicit la hover/focus
 // pe ProductCard, ca tranziția să rămână instantă în fluxul normal.
@@ -101,9 +109,6 @@ const OrderDetailsPage = lazy(() =>
   import("./pages/Vendor/Orders/OrdersDetailsPage")
 );
 
-const VendorHomepagePromotions = lazy(() =>
-  import("./pages/Vendor/Promotions/VendorPromotions.jsx")
-);
 import CatalogProdusePage from "./pages/Vendor/CatalogProduse/CatalogProduse.jsx";
 
 const VendorInvoicesPage = lazy(() =>
@@ -180,6 +185,33 @@ function ResetOrForgot() {
   return token
     ? <ResetPassword />
     : <ForgotPassword />;
+}
+
+/*
+ * Ruta veche "/vendor/promovari" a devenit tabul "Promoții" din
+ * /vendor/catalog (vezi CatalogProduse.jsx) - păstrăm ruta veche ca
+ * redirect (nu link mort), păstrând `featureId` dacă vine dintr-un
+ * link mai vechi (email/notificare) care deschide direct o promovare.
+ */
+function VendorPromotionsRedirect() {
+  const [searchParams] =
+    useSearchParams();
+
+  const featureId =
+    searchParams.get("featureId");
+
+  const target = featureId
+    ? `/vendor/catalog?tab=promotions&featureId=${encodeURIComponent(
+        featureId
+      )}`
+    : "/vendor/catalog?tab=promotions";
+
+  return (
+    <Navigate
+      to={target}
+      replace
+    />
+  );
 }
 
 function AtSlugRedirect() {
@@ -432,6 +464,56 @@ function RequireVendor({
   return children;
 }
 
+/*
+ * Simetric cu RequireVendor/RequireAdmin - InfluencerDashboardPage
+ * face oricum propria verificare server-side (GET /api/influencer/me),
+ * dar fără acest guard un user neautorizat vedea un ecran gol/loading
+ * înainte de redirectul client-side (consistență, nu bug de securitate).
+ */
+function RequireInfluencer({
+  children,
+}) {
+  const {
+    me,
+    loading,
+  } = useAuth();
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          padding: 24,
+        }}
+      >
+        Se verifică sesiunea…
+      </div>
+    );
+  }
+
+  if (!me) {
+    return (
+      <Navigate
+        to="/autentificare"
+        replace
+      />
+    );
+  }
+
+  if (
+    me.role !==
+    "INFLUENCER"
+  ) {
+    return (
+      <Navigate
+        to="/"
+        replace
+      />
+    );
+  }
+
+  return children;
+}
+
 function RequireAdmin({
   children,
 }) {
@@ -502,6 +584,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <ScrollToTop />
+      <InfluencerAttributionCapture />
+      <VendorReferralAttributionCapture />
+      <ToastContainer position="top-center" autoClose={3500} />
 
       <SEOProvider
         defaults={{
@@ -655,6 +740,16 @@ export default function App() {
             />
 
             <Route
+              path="/acord-influenceri"
+              element={
+                <LegalHtmlRoute
+                  path="/legal/influencer_terms.html"
+                  title="acordul programului de influenceri"
+                />
+              }
+            />
+
+            <Route
               path="/politica-retur"
               element={
                 <LegalHtmlRoute
@@ -725,7 +820,11 @@ export default function App() {
 />
 <Route
   path="/influencer"
-  element={<InfluencerDashboardPage />}
+  element={
+    <RequireInfluencer>
+      <InfluencerDashboardPage />
+    </RequireInfluencer>
+  }
 />
             <Route
               path="/verify-email"
@@ -939,7 +1038,7 @@ export default function App() {
             <Route
               path="/vendor/promovari"
               element={
-                <VendorHomepagePromotions />
+                <VendorPromotionsRedirect />
               }
             />
 
@@ -1027,6 +1126,22 @@ export default function App() {
               element={
                 <RequireVendor>
                   <StoreRedirect />
+                </RequireVendor>
+              }
+            />
+
+            {/*
+              "Magazinele mele" (audit navigare 2026-09-14) - pagina
+              exista deja (VendorStoresPage.jsx, folosește același
+              /api/vendors/me/services ca StoreRedirect), doar nu era
+              legată la nicio rută. Nu duplică /magazine (director
+              public de magazine, StoresPage.jsx).
+            */}
+            <Route
+              path="/vendor/stores"
+              element={
+                <RequireVendor>
+                  <VendorStoresPage />
                 </RequireVendor>
               }
             />

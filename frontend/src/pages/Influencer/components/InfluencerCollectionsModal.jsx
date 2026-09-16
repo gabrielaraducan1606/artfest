@@ -92,6 +92,11 @@ export default function InfluencerCollectionsModal({
     setCopiedCollectionId,
   ] = useState("");
 
+  const [
+    referralCode,
+    setReferralCode,
+  ] = useState("");
+
   /* =========================================================
      AI
   ========================================================= */
@@ -219,6 +224,37 @@ export default function InfluencerCollectionsModal({
   useEffect(() => {
     loadCollections();
   }, [loadCollections]);
+
+  /* =========================================================
+     REFERRAL CODE
+
+     Aceeași sursă folosită de InfluencerDashboardPage.jsx
+     (GET /api/influencer/me -> profile.referralCode) - necesar
+     pentru ca linkul copiat al colecției să poarte ?ref=,
+     altfel comenzile din colecție nu se mai atribuie
+     influencerului.
+  ========================================================= */
+
+  useEffect(() => {
+    let active = true;
+
+    api("/api/influencer/me")
+      .then((data) => {
+        if (!active) return;
+
+        setReferralCode(
+          data?.profile?.referralCode || ""
+        );
+      })
+      .catch(() => {
+        // Link-ul rămâne funcțional fără ?ref= dacă nu putem
+        // afla codul - nu blocăm restul modalului din cauza asta.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   /* =========================================================
      DETAIL
@@ -479,8 +515,13 @@ export default function InfluencerCollectionsModal({
       return;
     }
 
-    const url =
+    const base =
       `${window.location.origin}/selectii/${collection.slug}`;
+
+    const url =
+      referralCode
+        ? `${base}?ref=${encodeURIComponent(referralCode)}`
+        : base;
 
     try {
       await navigator.clipboard.writeText(

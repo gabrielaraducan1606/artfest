@@ -1,0 +1,995 @@
+/* =========================================================
+   REDESIGN 2026-09-15 - doar vizual (paleta/spacing/tipografie
+   dashboard-ului vendor), logica/JSX-ul funcțional rămân
+   neschimbate. Cardul principal (.modal) stă INLINE într-un tab
+   (fără backdrop propriu), deci nu mai primește umbră de modal
+   plutitor - doar formularul de creare/editare (.formOverlay +
+   .formSheet) e un dialog real, peste un backdrop adevărat.
+========================================================= */
+
+.modal {
+  width: min(1100px, 100%);
+  max-height: min(900px, calc(100vh - 40px));
+
+  overflow: auto;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 16px;
+
+  background: var(--surface, #ffffff);
+
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 10px 28px rgba(15, 23, 42, 0.05);
+}
+
+/* =========================================================
+   HEADER
+========================================================= */
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 18px;
+
+  padding: 24px 26px;
+
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+}
+
+.header h2 {
+  margin: 5px 0 0;
+
+  font-size: 23px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+
+  color: var(--color-text, #111827);
+}
+
+.header p {
+  max-width: 700px;
+
+  margin: 8px 0 0;
+
+  font-size: 13.5px;
+  line-height: 1.6;
+
+  color: var(--color-muted, #6b7280);
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+
+  color: var(--color-primary, #7c3aed);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  flex-shrink: 0;
+}
+
+/* =========================================================
+   BUTTONS
+========================================================= */
+
+.primaryButton,
+.secondaryButton,
+.closeButton {
+  min-height: 42px;
+
+  padding: 10px 16px;
+
+  border-radius: 10px;
+
+  font-size: 13.5px;
+  font-weight: 700;
+  font-family: inherit;
+
+  cursor: pointer;
+
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.primaryButton {
+  border: 1px solid var(--color-primary, #7c3aed);
+
+  background: var(--color-primary, #7c3aed);
+  color: #fff;
+
+  box-shadow: 0 1px 2px rgba(124, 58, 237, 0.18);
+}
+
+.primaryButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.22);
+}
+
+.primaryButton:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.secondaryButton {
+  border: 1px solid var(--color-border, #e5e7eb);
+
+  background: var(--surface, #fff);
+  color: var(--color-text, #111827);
+}
+
+.secondaryButton:hover:not(:disabled) {
+  border-color: var(--color-primary, #7c3aed);
+  color: var(--color-primary, #7c3aed);
+}
+
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.closeButton:focus-visible {
+  outline: 2px solid var(--color-primary, #7c3aed);
+  outline-offset: 2px;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.closeButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.dangerButton {
+  color: #b42318;
+}
+
+.dangerButton:hover:not(:disabled) {
+  border-color: #fda29b;
+  background: #fff5f5;
+  color: #b42318;
+}
+
+/* =========================================================
+   STATES (error / success) - un simbol distinct în plus față
+   de culoare, pentru cine nu se bazează pe roșu/verde.
+========================================================= */
+
+.errorBox,
+.successBox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+
+  margin: 16px 26px 0;
+
+  padding: 12px 14px;
+
+  border-radius: 12px;
+
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.errorBox::before,
+.successBox::before {
+  flex-shrink: 0;
+
+  width: 18px;
+  height: 18px;
+
+  display: grid;
+  place-items: center;
+
+  margin-top: 1px;
+
+  border-radius: 50%;
+
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.errorBox {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #b42318;
+}
+
+.errorBox::before {
+  content: "!";
+
+  background: #fecaca;
+  color: #7f1d1d;
+}
+
+.successBox {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.successBox::before {
+  content: "✓";
+
+  background: #bbf7d0;
+  color: #14532d;
+}
+
+.centerState {
+  padding: 64px 24px;
+
+  text-align: center;
+
+  font-size: 14px;
+
+  color: var(--color-muted, #6b7280);
+}
+
+/* =========================================================
+   EMPTY
+========================================================= */
+
+.emptyState {
+  margin: 20px 26px 26px;
+
+  padding: 48px 26px;
+
+  border: 1px dashed var(--color-border, #d1d5db);
+  border-radius: 16px;
+
+  text-align: center;
+}
+
+.emptyIcon {
+  width: 52px;
+  height: 52px;
+
+  display: grid;
+  place-items: center;
+
+  margin: 0 auto 14px;
+
+  border-radius: 50%;
+
+  background: var(--color-bg, #f8fafc);
+
+  font-size: 24px;
+  font-weight: 800;
+
+  color: var(--color-primary, #7c3aed);
+}
+
+.emptyState strong {
+  display: block;
+
+  font-size: 16px;
+
+  color: var(--color-text, #111827);
+}
+
+.emptyState p {
+  max-width: 620px;
+
+  margin: 8px auto 18px;
+
+  font-size: 13px;
+  line-height: 1.55;
+
+  color: var(--color-muted, #6b7280);
+}
+
+/* =========================================================
+   CODE LIST
+========================================================= */
+
+.codeList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  padding: 22px 26px 26px;
+}
+
+.codeCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 18px;
+
+  padding: 18px;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 14px;
+
+  background: var(--surface, #fff);
+
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.codeCard:hover {
+  border-color: var(--color-border, #e5e7eb);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 6px 16px rgba(15, 23, 42, 0.05);
+}
+
+.codeMain {
+  min-width: 0;
+  flex: 1;
+}
+
+.codeTop {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+
+  gap: 8px;
+}
+
+.codeText {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+
+  color: var(--color-text, #111827);
+}
+
+.activeBadge,
+.inactiveBadge,
+.percentBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-height: 24px;
+
+  padding: 4px 9px;
+
+  border-radius: 999px;
+
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.activeBadge {
+  background: #ecfdf3;
+  color: #027a48;
+}
+
+.inactiveBadge {
+  background: #f2f4f7;
+  color: #667085;
+}
+
+.percentBadge {
+  background: #f4f3ff;
+  color: #6941c6;
+}
+
+.codeName {
+  margin-top: 8px;
+
+  font-size: 13px;
+  font-weight: 700;
+
+  color: var(--color-text, #111827);
+}
+
+.codeMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  margin-top: 8px;
+
+  font-size: 12px;
+  line-height: 1.5;
+
+  color: var(--color-muted, #6b7280);
+}
+
+.codeMeta strong {
+  color: var(--color-text, #111827);
+}
+
+.codeActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+
+  gap: 8px;
+
+  flex-shrink: 0;
+}
+
+/* =========================================================
+   FORM OVERLAY (dialog real - creare/editare cod)
+========================================================= */
+
+.formOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 20px;
+
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.formSheet {
+  width: min(680px, 100%);
+  max-height: min(900px, calc(100vh - 40px));
+
+  overflow: auto;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 16px;
+
+  background: var(--surface, #fff);
+
+  box-shadow:
+    0 4px 12px rgba(15, 23, 42, 0.08),
+    0 18px 42px rgba(15, 23, 42, 0.14);
+}
+
+.formHeader {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 16px;
+
+  padding: 20px 22px;
+
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+}
+
+.formHeader h3 {
+  margin: 5px 0 0;
+
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+
+  color: var(--color-text, #111827);
+}
+
+.closeButton {
+  width: 38px;
+  height: 38px;
+
+  padding: 0;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+
+  background: var(--surface, #fff);
+  color: var(--color-text, #111827);
+
+  font-size: 20px;
+  line-height: 1;
+}
+
+.closeButton:hover:not(:disabled) {
+  border-color: var(--color-primary, #7c3aed);
+  color: var(--color-primary, #7c3aed);
+}
+
+/* =========================================================
+   FORM
+========================================================= */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+
+  padding: 24px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+
+  gap: 14px;
+}
+
+/*
+ * Un singur câmp într-un rând altfel gândit pentru 2 (ex. Cod,
+ * Reducere fără pereche) nu mai lasă o coloană goală pe desktop -
+ * CSS-only, fără nicio schimbare de JSX pentru fiecare caz în parte.
+ */
+.formGrid:has(> :only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.field > span {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+
+  color: var(--color-text, #111827);
+}
+
+.field small {
+  font-size: 11.5px;
+  line-height: 1.5;
+
+  color: var(--color-muted, #6b7280);
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+
+  box-sizing: border-box;
+
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 10px;
+
+  background: var(--surface, #fff);
+  color: var(--color-text, #111827);
+
+  font: inherit;
+  font-size: 13.5px;
+
+  outline: none;
+
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.field input,
+.field select {
+  min-height: 42px;
+
+  padding: 9px 12px;
+}
+
+.field textarea {
+  min-height: 90px;
+
+  padding: 10px 12px;
+
+  resize: vertical;
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
+  color: var(--color-muted, #9ca3af);
+}
+
+.field input:hover:not(:disabled):not(:focus),
+.field select:hover:not(:disabled):not(:focus),
+.field textarea:hover:not(:disabled):not(:focus) {
+  border-color: color-mix(in srgb, var(--color-border, #d1d5db) 50%, var(--color-primary, #7c3aed) 50%);
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--color-primary, #7c3aed);
+
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+}
+
+.field input:disabled,
+.field select:disabled,
+.field textarea:disabled {
+  cursor: not-allowed;
+
+  border-color: var(--color-border, #e5e7eb);
+  background: var(--color-bg, #f8fafc);
+  color: var(--color-muted, #9ca3af);
+}
+
+/*
+ * Select-uri cu săgeată desenată (nu cea nativă a browserului) -
+ * aspect coerent cu restul câmpurilor, fără librărie nouă.
+ */
+.field select {
+  appearance: none;
+
+  padding-right: 36px;
+
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%236b7280' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 15px;
+}
+
+/* =========================================================
+   COD - aspect de promo code (uppercase, mono, chenar tip cupon)
+========================================================= */
+
+.codeFieldWrap {
+  padding: 14px 14px 12px;
+
+  border: 1px dashed var(--color-border, #d1d5db);
+  border-radius: 12px;
+
+  background: color-mix(in srgb, var(--surface, #fff) 95%, var(--color-primary, #7c3aed) 5%);
+}
+
+.codeFieldWrap:focus-within {
+  border-color: var(--color-primary, #7c3aed);
+  border-style: solid;
+}
+
+.field input.codeInput {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+
+  background: var(--surface, #fff);
+}
+
+.field input.codeInput::placeholder {
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+/* =========================================================
+   MOD PROMOVARE - segmented control (CSS-only, JSX neschimbat
+   funcțional - doar 2 clase noi pe elemente deja existente)
+========================================================= */
+
+.modeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+
+  gap: 6px;
+
+  padding: 4px;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+
+  background: var(--color-bg, #f8fafc);
+}
+
+.modeOption {
+  position: relative;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 8px;
+
+  min-height: 44px;
+
+  padding: 10px 12px;
+
+  border-radius: 9px;
+
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+
+  color: var(--color-muted, #6b7280);
+
+  cursor: pointer;
+
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.modeOption input {
+  position: absolute;
+  inset: 0;
+
+  margin: 0;
+
+  opacity: 0;
+  cursor: pointer;
+}
+
+.modeOption:hover {
+  color: var(--color-text, #111827);
+}
+
+.modeOption:has(input:checked) {
+  background: var(--surface, #fff);
+  color: var(--color-text, #111827);
+
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 1px rgba(15, 23, 42, 0.04);
+}
+
+.modeOption:has(input:focus-visible) {
+  outline: 2px solid var(--color-primary, #7c3aed);
+  outline-offset: 2px;
+}
+
+/* =========================================================
+   BIFĂ SCOPE (colecție) - toggle row curat, fără style inline
+========================================================= */
+
+.checkboxField {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+
+  gap: 10px;
+
+  padding: 12px 14px;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+
+  background: var(--surface, #fff);
+
+  font-size: 13px;
+  font-weight: 600;
+
+  color: var(--color-text, #111827);
+
+  cursor: pointer;
+
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.checkboxField input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+
+  accent-color: var(--color-primary, #7c3aed);
+
+  cursor: pointer;
+}
+
+.checkboxField:has(input:checked) {
+  border-color: var(--color-primary, #7c3aed);
+  background: color-mix(in srgb, var(--surface, #fff) 92%, var(--color-primary, #7c3aed) 8%);
+}
+
+.checkboxField:has(input:focus-visible) {
+  outline: 2px solid var(--color-primary, #7c3aed);
+  outline-offset: 2px;
+}
+
+/* =========================================================
+   MONEY INPUT
+========================================================= */
+
+.moneyInput {
+  position: relative;
+}
+
+.moneyInput input {
+  padding-right: 44px;
+}
+
+.moneyInput > span {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+
+  transform: translateY(-50%);
+
+  font-size: 12px;
+  font-weight: 700;
+
+  color: var(--color-muted, #6b7280);
+
+  pointer-events: none;
+}
+
+/* =========================================================
+   INFO BOX
+========================================================= */
+
+.infoBox {
+  padding: 13px 14px;
+
+  border: 1px solid #ddd6fe;
+  border-radius: 12px;
+
+  background: #f9f8ff;
+
+  font-size: 12.5px;
+  line-height: 1.6;
+
+  color: #5b21b6;
+}
+
+.infoBox strong {
+  color: #4c1d95;
+}
+
+/* =========================================================
+   FORM ACTIONS
+========================================================= */
+
+.formActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+
+  gap: 10px;
+
+  margin-top: 4px;
+  padding-top: 18px;
+
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+.formActions .primaryButton {
+  min-width: 168px;
+}
+
+/* =========================================================
+   TABLET
+========================================================= */
+
+@media (max-width: 900px) {
+  .header {
+    flex-direction: column;
+  }
+
+  .headerActions {
+    width: 100%;
+  }
+
+  .headerActions button {
+    flex: 1;
+  }
+
+  .codeCard {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .codeActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media (max-width: 640px) {
+  .formOverlay {
+    padding: 0;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: none;
+
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+
+    box-shadow: none;
+  }
+
+  .formSheet {
+    width: 100%;
+    max-height: 100vh;
+    height: 100vh;
+
+    border-radius: 0;
+  }
+
+  .header,
+  .formHeader {
+    padding: 16px;
+  }
+
+  .header h2 {
+    font-size: 20px;
+  }
+
+  .headerActions {
+    flex-direction: column;
+  }
+
+  .headerActions button {
+    width: 100%;
+  }
+
+  .errorBox,
+  .successBox {
+    margin: 14px 16px 0;
+  }
+
+  .codeList {
+    padding: 16px;
+  }
+
+  .emptyState {
+    margin: 16px;
+  }
+
+  .codeActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+
+    gap: 8px;
+  }
+
+  .codeActions button {
+    width: 100%;
+  }
+
+  .form {
+    padding: 16px;
+    gap: 16px;
+  }
+
+  .formGrid,
+  .formGrid:has(> :only-child) {
+    grid-template-columns: 1fr;
+  }
+
+  .modeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .formActions {
+    flex-direction: column-reverse;
+  }
+
+  .formActions button {
+    width: 100%;
+  }
+
+  .formActions .primaryButton {
+    min-width: 0;
+  }
+}

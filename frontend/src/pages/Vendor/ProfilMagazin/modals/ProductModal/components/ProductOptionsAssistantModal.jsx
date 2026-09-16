@@ -6,6 +6,7 @@ import {
 
 import Modal from "../../../ui/Modal";
 import modalStyles from "./ProductOptionsAssistantModal.module.css";
+import { normalizeOptionChoice } from "../../../../../../utils/optionLabels.js";
 
 /* =====================================================
    OPȚIUNI PREDEFINITE
@@ -397,25 +398,44 @@ setCustomFields([
         return [];
       }
 
-      if (
+      const rawSuggestions =
         currentOptionField.preset &&
         Array.isArray(
           optionPresets[
             currentOptionField.preset
           ]
         )
-      ) {
-        return uniqueValues(
-          optionPresets[
-            currentOptionField.preset
-          ]
+          ? optionPresets[
+              currentOptionField.preset
+            ]
+          : currentOptionField.suggestions ||
+            [];
+
+      const seen = new Set();
+      const result = [];
+
+      for (const rawSuggestion of rawSuggestions) {
+        const choice = normalizeOptionChoice(
+          rawSuggestion
         );
+
+        if (!choice.value) {
+          continue;
+        }
+
+        const key = normalizeText(
+          choice.value
+        );
+
+        if (seen.has(key)) {
+          continue;
+        }
+
+        seen.add(key);
+        result.push(choice);
       }
 
-      return uniqueValues(
-        currentOptionField.suggestions ||
-          []
-      );
+      return result;
     }, [
       currentOptionField,
       optionPresets,
@@ -1401,7 +1421,7 @@ setCustomFields([
                   }}
                 >
                   {currentSuggestions.map(
-                    (item) => {
+                    (choice) => {
                       const selected =
                         valuesForCurrentField.some(
                           (value) =>
@@ -1409,17 +1429,17 @@ setCustomFields([
                               value
                             ) ===
                             normalizeText(
-                              item
+                              choice.value
                             )
                         );
 
                       return (
                         <button
-                          key={item}
+                          key={choice.value}
                           type="button"
                           onClick={() =>
                             toggleSuggestedValue(
-                              item
+                              choice.value
                             )
                           }
                           style={{
@@ -1450,7 +1470,7 @@ setCustomFields([
                           {selected
                             ? "✓ "
                             : ""}
-                          {item}
+                          {choice.label}
                         </button>
                       );
                     }
@@ -1564,7 +1584,11 @@ setCustomFields([
                               "var(--color-border)",
                           }}
                         >
-                          {item}
+                          {
+                            normalizeOptionChoice(
+                              item
+                            ).label
+                          }
 
                           <button
                             type="button"

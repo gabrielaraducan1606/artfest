@@ -445,6 +445,360 @@
   z-index: 900;
 }
 
+/* ===== Burger vizibil pe desktop DOAR pentru vendor =====
+   Restul rolurilor păstrează .burger neschimbat (ascuns pe desktop,
+   vizibil doar sub 768px - vezi media query mai jos). */
+.burgerVendor {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ===== Backdrop propriu pentru drawer-ul vendor =====
+   navBackdrop existent e forțat ascuns pe mobil (vezi
+   ".nav, .nav--open, .navBackdrop { display:none !important }" din
+   media query-ul de mai jos, scris pentru vechiul meniu mobil) -
+   nu-l putem reutiliza fără să atingem acea regulă comună tuturor
+   rolurilor. Acesta e independent de ea, vizibil pe orice viewport. */
+.vendorDrawerBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1290;
+  background: rgba(0,0,0,.32);
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+/* ===== Drawer vendor (meniul principal de administrare) =====
+   Portal în document.body, deasupra header-ului (z-index 1000) și a
+   backdrop-ului de mai sus. */
+.vendorDrawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 1300;
+  width: 320px;
+  max-width: 90vw;
+  background: var(--color-bg);
+  border-right: 1px solid var(--color-border);
+  box-shadow: 18px 0 40px rgba(0,0,0,.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .vendorDrawer {
+    animation: vendorDrawerSlideIn .18s ease;
+  }
+}
+
+@keyframes vendorDrawerSlideIn {
+  from { transform: translateX(-16px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.vendorDrawerHead {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 16px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.vendorDrawerHeadText {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.vendorDrawerEyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.vendorDrawerName {
+  margin-top: 2px;
+  font-family: var(--font-title);
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.vendorDrawerClose {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.vendorDrawerClose:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+}
+
+.vendorDrawerBody {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vendorDrawerDashboardLink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--color-text);
+  text-decoration: none;
+  background: color-mix(in oklab, var(--color-border) 40%, transparent);
+}
+.vendorDrawerDashboardLink:hover { color: var(--color-primary); }
+
+.vendorDrawerSection { display: flex; flex-direction: column; }
+
+.vendorDrawerSectionHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  border-radius: 10px;
+  color: var(--color-text);
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.vendorDrawerSectionHead:hover {
+  background: color-mix(in oklab, var(--color-border) 45%, transparent);
+}
+.vendorDrawerSectionLabel {
+  flex: 1;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.vendorDrawerSectionBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 4px 6px 30px;
+}
+
+.vendorDrawerItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  color: var(--color-muted);
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  /* itemii pot fi <NavLink> (rute) SAU <button> (acțiuni - login/
+     register/partener la guest) - resetăm chrome-ul nativ de buton
+     ca să arate identic cu link-urile. */
+  border: 0;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+.vendorDrawerItem:hover {
+  color: var(--color-text);
+  background: color-mix(in oklab, var(--color-border) 45%, transparent);
+}
+
+.vendorDrawerItemActive {
+  color: var(--color-primary);
+  font-weight: 700;
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+}
+.vendorDrawerDashboardLink.vendorDrawerItemActive {
+  background: color-mix(in oklab, var(--color-primary) 14%, transparent);
+}
+
+/* ===== Focus vizibil - același pattern ca .navLink/.themeBtn din fișier ===== */
+.vendorDrawerClose:focus-visible,
+.vendorDrawerSectionHead:focus-visible,
+.vendorDrawerItem:focus-visible,
+.vendorDrawerDashboardLink:focus-visible,
+.vendorDrawerNextStepBtn:focus-visible,
+.vendorDrawerThemeSwitch:focus-visible,
+.vendorDrawerLogoutBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 35%, transparent);
+}
+
+.vendorDrawerNextStep {
+  flex: 0 0 auto;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--surface) 96%, transparent);
+}
+
+.vendorDrawerNextStepLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  margin-bottom: 6px;
+}
+
+.vendorDrawerNextStepBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13.5px;
+  text-decoration: none;
+}
+.vendorDrawerNextStepBtn:hover { background: var(--color-hover); }
+
+/* ===== Footer (temă + deconectare) - separat vizual de navigație ===== */
+.vendorDrawerFooter {
+  flex: 0 0 auto;
+  padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--surface) 96%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vendorDrawerPrefRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.vendorDrawerPrefLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.vendorDrawerThemeSwitch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 24px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-border);
+  cursor: pointer;
+  padding: 0;
+  transition: background .18s ease, border-color .18s ease;
+}
+.vendorDrawerThemeSwitch[aria-checked="true"] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.vendorDrawerThemeSwitchThumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: transform .18s ease;
+}
+.vendorDrawerThemeSwitch[aria-checked="true"] .vendorDrawerThemeSwitchThumb {
+  transform: translateX(18px);
+}
+
+.vendorDrawerLogoutBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--color-danger) 35%, var(--color-border));
+  background: transparent;
+  color: var(--color-danger);
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.vendorDrawerLogoutBtn:hover {
+  border-color: var(--color-danger);
+  background: color-mix(in oklab, var(--color-danger) 10%, transparent);
+}
+
+@media (max-width: 480px) {
+  .vendorDrawer {
+    width: min(92vw, 340px);
+  }
+
+  .vendorDrawerHead { padding: 14px 14px 12px; }
+
+  .vendorDrawerClose {
+    width: 40px;
+    height: 40px;
+  }
+
+  .vendorDrawerDashboardLink,
+  .vendorDrawerSectionHead {
+    padding: 12px;
+    min-height: 44px;
+  }
+
+  .vendorDrawerItem {
+    padding: 12px 10px;
+    min-height: 44px;
+  }
+
+  .vendorDrawerLogoutBtn {
+    padding: 12px;
+    min-height: 44px;
+  }
+
+  .vendorDrawerPrefRow { min-height: 44px; }
+}
+
 /* ===== Mobile-only search (sus) ===== */
 .mobileSearch {
   display: none;

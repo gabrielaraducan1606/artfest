@@ -44,6 +44,108 @@ function hasMarketingConsent() {
 }
 
 /* =========================================================
+   GOOGLE CONSENT MODE v2
+
+   `gtag` e definit ca shim în index.html (push simplu în dataLayer),
+   ÎNAINTE de containerul GTM - vezi comentariul de acolo. Orice tag
+   Google (GA4/Ads) configurat în interiorul containerului GTM citește
+   starea de consimțământ din aceleași comenzi `consent` din
+   dataLayer, deci nu trebuie să blocăm manual fiecare eveniment
+   individual (spre deosebire de Meta, mai jos, care nu are un
+   mecanism echivalent) - blocăm doar SEMNALUL de consimțământ, la
+   sursă, cât mai devreme posibil.
+========================================================= */
+
+function callGtag(...args) {
+  if (
+    typeof window === "undefined"
+  ) {
+    return;
+  }
+
+  try {
+    /*
+     * Fallback defensiv (cerință explicită) - deși index.html
+     * definește mereu shim-ul `gtag`, nu presupunem asta orbește
+     * (ex. teste, medii unde scriptul din index.html nu a rulat).
+     * `dataLayer` există mereu (inițializat tot în index.html) -
+     * dacă `gtag` lipsește dintr-un motiv neașteptat, împingem
+     * direct în dataLayer în același format, ca să nu pierdem
+     * comanda de consimțământ.
+     */
+    if (typeof window.gtag === "function") {
+      window.gtag(...args);
+      return;
+    }
+
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push(args);
+  } catch (error) {
+    console.warn(
+      "[GOOGLE CONSENT] gtag call failed:",
+      error
+    );
+  }
+}
+
+function buildConsentModePayload(consent) {
+  const analyticsGranted =
+    consent?.analytics === true;
+
+  const marketingGranted =
+    consent?.marketing === true;
+
+  return {
+    analytics_storage: analyticsGranted
+      ? "granted"
+      : "denied",
+
+    ad_storage: marketingGranted
+      ? "granted"
+      : "denied",
+
+    ad_user_data: marketingGranted
+      ? "granted"
+      : "denied",
+
+    ad_personalization: marketingGranted
+      ? "granted"
+      : "denied",
+  };
+}
+
+/**
+ * Trimite starea de consimțământ CURENTĂ către Google (GA4/Ads, prin
+ * GTM) - apelată atât la sincronizarea inițială (ce a ales
+ * utilizatorul într-o vizită anterioară), cât și la orice schimbare
+ * live din bannerul de cookie-uri.
+ */
+function updateGoogleConsent(consent) {
+  callGtag(
+    "consent",
+    "update",
+    buildConsentModePayload(consent)
+  );
+}
+
+/**
+ * Sincronizează starea Google cu preferința deja salvată (dacă
+ * există) - `index.html` pornește mereu cu totul refuzat (cea mai
+ * sigură stare implicită), deci un utilizator care revine cu
+ * `analytics`/`marketing` deja acceptate trebuie adus imediat la
+ * starea corectă, nu lăsat pe "denied" până la o interacțiune nouă.
+ */
+function syncGoogleConsentFromStorage() {
+  try {
+    updateGoogleConsent(
+      readConsent()
+    );
+  } catch {
+    // păstrăm implicit "denied" din index.html dacă citirea eșuează
+  }
+}
+
+/* =========================================================
    GOOGLE / DATA LAYER
 ========================================================= */
 
@@ -881,15 +983,20 @@ export const trackPurchase =
     );
 
     /*
-     * Google Ads conversion
+     * Google Ads conversion - gate EXPLICIT pe marketing consent,
+     * separat de Consent Mode (semnalul Consent Mode e setat oricum
+     * mai jos/global, dar respectarea lui de către tag-ul de
+     * conversie configurat în GTM nu e verificabilă din acest cod -
+     * vezi analytics.js, comentariul de la callGtag). Cerința a fost
+     * explicită: "nu se trimite când marketing=false" - nu ne bazăm
+     * doar pe semnal, blocăm și aici direct, apărare pe două nivele.
      */
     if (
       typeof window !==
         "undefined" &&
-      typeof window.gtag ===
-        "function"
+      hasMarketingConsent()
     ) {
-      window.gtag(
+      callGtag(
         "event",
         "conversion",
         {
@@ -949,6 +1056,14 @@ export function setupAnalyticsConsentListener() {
   }
 
   /*
+   * Sincronizăm ÎNTOTDEAUNA starea Google cu preferința deja salvată
+   * (index.html pornește implicit cu totul refuzat - dacă omul are
+   * deja o alegere anterioară, trebuie adus imediat la starea reală,
+   * indiferent care e ea, nu doar când marketingul e acceptat).
+   */
+  syncGoogleConsentFromStorage();
+
+  /*
    * Dacă omul a acceptat deja
    * marketingul într-o vizită anterioară,
    * inițializăm Pixelul.
@@ -966,6 +1081,15 @@ export function setupAnalyticsConsentListener() {
     (event) => {
       const consent =
         event?.detail;
+
+      /*
+       * Actualizăm Google (analytics_storage/ad_storage/...) la
+       * FIECARE schimbare, indiferent care categorie s-a schimbat -
+       * separat de logica specifică Meta de mai jos.
+       */
+      updateGoogleConsent(
+        consent
+      );
 
       /*
        * Marketing acceptat.

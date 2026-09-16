@@ -78,6 +78,30 @@ export function mapFullProductToEditDraft(full) {
     dimensions: full.dimensions || "",
     careInstructions: full.careInstructions || "",
     specialNotes: full.specialNotes || "",
+
+    isOwnManufacturer:
+      full.isOwnManufacturer === true || full.isOwnManufacturer === false
+        ? full.isOwnManufacturer
+        : null,
+    manufacturerName: full.manufacturerName || "",
+    manufacturerAddress: full.manufacturerAddress || "",
+    manufacturerEmail: full.manufacturerEmail || "",
+    manufacturerInEU:
+      full.manufacturerInEU === true || full.manufacturerInEU === false
+        ? full.manufacturerInEU
+        : null,
+    responsiblePersonName: full.responsiblePersonName || "",
+    responsiblePersonAddress: full.responsiblePersonAddress || "",
+    responsiblePersonEmail: full.responsiblePersonEmail || "",
+    safetyWarnings:
+      full.safetyWarnings === null || full.safetyWarnings === undefined
+        ? null
+        : full.safetyWarnings,
+    isForChildren:
+      full.isForChildren === true || full.isForChildren === false
+        ? full.isForChildren
+        : null,
+
     aiVisionAnalysis: full.aiVisionAnalysis || null,
     aiOrderAnalysis: full.aiOrderAnalysis || null,
     aiGeneratedFields: Array.isArray(full.aiGeneratedFields)
@@ -174,6 +198,48 @@ export function buildProductSavePayload(
     specialNotes:
       String(prodFormValue.specialNotes || "").trim() ||
       null,
+
+    isOwnManufacturer:
+      prodFormValue.isOwnManufacturer === true ||
+      prodFormValue.isOwnManufacturer === false
+        ? prodFormValue.isOwnManufacturer
+        : null,
+
+    manufacturerName:
+      String(prodFormValue.manufacturerName || "").trim() || null,
+    manufacturerAddress:
+      String(prodFormValue.manufacturerAddress || "").trim() || null,
+    manufacturerEmail:
+      String(prodFormValue.manufacturerEmail || "").trim() || null,
+
+    manufacturerInEU:
+      prodFormValue.manufacturerInEU === true ||
+      prodFormValue.manufacturerInEU === false
+        ? prodFormValue.manufacturerInEU
+        : null,
+
+    responsiblePersonName:
+      String(prodFormValue.responsiblePersonName || "").trim() || null,
+    responsiblePersonAddress:
+      String(prodFormValue.responsiblePersonAddress || "").trim() || null,
+    responsiblePersonEmail:
+      String(prodFormValue.responsiblePersonEmail || "").trim() || null,
+
+    /*
+     * "" (confirmat: nu se aplică) e distinct de null (necompletat) -
+     * NU face fallback la null.
+     */
+    safetyWarnings:
+      prodFormValue.safetyWarnings === null ||
+      prodFormValue.safetyWarnings === undefined
+        ? null
+        : String(prodFormValue.safetyWarnings),
+
+    isForChildren:
+      prodFormValue.isForChildren === true ||
+      prodFormValue.isForChildren === false
+        ? prodFormValue.isForChildren
+        : null,
 
     aiVisionAnalysis: prodFormValue.aiVisionAnalysis || null,
     aiOrderAnalysis: prodFormValue.aiOrderAnalysis || null,

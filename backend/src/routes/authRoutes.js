@@ -1148,6 +1148,13 @@ if (
   user.role ===
   "VENDOR"
 ) {
+  /*
+   * Revenit temporar la "/desktop" (decizie 2026-09-14): profilul
+   * magazinului (/vendor/store -> /magazin/:slug) se încarcă prea
+   * greu ca să fie landing page-ul implicit acum. Ruta /vendor/store
+   * (StoreRedirect.jsx) rămâne funcțională pentru acces explicit -
+   * doar nu mai e destinația automată de login.
+   */
   next =
     "/desktop";
 } else if (
@@ -1351,6 +1358,7 @@ if (
   updatedUser?.role ===
   "VENDOR"
 ) {
+  // Revenit temporar la "/desktop" (decizie 2026-09-14) - vezi /login.
   next =
     "/desktop";
 } else if (
@@ -1919,6 +1927,13 @@ if (
   user.role ===
   "VENDOR"
 ) {
+  /*
+   * Revenit temporar la "/desktop" (decizie 2026-09-14): profilul
+   * magazinului (/vendor/store -> /magazin/:slug, StoreRedirect.jsx)
+   * se încarcă prea greu ca să fie landing page-ul implicit de login
+   * acum. Ruta /vendor/store rămâne funcțională pentru acces
+   * explicit - doar nu mai e destinația automată aici.
+   */
   next =
     "/desktop";
 } else if (

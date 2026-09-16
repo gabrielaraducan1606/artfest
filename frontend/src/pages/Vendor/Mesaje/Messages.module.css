@@ -603,6 +603,8 @@
 
 .bodyText {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .meta {
@@ -637,6 +639,29 @@
 .readTickFailed {
   font-size: 11px;
   color: var(--color-danger);
+}
+
+/* ETAPA 6: retry pe mesaj failed - padding+margin negativ mărește zona
+   de tap fără să strice layout-ul rândului de meta. */
+.msgRetryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 6px 4px;
+  margin: -6px -4px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-danger);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.msgRetryBtn:hover,
+.msgRetryBtn:focus-visible {
+  opacity: 0.8;
 }
 
 /* =========================================================

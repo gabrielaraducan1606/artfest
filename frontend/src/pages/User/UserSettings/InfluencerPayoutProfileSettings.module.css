@@ -1,0 +1,510 @@
+.card {
+  padding: 22px;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 16px;
+
+  background: var(--surface, #fff);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+
+  margin-bottom: 18px;
+}
+
+.eyebrow {
+  margin-bottom: 6px;
+
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+
+  color: var(--color-primary, #6f4e43);
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  color: var(--color-text, #111827);
+}
+
+.subtitle {
+  max-width: 560px;
+  margin: 8px 0 0;
+
+  font-size: 13px;
+  line-height: 1.6;
+
+  color: var(--color-muted, #6b7280);
+}
+
+/* =========================================================
+   STATUS BADGE
+========================================================= */
+
+.statusBadge {
+  flex: 0 0 auto;
+
+  display: inline-flex;
+  align-items: center;
+
+  padding: 6px 12px;
+
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #e5e7eb);
+
+  font-size: 12px;
+  font-weight: 800;
+
+  white-space: nowrap;
+}
+
+.statusIncomplete {
+  border-color: #9ca3af;
+  background: rgba(156, 163, 175, 0.1);
+  color: #4b5563;
+}
+
+.statusComplete {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  color: #047857;
+}
+
+.statusUnderReview {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  color: #b45309;
+}
+
+.statusVerified {
+  border-color: #059669;
+  background: rgba(5, 150, 105, 0.12);
+  color: #065f46;
+}
+
+.statusRejected {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+  color: #b91c1c;
+}
+
+/* =========================================================
+   FORM
+========================================================= */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.section {
+  padding-top: 18px;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+.section:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+
+.sectionTitle {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--color-text, #111827);
+}
+
+.radioGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.radioOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 10px 12px;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+
+  font-size: 13px;
+  cursor: pointer;
+
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.radioOption:hover {
+  border-color: var(--color-primary, #6f4e43);
+}
+
+.radioOptionActive {
+  border-color: var(--color-primary, #6f4e43);
+  background: rgba(111, 78, 67, 0.06);
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  font-size: 13px;
+  color: var(--color-text, #111827);
+}
+
+.field input {
+  min-height: 40px;
+  padding: 9px 12px;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+
+  font: inherit;
+
+  background: var(--color-bg, #f9fafb);
+  color: var(--color-text, #111827);
+}
+
+.field input:focus {
+  outline: none;
+  border-color: var(--color-primary, #6f4e43);
+}
+
+.note {
+  margin: 0;
+  padding: 12px 14px;
+
+  border-radius: 10px;
+  background: var(--color-bg, #f9fafb);
+
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-muted, #6b7280);
+}
+
+/* =========================================================
+   STATES
+========================================================= */
+
+.errorBox,
+.successBox {
+  padding: 12px 14px;
+  border-radius: 11px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.errorBox {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #b42318;
+}
+
+.successBox {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.centerState {
+  padding: 40px 16px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-muted, #6b7280);
+}
+
+/* =========================================================
+   ACTIONS
+========================================================= */
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.primaryButton {
+  min-height: 42px;
+  padding: 10px 20px;
+
+  border: 0;
+  border-radius: 11px;
+
+  font: inherit;
+  font-weight: 750;
+
+  cursor: pointer;
+
+  background: var(--color-primary, #6f4e43);
+  color: #fff;
+}
+
+.primaryButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.secondaryButton {
+  min-height: 38px;
+  padding: 8px 16px;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+
+  font: inherit;
+  font-weight: 700;
+  font-size: 13px;
+
+  cursor: pointer;
+
+  background: #fff;
+  color: var(--color-text, #111827);
+}
+
+.secondaryButton:hover:not(:disabled) {
+  border-color: var(--color-primary, #6f4e43);
+}
+
+.secondaryButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.smallButton {
+  min-height: 32px;
+  padding: 6px 12px;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+
+  font: inherit;
+  font-weight: 700;
+  font-size: 12px;
+
+  cursor: pointer;
+
+  background: #fff;
+  color: var(--color-text, #111827);
+
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.smallButton:hover:not(:disabled) {
+  border-color: var(--color-primary, #6f4e43);
+}
+
+.smallButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* =========================================================
+   DATE DE FACTURARE ARTFEST (read-only)
+========================================================= */
+
+.readOnlyGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+
+  padding: 14px;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+  background: var(--color-bg, #f9fafb);
+}
+
+.readOnlyItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  font-size: 13px;
+}
+
+.readOnlyItem span:first-child {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-muted, #6b7280);
+}
+
+/* =========================================================
+   SUME DE FACTURAT (payout-uri)
+========================================================= */
+
+.payoutCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  padding: 14px;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+}
+
+.payoutCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.payoutAmount {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--color-text, #111827);
+}
+
+.payoutPeriod {
+  font-size: 12px;
+  color: var(--color-muted, #6b7280);
+}
+
+.uploadForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  padding: 12px;
+
+  border: 1px dashed var(--color-border, #e5e7eb);
+  border-radius: 10px;
+}
+
+/* =========================================================
+   TRIMITE DOCUMENTE (InfluencerFile - listă directă în pagină)
+========================================================= */
+
+.docFilesTitle {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--color-text, #111827);
+}
+
+.docFilesList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  max-height: 420px;
+
+  overflow-y: auto;
+  overscroll-behavior: contain;
+
+  padding-right: 2px;
+}
+
+.docFileRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+
+  padding: 12px;
+
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+}
+
+.docFileMain {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.docFileTop {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.docFileName {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.typeBadge {
+  padding: 3px 8px;
+
+  border-radius: 999px;
+
+  font-size: 10px;
+  font-weight: 800;
+
+  background: rgba(111, 78, 67, 0.08);
+  color: var(--color-primary, #6f4e43);
+
+  white-space: nowrap;
+}
+
+.docFileMeta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-muted, #6b7280);
+}
+
+.docFileActions {
+  flex: 0 0 auto;
+
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media (max-width: 600px) {
+  .card {
+    padding: 16px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .fieldGrid,
+  .radioGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .docFilesList {
+    max-height: 340px;
+  }
+
+  .docFileRow {
+    flex-direction: column;
+  }
+
+  .docFileActions {
+    width: 100%;
+  }
+
+  .docFileActions > * {
+    flex: 1 1 0;
+  }
+}

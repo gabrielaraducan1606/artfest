@@ -22,6 +22,30 @@ import {
 
 const router = express.Router();
 
+const MAX_MESSAGE_LENGTH = 5000;
+
+/*
+ * ETAPA 5 (idempotency clientMessageId) - vezi comentariul identic din
+ * userMessagesRoutes.js. Regex-ul respinge deja whitespace/string gol.
+ */
+const CLIENT_MESSAGE_ID_REGEX = /^[A-Za-z0-9_-]{1,100}$/;
+
+function validateClientMessageId(raw) {
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (typeof raw !== "string") return { ok: false };
+  if (!CLIENT_MESSAGE_ID_REGEX.test(raw)) return { ok: false };
+  return { ok: true, value: raw };
+}
+
+function isClientMessageIdConflict(err) {
+  if (!err || err.code !== "P2002") return false;
+  const target = err.meta?.target;
+  const fields = Array.isArray(target) ? target : typeof target === "string" ? [target] : [];
+  const hasThreadId = fields.some((f) => String(f).toLowerCase().includes("threadid"));
+  const hasClientMessageId = fields.some((f) => String(f).toLowerCase().includes("clientmessageid"));
+  return hasThreadId && hasClientMessageId;
+}
+
 /**
  * Toate rutele:
  * - necesită user logat
@@ -170,6 +194,113 @@ function storeNameFromThread(t) {
     "Magazin"
   );
 }
+
+/*
+ * ETAPA 2 (audit Mesaje, privacy attachment-uri) - nu mai expunem
+ * niciodată url-ul R2 brut către client. Doar id/filename/mime/size
+ * + rutele interne autenticate de preview/download (proxy pe
+ * /attachments/:id/download, care citește url-ul din DB server-side).
+ */
+function attachmentPublicShape(a) {
+  return {
+    id: a.id,
+    name: a.filename,
+    size: a.size,
+    mime: a.mime,
+    previewUrl: `/api/inbox/attachments/${a.id}/download`,
+    downloadUrl: `/api/inbox/attachments/${a.id}/download?download=1`,
+  };
+}
+
+/*
+ * ETAPA 4 (paginare thread + load older) - paginare cursor pe mesaje,
+ * partajată între ruta CUSTOMER (/threads/:id/messages) și cea
+ * VENDOR_TO_VENDOR (/vendor-threads/:id/messages), care au where/select
+ * diferite (filtre de deleted diferite, câmpuri diferite pentru
+ * determinarea autorului) - de-aia `where`/`select` sunt parametri, nu
+ * hardcodate. Cursor = id-ul unui mesaj deja cunoscut de client; server-ul
+ * rezolvă createdAt-ul lui și paginează prin createdAt, cu id ca tiebreak.
+ */
+const DEFAULT_MESSAGE_PAGE_SIZE = 50;
+const MAX_MESSAGE_PAGE_SIZE = 200;
+
+function parsePageLimit(raw) {
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_MESSAGE_PAGE_SIZE;
+  return Math.min(n, MAX_MESSAGE_PAGE_SIZE);
+}
+
+async function resolveMessageCursor(threadId, cursorId) {
+  if (!cursorId) return null;
+  return prisma.message.findFirst({
+    where: { id: String(cursorId), threadId },
+    select: { id: true, createdAt: true },
+  });
+}
+
+async function loadMessagePage(threadId, query, { where: baseWhere = {}, select }) {
+  const limit = parsePageLimit(query.limit);
+  const beforeId = query.before ? String(query.before) : null;
+  const afterId = query.after ? String(query.after) : null;
+
+  if (beforeId) {
+    const cursor = await resolveMessageCursor(threadId, beforeId);
+    if (!cursor) return { error: "invalid_cursor" };
+
+    const page = await prisma.message.findMany({
+      where: {
+        threadId,
+        ...baseWhere,
+        OR: [
+          { createdAt: { lt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+        ],
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      select,
+    });
+
+    return {
+      items: page.slice(0, limit).reverse(),
+      hasMoreOlder: page.length > limit,
+    };
+  }
+
+  if (afterId) {
+    const cursor = await resolveMessageCursor(threadId, afterId);
+    if (!cursor) return { error: "invalid_cursor" };
+
+    const items = await prisma.message.findMany({
+      where: {
+        threadId,
+        ...baseWhere,
+        OR: [
+          { createdAt: { gt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+        ],
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: limit,
+      select,
+    });
+
+    return { items, hasMoreOlder: false };
+  }
+
+  const page = await prisma.message.findMany({
+    where: { threadId, ...baseWhere },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: limit + 1,
+    select,
+  });
+
+  return {
+    items: page.slice(0, limit).reverse(),
+    hasMoreOlder: page.length > limit,
+  };
+}
+
 // helper: mapare string UI -> LeadStatus enum
 function mapStatusFilterToEnum(status) {
   if (!status || status === "all") return undefined;
@@ -305,13 +436,15 @@ async function getVendorThreadAndMessageOr404({ vendorId, threadId, messageId })
   return { thread, message: message || null };
 }
 
-/* =========================
-   GET /api/inbox/unread-count
-   ✅ ignoră mesajele șterse de vendor + thread-uri șterse de vendor
-========================= */
-router.get("/unread-count", async (req, res) => {
-  const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.json({ count: 0 });
+/*
+ * BATCH 2 (FINAL GAP PASS, 2026-09-07) - extras din handler-ul de mai jos
+ * ca să poată fi reutilizat de vendorAssistantMessages.js (Vendor
+ * Assistant, "Câte mesaje necitite am?") FĂRĂ să dubleze query-ul raw SQL
+ * într-un al doilea loc - un singur export, aceeași logică exactă,
+ * folosită de ruta reală ȘI de assistant.
+ */
+export async function getVendorUnreadMessageCount(vendorId) {
+  if (!vendorId) return 0;
 
   const rows = await prisma.$queryRaw`
     SELECT COUNT(m.*)::int as "count"
@@ -326,7 +459,18 @@ router.get("/unread-count", async (req, res) => {
       AND m."createdAt" > COALESCE(t."vendorLastReadAt", to_timestamp(0))
   `;
 
-  const count = rows?.[0]?.count ?? 0;
+  return rows?.[0]?.count ?? 0;
+}
+
+/* =========================
+   GET /api/inbox/unread-count
+   ✅ ignoră mesajele șterse de vendor + thread-uri șterse de vendor
+========================= */
+router.get("/unread-count", async (req, res) => {
+  const vendorId = await getVendorIdForUser(req);
+  if (!vendorId) return res.json({ count: 0 });
+
+  const count = await getVendorUnreadMessageCount(vendorId);
   return res.json({ count });
 });
 
@@ -847,22 +991,31 @@ const quoteRequest =
       },
     },
   });
-  const msgs = await prisma.message.findMany({
-    where: { threadId: id, deletedByVendorAt: null },
-    orderBy: { createdAt: "asc" },
-    select: {
-      id: true,
-      body: true,
-      createdAt: true,
-      authorType: true,
-      authorName: true,
-      deletedByUserAt: true,
-      authorUser: { select: { firstName: true, lastName: true } },
-      attachments: {
-        select: { id: true, filename: true, url: true, size: true, mime: true },
+  const page = await loadMessagePage(
+    id,
+    req.query,
+    {
+      where: { deletedByVendorAt: null },
+      select: {
+        id: true,
+        body: true,
+        createdAt: true,
+        authorType: true,
+        authorName: true,
+        deletedByUserAt: true,
+        authorUser: { select: { firstName: true, lastName: true } },
+        attachments: {
+          select: { id: true, filename: true, url: true, size: true, mime: true },
+        },
       },
-    },
-  });
+    }
+  );
+
+  if (page.error) {
+    return res.status(400).json({ error: page.error });
+  }
+
+  const msgs = page.items;
 
   const items = msgs.map((m) => {
     const isVendor = m.authorType === "VENDOR";
@@ -890,19 +1043,17 @@ const quoteRequest =
       readByPeer,
       attachments: isDeletedByUser
         ? []
-        : (m.attachments || []).map((a) => ({
-            id: a.id,
-            name: a.filename,
-            url: a.url,
-            size: a.size,
-            mime: a.mime,
-          })),
+        : (m.attachments || []).map(attachmentPublicShape),
       deletedByUserAt: m.deletedByUserAt,
     };
   });
 
  return res.json({
   items,
+
+  hasMoreOlder: page.hasMoreOlder,
+
+  peerLastReadAt: thread.userLastReadAt,
 
   threadMeta: {
     id: thread.id,
@@ -1089,13 +1240,7 @@ router.get("/user-conversations/:userId/messages", async (req, res) => {
       orderShortId,
       attachments: isDeletedByUser
         ? []
-        : (m.attachments || []).map((a) => ({
-            id: a.id,
-            name: a.filename,
-            url: a.url,
-            size: a.size,
-            mime: a.mime,
-          })),
+        : (m.attachments || []).map(attachmentPublicShape),
       deletedByUserAt: m.deletedByUserAt,
     };
   });
@@ -1166,10 +1311,39 @@ router.post(
     if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
 
     const { id } = req.params;
-    const { body } = req.body || {};
+    const { body, clientMessageId: rawClientMessageId } = req.body || {};
 
     if (!body || !String(body).trim()) {
       return res.status(400).json({ error: "Mesajul nu poate fi gol" });
+    }
+
+    if (String(body).length > MAX_MESSAGE_LENGTH) {
+      return res.status(400).json({
+        error: "Mesajul este prea lung. Maxim 5000 de caractere.",
+      });
+    }
+
+    const clientMessageIdCheck = validateClientMessageId(rawClientMessageId);
+    if (!clientMessageIdCheck.ok) {
+      return res.status(400).json({ error: "invalid_client_message_id" });
+    }
+    const clientMessageId = clientMessageIdCheck.value;
+
+    /*
+     * ETAPA 5 - fast path ÎNAINTE de moderare și ÎNAINTE de
+     * assertChatQuotaOrThrow: un retry al unui mesaj deja acceptat nu
+     * trebuie nici re-moderat, nici să consume cotă a doua oară - altfel
+     * un vendor exact la limită ar primi eronat quota_exceeded pe un
+     * retry al unui mesaj deja trimis cu succes.
+     */
+    if (clientMessageId) {
+      const existing = await prisma.message.findFirst({
+        where: { threadId: id, clientMessageId },
+        select: { id: true, createdAt: true },
+      });
+      if (existing) {
+        return res.status(201).json({ ok: true, id: existing.id, createdAt: existing.createdAt });
+      }
     }
 
     const moderation =
@@ -1268,6 +1442,7 @@ if (
             vendorId,
             body: String(body).trim(),
             authorType: "VENDOR",
+            clientMessageId,
           },
           select: { id: true, body: true, createdAt: true },
         });
@@ -1293,6 +1468,7 @@ if (
           const storeName = storeNameFromThread(out.thread);
 
           await createUserNotification(out.thread.userId, {
+            preferenceCategory: "message",
             type: "message",
             title: `Mesaj nou de la ${storeName}`,
             body: out.msg.body.slice(0, 140),
@@ -1309,6 +1485,24 @@ if (
         createdAt: out.msg.createdAt,
       });
     } catch (e) {
+      /*
+       * ETAPA 5 - cursă reală: alt request cu același (threadId,
+       * clientMessageId) a câștigat între fast-path și acest create.
+       * Prisma a făcut deja rollback la toată tranzacția (inclusiv
+       * bumpChatUsage, care n-a apucat să comită) - citim mesajul
+       * câștigător în afara oricărei tranzacții și îl întoarcem ca
+       * succes idempotent, fără să mai atingem cota o dată.
+       */
+      if (clientMessageId && isClientMessageIdConflict(e)) {
+        const existing = await prisma.message.findFirst({
+          where: { threadId: id, clientMessageId },
+          select: { id: true, createdAt: true },
+        });
+        if (existing) {
+          return res.status(201).json({ ok: true, id: existing.id, createdAt: existing.createdAt });
+        }
+      }
+
       console.error("vendor send message error:", e);
       return res.status(500).json({
         error: "server_error",
@@ -1331,6 +1525,12 @@ router.patch("/threads/:id/messages/:mid", async (req, res) => {
 
   if (!newBody) {
     return res.status(400).json({ error: "bad_request", details: "body_required" });
+  }
+
+  if (newBody.length > MAX_MESSAGE_LENGTH) {
+    return res.status(400).json({
+      error: "Mesajul este prea lung. Maxim 5000 de caractere.",
+    });
   }
 const moderation =
   await moderateMarketplaceMessage({
@@ -1876,6 +2076,7 @@ if (attachmentQuotaErr) {
           const storeName = storeNameFromThread(thread);
 
           await createUserNotification(thread.userId, {
+            preferenceCategory: "message",
             type: "message",
             title: `Atașament nou de la ${storeName}`,
             body:
@@ -1893,13 +2094,7 @@ if (attachmentQuotaErr) {
         ok: true,
         messageId: result.msg.id,
         createdAt: result.msg.createdAt,
-        attachments: result.createdAttachments.map((a) => ({
-          id: a.id,
-          name: a.filename,
-          url: a.url,
-          size: a.size,
-          mime: a.mime,
-        })),
+        attachments: result.createdAttachments.map(attachmentPublicShape),
       });
     } catch (e) {
       console.error("upload attachments error:", e);
@@ -1968,10 +2163,12 @@ if (!canAccess) {
     const contentType =
       att.mime || upstream.headers.get("content-type") || "application/octet-stream";
 
+    const forceDownload = req.query.download === "1" || req.query.download === "true";
+
     res.setHeader("Content-Type", contentType);
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
+      `${forceDownload ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(filename)}`
     );
 
     const len = upstream.headers.get("content-length");
@@ -2300,6 +2497,45 @@ router.get("/vendor-threads", async (req, res) => {
       },
     });
 
+  const threadIds = threads.map((t) => t.id);
+  const unreadByThreadId = new Map();
+
+  if (threadIds.length) {
+    const unreadRows = await prisma.$queryRaw`
+      SELECT
+        t.id as "threadId",
+        COUNT(m.*)::int as "unreadCount"
+      FROM "MessageThread" t
+      LEFT JOIN "Message" m
+        ON m."threadId" = t.id
+       AND (
+         (
+           t."type" = 'CUSTOMER'
+           AND m."authorType" = 'VENDOR'
+           AND m."deletedByUserAt" IS NULL
+           AND m."createdAt" > COALESCE(t."userLastReadAt", to_timestamp(0))
+         )
+         OR
+         (
+           t."type" = 'VENDOR_TO_VENDOR'
+           AND m."authorType" = 'VENDOR'
+           AND m."senderVendorId" IS DISTINCT FROM ${vendorId}
+           AND m."deletedByVendorAt" IS NULL
+           AND m."createdAt" > COALESCE(
+             CASE WHEN t."vendorId" = ${vendorId} THEN t."vendorLastReadAt" ELSE t."recipientVendorLastReadAt" END,
+             to_timestamp(0)
+           )
+         )
+       )
+      WHERE t.id = ANY(${threadIds})
+      GROUP BY t.id
+    `;
+
+    for (const r of unreadRows || []) {
+      unreadByThreadId.set(r.threadId, r.unreadCount);
+    }
+  }
+
   const items = [];
 
   for (const thread of threads) {
@@ -2307,7 +2543,6 @@ router.get("/vendor-threads", async (req, res) => {
       thread.type === "CUSTOMER";
 
     let otherVendor = null;
-    let unreadCount = 0;
 
     /*
      * Cererea de ofertă trimisă de vendor.
@@ -2317,27 +2552,6 @@ router.get("/vendor-threads", async (req, res) => {
       // căruia Vendor A i-a cerut oferta.
       otherVendor =
         thread.vendor;
-
-      unreadCount =
-        await prisma.message.count({
-          where: {
-            threadId:
-              thread.id,
-
-            deletedByUserAt:
-              null,
-
-            // Mesajele primite de la magazin
-            authorType:
-              "VENDOR",
-
-            createdAt: {
-              gt:
-                thread.userLastReadAt ||
-                new Date(0),
-            },
-          },
-        });
     }
 
     /*
@@ -2349,39 +2563,10 @@ router.get("/vendor-threads", async (req, res) => {
           thread,
           vendorId
         );
-
-      const myReadAt =
-        String(
-          thread.vendorId
-        ) ===
-        String(vendorId)
-          ? thread.vendorLastReadAt
-          : thread.recipientVendorLastReadAt;
-
-      unreadCount =
-        await prisma.message.count({
-          where: {
-            threadId:
-              thread.id,
-
-            deletedByVendorAt:
-              null,
-
-            authorType:
-              "VENDOR",
-
-            senderVendorId: {
-              not: vendorId,
-            },
-
-            createdAt: {
-              gt:
-                myReadAt ||
-                new Date(0),
-            },
-          },
-        });
     }
+
+    const unreadCount =
+      unreadByThreadId.get(thread.id) ?? 0;
 
     items.push({
       id:
@@ -2507,45 +2692,42 @@ router.get("/vendor-threads/:id/messages", async (req, res) => {
   const isBuyerThread =
     thread.type === "CUSTOMER";
 
-  const msgs = await prisma.message.findMany({
-    where: {
-      threadId,
+  const page = await loadMessagePage(
+    threadId,
+    req.query,
+    {
+      where: isBuyerThread
+        ? { deletedByUserAt: null }
+        : { deletedByVendorAt: null },
+      select: {
+        id: true,
+        body: true,
+        createdAt: true,
 
-      ...(isBuyerThread
-        ? {
-            deletedByUserAt: null,
-          }
-        : {
-            deletedByVendorAt: null,
-          }),
-    },
+        authorType: true,
+        authorUserId: true,
 
-    orderBy: {
-      createdAt: "asc",
-    },
+        vendorId: true,
+        senderVendorId: true,
 
-    select: {
-      id: true,
-      body: true,
-      createdAt: true,
-
-      authorType: true,
-      authorUserId: true,
-
-      vendorId: true,
-      senderVendorId: true,
-
-      attachments: {
-        select: {
-          id: true,
-          filename: true,
-          url: true,
-          size: true,
-          mime: true,
+        attachments: {
+          select: {
+            id: true,
+            filename: true,
+            url: true,
+            size: true,
+            mime: true,
+          },
         },
       },
-    },
-  });
+    }
+  );
+
+  if (page.error) {
+    return res.status(400).json({ error: page.error });
+  }
+
+  const msgs = page.items;
 
   /*
    * Pentru CUSTOMER:
@@ -2607,13 +2789,7 @@ router.get("/vendor-threads/:id/messages", async (req, res) => {
 
       attachments:
         (m.attachments || []).map(
-          (a) => ({
-            id: a.id,
-            name: a.filename,
-            url: a.url,
-            size: a.size,
-            mime: a.mime,
-          })
+          attachmentPublicShape
         ),
     };
   });
@@ -2632,6 +2808,10 @@ router.get("/vendor-threads/:id/messages", async (req, res) => {
 
   return res.json({
     items,
+
+    hasMoreOlder: page.hasMoreOlder,
+
+    peerLastReadAt: peerReadAt,
 
     threadMeta: {
       id: thread.id,
@@ -2771,6 +2951,18 @@ router.post(
       });
     }
 
+    if (body.length > MAX_MESSAGE_LENGTH) {
+      return res.status(400).json({
+        error: "Mesajul este prea lung. Maxim 5000 de caractere.",
+      });
+    }
+
+    const clientMessageIdCheck = validateClientMessageId(req.body?.clientMessageId);
+    if (!clientMessageIdCheck.ok) {
+      return res.status(400).json({ error: "invalid_client_message_id" });
+    }
+    const clientMessageId = clientMessageIdCheck.value;
+
     /*
      * Verificăm thread-ul înainte de moderare,
      * ca să știm dacă vendorul este aici
@@ -2798,6 +2990,22 @@ router.post(
       return res.status(404).json({
         error: "Thread not found",
       });
+    }
+
+    /*
+     * ETAPA 5 - fast path ÎNAINTE de moderare și ÎNAINTE de
+     * assertChatQuotaOrThrow, DUPĂ ce am confirmat accesul la thread
+     * (nu vrem să scurgem existența unui mesaj în thread-uri la care
+     * vendorul nu are acces).
+     */
+    if (clientMessageId) {
+      const existing = await prisma.message.findFirst({
+        where: { threadId, clientMessageId },
+        select: { id: true, createdAt: true },
+      });
+      if (existing) {
+        return res.status(201).json({ ok: true, id: existing.id, createdAt: existing.createdAt });
+      }
     }
 
     const isBuyerThread =
@@ -2968,6 +3176,8 @@ router.post(
                           userId,
 
                         body,
+
+                        clientMessageId,
                       }
                     : {
                         /*
@@ -2985,6 +3195,8 @@ router.post(
                           "VENDOR",
 
                         body,
+
+                        clientMessageId,
                       },
 
                 select: {
@@ -3146,6 +3358,22 @@ router.post(
             out.msg.createdAt,
         });
     } catch (e) {
+      /*
+       * ETAPA 5 - cursă reală: alt request cu același (threadId,
+       * clientMessageId) a câștigat între fast-path și acest create.
+       * Prisma a făcut deja rollback la toată tranzacția - citim mesajul
+       * câștigător în afara oricărei tranzacții.
+       */
+      if (clientMessageId && isClientMessageIdConflict(e)) {
+        const existing = await prisma.message.findFirst({
+          where: { threadId, clientMessageId },
+          select: { id: true, createdAt: true },
+        });
+        if (existing) {
+          return res.status(201).json({ ok: true, id: existing.id, createdAt: existing.createdAt });
+        }
+      }
+
       console.error(
         "vendor-to-vendor send message error:",
         e

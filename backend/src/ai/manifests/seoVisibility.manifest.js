@@ -98,6 +98,10 @@ export const SEO_VISIBILITY_MANIFEST = {
       q: "Cum apar produsele în sitemap?",
       a: "Automat, dacă produsul este activ, vizibil (nu ascuns), aprobat la moderare, iar serviciul și vendorul sunt active. Nu există un pas manual de adăugare în sitemap.",
     },
+    {
+      q: "Cum fac produsul mai ușor de găsit?",
+      a: "Nu există o acțiune manuală de „promovare SEO” - asigură-te că produsul e activ, nu ascuns, aprobat la moderare, are preț și cel puțin o imagine (condiții pentru Google Shopping) - restul e automat. Pentru vizibilitate suplimentară pe platformă, vezi manifestele de campanii proprii și promovări homepage.",
+    },
   ],
 
   unavailableFeatures: ["Adăugare/eliminare manuală a unui produs din sitemap sau feed-uri"],

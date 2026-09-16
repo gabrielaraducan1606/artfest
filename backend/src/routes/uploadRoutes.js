@@ -2,44 +2,28 @@
 import { Router } from "express";
 import multer from "multer";
 import {
-  S3Client,
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
-import sharp from "sharp";
 import { authRequired, enforceTokenVersion, requireRole } from "../api/auth.js";
 import { stripVideoAudio } from "../lib/videoAudio.js";
+import {
+  r2Client,
+  buildPublicUrl,
+  sanitizeFileName,
+  uploadToR2,
+  detectRealFileKind,
+  getFileExtension as getRealFileExtension,
+} from "../services/r2Storage.js";
 
 const router = Router();
 
 const {
   R2_ACCOUNT_ID,
-  R2_ACCESS_KEY_ID,
-  R2_SECRET_ACCESS_KEY,
   R2_BUCKET_NAME,
   R2_PUBLIC_BASE_URL,
 } = process.env;
-
-if (
-  !R2_ACCOUNT_ID ||
-  !R2_ACCESS_KEY_ID ||
-  !R2_SECRET_ACCESS_KEY ||
-  !R2_BUCKET_NAME
-) {
-  console.warn(
-    "[R2] Env incomplet. Verifică R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME."
-  );
-}
-
-const r2Client = new S3Client({
-  region: "auto",
-  endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: R2_ACCESS_KEY_ID,
-    secretAccessKey: R2_SECRET_ACCESS_KEY,
-  },
-});
 
 const ALLOWED_IMAGE_MIME_TYPES = [
   "image/jpeg",
@@ -170,26 +154,8 @@ const uploadVideo = multer({
   fileFilter: videoFileFilter,
 });
 
-function buildPublicUrl(key) {
-  if (R2_PUBLIC_BASE_URL) {
-    return `${R2_PUBLIC_BASE_URL.replace(/\/+$/, "")}/${key}`;
-  }
-
-  return `https://${R2_BUCKET_NAME}.${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${key}`;
-}
-
 function getUserId(req) {
   return req.user?.sub || req.user?.id;
-}
-
-function sanitizeFileName(name = "file") {
-  const safe = String(name)
-    .toLowerCase()
-    .replace(/[^a-z0-9.\-_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-
-  return safe || "file";
 }
 
 function handleUploadError(err, res, context = "upload") {
@@ -230,6 +196,14 @@ function handleUploadError(err, res, context = "upload") {
     });
   }
 
+  if (err?.code === "upload_content_mismatch") {
+    return res.status(415).json({
+      error: "upload_content_mismatch",
+      message:
+        "Fișierul nu corespunde tipului declarat (extensie/format). Încearcă alt fișier.",
+    });
+  }
+
   console.error(`Upload error (${context}):`, err);
 
   return res.status(500).json({
@@ -239,93 +213,6 @@ function handleUploadError(err, res, context = "upload") {
         ? "Nu am putut încărca imaginea. Încearcă din nou sau folosește o poză JPG/PNG."
         : "Upload eșuat. Încearcă din nou.",
   });
-}
-
-async function uploadToR2({ file, folder, userId, index = null }) {
-  const originalMime = file.mimetype || "application/octet-stream";
-  const originalName = file.originalname || "file";
-
-  let body = file.buffer;
-  let mime = originalMime;
-
-  let safeOriginalName = sanitizeFileName(
-    originalName.replace(/\.[^.]+$/, ".jpg")
-  );
-
-  try {
-    body = await sharp(file.buffer, {
-      failOn: "none",
-      animated: false,
-      limitInputPixels: false,
-    })
-      .rotate()
-      .resize({
-        width: 2400,
-        height: 2400,
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .jpeg({
-        quality: 88,
-        mozjpeg: true,
-      })
-      .toBuffer();
-
-    mime = "image/jpeg";
-  } catch (err) {
-    console.error("[UPLOAD] Sharp convert failed, uploading original file:", {
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size,
-      error: err?.message || err,
-    });
-
-    body = file.buffer;
-    mime = originalMime;
-    safeOriginalName = sanitizeFileName(originalName);
-  }
-
-  const timestamp = Date.now();
-  const indexPart =
-    index === null || index === undefined ? "" : `${index}-`;
-
-  const key = `${folder}/${userId}/${timestamp}-${indexPart}${safeOriginalName}`;
-
-  const putCommand = new PutObjectCommand({
-    Bucket: R2_BUCKET_NAME,
-    Key: key,
-    Body: body,
-    ContentType: mime,
-    CacheControl: "public, max-age=31536000, immutable",
-  });
-
-  console.info("[UPLOAD] Start R2 upload:", {
-    folder,
-    userId,
-    key,
-    originalMime,
-    finalMime: mime,
-    originalSize: file.size,
-    finalSize: body.length,
-    originalname: file.originalname,
-    convertedToJpeg: mime === "image/jpeg",
-  });
-
-  await r2Client.send(putCommand);
-
-  console.info("[UPLOAD] R2 upload success:", {
-    folder,
-    userId,
-    key,
-  });
-
-  return {
-    url: buildPublicUrl(key),
-    key,
-    name: safeOriginalName,
-    size: body.length,
-    mimeType: mime,
-  };
 }
 
 /**
@@ -340,7 +227,32 @@ async function uploadVideoToR2({
   folder,
   userId,
 }) {
-  const mime = mimeType || "application/octet-stream";
+  /*
+   * NU avem încredere doar în mimeType (declarat de client la primul
+   * upload) - verificăm semnătura reală a containerului video înainte
+   * de a-l trimite pe R2 cu acel Content-Type.
+   */
+  const detected = detectRealFileKind(buffer);
+  const declaredExt = getRealFileExtension(originalname || "");
+  const isRecognizedVideo =
+    detected &&
+    (detected.kind === "mp4" || detected.kind === "webm") &&
+    detected.exts.includes(declaredExt);
+
+  if (!isRecognizedVideo) {
+    console.warn("[UPLOAD] Video rejected - content does not match a recognized video container:", {
+      originalname,
+      mimeType,
+      declaredExt,
+      detectedKind: detected?.kind || null,
+    });
+
+    const rejectionError = new Error("UPLOAD_CONTENT_MISMATCH");
+    rejectionError.code = "upload_content_mismatch";
+    throw rejectionError;
+  }
+
+  const mime = detected.mime;
   const safeOriginalName = sanitizeFileName(originalname || "video");
 
   const timestamp = Date.now();

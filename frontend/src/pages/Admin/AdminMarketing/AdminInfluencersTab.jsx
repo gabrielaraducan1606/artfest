@@ -4,14 +4,57 @@ import {
   useMemo,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { api } from "../../../lib/api";
 import styles from "./AdminInfluencersTab.module.css";
+import AdminInfluencerResourcesTab from "./AdminInfluencerResourcesTab.jsx";
+import AdminInfluencerPayoutsTab from "./AdminInfluencerPayoutsTab.jsx";
+
+const SUB_TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "influencers", label: "Influenceri" },
+  { id: "promotion", label: "Promovare" },
+  { id: "orders", label: "Comenzi" },
+  { id: "resources", label: "Resurse" },
+  { id: "payouts", label: "Fiscalizare & plăți" },
+];
 
 const INITIAL_FORM = {
-  name: "",
+  firstName: "",
+  lastName: "",
   email: "",
 };
+
+/*
+ * InfluencerInvite ține azi doar `name` (legacy, un singur câmp) - vezi
+ * raportul de standardizare Prenume/Nume. Split best-effort, folosit
+ * DOAR pentru precompletarea formularului de editare a unei invitații
+ * existente (care are deja doar `name` salvat, nu firstName/lastName
+ * separat) - nu inventează o structură nouă, doar afișează invitația
+ * veche într-un formular cu două câmpuri.
+ */
+function splitFullName(fullName) {
+  const trimmed = String(fullName || "").trim();
+
+  if (!trimmed) {
+    return { firstName: "", lastName: "" };
+  }
+
+  const parts = trimmed.split(/\s+/);
+  const firstName = parts.shift() || "";
+  const lastName = parts.join(" ");
+
+  return { firstName, lastName };
+}
+
+const INITIAL_COMMISSION_FORM = {
+  commissionPercent: "",
+};
+
+/* =========================================================
+   FORMATTERS
+========================================================= */
 
 function formatDate(value) {
   if (!value) {
@@ -40,6 +83,28 @@ function formatMoney(value) {
     }
   ).format(number);
 }
+
+function formatPercent(value) {
+  const number =
+    Number(value);
+
+  if (
+    !Number.isFinite(number)
+  ) {
+    return "—";
+  }
+
+  return `${number.toLocaleString(
+    "ro-RO",
+    {
+      maximumFractionDigits: 2,
+    }
+  )}%`;
+}
+
+/* =========================================================
+   STATUS
+========================================================= */
 
 function getStatusLabel(status) {
   switch (
@@ -98,47 +163,185 @@ function getStatusClass(status) {
   return styles.statusDisabled;
 }
 
-function getRemunerationLabel(item) {
+/* =========================================================
+   REMUNERAȚIE
+========================================================= */
+
+function getActiveCommissionPercent(
+  item
+) {
+  if (
+    item?.platformCommissionSharePercent !==
+      undefined &&
+    item?.platformCommissionSharePercent !==
+      null
+  ) {
+    return Number(
+      item.platformCommissionSharePercent
+    );
+  }
+
+  if (
+    item?.commissionSharePercent !==
+      undefined &&
+    item?.commissionSharePercent !==
+      null
+  ) {
+    return Number(
+      item.commissionSharePercent
+    );
+  }
+
+  if (
+    item?.commissionBps !==
+      undefined &&
+    item?.commissionBps !==
+      null
+  ) {
+    return (
+      Number(
+        item.commissionBps
+      ) / 100
+    );
+  }
+
+  return 0;
+}
+
+function getPendingCommissionPercent(
+  item
+) {
+  if (
+    item?.pendingCommissionPercent !==
+      undefined &&
+    item?.pendingCommissionPercent !==
+      null
+  ) {
+    return Number(
+      item.pendingCommissionPercent
+    );
+  }
+
+  if (
+    item
+      ?.pendingCommissionAgreement
+      ?.commissionPercent !==
+      undefined &&
+    item
+      ?.pendingCommissionAgreement
+      ?.commissionPercent !==
+      null
+  ) {
+    return Number(
+      item
+        .pendingCommissionAgreement
+        .commissionPercent
+    );
+  }
+
+  if (
+    item
+      ?.pendingCommissionAgreement
+      ?.commissionBps !==
+      undefined &&
+    item
+      ?.pendingCommissionAgreement
+      ?.commissionBps !==
+      null
+  ) {
+    return (
+      Number(
+        item
+          .pendingCommissionAgreement
+          .commissionBps
+      ) / 100
+    );
+  }
+
+  return null;
+}
+
+function getRemunerationLabel(
+  item
+) {
   if (
     item?.type === "INVITE"
   ) {
     return "—";
   }
 
+  const activePercent =
+    getActiveCommissionPercent(
+      item
+    );
+
+  const pendingPercent =
+    getPendingCommissionPercent(
+      item
+    );
+
   if (
-    item?.platformCommissionSharePercent !==
-      undefined &&
-    item?.platformCommissionSharePercent !==
-      null &&
-    Number(
-      item.platformCommissionSharePercent
-    ) > 0
+    pendingPercent !==
+    null
   ) {
-    return `${Number(
-      item.platformCommissionSharePercent
-    ).toLocaleString(
-      "ro-RO"
-    )}% din comisionul Artfest`;
+    if (
+      activePercent > 0
+    ) {
+      return `${formatPercent(
+        activePercent
+      )} activ · ${formatPercent(
+        pendingPercent
+      )} în așteptare`;
+    }
+
+    return `${formatPercent(
+      pendingPercent
+    )} · așteaptă acceptarea`;
   }
 
   if (
-    item?.commissionSharePercent !==
-      undefined &&
-    item?.commissionSharePercent !==
-      null &&
-    Number(
-      item.commissionSharePercent
-    ) > 0
+    activePercent > 0
   ) {
-    return `${Number(
-      item.commissionSharePercent
-    ).toLocaleString(
-      "ro-RO"
-    )}% din comisionul Artfest`;
+    return `${formatPercent(
+      activePercent
+    )} din comisionul Artfest`;
   }
 
   return "Nesetată";
 }
+
+function getCommissionStatusLabel(
+  item
+) {
+  if (
+    item?.type === "INVITE"
+  ) {
+    return null;
+  }
+
+  if (
+    item
+      ?.hasPendingCommissionAgreement ||
+    item
+      ?.pendingCommissionAgreement
+  ) {
+    return "Așteaptă acceptarea";
+  }
+
+  if (
+    getActiveCommissionPercent(
+      item
+    ) > 0
+  ) {
+    return "Acceptată";
+  }
+
+  return "Nesetată";
+}
+
+/* =========================================================
+   ERRORS
+========================================================= */
 
 function mapInviteError(
   errorCode,
@@ -168,7 +371,54 @@ function mapInviteError(
   }
 }
 
+function mapCommissionError(
+  errorCode,
+  fallback
+) {
+  switch (errorCode) {
+    case "influencer_not_found":
+      return "Influencerul nu a fost găsit.";
+
+    case "influencer_not_active":
+      return "Remunerația poate fi stabilită doar pentru un influencer activ.";
+
+    case "commission_already_active":
+      return "Această remunerație este deja activă.";
+
+    case "invalid_commission_payload":
+    case "invalid_commission_bps":
+      return "Procentul de remunerație nu este valid.";
+
+    case "commission_agreement_create_failed":
+      return "Nu am putut trimite propunerea de remunerație.";
+
+    case "commission_agreement_not_found":
+      return "Propunerea de remunerație nu mai există.";
+
+    case "commission_agreement_not_pending":
+      return "Această propunere nu mai este în așteptare.";
+
+    case "commission_agreement_cancel_failed":
+      return "Nu am putut retrage propunerea.";
+
+    default:
+      return (
+        fallback ||
+        "Nu am putut procesa remunerația."
+      );
+  }
+}
+
+/* =========================================================
+   COMPONENT
+========================================================= */
+
 export default function AdminInfluencersTab() {
+  const [
+    subTab,
+    setSubTab,
+  ] = useState("overview");
+
   const [
     items,
     setItems,
@@ -188,6 +438,20 @@ export default function AdminInfluencersTab() {
     query,
     setQuery,
   ] = useState("");
+
+  const [
+    selectedInfluencer,
+    setSelectedInfluencer,
+  ] = useState(null);
+
+  const [
+    resendingInviteId,
+    setResendingInviteId,
+  ] = useState("");
+
+  /* =========================================================
+     INVITE MODAL
+  ========================================================= */
 
   const [
     inviteOpen,
@@ -231,6 +495,46 @@ export default function AdminInfluencersTab() {
       editingInvite?.id
     );
 
+  /* =========================================================
+     COMMISSION MODAL
+  ========================================================= */
+
+  const [
+    commissionOpen,
+    setCommissionOpen,
+  ] = useState(false);
+
+  const [
+    commissionTarget,
+    setCommissionTarget,
+  ] = useState(null);
+
+  const [
+    commissionForm,
+    setCommissionForm,
+  ] = useState(
+    INITIAL_COMMISSION_FORM
+  );
+
+  const [
+    commissionSaving,
+    setCommissionSaving,
+  ] = useState(false);
+
+  const [
+    commissionSuccess,
+    setCommissionSuccess,
+  ] = useState("");
+
+  const [
+    withdrawingAgreement,
+    setWithdrawingAgreement,
+  ] = useState(false);
+
+  /* =========================================================
+     LOAD
+  ========================================================= */
+
   const loadInfluencers =
     useCallback(
       async () => {
@@ -246,9 +550,16 @@ export default function AdminInfluencersTab() {
           if (
             data?.ok === false
           ) {
-            throw new Error(
-              data?.error ||
-                "Nu am putut încărca influencerii."
+            throw Object.assign(
+              new Error(
+                data?.message ||
+                  data?.error ||
+                  "Nu am putut încărca influencerii."
+              ),
+              {
+                code:
+                  data?.error,
+              }
             );
           }
 
@@ -270,6 +581,8 @@ export default function AdminInfluencersTab() {
               ? result
               : []
           );
+
+          return data;
         } catch (err) {
           setItems([]);
 
@@ -277,6 +590,8 @@ export default function AdminInfluencersTab() {
             err?.message ||
               "Nu am putut încărca influencerii."
           );
+
+          return null;
         } finally {
           setLoading(false);
         }
@@ -288,6 +603,10 @@ export default function AdminInfluencersTab() {
     loadInfluencers();
   }, [loadInfluencers]);
 
+  /* =========================================================
+     CLOSE INVITE
+  ========================================================= */
+
   const closeInviteModal =
     useCallback(() => {
       if (creating) {
@@ -297,15 +616,59 @@ export default function AdminInfluencersTab() {
       setInviteOpen(false);
       setInviteResult(null);
       setEditingInvite(null);
+
       setForm(
         INITIAL_FORM
       );
+
       setCopyState("");
       setError("");
     }, [creating]);
 
+  /* =========================================================
+     CLOSE COMMISSION
+  ========================================================= */
+
+  const closeCommissionModal =
+    useCallback(() => {
+      if (
+        commissionSaving ||
+        withdrawingAgreement
+      ) {
+        return;
+      }
+
+      setCommissionOpen(
+        false
+      );
+
+      setCommissionTarget(
+        null
+      );
+
+      setCommissionForm(
+        INITIAL_COMMISSION_FORM
+      );
+
+      setCommissionSuccess(
+        ""
+      );
+
+      setError("");
+    }, [
+      commissionSaving,
+      withdrawingAgreement,
+    ]);
+
+  /* =========================================================
+     ESC
+  ========================================================= */
+
   useEffect(() => {
-    if (!inviteOpen) {
+    if (
+      !inviteOpen &&
+      !commissionOpen
+    ) {
       return;
     }
 
@@ -313,8 +676,21 @@ export default function AdminInfluencersTab() {
       event
     ) {
       if (
-        event.key ===
+        event.key !==
         "Escape"
+      ) {
+        return;
+      }
+
+      if (
+        commissionOpen
+      ) {
+        closeCommissionModal();
+        return;
+      }
+
+      if (
+        inviteOpen
       ) {
         closeInviteModal();
       }
@@ -333,8 +709,14 @@ export default function AdminInfluencersTab() {
     };
   }, [
     inviteOpen,
+    commissionOpen,
     closeInviteModal,
+    closeCommissionModal,
   ]);
+
+  /* =========================================================
+     FILTER
+  ========================================================= */
 
   const filteredItems =
     useMemo(() => {
@@ -353,6 +735,9 @@ export default function AdminInfluencersTab() {
             item.name,
             item.email,
             item.status,
+            getCommissionStatusLabel(
+              item
+            ),
           ];
 
           return values.some(
@@ -370,22 +755,20 @@ export default function AdminInfluencersTab() {
       query,
     ]);
 
+  /* =========================================================
+     STATS
+  ========================================================= */
+
   const stats =
     useMemo(() => {
       const active =
         items.filter(
-          (item) => {
-            const status =
-              String(
-                item.status ||
-                  ""
-              ).toUpperCase();
-
-            return (
-              status ===
-              "ACTIVE"
-            );
-          }
+          (item) =>
+            String(
+              item.status ||
+                ""
+            ).toUpperCase() ===
+            "ACTIVE"
         ).length;
 
       const invited =
@@ -434,6 +817,19 @@ export default function AdminInfluencersTab() {
           0
         );
 
+      const commissionPending =
+        items.filter(
+          (item) =>
+            item?.type ===
+              "PROFILE" &&
+            (
+              item
+                ?.hasPendingCommissionAgreement ||
+              item
+                ?.pendingCommissionAgreement
+            )
+        ).length;
+
       return {
         total:
           items.length,
@@ -445,8 +841,14 @@ export default function AdminInfluencersTab() {
         totalClicks,
 
         totalOrders,
+
+        commissionPending,
       };
     }, [items]);
+
+  /* =========================================================
+     INVITE
+  ========================================================= */
 
   function openInviteModal() {
     setError("");
@@ -483,10 +885,12 @@ export default function AdminInfluencersTab() {
       item
     );
 
+    const { firstName, lastName } =
+      splitFullName(item.name);
+
     setForm({
-      name:
-        item.name ||
-        "",
+      firstName,
+      lastName,
 
       email:
         item.email ||
@@ -518,15 +922,26 @@ export default function AdminInfluencersTab() {
     setError("");
     setCopyState("");
 
-    const name =
-      form.name.trim();
+    const firstName =
+      form.firstName.trim();
+
+    const lastName =
+      form.lastName.trim();
 
     const email =
       form.email
         .trim()
         .toLowerCase();
 
-    if (!name) {
+    if (!firstName) {
+      setError(
+        "Completează prenumele influencerului."
+      );
+
+      return;
+    }
+
+    if (!lastName) {
       setError(
         "Completează numele influencerului."
       );
@@ -541,6 +956,9 @@ export default function AdminInfluencersTab() {
 
       return;
     }
+
+    const name =
+      `${firstName} ${lastName}`.trim();
 
     setCreating(true);
 
@@ -564,7 +982,8 @@ export default function AdminInfluencersTab() {
             method,
 
             body: {
-              name,
+              firstName,
+              lastName,
               email,
             },
           }
@@ -573,11 +992,15 @@ export default function AdminInfluencersTab() {
       if (
         data?.ok === false
       ) {
-        throw new Error(
-          mapInviteError(
-            data?.error,
-            data?.message
-          )
+        throw Object.assign(
+          new Error(
+            data?.message ||
+              data?.error
+          ),
+          {
+            code:
+              data?.error,
+          }
         );
       }
 
@@ -630,8 +1053,12 @@ export default function AdminInfluencersTab() {
     } catch (err) {
       setError(
         mapInviteError(
-          err?.code,
-          err?.message ||
+          err?.code ||
+            err?.data
+              ?.error,
+          err?.data
+            ?.message ||
+            err?.message ||
             (
               isEditing
                 ? "Nu am putut modifica invitația."
@@ -688,11 +1115,15 @@ export default function AdminInfluencersTab() {
       if (
         data?.ok === false
       ) {
-        throw new Error(
-          mapInviteError(
-            data?.error,
-            data?.message
-          )
+        throw Object.assign(
+          new Error(
+            data?.message ||
+              data?.error
+          ),
+          {
+            code:
+              data?.error,
+          }
         );
       }
 
@@ -711,8 +1142,13 @@ export default function AdminInfluencersTab() {
     } catch (err) {
       setError(
         mapInviteError(
-          err?.code,
-          err?.message ||
+          err?.code ||
+            err?.data
+              ?.error,
+
+          err?.data
+            ?.message ||
+            err?.message ||
             "Nu am putut șterge invitația."
         )
       );
@@ -720,6 +1156,414 @@ export default function AdminInfluencersTab() {
       setDeletingId("");
     }
   }
+
+  async function resendInvite(
+    item
+  ) {
+    if (
+      item?.type !==
+        "INVITE" ||
+      !item?.id
+    ) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        `Sigur vrei să retrimiți invitația către ${
+          item.email ||
+          item.name ||
+          "acest influencer"
+        }? Linkul vechi va fi înlocuit cu unul nou.`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setResendingInviteId(
+      item.id
+    );
+
+    setError("");
+
+    try {
+      const data =
+        await api(
+          `/api/admin/influencers/invite/${encodeURIComponent(
+            item.id
+          )}`,
+          {
+            method:
+              "PATCH",
+
+            body: {
+              name:
+                item.name ||
+                "",
+
+              email:
+                item.email ||
+                "",
+            },
+          }
+        );
+
+      if (
+        data?.ok === false
+      ) {
+        throw Object.assign(
+          new Error(
+            data?.message ||
+              data?.error
+          ),
+          {
+            code:
+              data?.error,
+          }
+        );
+      }
+
+      const refreshed =
+        await loadInfluencers();
+
+      const refreshedItems =
+        refreshed?.items ||
+        refreshed?.influencers ||
+        [];
+
+      const updatedItem =
+        refreshedItems.find(
+          (entry) =>
+            entry.type ===
+              "INVITE" &&
+            entry.id ===
+              item.id
+        );
+
+      if (
+        updatedItem
+      ) {
+        setSelectedInfluencer(
+          updatedItem
+        );
+      }
+
+      if (
+        data?.emailSent === false
+      ) {
+        window.alert(
+          "Linkul a fost regenerat, dar emailul nu a putut fi trimis."
+        );
+      } else {
+        window.alert(
+          "Invitația a fost retrimisă."
+        );
+      }
+    } catch (err) {
+      setError(
+        mapInviteError(
+          err?.code ||
+            err?.data
+              ?.error,
+
+          err?.data
+            ?.message ||
+            err?.message ||
+            "Nu am putut retrimite invitația."
+        )
+      );
+    } finally {
+      setResendingInviteId(
+        ""
+      );
+    }
+  }
+
+  /* =========================================================
+     COMMISSION
+  ========================================================= */
+
+  function openCommissionModal(
+    item
+  ) {
+    if (
+      item?.type !==
+      "PROFILE"
+    ) {
+      return;
+    }
+
+    setError("");
+    setCommissionSuccess("");
+
+    setCommissionTarget(
+      item
+    );
+
+    const pending =
+      getPendingCommissionPercent(
+        item
+      );
+
+    const active =
+      getActiveCommissionPercent(
+        item
+      );
+
+    setCommissionForm({
+      commissionPercent:
+        pending !== null
+          ? String(
+              pending
+            )
+          : active > 0
+            ? String(
+                active
+              )
+            : "",
+    });
+
+    setCommissionOpen(
+      true
+    );
+  }
+
+  async function submitCommission(
+    event
+  ) {
+    event.preventDefault();
+
+    if (
+      !commissionTarget?.id
+    ) {
+      return;
+    }
+
+    const commissionPercent =
+      Number(
+        commissionForm.commissionPercent
+      );
+
+    if (
+      !Number.isFinite(
+        commissionPercent
+      ) ||
+      commissionPercent <= 0 ||
+      commissionPercent > 100
+    ) {
+      setError(
+        "Introdu un procent între 0,01% și 100%."
+      );
+
+      return;
+    }
+
+    setCommissionSaving(
+      true
+    );
+
+    setCommissionSuccess("");
+    setError("");
+
+    try {
+      const data =
+        await api(
+          `/api/admin/influencers/${encodeURIComponent(
+            commissionTarget.id
+          )}/commission-agreement`,
+          {
+            method:
+              "POST",
+
+            body: {
+              commissionPercent,
+            },
+          }
+        );
+
+      if (
+        data?.ok === false
+      ) {
+        throw Object.assign(
+          new Error(
+            data?.message ||
+              data?.error
+          ),
+          {
+            code:
+              data?.error,
+          }
+        );
+      }
+
+      setCommissionSuccess(
+        "Propunerea de remunerație a fost trimisă influencerului."
+      );
+
+      const refreshed =
+        await loadInfluencers();
+
+      const refreshedItems =
+        refreshed?.items ||
+        [];
+
+      const updatedTarget =
+        refreshedItems.find(
+          (item) =>
+            item.type ===
+              "PROFILE" &&
+            item.id ===
+              commissionTarget.id
+        );
+
+      if (
+        updatedTarget
+      ) {
+        setCommissionTarget(
+          updatedTarget
+        );
+      }
+    } catch (err) {
+      setError(
+        mapCommissionError(
+          err?.code ||
+            err?.data
+              ?.error,
+
+          err?.data
+            ?.message ||
+            err?.message
+        )
+      );
+    } finally {
+      setCommissionSaving(
+        false
+      );
+    }
+  }
+
+  async function withdrawCommissionProposal() {
+    const agreementId =
+      commissionTarget
+        ?.pendingCommissionAgreement
+        ?.id;
+
+    if (
+      !commissionTarget?.id ||
+      !agreementId
+    ) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        "Sigur vrei să retragi propunerea de remunerație aflată în așteptare?"
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setWithdrawingAgreement(
+      true
+    );
+
+    setCommissionSuccess("");
+    setError("");
+
+    try {
+      const data =
+        await api(
+          `/api/admin/influencers/${encodeURIComponent(
+            commissionTarget.id
+          )}/commission-agreement/${encodeURIComponent(
+            agreementId
+          )}`,
+          {
+            method:
+              "DELETE",
+          }
+        );
+
+      if (
+        data?.ok === false
+      ) {
+        throw Object.assign(
+          new Error(
+            data?.message ||
+              data?.error
+          ),
+          {
+            code:
+              data?.error,
+          }
+        );
+      }
+
+      setCommissionSuccess(
+        "Propunerea a fost retrasă."
+      );
+
+      const refreshed =
+        await loadInfluencers();
+
+      const refreshedItems =
+        refreshed?.items ||
+        [];
+
+      const updatedTarget =
+        refreshedItems.find(
+          (item) =>
+            item.type ===
+              "PROFILE" &&
+            item.id ===
+              commissionTarget.id
+        );
+
+      if (
+        updatedTarget
+      ) {
+        setCommissionTarget(
+          updatedTarget
+        );
+
+        const active =
+          getActiveCommissionPercent(
+            updatedTarget
+          );
+
+        setCommissionForm({
+          commissionPercent:
+            active > 0
+              ? String(
+                  active
+                )
+              : "",
+        });
+      }
+    } catch (err) {
+      setError(
+        mapCommissionError(
+          err?.code ||
+            err?.data
+              ?.error,
+
+          err?.data
+            ?.message ||
+            err?.message
+        )
+      );
+    } finally {
+      setWithdrawingAgreement(
+        false
+      );
+    }
+  }
+
+  /* =========================================================
+     COPY
+  ========================================================= */
 
   async function copyText(
     text,
@@ -774,12 +1618,20 @@ export default function AdminInfluencersTab() {
     );
   }
 
+  /* =========================================================
+     PAGE
+  ========================================================= */
+
   return (
     <div
       className={
         styles.root
       }
     >
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
+
       <div
         className={
           styles.header
@@ -803,23 +1655,58 @@ export default function AdminInfluencersTab() {
               styles.subtitle
             }
           >
-            Invită influenceri în Artfest, urmărește activarea conturilor și performanța colaborărilor.
+            Invită influenceri în Artfest, stabilește remunerația colaborării și urmărește performanța.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={
-            openInviteModal
-          }
-          className={
-            styles.primaryButton
-          }
-        >
-          + Invită influencer
-        </button>
+        {subTab === "influencers" && (
+          <button
+            type="button"
+            onClick={
+              openInviteModal
+            }
+            className={
+              styles.primaryButton
+            }
+          >
+            + Invită influencer
+          </button>
+        )}
       </div>
 
+      {/* =====================================================
+          SUB-TABURI
+      ===================================================== */}
+
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+          marginBottom: 20,
+        }}
+      >
+        {SUB_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setSubTab(tab.id)}
+            className={
+              subTab === tab.id
+                ? styles.primaryButton
+                : styles.secondaryButton
+            }
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* =====================================================
+          STATS (OVERVIEW)
+      ===================================================== */}
+
+      {subTab === "overview" && (
       <div
         className={
           styles.statsGrid
@@ -859,8 +1746,127 @@ export default function AdminInfluencersTab() {
             stats.totalOrders
           }
         />
-      </div>
 
+        <StatCard
+          label="Remunerații în așteptare"
+          value={
+            stats.commissionPending
+          }
+        />
+      </div>
+      )}
+
+      {/* =====================================================
+          PROMOVARE (placeholder)
+      ===================================================== */}
+
+      {subTab === "promotion" && (
+        <div className={styles.card}>
+          <div className={styles.cardTitle}>
+            Promovare
+          </div>
+
+          <div className={styles.cardSubtitle}>
+            Administrarea campaniilor de promovare pentru
+            influenceri nu există încă ca funcționalitate
+            separată - urmează într-o iterație viitoare.
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================
+          COMENZI (sumar din datele deja încărcate)
+      ===================================================== */}
+
+      {subTab === "orders" && (
+        <div className={styles.card}>
+          <div className={styles.cardHeader}>
+            <div>
+              <div className={styles.cardTitle}>
+                Comenzi pe influencer
+              </div>
+
+              <div className={styles.cardSubtitle}>
+                Sumar din aceleași date încărcate în tab-ul
+                Influenceri - nu există încă un model dedicat
+                de comenzi per influencer.
+              </div>
+            </div>
+          </div>
+
+          {items.filter((item) => item.type === "PROFILE")
+            .length === 0 ? (
+            <div className={styles.emptyState}>
+              <div className={styles.emptyTitle}>
+                Nu există încă influenceri activi.
+              </div>
+            </div>
+          ) : (
+            <div className={styles.tableWrap}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Nume</th>
+                    <th>Comenzi</th>
+                    <th>Vânzări</th>
+                    <th>Câștig confirmat</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {items
+                    .filter((item) => item.type === "PROFILE")
+                    .map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.name || "—"}</td>
+
+                        <td>
+                          {Number(
+                            item.ordersCount || 0
+                          ).toLocaleString("ro-RO")}
+                        </td>
+
+                        <td>
+                          {formatMoney(
+                            item.salesAmount || 0
+                          )}
+                        </td>
+
+                        <td>
+                          {formatMoney(
+                            item.earningsAmount || 0
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* =====================================================
+          RESURSE
+      ===================================================== */}
+
+      {subTab === "resources" && (
+        <AdminInfluencerResourcesTab />
+      )}
+
+      {/* =====================================================
+          FISCALIZARE & PLĂȚI
+      ===================================================== */}
+
+      {subTab === "payouts" && (
+        <AdminInfluencerPayoutsTab />
+      )}
+
+      {/* =====================================================
+          TABLE CARD (INFLUENCERI)
+      ===================================================== */}
+
+      {subTab === "influencers" && (
       <div
         className={
           styles.card
@@ -885,7 +1891,7 @@ export default function AdminInfluencersTab() {
                 styles.cardSubtitle
               }
             >
-              Conturile active și invitațiile trimise.
+              Conturile active, invitațiile și remunerațiile colaborărilor.
             </div>
           </div>
 
@@ -896,7 +1902,9 @@ export default function AdminInfluencersTab() {
           >
             <input
               type="search"
-              value={query}
+              value={
+                query
+              }
               placeholder="Caută după nume sau email..."
               onChange={(
                 event
@@ -973,58 +1981,52 @@ export default function AdminInfluencersTab() {
             >
               <thead>
                 <tr>
-                  <th>
-                    Nume
-                  </th>
-
-                  <th>
-                    Email
-                  </th>
-
-                  <th>
-                    Status
-                  </th>
-
-                  <th>
-                    Remunerație
-                  </th>
-
-                  <th>
-                    Clickuri
-                  </th>
-
-                  <th>
-                    Comenzi
-                  </th>
-
-                  <th>
-                    Vânzări
-                  </th>
-
-                  <th>
-                    Creat
-                  </th>
-
-                  <th>
-                    Acțiuni
-                  </th>
+                  <th>Nume</th>
+                  <th>Email</th>
+                  <th>Status</th>
+                  <th>Remunerație</th>
+                  <th>Stare remunerație</th>
+                  <th>Clickuri</th>
+                  <th>Comenzi</th>
+                  <th>Vânzări</th>
+                  <th>Creat</th>
                 </tr>
               </thead>
 
               <tbody>
                 {filteredItems.map(
                   (item) => {
-                    const isInvite =
+                    const isProfile =
                       item.type ===
-                      "INVITE";
-
-                    const isDeleting =
-                      deletingId ===
-                      item.id;
+                      "PROFILE";
 
                     return (
                       <tr
                         key={`${item.type || "item"}-${item.id}`}
+                        className={
+                          styles.clickableRow
+                        }
+                        onClick={() =>
+                          setSelectedInfluencer(
+                            item
+                          )
+                        }
+                        tabIndex={0}
+                        role="button"
+                        onKeyDown={(event) => {
+                          if (
+                            event.key ===
+                              "Enter" ||
+                            event.key ===
+                              " "
+                          ) {
+                            event.preventDefault();
+
+                            setSelectedInfluencer(
+                              item
+                            );
+                          }
+                        }}
                       >
                         <td>
                           <div
@@ -1055,8 +2057,24 @@ export default function AdminInfluencersTab() {
                         </td>
 
                         <td>
-                          {getRemunerationLabel(
-                            item
+                          <div>
+                            <strong>
+                              {getRemunerationLabel(
+                                item
+                              )}
+                            </strong>
+                          </div>
+                        </td>
+
+                        <td>
+                          {isProfile ? (
+                            <CommissionStatus
+                              item={
+                                item
+                              }
+                            />
+                          ) : (
+                            "—"
                           )}
                         </td>
 
@@ -1092,60 +2110,6 @@ export default function AdminInfluencersTab() {
                           )}
                         </td>
 
-                        <td>
-                          <div
-                            className={
-                              styles.actions
-                            }
-                          >
-                            {isInvite && (
-                              <>
-                                <SmallButton
-                                  onClick={() =>
-                                    openEditInvite(
-                                      item
-                                    )
-                                  }
-                                >
-                                  Editează
-                                </SmallButton>
-
-                                <SmallButton
-                                  onClick={() =>
-                                    deleteInvite(
-                                      item
-                                    )
-                                  }
-                                  disabled={
-                                    isDeleting
-                                  }
-                                >
-                                  {isDeleting
-                                    ? "Se șterge..."
-                                    : "Șterge"}
-                                </SmallButton>
-                              </>
-                            )}
-
-                            {(item.inviteUrl ||
-                              item.invitationUrl ||
-                              item.invite
-                                ?.inviteUrl) && (
-                              <SmallButton
-                                onClick={() =>
-                                  copyInvite(
-                                    item
-                                  )
-                                }
-                              >
-                                {copyState ===
-                                `invite-${item.id}`
-                                  ? "Copiat ✓"
-                                  : "Copiază invitația"}
-                              </SmallButton>
-                            )}
-                          </div>
-                        </td>
                       </tr>
                     );
                   }
@@ -1155,6 +2119,11 @@ export default function AdminInfluencersTab() {
           </div>
         )}
       </div>
+      )}
+
+      {/* =====================================================
+          INVITE MODAL
+      ===================================================== */}
 
       {inviteOpen && (
         <div
@@ -1236,20 +2205,20 @@ export default function AdminInfluencersTab() {
                 }
               >
                 <FormField
-                  label="Nume"
+                  label="Prenume"
                   required
                 >
                   <input
                     type="text"
                     value={
-                      form.name
+                      form.firstName
                     }
                     placeholder="Ex: Dora"
                     onChange={(
                       event
                     ) =>
                       updateField(
-                        "name",
+                        "firstName",
                         event.target
                           .value
                       )
@@ -1257,7 +2226,33 @@ export default function AdminInfluencersTab() {
                     className={
                       styles.input
                     }
-                    autoComplete="name"
+                    autoComplete="given-name"
+                  />
+                </FormField>
+
+                <FormField
+                  label="Nume"
+                  required
+                >
+                  <input
+                    type="text"
+                    value={
+                      form.lastName
+                    }
+                    placeholder="Ex: Popescu"
+                    onChange={(
+                      event
+                    ) =>
+                      updateField(
+                        "lastName",
+                        event.target
+                          .value
+                      )
+                    }
+                    className={
+                      styles.input
+                    }
+                    autoComplete="family-name"
                   />
                 </FormField>
 
@@ -1296,16 +2291,6 @@ export default function AdminInfluencersTab() {
                     ? "Modificarea invitației va invalida linkul vechi și va genera unul nou, valabil 7 zile."
                     : "Remunerația colaborării va putea fi stabilită ulterior, după activarea contului."}
                 </div>
-
-                {error && (
-                  <div
-                    className={
-                      styles.error
-                    }
-                  >
-                    {error}
-                  </div>
-                )}
 
                 <div
                   className={
@@ -1381,7 +2366,7 @@ export default function AdminInfluencersTab() {
                       <strong>
                         {inviteResult.email}
                       </strong>
-                      . Linkul privat rămâne disponibil mai jos pentru siguranță.
+                      .
                     </div>
                   </div>
                 ) : (
@@ -1391,13 +2376,11 @@ export default function AdminInfluencersTab() {
                     }
                   >
                     <strong>
-                      {inviteResult.edited
-                        ? "Invitația a fost actualizată, dar emailul nu a putut fi trimis."
-                        : "Invitația a fost creată, dar emailul nu a putut fi trimis."}
+                      Emailul nu a putut fi trimis.
                     </strong>
 
                     <div>
-                      Copiază linkul de mai jos și trimite-l manual influencerului.
+                      Copiază linkul și trimite-l manual influencerului.
                     </div>
                   </div>
                 )}
@@ -1484,9 +2467,11 @@ export default function AdminInfluencersTab() {
                     </>
                   ) : (
                     <div
-                      className={`${styles.readOnlyBox} ${styles.warningBox}`}
+                      className={
+                        styles.readOnlyBox
+                      }
                     >
-                      Backendul nu a returnat linkul invitației.
+                      Link indisponibil.
                     </div>
                   )}
                 </FormField>
@@ -1513,9 +2498,980 @@ export default function AdminInfluencersTab() {
           </div>
         </div>
       )}
+
+      {/* =====================================================
+          COMMISSION MODAL
+      ===================================================== */}
+
+      {commissionOpen &&
+        commissionTarget && (
+          <div
+            role="presentation"
+            className={
+              styles.modalBackdrop
+            }
+            onMouseDown={(
+              event
+            ) => {
+              if (
+                event.target ===
+                event.currentTarget
+              ) {
+                closeCommissionModal();
+              }
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="commission-influencer-title"
+              className={
+                styles.modal
+              }
+            >
+              <div
+                className={
+                  styles.modalHeader
+                }
+              >
+                <div>
+                  <h3
+                    id="commission-influencer-title"
+                    className={
+                      styles.modalTitle
+                    }
+                  >
+                    Remunerație influencer
+                  </h3>
+
+                  <p
+                    className={
+                      styles.modalSubtitle
+                    }
+                  >
+                    {commissionTarget.name ||
+                      commissionTarget.email}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={
+                    closeCommissionModal
+                  }
+                  disabled={
+                    commissionSaving ||
+                    withdrawingAgreement
+                  }
+                  aria-label="Închide"
+                  className={
+                    styles.closeButton
+                  }
+                >
+                  ×
+                </button>
+              </div>
+
+              <div
+                className={
+                  styles.resultBody
+                }
+              >
+                {/* CURRENT */}
+
+                <div
+                  className={
+                    styles.infoBox
+                  }
+                >
+                  <strong>
+                    Remunerație activă
+                  </strong>
+
+                  <div
+                    style={{
+                      marginTop:
+                        6,
+                    }}
+                  >
+                    {getActiveCommissionPercent(
+                      commissionTarget
+                    ) > 0
+                      ? `${formatPercent(
+                          getActiveCommissionPercent(
+                            commissionTarget
+                          )
+                        )} din comisionul Artfest`
+                      : "Nu există încă o remunerație acceptată."}
+                  </div>
+                </div>
+
+                {/* PENDING */}
+
+                {commissionTarget
+                  ?.pendingCommissionAgreement && (
+                  <div
+                    className={
+                      styles.warningBox
+                    }
+                  >
+                    <strong>
+                      Propunere în așteptare
+                    </strong>
+
+                    <div
+                      style={{
+                        marginTop:
+                          6,
+                      }}
+                    >
+                      {formatPercent(
+                        getPendingCommissionPercent(
+                          commissionTarget
+                        )
+                      )}{" "}
+                      din comisionul Artfest
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop:
+                          6,
+                      }}
+                    >
+                      Trimisă la{" "}
+                      {formatDate(
+                        commissionTarget
+                          .pendingCommissionAgreement
+                          .proposedAt
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      className={
+                        styles.secondaryButton
+                      }
+                      style={{
+                        marginTop:
+                          12,
+                      }}
+                      disabled={
+                        withdrawingAgreement ||
+                        commissionSaving
+                      }
+                      onClick={
+                        withdrawCommissionProposal
+                      }
+                    >
+                      {withdrawingAgreement
+                        ? "Se retrage..."
+                        : "Retrage propunerea"}
+                    </button>
+                  </div>
+                )}
+
+                {commissionSuccess && (
+                  <div
+                    className={
+                      styles.successBox
+                    }
+                  >
+                    <div
+                      className={
+                        styles.successTitle
+                      }
+                    >
+                      ✓ Gata
+                    </div>
+
+                    <div
+                      className={
+                        styles.successText
+                      }
+                    >
+                      {commissionSuccess}
+                    </div>
+                  </div>
+                )}
+
+                {/* FORM */}
+
+                <form
+                  onSubmit={
+                    submitCommission
+                  }
+                  className={
+                    styles.form
+                  }
+                >
+                  <FormField
+                    label="Procent din comisionul Artfest"
+                    hint="Exemplu: dacă introduci 20, influencerul va primi 20% din comisionul Artfest aferent comenzilor eligibile, nu 20% din valoarea totală a comenzii."
+                    required
+                  >
+                    <div
+                      style={{
+                        display:
+                          "flex",
+                        alignItems:
+                          "center",
+                        gap:
+                          8,
+                      }}
+                    >
+                      <input
+                        type="number"
+                        min="0.01"
+                        max="100"
+                        step="0.01"
+                        value={
+                          commissionForm.commissionPercent
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setCommissionForm(
+                            {
+                              commissionPercent:
+                                event.target
+                                  .value,
+                            }
+                          )
+                        }
+                        placeholder="Ex: 20"
+                        className={
+                          styles.input
+                        }
+                      />
+
+                      <strong>
+                        %
+                      </strong>
+                    </div>
+                  </FormField>
+
+                  <div
+                    className={
+                      styles.infoBox
+                    }
+                  >
+                    <strong>
+                      Cum funcționează
+                    </strong>
+
+                    <div
+                      style={{
+                        marginTop:
+                          6,
+                        lineHeight:
+                          1.55,
+                      }}
+                    >
+                      Noua valoare nu devine activă imediat. Influencerul primește propunerea în dashboard și trebuie să o accepte.
+                    </div>
+                  </div>
+
+                  <div
+                    className={
+                      styles.formActions
+                    }
+                  >
+                    <button
+                      type="button"
+                      className={
+                        styles.secondaryButton
+                      }
+                      disabled={
+                        commissionSaving ||
+                        withdrawingAgreement
+                      }
+                      onClick={
+                        closeCommissionModal
+                      }
+                    >
+                      Închide
+                    </button>
+
+                    <button
+                      type="submit"
+                      className={
+                        styles.primaryButton
+                      }
+                      disabled={
+                        commissionSaving ||
+                        withdrawingAgreement
+                      }
+                    >
+                      {commissionSaving
+                        ? "Se trimite..."
+                        : commissionTarget
+                            ?.pendingCommissionAgreement
+                          ? "Trimite propunere nouă"
+                          : getActiveCommissionPercent(
+                                commissionTarget
+                              ) > 0
+                            ? "Propune modificarea"
+                            : "Trimite propunerea"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {selectedInfluencer && (
+        <InfluencerDetailsDrawer
+          item={
+            selectedInfluencer
+          }
+          copyState={
+            copyState
+          }
+          resending={
+            resendingInviteId ===
+            selectedInfluencer.id
+          }
+          deleting={
+            deletingId ===
+            selectedInfluencer.id
+          }
+          onClose={() =>
+            setSelectedInfluencer(
+              null
+            )
+          }
+          onCopyInvite={
+            copyInvite
+          }
+          onResendInvite={
+            resendInvite
+          }
+          onEditInvite={(item) => {
+            setSelectedInfluencer(
+              null
+            );
+
+            openEditInvite(
+              item
+            );
+          }}
+          onDeleteInvite={async (
+            item
+          ) => {
+            await deleteInvite(
+              item
+            );
+
+            setSelectedInfluencer(
+              null
+            );
+          }}
+          onCommission={(item) => {
+            setSelectedInfluencer(
+              null
+            );
+
+            openCommissionModal(
+              item
+            );
+          }}
+        />
+      )}
     </div>
   );
 }
+
+function InfluencerDetailsDrawer({
+  item,
+  copyState,
+  resending,
+  deleting,
+  onClose,
+  onCopyInvite,
+  onResendInvite,
+  onEditInvite,
+  onDeleteInvite,
+  onCommission,
+}) {
+  if (!item) {
+    return null;
+  }
+
+  const isInvite =
+    item.type ===
+    "INVITE";
+
+  const isProfile =
+    item.type ===
+    "PROFILE";
+
+  const inviteUrl =
+    item.inviteUrl ||
+    item.invitationUrl ||
+    item.invite
+      ?.inviteUrl ||
+    "";
+
+  const activeCommission =
+    getActiveCommissionPercent(
+      item
+    );
+
+  const pendingCommission =
+    getPendingCommissionPercent(
+      item
+    );
+
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const node = (
+    <div
+      className={
+        styles.drawerOverlay
+      }
+      onMouseDown={(
+        event
+      ) => {
+        if (
+          event.target ===
+          event.currentTarget
+        ) {
+          onClose();
+        }
+      }}
+    >
+      <aside
+        className={
+          styles.drawer
+        }
+        aria-label="Detalii influencer"
+      >
+        <div
+          className={
+            styles.drawerHeader
+          }
+        >
+          <div>
+            <h3
+              className={
+                styles.drawerTitle
+              }
+            >
+              {item.name ||
+                "Influencer"}
+            </h3>
+
+            <div
+              className={
+                styles.drawerSub
+              }
+            >
+              {item.email ||
+                "—"}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className={
+              styles.drawerClose
+            }
+            onClick={
+              onClose
+            }
+            aria-label="Închide"
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          className={
+            styles.drawerBody
+          }
+        >
+          <section
+            className={
+              styles.drawerSection
+            }
+          >
+            <h4>
+              Detalii
+            </h4>
+
+            <DrawerField
+              label="Tip"
+              value={
+                isInvite
+                  ? "Invitație"
+                  : "Influencer activ"
+              }
+            />
+
+            <DrawerField
+              label="Nume"
+              value={
+                item.firstName ||
+                item.lastName
+                  ? [
+                      item.firstName,
+                      item.lastName,
+                    ]
+                      .filter(Boolean)
+                      .join(" ")
+                  : item.name || "—"
+              }
+            />
+
+            <DrawerField
+              label="Status"
+            >
+              <span
+                className={`${styles.status} ${getStatusClass(
+                  item.status
+                )}`}
+              >
+                {getStatusLabel(
+                  item.status
+                )}
+              </span>
+            </DrawerField>
+
+            <DrawerField
+              label="Email"
+              value={
+                item.email ||
+                "—"
+              }
+            />
+
+            <DrawerField
+              label="Creat la"
+              value={
+                formatDate(
+                  item.createdAt
+                )
+              }
+            />
+
+            {item.expiresAt && (
+              <DrawerField
+                label="Expiră la"
+                value={
+                  formatDate(
+                    item.expiresAt
+                  )
+                }
+              />
+            )}
+
+            <DrawerField
+              label="ID"
+            >
+              <code>
+                {item.id}
+              </code>
+            </DrawerField>
+          </section>
+
+          {isProfile && (
+            <InfluencerFilesDrawerSection
+              influencerId={item.id}
+            />
+          )}
+
+          {isInvite && (
+            <section
+              className={
+                styles.drawerSection
+              }
+            >
+              <h4>
+                Invitație
+              </h4>
+
+              <DrawerField
+                label="Link invitație"
+              >
+                {inviteUrl ? (
+                  <div
+                    style={{
+                      wordBreak:
+                        "break-all",
+                    }}
+                  >
+                    {inviteUrl}
+                  </div>
+                ) : (
+                  "Link indisponibil"
+                )}
+              </DrawerField>
+            </section>
+          )}
+
+          {isProfile && (
+            <>
+              <section
+                className={
+                  styles.drawerSection
+                }
+              >
+                <h4>
+                  Performanță
+                </h4>
+
+                <DrawerField
+                  label="Clickuri"
+                  value={Number(
+                    item.clicks ||
+                      0
+                  ).toLocaleString(
+                    "ro-RO"
+                  )}
+                />
+
+                <DrawerField
+                  label="Comenzi"
+                  value={Number(
+                    item.ordersCount ||
+                      0
+                  ).toLocaleString(
+                    "ro-RO"
+                  )}
+                />
+
+                <DrawerField
+                  label="Vânzări"
+                  value={formatMoney(
+                    item.salesAmount ||
+                      item.salesTotal ||
+                      0
+                  )}
+                />
+
+                <DrawerField
+                  label="Câștig"
+                  value={formatMoney(
+                    item.earningsAmount ||
+                      0
+                  )}
+                />
+              </section>
+
+              <section
+                className={
+                  styles.drawerSection
+                }
+              >
+                <h4>
+                  Remunerație
+                </h4>
+
+                <DrawerField
+                  label="Activă"
+                  value={
+                    activeCommission >
+                    0
+                      ? `${formatPercent(
+                          activeCommission
+                        )} din comisionul Artfest`
+                      : "Nesetată"
+                  }
+                />
+
+                <DrawerField
+                  label="Status"
+                  value={
+                    getCommissionStatusLabel(
+                      item
+                    )
+                  }
+                />
+
+                {pendingCommission !==
+                  null && (
+                  <DrawerField
+                    label="În așteptare"
+                    value={`${formatPercent(
+                      pendingCommission
+                    )} din comisionul Artfest`}
+                  />
+                )}
+              </section>
+            </>
+          )}
+        </div>
+
+        <div
+          className={
+            styles.drawerFooter
+          }
+        >
+          {isInvite && (
+            <>
+              {inviteUrl && (
+                <button
+                  type="button"
+                  className={
+                    styles.drawerBtnSecondary
+                  }
+                  onClick={() =>
+                    onCopyInvite(
+                      item
+                    )
+                  }
+                >
+                  {copyState ===
+                  `invite-${item.id}`
+                    ? "Copiat ✓"
+                    : "Copiază linkul"}
+                </button>
+              )}
+
+              <button
+                type="button"
+                className={
+                  styles.drawerBtnSecondary
+                }
+                disabled={
+                  resending ||
+                  deleting
+                }
+                onClick={() =>
+                  onResendInvite(
+                    item
+                  )
+                }
+              >
+                {resending
+                  ? "Se retrimite..."
+                  : "Retrimite invitația"}
+              </button>
+
+              <button
+                type="button"
+                className={
+                  styles.drawerBtnSecondary
+                }
+                disabled={
+                  resending ||
+                  deleting
+                }
+                onClick={() =>
+                  onEditInvite(
+                    item
+                  )
+                }
+              >
+                Editează invitația
+              </button>
+
+              <button
+                type="button"
+                className={
+                  styles.drawerBtnDanger
+                }
+                disabled={
+                  resending ||
+                  deleting
+                }
+                onClick={() =>
+                  onDeleteInvite(
+                    item
+                  )
+                }
+              >
+                {deleting
+                  ? "Se șterge..."
+                  : "Șterge invitația"}
+              </button>
+            </>
+          )}
+
+          {isProfile && (
+            <button
+              type="button"
+              className={
+                styles.drawerBtnSecondary
+              }
+              onClick={() =>
+                onCommission(
+                  item
+                )
+              }
+            >
+              Gestionează remunerația
+            </button>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+
+  return createPortal(
+    node,
+    document.body
+  );
+}
+
+/* =========================================================
+   FIȘIERE INFLUENCER (read-only)
+
+   Doar listă + „Deschide” - upload/ștergere rămân exclusiv
+   ale influencerului, din dashboardul lui.
+========================================================= */
+
+const INFLUENCER_FILE_TYPE_LABELS = {
+  CONTRACT: "Contract",
+  BRIEF: "Brief",
+  DOCUMENT: "Document",
+  OTHER: "Altul",
+};
+
+function formatFileSize(value) {
+  const bytes = Number(value || 0);
+
+  if (!bytes) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function InfluencerFilesDrawerSection({ influencerId }) {
+  const [loading, setLoading] = useState(true);
+  const [files, setFiles] = useState([]);
+  const [error, setError] = useState("");
+  const [openingId, setOpeningId] = useState("");
+
+  async function openFile(file) {
+    setOpeningId(file.id);
+
+    try {
+      const response = await api(
+        `/api/admin/influencers/${influencerId}/files/${file.id}/download`
+      );
+      window.open(response.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(
+        err?.data?.message ||
+          err?.message ||
+          "Nu am putut deschide fișierul."
+      );
+    } finally {
+      setOpeningId("");
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    if (!influencerId) {
+      return undefined;
+    }
+
+    setLoading(true);
+    setError("");
+
+    api(`/api/admin/influencers/${influencerId}/files`)
+      .then((response) => {
+        if (!active) return;
+
+        setFiles(
+          Array.isArray(response?.items) ? response.items : []
+        );
+      })
+      .catch((err) => {
+        if (!active) return;
+
+        setError(
+          err?.data?.message ||
+            err?.message ||
+            "Nu am putut încărca fișierele."
+        );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [influencerId]);
+
+  return (
+    <section className={styles.drawerSection}>
+      <h4>Fișiere</h4>
+
+      {loading ? (
+        <div>Se încarcă...</div>
+      ) : error ? (
+        <div>{error}</div>
+      ) : !files.length ? (
+        <div>Influencerul nu a încărcat încă niciun fișier.</div>
+      ) : (
+        files.map((file) => (
+          <DrawerField
+            key={file.id}
+            label={
+              INFLUENCER_FILE_TYPE_LABELS[file.type] || "Document"
+            }
+          >
+            <div>
+              <div>{file.title || file.originalFilename}</div>
+
+              <div>
+                {formatDate(file.createdAt)} ·{" "}
+                {formatFileSize(file.sizeBytes)}{" "}
+                ·{" "}
+                <button
+                  type="button"
+                  className={styles.linkButton}
+                  disabled={openingId === file.id}
+                  onClick={() => openFile(file)}
+                >
+                  {openingId === file.id ? "Se deschide..." : "Deschide"}
+                </button>
+              </div>
+            </div>
+          </DrawerField>
+        ))
+      )}
+    </section>
+  );
+}
+
+function DrawerField({
+  label,
+  value,
+  children,
+}) {
+  return (
+    <div
+      className={
+        styles.drawerField
+      }
+    >
+      <span>
+        {label}
+      </span>
+
+      <div>
+        {children ??
+          value ??
+          "—"}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   STAT
+========================================================= */
 
 function StatCard({
   label,
@@ -1549,6 +3505,60 @@ function StatCard({
     </div>
   );
 }
+
+/* =========================================================
+   COMMISSION STATUS
+========================================================= */
+
+function CommissionStatus({
+  item,
+}) {
+  const pending =
+    getPendingCommissionPercent(
+      item
+    );
+
+  const active =
+    getActiveCommissionPercent(
+      item
+    );
+
+  if (
+    pending !== null
+  ) {
+    return (
+      <span
+        className={`${styles.status} ${styles.statusInvited}`}
+      >
+        Așteaptă acceptarea
+      </span>
+    );
+  }
+
+  if (
+    active > 0
+  ) {
+    return (
+      <span
+        className={`${styles.status} ${styles.statusActive}`}
+      >
+        Acceptată
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`${styles.status} ${styles.statusDisabled}`}
+    >
+      Nesetată
+    </span>
+  );
+}
+
+/* =========================================================
+   EMPTY
+========================================================= */
 
 function EmptyState({
   hasQuery,
@@ -1599,28 +3609,9 @@ function EmptyState({
   );
 }
 
-function SmallButton({
-  children,
-  onClick,
-  disabled = false,
-}) {
-  return (
-    <button
-      type="button"
-      onClick={
-        onClick
-      }
-      disabled={
-        disabled
-      }
-      className={
-        styles.smallButton
-      }
-    >
-      {children}
-    </button>
-  );
-}
+/* =========================================================
+   FIELD
+========================================================= */
 
 function FormField({
   label,

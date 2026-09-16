@@ -106,3 +106,38 @@ export function getAttributionsForCheckout() {
 
   return result;
 }
+
+/**
+ * Consumă (șterge) tokenul de campanie pentru vendorii primiți -
+ * apelat DOAR după o comandă plasată cu succes, DOAR pentru vendorii
+ * pentru care backend-ul a confirmat că a existat ≥1 produs eligibil
+ * (`eligibleCampaignVendorIds` din răspunsul /checkout/place sau
+ * /checkout/guest/place - identic user/guest).
+ *
+ * Dacă tokenul exista dar comanda nu a avut niciun produs eligibil
+ * pentru acea campanie, NU se cheamă asta pentru acel vendor -
+ * tokenul rămâne valabil până la expirarea lui naturală (poate
+ * exista o comandă viitoare cu alte produse, eligibile).
+ *
+ * O revenire explicită prin /c/:slug creează mereu un token NOU
+ * (storeCampaignAttribution), indiferent dacă vendorul a fost
+ * consumat aici sau nu.
+ */
+export function consumeCampaignAttributions(vendorIds = []) {
+  if (!Array.isArray(vendorIds) || !vendorIds.length) return;
+
+  const map = readMap();
+  let changed = false;
+
+  for (const vendorId of vendorIds) {
+    const key = String(vendorId || "");
+    if (key && map[key]) {
+      delete map[key];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    writeMap(map);
+  }
+}

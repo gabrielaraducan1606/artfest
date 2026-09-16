@@ -1,11 +1,12 @@
 // src/pages/Vendor/CostsProfit/ProfitabilityPage.jsx
 
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import styles from "./ProfitabilityPage.module.css";
 import { fetchProductProfitability } from "./productProfitabilityApi.js";
 import { formatRonFromCents } from "./formatMoney.js";
+import CostLibraryPage from "./CostLibraryPage.jsx";
 
 /* =========================================================
    Constante
@@ -106,6 +107,24 @@ function formatDate(value) {
 ========================================================= */
 
 export default function ProfitabilityPage() {
+  /*
+   * Taburi la nivel de pagină - "Costuri & profit" (calculator,
+   * conținutul existent) vs. "Biblioteca de costuri" (pagină reală
+   * separată, CostLibraryPage.jsx, reutilizată aici ca subtab, nu
+   * duplicată). Fără ?tab= (acces direct la /vendor/costs-profit,
+   * ca înainte) sau orice altă valoare -> calculator, deci accesul
+   * direct existent nu se schimbă.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab =
+    searchParams.get("tab") === "library" ? "library" : "calculator";
+
+  function selectTab(tab) {
+    setSearchParams(
+      tab === "library" ? { tab: "library" } : { tab: "calculator" }
+    );
+  }
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -179,6 +198,44 @@ export default function ProfitabilityPage() {
 
   return (
     <div className={styles.page}>
+      <div
+        className={styles.pageTabs}
+        role="tablist"
+        aria-label="Costuri și profit"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "calculator"}
+          className={
+            activeTab === "calculator"
+              ? styles.pageTabActive
+              : styles.pageTab
+          }
+          onClick={() => selectTab("calculator")}
+        >
+          Costuri &amp; profit
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "library"}
+          className={
+            activeTab === "library"
+              ? styles.pageTabActive
+              : styles.pageTab
+          }
+          onClick={() => selectTab("library")}
+        >
+          Biblioteca de costuri
+        </button>
+      </div>
+
+      {activeTab === "library" ? (
+        <CostLibraryPage embedded />
+      ) : (
+        <>
       <div className={styles.header}>
         <div>
           <h1 className={styles.title}>
@@ -424,6 +481,8 @@ export default function ProfitabilityPage() {
             Următor →
           </button>
         </div>
+      )}
+        </>
       )}
     </div>
   );

@@ -5,7 +5,12 @@ import {
 } from "../db.js";
 import {
   computeCommissionBreakdown,
+  computeGroupedCommissionBreakdown,
 } from "../services/commissionCalc.js";
+import {
+  getCampaignEligibilityInfoMap,
+  splitItemsByCampaignEligibility,
+} from "../services/campaignAttribution.js";
 
 /* =========================================================
    Helpers
@@ -383,6 +388,26 @@ export async function computeOrderSplits(
       vendorIds
     );
 
+  /*
+   * Comision MIXT per item (audit 2026-09-14, lifecycle
+   * VendorCampaign) - identic cu COD (computeVendorEarningForShipment):
+   * doar itemii efectiv eligibili campaniei (scope ALL_PRODUCTS vs
+   * SELECTED_PRODUCTS) beneficiază de comisionul redus, restul rămân
+   * pe comisionul standard al planului. Batch pe toate campaignId-urile
+   * din comandă, o singură interogare, nu una per shipment.
+   */
+  const orderCampaignIds =
+    Array.from(
+      new Set(
+        shipments
+          .map((s) => (s?.campaignId ? String(s.campaignId) : null))
+          .filter(Boolean)
+      )
+    );
+
+  const campaignEligibilityByCampaignId =
+    await getCampaignEligibilityInfoMap(orderCampaignIds);
+
   const byVendor =
     new Map();
 
@@ -619,6 +644,31 @@ export async function computeOrderSplits(
 
           campaignId:
             null,
+
+          /*
+           * Comision MIXT per item (audit 2026-09-14) - acumulatoare
+           * SEPARATE de itemsGross/itemsOriginalGross/... de mai sus
+           * (alea rămân totalul brut, neschimbat, folosit pentru
+           * totaluri comandă/Stripe fee). Astea sunt DOAR pentru
+           * calculul comisionului: grup "campaign" = itemii eligibili
+           * campaniei (comision redus), grup "standard" = restul
+           * (comision standard al planului).
+           */
+          commissionGroups: {
+            campaign: {
+              itemsGross: 0,
+              itemsOriginalGross: 0,
+              platformDiscountGross: 0,
+              itemCount: 0,
+            },
+
+            standard: {
+              itemsGross: 0,
+              itemsOriginalGross: 0,
+              platformDiscountGross: 0,
+              itemCount: 0,
+            },
+          },
         }
       );
     }
@@ -644,6 +694,86 @@ export async function computeOrderSplits(
       vendorRow.campaignId =
         shipment.campaignId ||
         null;
+    }
+
+    /*
+     * Acumulare per grup de eligibilitate (audit 2026-09-14) - vezi
+     * comentariul de la inițializarea commissionGroups. NU afectează
+     * vendorRow.itemsGross/... de mai jos (rămân totalul brut real,
+     * neschimbat).
+     */
+    const shipmentHasCampaignCommission =
+      shipment.campaignCommissionBps !== null &&
+      shipment.campaignCommissionBps !== undefined;
+
+    if (shipmentHasCampaignCommission) {
+      const eligibilityInfo =
+        campaignEligibilityByCampaignId.get(
+          String(shipment.campaignId || "")
+        ) || null;
+
+      const { eligible, standard } =
+        splitItemsByCampaignEligibility(
+          shipmentItems,
+          eligibilityInfo
+        );
+
+      for (const [subset, bucket] of [
+        [eligible, vendorRow.commissionGroups.campaign],
+        [standard, vendorRow.commissionGroups.standard],
+      ]) {
+        const subsetItemsGross = dec2(
+          subset.reduce(
+            (total, item) =>
+              total +
+              safeNumber(item?.price, 0) *
+                safeNumber(item?.qty, 0),
+            0
+          )
+        );
+
+        const subsetPlatformDiscountGross = dec2(
+          subset.reduce(
+            (total, item) =>
+              total + safeNumber(item?.platformDiscountAmount, 0),
+            0
+          )
+        );
+
+        const subsetVendorDiscountGross = dec2(
+          subset.reduce(
+            (total, item) =>
+              total + safeNumber(item?.vendorDiscountAmount, 0),
+            0
+          )
+        );
+
+        const subsetOriginalGross = dec2(
+          subsetItemsGross +
+            subsetPlatformDiscountGross +
+            subsetVendorDiscountGross
+        );
+
+        bucket.itemsGross = dec2(bucket.itemsGross + subsetItemsGross);
+        bucket.itemsOriginalGross = dec2(
+          bucket.itemsOriginalGross + subsetOriginalGross
+        );
+        bucket.platformDiscountGross = dec2(
+          bucket.platformDiscountGross + subsetPlatformDiscountGross
+        );
+        bucket.itemCount += subset.length;
+      }
+    } else {
+      const bucket = vendorRow.commissionGroups.standard;
+
+      bucket.itemsGross = dec2(bucket.itemsGross + itemsGross);
+      bucket.itemsOriginalGross = dec2(
+        bucket.itemsOriginalGross + itemsOriginalGross
+      );
+      bucket.platformDiscountGross = dec2(
+        bucket.platformDiscountGross + platformDiscountGross
+      );
+      bucket.itemCount += shipmentItems.length;
     }
 
     vendorRow.itemsGross =
@@ -752,40 +882,20 @@ export async function computeOrderSplits(
       "Basic";
 
     /*
-     * Comision de campanie (5%, decis exclusiv server-side
-     * la checkout) - are prioritate față de planul curent al
-     * vendorului, dar NUMAI dacă shipment-ul chiar a fost
-     * creat cu o atribuire validă.
-     */
-    const hasCampaignCommission =
-      vendor.campaignCommissionBps !==
-        null &&
-      vendor.campaignCommissionBps !==
-        undefined;
-
-    if (hasCampaignCommission) {
-      commissionBps =
-        vendor.campaignCommissionBps;
-    }
-
-    vendor.commissionSource =
-      hasCampaignCommission
-        ? "campaign"
-        : "plan";
-
-    vendor.commissionBps =
-      commissionBps;
-
-    /*
-     * IMPORTANT:
+     * IMPORTANT (audit 2026-09-14, lifecycle VendorCampaign):
      *
-     * Comision Artfest - sursă unică (commissionCalc.js),
-     * identică cu COD (computeVendorEarningForShipment) și
-     * cu Order Details vendor:
+     * Comision Artfest - sursă unică (commissionCalc.js), identică cu
+     * COD (computeVendorEarningForShipment) și cu Order Details
+     * vendor - inclusiv comision MIXT: grupul "campaign" (itemii
+     * efectiv eligibili campaniei atașate, comision redus) și grupul
+     * "standard" (restul, comisionul planului). Simpla existență a
+     * atribuirii de campanie (vendor.campaignCommissionBps) NU mai
+     * acordă 5% pe tot vendorul - vezi commissionGroups, acumulat
+     * per item mai sus, în bucla de shipment-uri.
      *
      * doar produse, fără transport
      * x preț NET după discount, fără TVA
-     * x comisionul efectiv (plan sau campanie)
+     * x comisionul efectiv per grup (plan sau campanie)
      *
      * Pentru discounturi finanțate de Artfest (Collection /
      * Product of the Day / Artisan of the Week) se adaugă
@@ -794,40 +904,95 @@ export async function computeOrderSplits(
      * commissionNet = platformNet (ce reține EFECTIV Artfest,
      * după subvenție) - asta e cifra corectă de facturat.
      */
-    const breakdown =
-      computeCommissionBreakdown({
-        itemsOriginalGross:
-          vendor.itemsOriginalGross,
+    const campaignBucket =
+      vendor.commissionGroups.campaign;
 
-        itemsAfterDiscountGross:
-          vendor.itemsGross,
+    const standardBucket =
+      vendor.commissionGroups.standard;
 
-        platformDiscountAmount:
-          vendor.platformDiscountGross,
+    const grouped =
+      computeGroupedCommissionBreakdown([
+        {
+          label: "campaign",
+          commissionBps: safeNumber(vendor.campaignCommissionBps, 0),
+          itemCount: campaignBucket.itemCount,
+          itemsOriginalGross: campaignBucket.itemsOriginalGross,
+          itemsAfterDiscountGross: campaignBucket.itemsGross,
+          platformDiscountAmount: campaignBucket.platformDiscountGross,
+          vatFraction: vendor.vatFraction,
+        },
+        {
+          label: "plan",
+          commissionBps,
+          itemCount: standardBucket.itemCount,
+          itemsOriginalGross: standardBucket.itemsOriginalGross,
+          itemsAfterDiscountGross: standardBucket.itemsGross,
+          platformDiscountAmount: standardBucket.platformDiscountGross,
+          vatFraction: vendor.vatFraction,
+        },
+      ]);
 
-        commissionBps,
+    /*
+     * Fallback IDENTIC cu COD (computeVendorEarningForShipment) pentru
+     * cazul non-mixt: campania (dacă există atribuire), altfel planul.
+     * Doar cosmetic/reprezentativ - UI-ul ignoră acest câmp complet
+     * când isMixedCommission=true (vezi commissionGroups), dar trebuie
+     * să rămână identic între COD și CARD pentru același shipment.
+     */
+    const hasCampaignCommission =
+      vendor.campaignCommissionBps !== null &&
+      vendor.campaignCommissionBps !== undefined;
 
-        vatFraction:
-          vendor.vatFraction,
-      });
+    const fallbackCommissionBps =
+      hasCampaignCommission
+        ? Number(vendor.campaignCommissionBps)
+        : commissionBps;
+
+    vendor.commissionBps =
+      grouped.commissionBps != null
+        ? grouped.commissionBps
+        : fallbackCommissionBps;
+
+    vendor.commissionSource =
+      grouped.commissionSource || "plan";
+
+    /*
+     * true DOAR când vendorul are itemi pe DOUĂ commissionBps
+     * diferite în aceeași comandă (parte eligibili campanie, parte
+     * pe planul standard) - vezi vendor.commissionGroups pentru
+     * defalcarea reală.
+     */
+    vendor.isMixedCommission =
+      grouped.isMixed;
+
+    /*
+     * Suprascriem acumulatorul intern {campaign, standard} (folosit
+     * doar pentru calcul, în bucla de mai sus) cu defalcarea FINALĂ
+     * per grup - aceeași formă ca `commissionGroups` din COD
+     * (computeVendorEarningForShipment/ensureSaleLedgerEntry), ca
+     * ledger-ul CARD (stripeWebhookRoutes.js) și Order Details să
+     * citească identic indiferent de metoda de plată.
+     */
+    vendor.commissionGroups =
+      grouped.groups;
 
     vendor.commissionBase =
-      breakdown.commissionBase;
+      grouped.commissionBase;
 
     vendor.commissionAmount =
-      breakdown.commissionAmount;
+      grouped.commissionAmount;
 
     vendor.platformSubsidyAmount =
-      breakdown.platformSubsidyAmount;
+      grouped.platformSubsidyAmount;
 
     vendor.platformNet =
-      breakdown.platformNet;
+      grouped.platformNet;
 
     vendor.vendorNet =
-      breakdown.vendorNet;
+      grouped.vendorNet;
 
     vendor.commissionNet =
-      breakdown.platformNet;
+      grouped.platformNet;
   }
 
   /* =======================================================
@@ -1134,13 +1299,23 @@ export function computeVendorPayouts({
           )
         );
 
+      /*
+       * MODEL B (decizie business, 2026-09-06) - comisionul Artfest NU
+       * se mai reține din payout-ul vendorului la transferul Stripe
+       * Connect; rămâne DOAR calculat/salvat (vezi `commissionNet` mai
+       * jos, neschimbat) pentru facturarea lunară (CARD + COD,
+       * aceeași regulă). Singura deducere reală din transfer rămâne
+       * taxa Stripe. Motivul schimbării: comisionul dedus aici risca
+       * să fie facturat A DOUA OARĂ de generatorul lunar de facturi
+       * (create-vendor-commission-invoice), care nu exclude entry-urile
+       * deja decontate prin transfer - vezi auditul din 2026-09-06.
+       */
       const vendorPayoutNet =
         dec2(
           Math.max(
             0,
 
             gross -
-              commissionNet -
               stripeFeeAllocated
           )
         );

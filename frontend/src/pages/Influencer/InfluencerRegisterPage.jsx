@@ -87,6 +87,49 @@ export default function InfluencerRegisterPage() {
     useState(null);
 
   /* ---------------------------------------------------------
+     PRENUME / NUME
+
+     InfluencerInvite ține azi doar `name` (legacy, un singur câmp) -
+     precompletăm best-effort (primul cuvânt = prenume, restul = nume)
+     din invite.name, dar influencerul le poate corecta aici înainte
+     de creare - vezi raportul de standardizare Prenume/Nume.
+  --------------------------------------------------------- */
+
+  const [
+    firstName,
+    setFirstName,
+  ] =
+    useState("");
+
+  const [
+    lastName,
+    setLastName,
+  ] =
+    useState("");
+
+  useEffect(() => {
+    if (!invite) {
+      return;
+    }
+
+    const parts =
+      String(
+        invite.name || ""
+      )
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+
+    setFirstName(
+      parts[0] || ""
+    );
+
+    setLastName(
+      parts.slice(1).join(" ")
+    );
+  }, [invite]);
+
+  /* ---------------------------------------------------------
      LEGAL
   --------------------------------------------------------- */
 
@@ -425,6 +468,10 @@ export default function InfluencerRegisterPage() {
   const canSubmit =
     !submitting &&
     !success &&
+    firstName.trim().length >
+      0 &&
+    lastName.trim().length >
+      0 &&
     password.length >=
       8 &&
     passwordScore >=
@@ -559,6 +606,13 @@ export default function InfluencerRegisterPage() {
 
             body: {
               token,
+
+              firstName:
+                firstName.trim(),
+
+              lastName:
+                lastName.trim(),
+
               password,
               confirmPassword,
 
@@ -800,14 +854,6 @@ export default function InfluencerRegisterPage() {
           }
         >
           <SummaryRow
-            label="Nume"
-            value={
-              invite.name ||
-              "—"
-            }
-          />
-
-          <SummaryRow
             label="Email"
             value={
               invite.email ||
@@ -942,6 +988,78 @@ export default function InfluencerRegisterPage() {
             }
             noValidate
           >
+            <div
+              className={
+                styles.field
+              }
+            >
+              <label
+                htmlFor="influencer-first-name"
+                className={
+                  styles.label
+                }
+              >
+                Prenume
+              </label>
+
+              <input
+                id="influencer-first-name"
+                type="text"
+                className={
+                  styles.input
+                }
+                value={
+                  firstName
+                }
+                onChange={(
+                  event
+                ) =>
+                  setFirstName(
+                    event.target
+                      .value
+                  )
+                }
+                autoComplete="given-name"
+                placeholder="Ex: Dora"
+              />
+            </div>
+
+            <div
+              className={
+                styles.field
+              }
+            >
+              <label
+                htmlFor="influencer-last-name"
+                className={
+                  styles.label
+                }
+              >
+                Nume
+              </label>
+
+              <input
+                id="influencer-last-name"
+                type="text"
+                className={
+                  styles.input
+                }
+                value={
+                  lastName
+                }
+                onChange={(
+                  event
+                ) =>
+                  setLastName(
+                    event.target
+                      .value
+                  )
+                }
+                autoComplete="family-name"
+                placeholder="Ex: Popescu"
+              />
+            </div>
+
             <div
               className={
                 styles.field
@@ -1237,7 +1355,7 @@ export default function InfluencerRegisterPage() {
                 <span>
                   Accept{" "}
                   <a
-                    href="/acord-influenceri"
+                    href="/legal/influencer_terms.html"
                     target="_blank"
                     rel="noopener noreferrer"
                   >

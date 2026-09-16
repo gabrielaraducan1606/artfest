@@ -3,7 +3,7 @@ import styles from "./CampaignsTab.module.css";
 
 const EMPTY_FORM = {
   name: "",
-  discountPercent: "0",
+  discountPercent: 0,
   productsScope: "all",
   selectedProductIds: [],
   startsAt: "",
@@ -86,6 +86,38 @@ export default function CampaignsTab({ products = [] }) {
   const [saving, setSaving] = useState(false);
   const [busyCampaignId, setBusyCampaignId] = useState(null);
   const [productQuery, setProductQuery] = useState("");
+  const [maxTotalDiscountPercent, setMaxTotalDiscountPercent] = useState(50);
+
+  const [ordersDrawerCampaign, setOrdersDrawerCampaign] = useState(null);
+  const [ordersDrawerItems, setOrdersDrawerItems] = useState([]);
+  const [ordersDrawerLoading, setOrdersDrawerLoading] = useState(false);
+  const [ordersDrawerError, setOrdersDrawerError] = useState("");
+
+  async function openOrdersDrawer(campaign) {
+    setOrdersDrawerCampaign(campaign);
+    setOrdersDrawerItems([]);
+    setOrdersDrawerError("");
+    setOrdersDrawerLoading(true);
+
+    try {
+      const res = await campaignRequest(
+        `/${encodeURIComponent(campaign.id)}/orders`
+      );
+      setOrdersDrawerItems(Array.isArray(res?.items) ? res.items : []);
+    } catch (err) {
+      setOrdersDrawerError(
+        err?.message || "Nu am putut încărca comenzile acestei campanii."
+      );
+    } finally {
+      setOrdersDrawerLoading(false);
+    }
+  }
+
+  function closeOrdersDrawer() {
+    setOrdersDrawerCampaign(null);
+    setOrdersDrawerItems([]);
+    setOrdersDrawerError("");
+  }
   const [form, setForm] = useState(EMPTY_FORM);
 
   const filteredProducts = useMemo(() => {
@@ -116,6 +148,10 @@ export default function CampaignsTab({ products = [] }) {
       });
 
       setCampaigns(Array.isArray(data?.items) ? data.items : []);
+
+      setMaxTotalDiscountPercent(
+        Number(data?.maxTotalDiscountPercent || 50)
+      );
     } catch (requestError) {
       console.error("[CampaignsTab] loadCampaigns:", requestError);
       setCampaigns([]);
@@ -178,7 +214,13 @@ export default function CampaignsTab({ products = [] }) {
       setProductQuery("");
       setForm({
         name: fullCampaign.name || "",
-        discountPercent: String(fullCampaign.discountPercent ?? 0),
+        /*
+         * Câmpuri legacy (split SHARED, rundă anterioară) => afișate
+         * ca totalul lor - regula finală de business e un singur
+         * discount, 100% vendor (fundingSource forțat la următorul
+         * edit salvat - vezi vendorCampaignRoutes.js).
+         */
+        discountPercent: Number(fullCampaign.discountPercent ?? 0),
         productsScope:
           fullCampaign.scope === "SELECTED_PRODUCTS" ? "selected" : "all",
         selectedProductIds: Array.isArray(fullCampaign.productIds)
@@ -258,6 +300,19 @@ export default function CampaignsTab({ products = [] }) {
       }
     }
 
+    const discountPercent = Number(form.discountPercent);
+
+    if (
+      !Number.isInteger(discountPercent) ||
+      discountPercent < 0 ||
+      discountPercent > maxTotalDiscountPercent
+    ) {
+      alert(
+        `Reducerea trebuie să fie un număr întreg între 0% și ${maxTotalDiscountPercent}%.`
+      );
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -271,7 +326,7 @@ export default function CampaignsTab({ products = [] }) {
             method: "PATCH",
             body: JSON.stringify({
               name,
-              discountPercent: Number(form.discountPercent || 0),
+              discountPercent,
               startsAt: form.startsAt || null,
               endsAt: form.endsAt || null,
             }),
@@ -300,7 +355,7 @@ export default function CampaignsTab({ products = [] }) {
           method: "POST",
           body: JSON.stringify({
             name,
-            discountPercent: Number(form.discountPercent || 0),
+            discountPercent,
             scope,
             productIds:
               scope === "SELECTED_PRODUCTS" ? form.selectedProductIds : [],
@@ -526,6 +581,18 @@ export default function CampaignsTab({ products = [] }) {
                     <span>Comision</span>
                     <strong>{campaign.commissionPercent ?? 5}%</strong>
                   </div>
+                  {campaign.discountGiven != null && (
+                    <div>
+                      <span>Discount acordat</span>
+                      <strong>{money(campaign.discountGiven)} lei</strong>
+                    </div>
+                  )}
+                  {campaign.vendorNetGenerated != null && (
+                    <div>
+                      <span>Net vendor generat</span>
+                      <strong>{money(campaign.vendorNetGenerated)} lei</strong>
+                    </div>
+                  )}
                 </div>
 
                 <div className={styles.metaRow}>
@@ -538,6 +605,10 @@ export default function CampaignsTab({ products = [] }) {
                   {Number(campaign.discountPercent || 0) > 0 ? (
                     <span className={styles.discountBadge}>
                       {campaign.discountPercent}% reducere client
+                      {/* legacy: campanie veche cu split real SHARED */}
+                      {Number(campaign.vendorDiscountPercent || 0) > 0 &&
+                        Number(campaign.artfestDiscountPercent || 0) > 0 &&
+                        ` (Artfest ${campaign.artfestDiscountPercent}% + magazin ${campaign.vendorDiscountPercent}%)`}
                     </span>
                   ) : (
                     <span className={styles.neutralBadge}>Fără reducere client</span>
@@ -562,6 +633,14 @@ export default function CampaignsTab({ products = [] }) {
                     onClick={() => copyCampaignLink(campaign)}
                   >
                     Copiază link
+                  </button>
+
+                  <button
+                    type="button"
+                    className={styles.secondaryBtn}
+                    onClick={() => openOrdersDrawer(campaign)}
+                  >
+                    Vezi comenzile
                   </button>
 
                   <button
@@ -645,23 +724,47 @@ export default function CampaignsTab({ products = [] }) {
               </label>
 
               <label className={styles.formGroup}>
-                <span>Reducere pentru client</span>
-                <select
-                  className={styles.select}
+                <span>Reducere pentru clienții tăi</span>
+                <input
+                  type="number"
+                  className={styles.input}
+                  min={0}
+                  max={maxTotalDiscountPercent}
+                  step={1}
                   value={form.discountPercent}
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
-                      discountPercent: event.target.value,
+                      discountPercent: Math.max(
+                        0,
+                        Math.min(
+                          maxTotalDiscountPercent,
+                          Math.trunc(Number(event.target.value) || 0)
+                        )
+                      ),
                     }))
                   }
-                >
-                  <option value="0">Fără reducere</option>
-                  <option value="5">5%</option>
-                  <option value="10">10%</option>
-                  <option value="15">15%</option>
-                </select>
+                />
               </label>
+
+              <div className={`${styles.formGroup} ${styles.fullWidth}`}>
+                <p className={styles.previewText}>
+                  Artfest îți reduce comisionul de la 12% la 5% pentru
+                  aceste vânzări. Ai un avantaj de 7 puncte procentuale pe
+                  care îl poți transforma în reducere pentru clienții tăi
+                  sau îl poți păstra în marja ta.
+                  <br />
+                  <br />
+                  Dacă oferi o reducere mai mare de 7%, diferența
+                  suplimentară va fi suportată din marja magazinului tău.
+                </p>
+
+                {Number(form.discountPercent || 0) > maxTotalDiscountPercent && (
+                  <p className={styles.errorText}>
+                    Reducerea nu poate depăși {maxTotalDiscountPercent}%.
+                  </p>
+                )}
+              </div>
 
               <label className={`${styles.formGroup} ${styles.fullWidth}`}>
                 <span>Produsele campaniei</span>
@@ -820,6 +923,74 @@ export default function CampaignsTab({ products = [] }) {
                     ? "Salvează modificările"
                     : "Creează campania"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ordersDrawerCampaign && (
+        <div
+          className={styles.modalOverlay}
+          onMouseDown={closeOrdersDrawer}
+        >
+          <div
+            className={styles.modal}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className={styles.modalHeader}>
+              <h3>Comenzi generate de {ordersDrawerCampaign.name}</h3>
+
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={closeOrdersDrawer}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: 20 }}>
+              {ordersDrawerLoading ? (
+                <div>Se încarcă…</div>
+              ) : ordersDrawerError ? (
+                <div>{ordersDrawerError}</div>
+              ) : !ordersDrawerItems.length ? (
+                <div>Această campanie nu a generat încă nicio comandă.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {ordersDrawerItems.map((row) => (
+                    <div
+                      key={row.shipmentId}
+                      style={{
+                        border: "1px solid var(--color-border, #e5e7eb)",
+                        borderRadius: 10,
+                        padding: 10,
+                      }}
+                    >
+                      <div>
+                        <strong>
+                          Comanda #{row.orderNumber || row.orderId}
+                        </strong>{" "}
+                        · {new Date(row.orderDate).toLocaleString("ro-RO")}
+                      </div>
+                      <div>
+                        {row.products
+                          .map((p) => `${p.title} × ${p.qty}`)
+                          .join(", ")}
+                      </div>
+                      <div>Valoare: {money(row.value)} lei</div>
+                      <div>
+                        Discount acordat prin campanie:{" "}
+                        {money(row.discountGiven)} lei
+                      </div>
+                      <div>Status comandă: {row.shipmentStatus}</div>
+                      {row.vendorNet != null && (
+                        <div>Net vendor: {money(row.vendorNet)} lei</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

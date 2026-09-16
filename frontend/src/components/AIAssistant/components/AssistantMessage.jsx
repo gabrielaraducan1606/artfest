@@ -7,7 +7,14 @@ import styles from "../AiAssistant.module.css";
 
 import {
   CameraIcon,
+  ShoppingBagIcon,
 } from "../Products/ProductsIcons.jsx";
+
+import {
+  SparkleIcon,
+  RefreshIcon,
+  HomeIcon,
+} from "../icons/AssistantIcons.jsx";
 
 import SupportTicketList from "../Support/SupportTicketList.jsx";
 import SupportThread from "../Support/SupportThread.jsx";
@@ -1243,6 +1250,279 @@ function SupportTicketCreated({
         />
       </div>
     </div>
+  );
+}
+
+/* =========================================================
+   FAZA 5 - INFLUENCER: date live (recomandări / evidențiere / CTA)
+
+   Randare DOAR din date STRUCTURATE deja calculate de backend
+   (message.liveData/message.orders/message.choices) - niciodată
+   parsare din text (cerința explicită #8 din brief).
+========================================================= */
+
+const INFLUENCER_RECOMMENDATION_ICONS = {
+  PRODUCT_OF_DAY: SparkleIcon,
+  ARTISAN_OF_WEEK: SparkleIcon,
+  REPOST: RefreshIcon,
+  ARTFEST_FEATURE: ShoppingBagIcon,
+  CAMPAIGN: ShoppingBagIcon,
+  NEW_PRODUCTS: ShoppingBagIcon,
+  NEW_VENDORS: HomeIcon,
+};
+
+const INFLUENCER_RECOMMENDATION_CTA_LABELS = {
+  PRODUCT_OF_DAY: "Vezi resursa",
+  ARTISAN_OF_WEEK: "Vezi resursa",
+  REPOST: "Deschide",
+  ARTFEST_FEATURE: "Vezi funcționalitatea",
+  CAMPAIGN: "Vezi campania",
+  NEW_PRODUCTS: "Vezi produsele",
+  NEW_VENDORS: "Vezi vânzătorii",
+};
+
+function formatInfluencerMoney(value) {
+  const numeric = Number(value);
+  const safe = Number.isFinite(numeric) ? numeric : 0;
+
+  try {
+    return new Intl.NumberFormat("ro-RO", {
+      style: "currency",
+      currency: "RON",
+    }).format(safe);
+  } catch {
+    return `${safe.toFixed(2)} RON`;
+  }
+}
+
+/*
+ * Construiește rândurile "evidențiate" DOAR din date structurate -
+ * dacă structura nu e recunoscută, întoarce null (apelantul cade pe
+ * textul simplu, deja afișat separat de askCopilot).
+ */
+function buildInfluencerHighlightRows(scope, liveData, orders) {
+  if (scope === "EARNINGS" && liveData) {
+    return [
+      {
+        label: "Câștig confirmat",
+        value: formatInfluencerMoney(
+          liveData.confirmedEarningsAmount
+        ),
+      },
+      {
+        label: "Câștig estimat",
+        value: formatInfluencerMoney(
+          liveData.estimatedEarningsAmount
+        ),
+      },
+      {
+        label: "Comenzi confirmate",
+        value: String(liveData.ordersCount ?? 0),
+      },
+    ];
+  }
+
+  if (
+    scope === "DISCOUNT_CODES" &&
+    Array.isArray(liveData?.items) &&
+    liveData.items.length
+  ) {
+    return liveData.items.slice(0, 5).map((code) => ({
+      label: code.name || "Cod de reducere",
+      value: `${code.code} · ${code.discountPercent}%`,
+    }));
+  }
+
+  if (
+    scope === "COLLECTIONS" &&
+    Array.isArray(liveData?.items) &&
+    liveData.items.length
+  ) {
+    return liveData.items.slice(0, 5).map((collection) => ({
+      label: collection.title,
+      value: `${collection.productsCount} produse`,
+    }));
+  }
+
+  if (Array.isArray(orders) && orders.length) {
+    return [
+      { label: "Comenzi atribuite", value: String(orders.length) },
+
+      ...orders.slice(0, 3).map((order) => ({
+        label: order.orderNumber || "Comandă",
+        value: order.status,
+      })),
+    ];
+  }
+
+  return null;
+}
+
+function InfluencerCtaButton({ choice, onChoice }) {
+  return (
+    <button
+      type="button"
+      className={`${styles.influencerCta} ${styles.influencerCtaPrimary}`}
+      onClick={() => onChoice(choice)}
+    >
+      {choice.label}
+    </button>
+  );
+}
+
+function InfluencerRecommendationCards({
+  recommendations,
+  onChoice,
+}) {
+  return (
+    <div className={styles.influencerRecommendations}>
+      {recommendations.map((item, index) => {
+        const Icon =
+          INFLUENCER_RECOMMENDATION_ICONS[item.type] ||
+          SparkleIcon;
+
+        const ctaLabel =
+          INFLUENCER_RECOMMENDATION_CTA_LABELS[
+            item.type
+          ] || "Deschide";
+
+        return (
+          <div
+            key={
+              item.metadata?.resourceId ||
+              item.type ||
+              index
+            }
+            className={styles.influencerRecCard}
+          >
+            <span className={styles.influencerRecIcon}>
+              <Icon />
+            </span>
+
+            <span className={styles.influencerRecBody}>
+              <strong
+                className={styles.influencerRecTitle}
+              >
+                {item.title}
+              </strong>
+
+              {item.reason && (
+                <span
+                  className={styles.influencerRecReason}
+                >
+                  {item.reason}
+                </span>
+              )}
+            </span>
+
+            {item.target && (
+              <InfluencerCtaButton
+                choice={{
+                  id: `today-${item.type || index}`,
+                  label: ctaLabel,
+                  target: item.target,
+                }}
+                onChoice={onChoice}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function InfluencerHighlightCard({ rows, choices, onChoice }) {
+  return (
+    <div className={styles.influencerHighlightCard}>
+      {rows.map((row, index) => (
+        <div
+          key={`${row.label}-${index}`}
+          className={styles.influencerHighlightRow}
+        >
+          <span
+            className={styles.influencerHighlightLabel}
+          >
+            {row.label}
+          </span>
+
+          <span
+            className={styles.influencerHighlightValue}
+          >
+            {row.value}
+          </span>
+        </div>
+      ))}
+
+      {choices.length > 0 && (
+        <div className={styles.influencerCtaRow}>
+          {choices.map((choice, index) => (
+            <InfluencerCtaButton
+              key={choice.id || index}
+              choice={choice}
+              onChoice={onChoice}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InfluencerLiveDataMessage({ message, onChoice }) {
+  const scope = message.influencerScope;
+  const liveData = message.liveData;
+  const orders = message.orders;
+
+  const choices = Array.isArray(message.choices)
+    ? message.choices
+    : [];
+
+  if (
+    scope === "TODAY" &&
+    Array.isArray(liveData) &&
+    liveData.length
+  ) {
+    return (
+      <InfluencerRecommendationCards
+        recommendations={liveData}
+        onChoice={onChoice}
+      />
+    );
+  }
+
+  const highlightRows = buildInfluencerHighlightRows(
+    scope,
+    liveData,
+    orders
+  );
+
+  return (
+    <>
+      {message.content && (
+        <div>{message.content}</div>
+      )}
+
+      {highlightRows ? (
+        <InfluencerHighlightCard
+          rows={highlightRows}
+          choices={choices}
+          onChoice={onChoice}
+        />
+      ) : (
+        choices.length > 0 && (
+          <div className={styles.influencerCtaRow}>
+            {choices.map((choice, index) => (
+              <InfluencerCtaButton
+                key={choice.id || index}
+                choice={choice}
+                onChoice={onChoice}
+              />
+            ))}
+          </div>
+        )
+      )}
+    </>
   );
 }
 
@@ -2565,6 +2845,32 @@ export default function AssistantMessage({
               }
             </small>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  /* =======================================================
+     FAZA 5 - INFLUENCER: date live (recomandări/highlight/CTA)
+
+     Recunoscut STRICT pe type==="choices" + choiceStep, exact
+     combinația construită de askCopilot (AiAssistant.jsx) -
+     handleChoice (neatins) rutează click-urile identic ca înainte.
+  ======================================================= */
+
+  if (
+    message?.type === "choices" &&
+    message?.choiceStep === "influencer-action"
+  ) {
+    return (
+      <div
+        className={`${styles["artfest-assistant-message"]} ${styles["artfest-assistant-message-bot"]}`}
+      >
+        <div>
+          <InfluencerLiveDataMessage
+            message={message}
+            onChoice={handleChoice}
+          />
         </div>
       </div>
     );

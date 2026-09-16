@@ -16,6 +16,7 @@ import {
   resolveVendorCampaignAttributions,
   buildCampaignPromotionsByProductId,
 } from "../services/campaignAttribution.js";
+import { buildPublicGpsrInfo } from "../lib/gpsrCompliance.js";
 const router = Router();
 
 /*
@@ -194,6 +195,22 @@ styleTags: true,
 occasionTags: true,
   createdAt: true,
 
+  /*
+   * GPSR (Regulamentul UE 2023/988) - vezi src/lib/gpsrCompliance.js.
+   * Necesare pentru secțiunea publică "Informații despre produs și
+   * siguranță" din mapPublicProduct de mai jos.
+   */
+  isOwnManufacturer: true,
+  manufacturerName: true,
+  manufacturerAddress: true,
+  manufacturerEmail: true,
+  manufacturerInEU: true,
+  responsiblePersonName: true,
+  responsiblePersonAddress: true,
+  responsiblePersonEmail: true,
+  safetyWarnings: true,
+  isForChildren: true,
+
   service: {
     select: {
       id: true,
@@ -211,6 +228,14 @@ logoUrl: true,
 userId: true,
 displayName: true,
 logoUrl: true,
+
+    /*
+     * Folosite DOAR pentru secțiunea GPSR de producător (când
+     * isOwnManufacturer === true) - date publice de profil de
+     * magazin, NICIODATĂ VendorBilling (fiscal/privat).
+     */
+    address: true,
+    email: true,
 
     subscriptions: {
       where: {
@@ -642,6 +667,14 @@ discount:
     isPromoted:
       sellerPlan === "premium" ||
       sellerPlan === "pro",
+
+    /*
+     * GPSR (Regulamentul UE 2023/988), art. 19 - informații pentru
+     * oferta publică. `null` dacă nu există date suficiente pentru
+     * nicio secțiune - pagina publică nu trebuie să afișeze
+     * placeholdere sau valori inventate.
+     */
+    gpsr: buildPublicGpsrInfo(p, p?.service?.vendor),
   };
 }
 

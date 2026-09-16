@@ -1,9 +1,13 @@
 import { useState } from "react";
 
+import { validateProductConfiguration } from "../../../../../utils/productConfigurationValidator.js";
+import { normalizeOptionChoice } from "../../../../../utils/optionLabels.js";
+
 import styles from "../../components/css/ProductModal.module.css";
 
 import ProductImagesSection from "./components/ProductImagesSection";
 import ProductDetailsSection from "./components/ProductDetailsSection";
+import ProductGpsrSection from "./components/ProductGpsrSection";
 import ProductOrderModeSection from "./components/ProductOrderModeSection";
 import ProductWizardNav from "./components/ProductWizardNav";
 import ProductClientPreviewModal from "./components/ProductClientPreviewModal";
@@ -103,10 +107,17 @@ export default function ProductModalWizard({
   setAiImagePreview,
   setPriceSuggestion,
   setPriceWarningConfirmed,
+
+  vendorPreview,
 }) {
   const [
     clientPreviewOpen,
     setClientPreviewOpen,
+  ] = useState(false);
+
+  const [
+    configWarningsConfirmed,
+    setConfigWarningsConfirmed,
   ] = useState(false);
 
   const normalizedOrderMode =
@@ -176,6 +187,26 @@ const hasOrderFields =
     ) &&
     form.quoteSchema.length > 0;
 
+  /*
+   * ANTI-ABANDON - mecanism comun cu ProductDetails.jsx/
+   * productPersonalizationFlow.js (productConfigurationValidator.js):
+   * verifică AICI, la editare, ca un vendor să nu poată publica o
+   * schemă pe care un client n-o poate rezolva (câmp obligatoriu fără
+   * opțiuni, valori duplicate, grup fără identificator etc.).
+   */
+  const configurationValidation =
+    validateProductConfiguration({
+      orderMode: normalizedOrderMode,
+      optionsSchema:
+        form.optionsSchema,
+      customSchema:
+        form.customSchema,
+      repeatedGroups:
+        form.repeatedGroups,
+      quoteSchema:
+        form.quoteSchema,
+    });
+
   const isOrderConfigurationComplete =
     (() => {
       if (
@@ -223,14 +254,16 @@ const hasOrderFields =
       !!form.category,
 
     customization:
-      isOrderConfigurationComplete,
+      isOrderConfigurationComplete &&
+      configurationValidation.valid,
 
     review:
       hasImages &&
       !!form.title?.trim() &&
       !!form.description?.trim() &&
       !!form.category &&
-      isOrderConfigurationComplete,
+      isOrderConfigurationComplete &&
+      configurationValidation.valid,
   };
 
   /*
@@ -256,7 +289,8 @@ const hasOrderFields =
         "Alege o categorie pentru produs.",
     ].filter(Boolean),
 
-    customization: (() => {
+    customization: [
+      ...(() => {
       if (
         normalizedOrderMode ===
         "READY_TO_BUY"
@@ -298,7 +332,12 @@ const hasOrderFields =
       }
 
       return [];
-    })(),
+      })(),
+
+      ...configurationValidation.blockingIssues.map(
+        (issue) => issue.message
+      ),
+    ],
   };
 
   const allMissingItems = [
@@ -387,6 +426,17 @@ const hasOrderFields =
       dimensions: "",
       careInstructions: "",
       specialNotes: "",
+
+      isOwnManufacturer: null,
+      manufacturerName: "",
+      manufacturerAddress: "",
+      manufacturerEmail: "",
+      manufacturerInEU: null,
+      responsiblePersonName: "",
+      responsiblePersonAddress: "",
+      responsiblePersonEmail: "",
+      safetyWarnings: null,
+      isForChildren: null,
 
       orderMode:
         "READY_TO_BUY",
@@ -541,6 +591,7 @@ quoteSchema: [],
 
       {activeStep ===
         "details" && (
+        <>
         <ProductDetailsSection
           form={
             form
@@ -573,6 +624,13 @@ quoteSchema: [],
             options,
           }}
         />
+
+        <ProductGpsrSection
+          form={form}
+          setForm={setForm}
+          vendorPreview={vendorPreview}
+        />
+        </>
       )}
 
       {activeStep ===
@@ -752,9 +810,16 @@ quoteSchema: [],
                       ) &&
                       field.options
                         .length
-                        ? field.options.join(
-                            ", "
-                          )
+                        ? field.options
+                            .map(
+                              (option) =>
+                                normalizeOptionChoice(
+                                  option
+                                ).label
+                            )
+                            .join(
+                              ", "
+                            )
                         : "fără valori configurate"}
                     </div>
                   )
@@ -1172,6 +1237,81 @@ quoteSchema: [],
               }
               onClick={() =>
                 setPriceWarningConfirmed(
+                  true
+                )
+              }
+            >
+              Am înțeles
+            </button>
+          </div>
+        )}
+
+      {isLastStep &&
+        !!configurationValidation
+          .warnings.length &&
+        !configWarningsConfirmed && (
+          <div
+            className={
+              styles.tip
+            }
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              flexWrap: "wrap",
+              gap: 10,
+              margin: "0 20px 16px",
+              padding: "10px 14px",
+              borderRadius: 10,
+              background:
+                "rgba(217, 119, 6, 0.1)",
+              color: "#92400e",
+            }}
+          >
+            <div
+              style={{
+                flex: "1 1 260px",
+              }}
+            >
+              <strong>
+                Sugestii pentru o
+                configurare mai clară:
+              </strong>
+
+              <ul
+                style={{
+                  margin: "6px 0 0",
+                  paddingLeft: 18,
+                }}
+              >
+                {configurationValidation.warnings.map(
+                  (issue) => (
+                    <li
+                      key={`${issue.code}-${issue.path}`}
+                    >
+                      {issue.message}
+                    </li>
+                  )
+                )}
+              </ul>
+
+              <p
+                style={{
+                  margin: "6px 0 0",
+                }}
+              >
+                Poți publica oricum - e
+                doar o informare, nu o
+                blocare.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className={
+                styles.linkBtn
+              }
+              onClick={() =>
+                setConfigWarningsConfirmed(
                   true
                 )
               }

@@ -1,5 +1,5 @@
 /* =========================================================
-   BAZĂ
+   HERO / MARKETPLACE INTRO
 ========================================================= */
 
 .marketplaceIntro,
@@ -9,178 +9,151 @@
 }
 
 .marketplaceIntro {
-  padding: 16px 20px 12px;
-
+  padding: 22px 22px 14px;
   background:
     linear-gradient(
       180deg,
-      color-mix(
-        in srgb,
-        var(--color-primary) 5%,
-        var(--color-bg)
-      ),
+      color-mix(in srgb, var(--color-primary) 5%, var(--color-bg)),
       var(--color-bg)
     );
 }
 
 .marketplaceIntroInner {
   display: flex;
-  gap: 24px;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-
-  width: min(1180px, 100%);
+  gap: 24px;
+  width: min(1240px, 100%);
   margin: 0 auto;
 }
 
 .marketplaceIdentity {
   display: flex;
-  gap: 11px;
   align-items: center;
+  gap: 13px;
 }
 
 .marketplaceIcon {
   display: grid;
-  flex: 0 0 auto;
-
-  width: 38px;
-  height: 38px;
-
   place-items: center;
-
-  border-radius: 12px;
-
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
   color: var(--color-primary);
-
-  background: color-mix(
-    in srgb,
-    var(--color-primary) 10%,
-    var(--surface)
-  );
+  background:
+    color-mix(in srgb, var(--color-primary) 10%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
 
 .marketplaceIdentity h1 {
   margin: 0;
-
   font-family: var(--font-title);
-  font-size: 0.94rem;
-  line-height: 1.25;
+  font-size: clamp(1rem, 1.4vw, 1.15rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 .marketplaceIdentity p {
-  margin: 2px 0 0;
-
+  margin: 4px 0 0;
   color: var(--color-muted);
-
-  font-size: 0.72rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
 .marketplaceExplore {
   display: inline-flex;
-  flex: 0 0 auto;
-  gap: 8px;
   align-items: center;
-
-  color: var(--color-primary);
-
-  font-size: 0.76rem;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding-bottom: 2px;
+  color: var(--color-text);
+  font-size: 0.78rem;
   font-weight: 800;
   text-decoration: none;
 }
 
 .marketplaceExplore svg {
-  transition: transform 160ms ease;
+  color: var(--color-primary);
+  transition: transform 170ms ease;
+}
+
+.marketplaceExplore:hover {
+  color: var(--color-primary);
 }
 
 .marketplaceExplore:hover svg {
-  transform: translateX(3px);
+  transform: translateX(4px);
 }
 
 /* =========================================================
-   SPOTLIGHT
+   SPOTLIGHT WRAPPER
 ========================================================= */
 
 .spotlightSection {
-  padding: 0 20px 28px;
-
+  padding: 0 22px 28px;
   background: var(--color-bg);
 }
 
 .spotlightCard {
   display: grid;
-
-  grid-template-columns:
-    minmax(360px, 0.95fr)
-    minmax(0, 1.05fr);
-
-  width: min(1180px, 100%);
-  height: 390px;
+  grid-template-columns: minmax(0, 1.08fr) minmax(390px, 0.92fr);
+  width: min(1240px, 100%);
+  height: 446px;
+  min-height: 446px;
   margin: 0 auto;
-
   overflow: hidden;
-
-  border: 1px solid
-    var(--color-border);
-
-  border-radius: 24px;
-
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-radius: 30px;
   background: var(--surface);
-
   box-shadow:
-    0 18px 50px
-      rgba(0, 0, 0, 0.06),
-    var(--shadow-sm);
+    0 24px 70px rgba(15, 23, 42, 0.08),
+    0 3px 10px rgba(15, 23, 42, 0.035);
 }
 
 /* =========================================================
-   MEDIA / IMAGINE
+   MEDIA / IMAGE
 ========================================================= */
+
+.spotlightVisual {
+  position: relative;
+  min-width: 0;
+  height: 446px;
+  min-height: 446px;
+  overflow: hidden;
+}
 
 .spotlightMedia {
   position: relative;
-
   width: 100%;
-  height: 390px;
+  height: 446px;
   min-width: 0;
-
+  min-height: 446px;
   overflow: hidden;
-
-  background: var(--color-bg);
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
 }
 
 .spotlightImageLink {
   position: absolute;
   inset: 0;
-
   display: block;
-
   width: 100%;
   height: 100%;
-
   overflow: hidden;
 }
 
 .spotlightImage {
   display: block;
-
   width: 100%;
   height: 100%;
-
   object-fit: cover;
-
+  transform: scale(1.001);
   transition:
-    transform 600ms
-      cubic-bezier(
-        0.22,
-        1,
-        0.36,
-        1
-      ),
-    opacity 220ms ease;
+    transform 650ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 220ms ease;
 }
 
-.spotlightImageLink:hover
-  .spotlightImage {
+.spotlightImageLink:hover .spotlightImage {
   transform: scale(1.035);
 }
 
@@ -188,20 +161,37 @@
   position: absolute;
   inset: 0;
   z-index: 1;
-
   content: "";
   pointer-events: none;
-
   background:
-    linear-gradient(
-      to top,
-      rgba(0, 0, 0, 0.18),
-      transparent 40%
-    );
+    linear-gradient(to top, rgba(8, 10, 14, 0.22), transparent 36%),
+    linear-gradient(to right, transparent 72%, rgba(8, 10, 14, 0.035));
+}
+
+.spotlightImageLabel {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(15, 15, 18, 0.48);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+  pointer-events: none;
 }
 
 /* =========================================================
-   SĂGEȚI GALERIE
+   GALLERY CONTROLS
 ========================================================= */
 
 .spotlightArrowLeft,
@@ -209,187 +199,154 @@
   position: absolute;
   top: 50%;
   z-index: 4;
-
   display: grid;
-
-  width: 40px;
-  height: 40px;
-
   place-items: center;
-
-  border: 1px solid
-    rgba(255, 255, 255, 0.42);
-
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.44);
   border-radius: 999px;
-
-  color: #ffffff;
-
-  background:
-    rgba(15, 15, 18, 0.52);
-
+  color: #fff;
+  background: rgba(15, 15, 18, 0.44);
   backdrop-filter: blur(12px);
-
+  -webkit-backdrop-filter: blur(12px);
   cursor: pointer;
-
-  transform:
-    translateY(-50%);
-
+  opacity: 0;
+  transform: translateY(-50%);
   transition:
-    transform 160ms ease,
-    background 160ms ease,
-    opacity 160ms ease;
+    opacity 170ms ease,
+    transform 170ms ease,
+    background 170ms ease;
+}
+
+.spotlightVisual:hover .spotlightArrowLeft,
+.spotlightVisual:hover .spotlightArrowRight,
+.spotlightMedia:focus-within .spotlightArrowLeft,
+.spotlightMedia:focus-within .spotlightArrowRight {
+  opacity: 1;
 }
 
 .spotlightArrowLeft {
-  left: 14px;
+  left: 16px;
 }
 
 .spotlightArrowRight {
-  right: 14px;
+  right: 16px;
 }
 
 .spotlightArrowLeft:hover,
 .spotlightArrowRight:hover {
-  background:
-    rgba(15, 15, 18, 0.76);
-
-  transform:
-    translateY(-50%)
-    scale(1.05);
+  background: rgba(15, 15, 18, 0.72);
+  transform: translateY(-50%) scale(1.05);
 }
-
-.spotlightArrowLeft:focus-visible,
-.spotlightArrowRight:focus-visible,
-.spotlightDot:focus-visible,
-.spotlightTab:focus-visible {
-  outline: 2px solid
-    var(--color-primary);
-
-  outline-offset: 3px;
-}
-
-/* =========================================================
-   DOTS GALERIE
-========================================================= */
 
 .spotlightDots {
   position: absolute;
-  bottom: 14px;
+  bottom: 16px;
   left: 50%;
   z-index: 4;
-
   display: flex;
-  gap: 5px;
-
-  padding: 6px 8px;
-
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 999px;
-
-  background:
-    rgba(15, 15, 18, 0.48);
-
+  background: rgba(15, 15, 18, 0.42);
   backdrop-filter: blur(10px);
-
-  transform:
-    translateX(-50%);
+  -webkit-backdrop-filter: blur(10px);
+  transform: translateX(-50%);
 }
 
 .spotlightDot {
   width: 6px;
   height: 6px;
-
   padding: 0;
-
   border: 0;
-
   border-radius: 999px;
-
-  background:
-    rgba(255, 255, 255, 0.55);
-
+  background: rgba(255, 255, 255, 0.5);
   cursor: pointer;
-
   transition:
-    width 160ms ease,
-    background 160ms ease;
+    width 170ms ease,
+    background 170ms ease;
 }
 
 .spotlightDotActive {
-  width: 20px;
+  width: 22px;
+  background: #fff;
+}
 
-  background: #ffffff;
+.spotlightArrowLeft:focus-visible,
+.spotlightArrowRight:focus-visible,
+.spotlightDot:focus-visible,
+.spotlightTab:focus-visible,
+.spotlightCta:focus-visible,
+.ambassadorButton:focus-visible,
+.partnerCta:focus-visible,
+.marketplaceExplore:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
 }
 
 /* =========================================================
-   CONȚINUT
+   CONTENT
 ========================================================= */
 
 .spotlightContent {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-
+  height: 446px;
+  min-height: 446px;
+  box-sizing: border-box;
+  overflow: hidden;
   min-width: 0;
-  height: 390px;
-
-  padding:
-    clamp(
-      30px,
-      4.5vw,
-      52px
-    );
-
+  min-height: 446px;
+  padding: clamp(32px, 4vw, 52px);
   box-sizing: border-box;
 }
 
 /* =========================================================
-   TAB-URI
+   EDITORIAL TABS
 ========================================================= */
 
 .spotlightTabs {
-  display: inline-flex;
-  align-self: flex-start;
-
-  gap: 4px;
-
-  margin-bottom: 26px;
-  padding: 4px;
-
-  border: 1px solid
-    var(--color-border);
-
-  border-radius: 999px;
-
-  background:
-    var(
-      --surface-soft,
-      var(--color-bg)
-    );
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: fit-content;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .spotlightTab {
-  min-height: 32px;
-
-  padding: 0 13px;
-
+  position: relative;
+  min-height: 36px;
+  padding: 0 0 10px;
   border: 0;
-
-  border-radius: 999px;
-
   color: var(--color-muted);
-
   background: transparent;
-
   font: inherit;
-  font-size: 0.68rem;
-  font-weight: 800;
-
+  font-size: 0.73rem;
+  font-weight: 850;
+  letter-spacing: 0.025em;
   cursor: pointer;
+  white-space: nowrap;
+  transition: color 170ms ease;
+}
 
+.spotlightTab::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 999px;
+  content: "";
+  background: transparent;
+  transform: scaleX(0.25);
+  transform-origin: center;
   transition:
-    color 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease;
+    transform 170ms ease,
+    background 170ms ease;
 }
 
 .spotlightTab:hover {
@@ -397,70 +354,59 @@
 }
 
 .spotlightTabActive {
-  color: #ffffff;
+  color: var(--color-text);
+}
 
+.spotlightTabActive::after {
   background: var(--color-primary);
-
-  box-shadow: var(--shadow-sm);
+  transform: scaleX(1);
 }
 
 /* =========================================================
-   TEXT
+   TEXT HIERARCHY
 ========================================================= */
 
+.spotlightEditorialLabel,
 .spotlightEyebrow {
   display: inline-flex;
-  gap: 7px;
   align-items: center;
-
-  margin-bottom: 7px;
-
+  gap: 7px;
+  width: fit-content;
+  margin-bottom: 9px;
   color: var(--color-primary);
-
-  font-size: 0.67rem;
-  font-weight: 850;
-  letter-spacing: 0.07em;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.085em;
   text-transform: uppercase;
 }
 
+.spotlightEditorialLabel svg,
 .spotlightEyebrow svg {
   font-size: 0.72rem;
 }
 
 .spotlightCategory {
   display: block;
-
-  margin-bottom: 6px;
-
+  margin-bottom: 7px;
   color: var(--color-muted);
-
-  font-size: 0.68rem;
-  font-weight: 750;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .spotlightTitle {
-  max-width: 680px;
+  max-width: 620px;
   margin: 0;
-
   font-family: var(--font-title);
-
-  font-size:
-    clamp(
-      1.8rem,
-      3.4vw,
-      3rem
-    );
-
-  line-height: 1.04;
+  font-size: clamp(2rem, 3.1vw, 3.25rem);
+  line-height: 1.02;
   letter-spacing: -0.045em;
 }
 
 .spotlightTitle a {
   color: inherit;
-
   text-decoration: none;
-
-  transition: color 160ms ease;
+  transition: color 170ms ease;
 }
 
 .spotlightTitle a:hover {
@@ -469,496 +415,673 @@
 
 .spotlightDescription {
   display: -webkit-box;
-
+  max-width: 600px;
+  margin: 16px 0 0;
   overflow: hidden;
-
-  max-width: 650px;
-  margin: 15px 0 0;
-
   color: var(--color-muted);
-
   font-size: 0.9rem;
-  line-height: 1.6;
-
+  line-height: 1.65;
   -webkit-box-orient: vertical;
 }
-
-/* =========================================================
-   META
-========================================================= */
 
 .spotlightMeta {
   display: flex;
   flex-wrap: wrap;
-
-  gap: 8px 16px;
-
-  margin-top: 18px;
+  gap: 9px 16px;
+  margin-top: 19px;
 }
 
 .spotlightMeta span {
   display: inline-flex;
-  gap: 6px;
   align-items: center;
-
+  gap: 6px;
   color: var(--color-muted);
-
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-size: 0.72rem;
+  font-weight: 750;
 }
 
 .spotlightMeta svg {
   color: var(--color-primary);
-
-  font-size: 0.72rem;
+  font-size: 0.75rem;
 }
 
 /* =========================================================
-   FOOTER / PREȚ / CTA
+   FOOTER / OFFER / CTA
 ========================================================= */
 
 .spotlightFooter {
   display: flex;
-  gap: 20px;
-  align-items: center;
-
-  margin-top: 25px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: auto;
+  padding-top: 26px;
 }
 
 .spotlightFooterArtisan {
-  justify-content: flex-start;
+  align-items: flex-end;
+}
+
+.spotlightOfferArea {
+  min-width: 0;
 }
 
 .spotlightPrice {
+  display: block;
   color: var(--color-text);
-
-  font-size: 1.7rem;
+  font-size: 1.78rem;
   line-height: 1;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.045em;
+}
+
+.spotlightPriceGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px 9px;
+  min-width: 0;
+}
+
+.spotlightDiscountedPrice {
+  color: var(--color-text);
+  font-size: 1.9rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.spotlightOldPrice {
+  color: var(--color-muted);
+  font-size: 0.84rem;
+  font-weight: 650;
+  text-decoration: line-through;
+}
+
+.spotlightDiscountBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--surface));
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.spotlightDiscountNote {
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.spotlightArtisanDiscount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.spotlightArtisanDiscount strong {
+  color: var(--color-primary);
+  font-size: 1.12rem;
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
+.spotlightArtisanDiscount span {
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  font-weight: 650;
 }
 
 .spotlightCta {
   display: inline-flex;
-
-  gap: 9px;
   align-items: center;
   justify-content: center;
-
-  min-height: 44px;
-
-  padding: 0 17px;
-
-  border: 1px solid
-    var(--color-primary);
-
-  border-radius: 12px;
-
-  color: #ffffff;
-
-  background:
-    linear-gradient(
-      135deg,
-      var(--color-primary),
-      var(--color-hover)
-    );
-
-  box-shadow: var(--shadow-sm);
-
-  font-size: 0.76rem;
-  font-weight: 850;
+  flex: 0 0 auto;
+  gap: 9px;
+  min-height: 47px;
+  padding: 0 18px;
+  border: 1px solid var(--color-primary);
+  border-radius: 14px;
+  color: #fff;
+  background: var(--color-primary);
+  box-shadow: 0 9px 22px color-mix(in srgb, var(--color-primary) 20%, transparent);
+  font-size: 0.78rem;
+  font-weight: 900;
   text-decoration: none;
-
+  white-space: nowrap;
   transition:
-    transform 160ms ease,
-    box-shadow 160ms ease;
+    transform 170ms ease,
+    box-shadow 170ms ease,
+    background 170ms ease;
 }
 
 .spotlightCta:hover {
-  transform: translateY(-1px);
-
-  box-shadow: var(--shadow-md);
+  background: var(--color-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--color-primary) 28%, transparent);
 }
 
 .spotlightCta svg {
-  transition:
-    transform 160ms ease;
+  transition: transform 170ms ease;
 }
 
 .spotlightCta:hover svg {
-  transform: translateX(3px);
+  transform: translateX(4px);
 }
 
 /* =========================================================
-   PARTENER
+   PARTNER CTA
 ========================================================= */
 
 .partnerBar {
-  padding: 0 20px 22px;
-
+  padding: 0 22px 28px;
   background: var(--color-bg);
 }
 
 .partnerBarInner {
   display: flex;
-  gap: 22px;
   align-items: center;
   justify-content: space-between;
-
-  width: min(1180px, 100%);
+  gap: 28px;
+  width: min(1240px, 100%);
   margin: 0 auto;
-  padding: 14px 17px;
-
-  border: 1px solid
-    var(--color-border);
-
-  border-radius: 16px;
-
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 12%, var(--color-border));
+  border-radius: 20px;
   background:
-    var(
-      --surface-soft,
-      var(--surface)
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary) 6%, var(--surface)),
+      var(--surface) 58%
     );
-
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
 }
 
 .partnerCopy {
   display: flex;
-  gap: 11px;
   align-items: center;
+  gap: 14px;
+  min-width: 0;
 }
 
 .partnerIcon {
   display: grid;
-  flex: 0 0 auto;
-
-  width: 38px;
-  height: 38px;
-
   place-items: center;
-
-  border-radius: 11px;
-
-  background:
-    color-mix(
-      in srgb,
-      var(--color-primary) 10%,
-      var(--surface)
-    );
-
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 11%, var(--surface));
   font-size: 1rem;
 }
 
-.partnerCopy div {
+.partnerCopy > div {
   display: grid;
-  gap: 1px;
+  gap: 2px;
+}
+
+.partnerKicker {
+  color: var(--color-primary) !important;
+  font-size: 0.62rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
 }
 
 .partnerCopy strong {
-  font-size: 0.85rem;
+  font-size: 0.92rem;
+  line-height: 1.25;
 }
 
+.partnerDescription,
 .partnerCopy span {
   color: var(--color-muted);
-
-  font-size: 0.7rem;
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .partnerActions {
   display: flex;
+  align-items: center;
   flex: 0 0 auto;
-  gap: 8px;
+  gap: 9px;
 }
 
 .ambassadorButton,
 .partnerCta {
-  min-height: 38px;
-
-  padding: 0 12px;
-
-  border-radius: 10px;
-
+  min-height: 41px;
+  padding: 0 14px;
+  border-radius: 12px;
   font: inherit;
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 850;
-
   cursor: pointer;
 }
 
 .ambassadorButton {
-  border: 1px solid
-    var(--color-border);
-
+  border: 1px solid var(--color-border);
   color: var(--color-text);
-
-  background: var(--surface);
+  background: transparent;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease,
+    background 160ms ease;
 }
 
 .ambassadorButton:hover {
-  border-color:
-    var(--color-primary);
-
+  border-color: var(--color-primary);
   color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
 }
 
 .partnerCta {
   display: inline-flex;
-
-  gap: 7px;
   align-items: center;
-
-  border: 1px solid
-    var(--color-primary);
-
-  color: #ffffff;
-
-  background:
-    var(--color-primary);
-
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--color-primary);
+  color: #fff;
+  background: var(--color-primary);
   text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
 }
 
 .partnerCta:hover {
-  background:
-    var(--color-hover);
+  background: var(--color-hover);
+  transform: translateY(-1px);
+}
+
+.partnerCta svg {
+  transition: transform 160ms ease;
+}
+
+.partnerCta:hover svg {
+  transform: translateX(3px);
 }
 
 /* =========================================================
-   TABLETĂ
+   SKELETON
 ========================================================= */
 
-@media (max-width: 900px) {
-  .spotlightCard {
-    grid-template-columns:
-      minmax(280px, 0.9fr)
-      minmax(0, 1.1fr);
+.spotlightSkeleton {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(390px, 0.92fr);
+  width: min(1240px, 100%);
+  min-height: 446px;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 30px;
+  background: var(--surface);
+}
 
-    height: 350px;
+.spotlightSkeletonImage,
+.spotlightSkeletonTabs,
+.spotlightSkeletonSmall,
+.spotlightSkeletonTitle,
+.spotlightSkeletonLine,
+.spotlightSkeletonLineShort {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-muted) 10%, var(--surface));
+}
+
+.spotlightSkeletonImage::after,
+.spotlightSkeletonTabs::after,
+.spotlightSkeletonSmall::after,
+.spotlightSkeletonTitle::after,
+.spotlightSkeletonLine::after,
+.spotlightSkeletonLineShort::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.35) 48%,
+    transparent 76%
+  );
+  transform: translateX(-100%);
+  animation: spotlightShimmer 1.45s infinite;
+}
+
+.spotlightSkeletonImage {
+  min-height: 446px;
+}
+
+.spotlightSkeletonContent {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 48px;
+}
+
+.spotlightSkeletonTabs {
+  width: 230px;
+  height: 26px;
+  margin-bottom: 38px;
+  border-radius: 8px;
+}
+
+.spotlightSkeletonSmall {
+  width: 110px;
+  height: 12px;
+  margin-bottom: 12px;
+  border-radius: 999px;
+}
+
+.spotlightSkeletonTitle {
+  width: 82%;
+  height: 56px;
+  margin-bottom: 24px;
+  border-radius: 12px;
+}
+
+.spotlightSkeletonLine,
+.spotlightSkeletonLineShort {
+  height: 12px;
+  border-radius: 999px;
+}
+
+.spotlightSkeletonLine {
+  width: 92%;
+  margin-bottom: 10px;
+}
+
+.spotlightSkeletonLineShort {
+  width: 64%;
+}
+
+@keyframes spotlightShimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* =========================================================
+   TABLET
+========================================================= */
+
+@media (max-width: 980px) {
+  .spotlightCard,
+  .spotlightSkeleton {
+    grid-template-columns: minmax(0, 0.95fr) minmax(340px, 1.05fr);
+    height: 410px;
+    min-height: 410px;
   }
 
-  .spotlightMedia {
-    height: 350px;
+  .spotlightVisual,
+  .spotlightMedia,
+  .spotlightSkeletonImage {
+    height: 410px;
+    min-height: 410px;
   }
 
   .spotlightContent {
-    height: 350px;
-
+    height: 410px;
+    min-height: 410px;
     padding: 30px;
   }
 
   .spotlightTabs {
-    margin-bottom: 20px;
+    gap: 18px;
+    margin-bottom: 22px;
   }
 
   .spotlightTitle {
-    font-size:
-      clamp(
-        1.55rem,
-        3vw,
-        2.3rem
-      );
+    font-size: clamp(1.7rem, 3.3vw, 2.45rem);
   }
 
   .spotlightDescription {
-    font-size: 0.82rem;
+    font-size: 0.84rem;
+  }
+
+  .spotlightFooter {
+    gap: 14px;
+    padding-top: 20px;
+  }
+
+  .spotlightCta {
+    min-height: 44px;
+    padding: 0 14px;
+  }
+
+  .partnerBarInner {
+    gap: 18px;
   }
 }
 
 /* =========================================================
-   MOBIL
+   MOBILE
 ========================================================= */
 
 @media (max-width: 680px) {
   .marketplaceIntro {
-    padding:
-      10px
-      12px
-      9px;
+    padding: 14px 14px 11px;
   }
 
   .marketplaceIntroInner {
-    align-items:
-      flex-start;
+    align-items: center;
   }
 
   .marketplaceIcon {
-    width: 32px;
-    height: 32px;
-
-    border-radius: 9px;
-
-    font-size: 0.8rem;
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+    font-size: 0.84rem;
   }
 
   .marketplaceIdentity {
-    gap: 8px;
+    gap: 10px;
   }
 
   .marketplaceIdentity h1 {
-    font-size: 0.75rem;
+    font-size: 0.83rem;
   }
 
   .marketplaceIdentity p {
-    font-size: 0.62rem;
+    margin-top: 2px;
+    font-size: 0.68rem;
   }
 
   .marketplaceExplore {
     display: none;
   }
 
-  /* Spotlight */
-
   .spotlightSection {
-    padding:
-      0
-      12px
-      18px;
+    padding: 0 12px 18px;
   }
 
-  .spotlightCard {
-    grid-template-columns:
-      1fr;
+  .spotlightCard,
+  .spotlightSkeleton {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: 245px 345px;
+    width: 100%;
+    height: 590px;
+    min-height: 590px;
+    overflow: hidden;
+    border-radius: 22px;
+  }
 
-    /*
-     * Păstrăm aceeași înălțime indiferent dacă este activ
-     * Produsul zilei sau Artizanul săptămânii.
-     * Astfel rotația automată la 2 secunde nu mai mută pagina.
-     */
-    height: 540px;
-
-    border-radius: 18px;
+  .spotlightVisual {
+    position: relative;
+    grid-row: 1;
+    width: 100%;
+    height: 245px;
+    min-height: 245px;
+    overflow: hidden;
   }
 
   .spotlightMedia {
+    position: relative;
     width: 100%;
-    height: 210px;
+    height: 245px;
+    min-height: 245px;
+    overflow: hidden;
+  }
 
-    min-height: 210px;
+  .spotlightImageLink {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .spotlightImage {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+  }
+
+  .spotlightSkeletonImage {
+    grid-row: 1;
+    width: 100%;
+    height: 245px;
+    min-height: 245px;
+  }
+
+  .spotlightImageLabel {
+    top: 12px;
+    left: 12px;
+    min-height: 27px;
+    padding: 0 9px;
+    font-size: 0.58rem;
   }
 
   .spotlightContent {
+    grid-row: 2;
     width: 100%;
-    height: 330px;
-    min-height: 330px;
-
-    padding:
-      17px
-      15px
-      19px;
-
+    height: 345px;
+    min-height: 345px;
+    padding: 19px 17px 18px;
     box-sizing: border-box;
     overflow: hidden;
   }
 
   .spotlightTabs {
+    gap: 18px;
     width: 100%;
-
-    margin-bottom: 16px;
+    margin-bottom: 18px;
   }
 
   .spotlightTab {
     flex: 1;
-
-    min-height: 34px;
-
-    padding: 0 8px;
-
-    font-size: 0.6rem;
+    min-height: 33px;
+    padding-bottom: 9px;
+    font-size: 0.66rem;
+    text-align: center;
   }
 
+  .spotlightEditorialLabel,
   .spotlightEyebrow {
-    margin-bottom: 5px;
-
-    font-size: 0.57rem;
+    margin-bottom: 7px;
+    font-size: 0.62rem;
   }
 
   .spotlightCategory {
-    margin-bottom: 4px;
-
-    font-size: 0.59rem;
+    margin-bottom: 5px;
+    font-size: 0.69rem;
   }
 
   .spotlightTitle {
     display: -webkit-box;
     overflow: hidden;
-
-    font-size: 1.4rem;
-    line-height: 1.08;
-
+    font-size: clamp(1.55rem, 7vw, 2rem);
+    line-height: 1.05;
     -webkit-box-orient: vertical;
   }
 
   .spotlightDescription {
     display: -webkit-box;
     overflow: hidden;
-
-    margin-top: 8px;
-
-    font-size: 0.73rem;
-    line-height: 1.45;
-
+    margin-top: 10px;
+    font-size: 0.78rem;
+    line-height: 1.5;
     -webkit-box-orient: vertical;
   }
 
   .spotlightMeta {
-    gap: 7px 11px;
-
-    margin-top: 11px;
+    gap: 8px 12px;
+    margin-top: 13px;
   }
 
   .spotlightMeta span {
-    font-size: 0.6rem;
+    font-size: 0.66rem;
   }
 
   .spotlightFooter {
-    justify-content:
-      space-between;
-
+    align-items: center;
     gap: 12px;
-
     min-height: 62px;
     margin-top: auto;
-  }
-
-  .spotlightFooterArtisan {
-    justify-content: flex-start;
+    padding-top: 18px;
   }
 
   .spotlightPrice {
-    font-size: 1.25rem;
+    font-size: 1.38rem;
+  }
+
+  .spotlightDiscountedPrice {
+    font-size: 1.5rem;
+  }
+
+  .spotlightOldPrice {
+    font-size: 0.72rem;
+  }
+
+  .spotlightDiscountBadge {
+    min-height: 22px;
+    padding: 0 7px;
+    font-size: 0.62rem;
+  }
+
+  .spotlightArtisanDiscount strong {
+    font-size: 0.95rem;
+  }
+
+  .spotlightArtisanDiscount span {
+    font-size: 0.66rem;
   }
 
   .spotlightCta {
-    min-height: 38px;
-
+    min-height: 40px;
     padding: 0 12px;
-
-    border-radius: 10px;
-
-    font-size: 0.65rem;
-
-    white-space: nowrap;
+    border-radius: 11px;
+    font-size: 0.69rem;
   }
 
   .spotlightArrowLeft,
   .spotlightArrowRight {
-    width: 32px;
-    height: 32px;
-
-    font-size: 0.72rem;
+    width: 34px;
+    height: 34px;
+    font-size: 0.74rem;
+    opacity: 1;
   }
 
   .spotlightArrowLeft {
-    left: 8px;
+    left: 9px;
   }
 
   .spotlightArrowRight {
-    right: 8px;
+    right: 9px;
   }
 
   .spotlightDots {
-    bottom: 8px;
-
+    bottom: 9px;
     padding: 5px 7px;
   }
 
@@ -968,127 +1091,117 @@
   }
 
   .spotlightDotActive {
-    width: 16px;
+    width: 17px;
   }
 
-  /* Partener */
-
   .partnerBar {
-    padding:
-      0
-      12px
-      15px;
+    padding: 0 12px 18px;
   }
 
   .partnerBarInner {
-    align-items:
-      flex-start;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+    border-radius: 17px;
+  }
 
-    flex-direction:
-      column;
-
-    gap: 10px;
-
-    padding: 12px;
-
-    border-radius: 13px;
+  .partnerCopy {
+    align-items: flex-start;
+    gap: 11px;
   }
 
   .partnerIcon {
-    width: 33px;
-    height: 33px;
-
-    border-radius: 9px;
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
   }
 
   .partnerCopy strong {
-    font-size: 0.74rem;
+    font-size: 0.82rem;
   }
 
+  .partnerDescription,
   .partnerCopy span {
-    font-size: 0.62rem;
-    line-height: 1.35;
+    font-size: 0.67rem;
   }
 
   .partnerActions {
     display: grid;
-
-    grid-template-columns:
-      1fr;
-
+    grid-template-columns: 1fr;
     width: 100%;
   }
 
   .ambassadorButton,
   .partnerCta {
     width: 100%;
+    min-height: 39px;
+    justify-content: center;
+    font-size: 0.69rem;
+  }
 
-    min-height: 35px;
-
-    justify-content:
-      center;
-
-    font-size: 0.64rem;
+  .spotlightSkeletonContent {
+    grid-row: 2;
+    height: 345px;
+    min-height: 345px;
+    padding: 24px 18px;
+    box-sizing: border-box;
+    overflow: hidden;
   }
 }
 
 /* =========================================================
-   TELEFOANE FOARTE MICI
+   VERY SMALL PHONES
 ========================================================= */
 
-@media (max-width: 380px) {
-  .spotlightCard {
-    height: 540px;
+@media (max-width: 390px) {
+  .spotlightCard,
+  .spotlightSkeleton {
+    grid-template-rows: 220px 370px;
+    height: 590px;
+    min-height: 590px;
   }
 
-  .spotlightMedia {
-    height: 190px;
-    min-height: 190px;
+  .spotlightVisual,
+  .spotlightMedia,
+  .spotlightSkeletonImage {
+    height: 220px;
+    min-height: 220px;
+  }
+
+  .spotlightContent,
+  .spotlightSkeletonContent {
+    height: 370px;
+    min-height: 370px;
   }
 
   .spotlightContent {
-    height: 350px;
-    min-height: 350px;
+    padding: 17px 14px 16px;
+  }
 
-    padding:
-      15px
-      13px
-      17px;
-
-    overflow: hidden;
+  .spotlightTabs {
+    gap: 12px;
+    margin-bottom: 14px;
   }
 
   .spotlightTab {
-    font-size: 0.56rem;
+    font-size: 0.61rem;
   }
 
   .spotlightTitle {
-    font-size: 1.24rem;
+    font-size: 1.42rem;
   }
 
   .spotlightDescription {
-    font-size: 0.69rem;
+    font-size: 0.74rem;
   }
 
-  /*
-   * Pe telefoanele foarte înguste footer-ul poate rămâne
-   * pe coloană. Înălțimea cardului este însă fixă,
-   * deci schimbarea dintre cele două selecții nu mai
-   * produce saltul întregii pagini.
-   */
   .spotlightFooter {
-    align-items:
-      flex-start;
-
-    flex-direction:
-      column;
-
+    align-items: stretch;
+    flex-direction: column;
     gap: 8px;
-    min-height: 92px;
-  }
-
-  .spotlightFooterArtisan {
-    align-items: flex-start;
+    min-height: 86px;
+    padding-top: 12px;
   }
 
   .spotlightCta {
@@ -1100,217 +1213,51 @@
    DARK MODE
 ========================================================= */
 
-html[data-theme="dark"]
-  .spotlightArrowLeft,
-html[data-theme="dark"]
-  .spotlightArrowRight {
-  background:
-    rgba(4, 4, 6, 0.72);
+html[data-theme="dark"] .spotlightCard,
+html[data-theme="dark"] .spotlightSkeleton {
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
 }
 
-html[data-theme="dark"]
-  .spotlightDots {
-  background:
-    rgba(4, 4, 6, 0.62);
+html[data-theme="dark"] .spotlightArrowLeft,
+html[data-theme="dark"] .spotlightArrowRight {
+  background: rgba(4, 4, 6, 0.68);
 }
 
-html[data-theme="dark"]
-  .spotlightCard {
-  box-shadow:
-    0 18px 50px
-      rgba(0, 0, 0, 0.2);
+html[data-theme="dark"] .spotlightDots,
+html[data-theme="dark"] .spotlightImageLabel {
+  background: rgba(4, 4, 6, 0.6);
+}
+
+html[data-theme="dark"] .partnerBarInner {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
 }
 
 /* =========================================================
-   REDUCERE ANIMAȚII
+   REDUCED MOTION
 ========================================================= */
 
-@media (
-  prefers-reduced-motion: reduce
-) {
+@media (prefers-reduced-motion: reduce) {
   .marketplaceExplore svg,
   .spotlightImage,
   .spotlightArrowLeft,
   .spotlightArrowRight,
   .spotlightDot,
   .spotlightTab,
+  .spotlightTab::after,
   .spotlightCta,
-  .spotlightCta svg {
+  .spotlightCta svg,
+  .partnerCta,
+  .partnerCta svg,
+  .ambassadorButton {
     transition: none;
   }
-}
 
-.spotlightDiscountBadge {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  width: fit-content;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #fee2e2;
-  color: #b91c1c;
-  font-size: 13px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.spotlightPriceGroup {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-}
-
-.spotlightOldPrice {
-  color: #6b7280;
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: line-through;
-}
-
-.spotlightDiscountedPrice {
-  color: #dc2626;
-  font-size: 24px;
-  font-weight: 900;
-  line-height: 1.1;
-}
-
-.spotlightDiscountNote {
-  color: #b91c1c;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.spotlightArtisanDiscount {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-}
-
-.spotlightArtisanDiscount strong {
-  color: #dc2626;
-  font-size: 21px;
-  font-weight: 900;
-  line-height: 1.1;
-}
-
-.spotlightArtisanDiscount span {
-  color: #6b7280;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-@media (max-width: 640px) {
-  .spotlightDiscountedPrice {
-    font-size: 21px;
-  }
-
-  .spotlightArtisanDiscount strong {
-    font-size: 18px;
-  }
-}
-
-/* =========================================================
-   FIX DESKTOP / TABLETĂ > 680px
-   Păstrează footerul și CTA-ul vizibile chiar și la titluri lungi.
-   Nu afectează deloc layout-ul mobil definit la max-width: 680px.
-========================================================= */
-
-@media (min-width: 681px) {
-  .spotlightContent {
-    justify-content: flex-start;
-
-    padding:
-      clamp(
-        22px,
-        2.8vw,
-        34px
-      );
-
-    overflow: hidden;
-  }
-
-  .spotlightTabs {
-    flex: 0 0 auto;
-    margin-bottom: 12px;
-  }
-
-  .spotlightEyebrow,
-  .spotlightCategory,
-  .spotlightDiscountBadge,
-  .spotlightMeta {
-    flex: 0 0 auto;
-  }
-
-  .spotlightTitle {
-    display: -webkit-box;
-    overflow: hidden;
-
-    flex: 0 1 auto;
-
-    font-size:
-      clamp(
-        1.65rem,
-        2.7vw,
-        2.55rem
-      );
-
-    line-height: 1.03;
-
-    -webkit-box-orient: vertical;
-  }
-
-
-  .spotlightMeta {
-    margin-top: 12px;
-  }
-
-  .spotlightFooter {
-    flex: 0 0 auto;
-
-    margin-top: auto;
-    padding-top: 14px;
-  }
-
-  .spotlightCta {
-    flex: 0 0 auto;
-    white-space: nowrap;
-  }
-
-  .spotlightPriceGroup,
-  .spotlightArtisanDiscount {
-    min-width: 0;
-  }
-}
-
-/* Un pic mai compact pe tabletă / desktop îngust,
-   fără să atingem mobilul. */
-@media (min-width: 681px) and (max-width: 900px) {
-  .spotlightContent {
-    padding: 22px 24px;
-  }
-
-  .spotlightTabs {
-    margin-bottom: 10px;
-  }
-
-  .spotlightTitle {
-    font-size:
-      clamp(
-        1.45rem,
-        2.8vw,
-        2.05rem
-      );
-
-  }
-
-  .spotlightMeta {
-    margin-top: 10px;
-  }
-
-  .spotlightFooter {
-    gap: 12px;
-    padding-top: 10px;
+  .spotlightSkeletonImage::after,
+  .spotlightSkeletonTabs::after,
+  .spotlightSkeletonSmall::after,
+  .spotlightSkeletonTitle::after,
+  .spotlightSkeletonLine::after,
+  .spotlightSkeletonLineShort::after {
+    animation: none;
   }
 }

@@ -6,6 +6,7 @@ import {
 } from "../explainIntent.js";
 
 import { humanizeAssistantErrorMessage } from "../assistantErrorMessages.js";
+import { normalizeOptionChoice } from "../../../utils/optionLabels.js";
 
 import {
   createQuoteRequest,
@@ -426,9 +427,15 @@ function getQuoteFieldQuestion(
     field.options.length >
       0
   ) {
-    return `${label}\n\nPoți alege: ${field.options.join(
-      ", "
-    )}.${optionalText}`;
+    return `${label}\n\nPoți alege: ${field.options
+      .map(
+        (option) =>
+          normalizeOptionChoice(option)
+            .label
+      )
+      .join(
+        ", "
+      )}.${optionalText}`;
   }
 
   if (
@@ -5075,34 +5082,41 @@ export async function submitQuoteMessage({
         .length >
         0
     ) {
-      const selectedOption =
-        currentField
-          .options
-          .find(
-            (
-              option
-            ) =>
-              String(
-                option
-              )
-                .trim()
-                .toLowerCase() ===
-              String(
-                answer
-              )
-                .trim()
-                .toLowerCase()
-          );
+      const normalizedAnswer =
+        String(answer)
+          .trim()
+          .toLowerCase();
+
+      const currentFieldChoices =
+        currentField.options.map(
+          normalizeOptionChoice
+        );
+
+      const selectedChoice =
+        currentFieldChoices.find(
+          (choice) =>
+            choice.value
+              .trim()
+              .toLowerCase() ===
+              normalizedAnswer ||
+            choice.label
+              .trim()
+              .toLowerCase() ===
+              normalizedAnswer
+        );
 
       if (
-        !selectedOption
+        !selectedChoice
       ) {
         addMessage(
           createMessage(
             "assistant",
-            `Te rog să alegi una dintre variantele disponibile: ${currentField.options.join(
-              ", "
-            )}.`
+            `Te rog să alegi una dintre variantele disponibile: ${currentFieldChoices
+              .map(
+                (choice) =>
+                  choice.label
+              )
+              .join(", ")}.`
           )
         );
 
@@ -5110,7 +5124,7 @@ export async function submitQuoteMessage({
       }
 
       answer =
-        selectedOption;
+        selectedChoice.value;
     }
 
     const nextAnswers = {

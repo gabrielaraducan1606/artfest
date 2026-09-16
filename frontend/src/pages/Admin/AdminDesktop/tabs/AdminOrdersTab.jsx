@@ -14,6 +14,47 @@ function formatDate(dateString) {
 }
 
 /* ----------------------------------------------------
+   Sursa vânzării - calculată STRICT per Shipment (nu global
+   pe Order, care poate fi multi-vendor). Un shipment are UNA
+   dintre: Direct / Influencer (referral) / Cod influencer /
+   Campanie vendor - niciodată mai multe simultan pe același
+   shipment (best promotion + atribuire per-shipment, deja
+   garantate la checkout).
+----------------------------------------------------- */
+const PROMOTION_SOURCE_LABELS = {
+  PRODUCT_OF_DAY: "Produsul zilei",
+  ARTISAN_OF_WEEK: "Artizanul săptămânii",
+  COLLECTION: "Collection",
+  CAMPAIGN: "VendorCampaign",
+  DISCOUNT_CODE: "Cod de reducere",
+};
+
+function getShipmentSource(shipment) {
+  if (!shipment) return "Direct";
+
+  if (shipment.influencerId) {
+    const hasCode = (shipment.items || []).some(
+      (it) => it.discountCodeId
+    );
+    return hasCode ? "Cod influencer" : "Influencer";
+  }
+
+  if (shipment.campaignId) return "Campanie vendor";
+
+  return "Direct";
+}
+
+function getOrderSourceSummary(order) {
+  const shipments = order?.shipments || [];
+  if (!shipments.length) return "Direct";
+
+  const sources = [...new Set(shipments.map(getShipmentSource))];
+
+  if (sources.length === 1) return sources[0];
+  return "Surse multiple";
+}
+
+/* ----------------------------------------------------
    Helpers: status la fel ca în backend userOrdersRoutes
 ----------------------------------------------------- */
 function computeUiStatus(order) {
@@ -129,6 +170,7 @@ export default function AdminOrdersTab({ orders, forcedUserId, forcedVendorId })
         _vendors: uniqueVendors,
         _shipmentsCount: shipments.length,
         _total: total,
+        _source: getOrderSourceSummary(o),
       };
     });
   }, [orders]);
@@ -458,6 +500,18 @@ function getDepositState(order) {
   }
 
   if (
+    deposits.every(
+      (deposit) =>
+        deposit.status === "REFUNDED"
+    )
+  ) {
+    return {
+      code: "REFUNDED",
+      label: "Avans rambursat",
+    };
+  }
+
+  if (
     deposits.some(
       (deposit) =>
         deposit.status === "EXPIRED"
@@ -580,6 +634,7 @@ function OrdersTable({ rows, onRowClick, totalItems }) {
 <th>Total</th>
 <th># Shipments</th>
             <th>Vendori</th>
+            <th>Sursă</th>
             <th>Creat la</th>
           </tr>
         </thead>
@@ -630,6 +685,11 @@ function OrdersTable({ rows, onRowClick, totalItems }) {
 </td>
               <td>{o._shipmentsCount ?? 0}</td>
               <td>{o._vendors?.join(", ") || "—"}</td>
+              <td>
+                <span className={styles.roleBadge}>
+                  {o._source}
+                </span>
+              </td>
               <td>{formatDate(o.createdAt)}</td>
             </tr>
           ))}
@@ -737,12 +797,46 @@ function OrderDetailsDrawer({ order, onClose }) {
   const [actionMessage, setActionMessage] = useState("");
   const [adminNotes, setAdminNotes] = useState(order.adminNotes || "");
 
+  // rezultatul refund-ului CARD apelat ÎN ACEASTĂ sesiune de drawer -
+  // folosit doar pentru UI (ascunde/dezactivează butonul, arată detalii);
+  // siguranța reală (fără dublu refund) vine din idempotența backend-ului.
+  const [refundResult, setRefundResult] = useState(null);
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+
   useEffect(() => {
     setLocalOrder(order);
     setAdminNotes(order.adminNotes || "");
     setActionError("");
     setActionMessage("");
+    setRefundResult(null);
   }, [order]);
+
+  /*
+   * Endpoint-ul de listă (GET /api/admin/orders) NU include
+   * vendorFinancials/isReversed per shipment - doar detaliul
+   * (GET /api/admin/orders/:id) le calculează (buildShipmentFinancialsForAdmin).
+   * Hidratăm drawer-ul cu detaliul complet la deschidere, ca secțiunea
+   * "Calcul financiar" (comision reversat, net reversat) să se afișeze
+   * corect, inclusiv imediat după un refund.
+   */
+  const reloadOrderDetail = async () => {
+    if (!order?.id) return;
+    try {
+      const detail = await api(
+        `/api/admin/orders/${encodeURIComponent(order.id)}`
+      );
+      if (detail?.id) {
+        setLocalOrder(detail);
+      }
+    } catch (e) {
+      console.error("Admin order detail reload failed:", e);
+    }
+  };
+
+  useEffect(() => {
+    reloadOrderDetail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.id]);
 
   if (!localOrder) return null;
   if (typeof document === "undefined") return null;
@@ -757,6 +851,28 @@ function OrderDetailsDrawer({ order, onClose }) {
     localOrder.total != null ? localOrder.total : subtotal + shippingTotal
   );
   const currency = localOrder.currency || "RON";
+
+  /*
+   * Eligibilitate refund CARD (Secțiunea 3 din audit) - STRICT
+   * paymentMethod === CARD + plată confirmată (paidAt setat de
+   * webhook-ul Stripe la payment_intent.succeeded). NU dezactivăm
+   * butonul pe baza statusului shipment-ului (RETURNED/REFUSED) sau
+   * a vendorFinancials.isReversed, pentru că ambele pot fi adevărate
+   * și în cazul în care vendorul a anulat comanda ÎNAINTE de livrare
+   * (PATCH /api/vendor/orders/:id/status -> "cancelled"), care
+   * reversează DOAR ledger-ul intern, FĂRĂ să atingă Stripe - în acel
+   * caz refund-ul Stripe real tot mai trebuie declanșat de admin.
+   */
+  const isCardOrder =
+    String(localOrder.paymentMethod || "").toUpperCase() === "CARD";
+  const cardPaymentConfirmed = isCardOrder && Boolean(localOrder.paidAt);
+  const cardRefundEligible = isCardOrder && cardPaymentConfirmed;
+
+  // dezactivat doar DUPĂ un refund reușit ÎN ACEASTĂ sesiune de drawer
+  // (backend-ul rămâne oricum idempotent la un re-apel după redeschidere)
+  const cardRefundDoneThisSession =
+    Boolean(refundResult) && !refundResult?.dbReversalNeedsAttention;
+
 const deposits =
   getOrderDeposits(localOrder).filter(
     (deposit) =>
@@ -869,6 +985,51 @@ const totalDiscount =
     0
   );
 
+const FUNDING_SOURCE_LABELS = {
+  PLATFORM: "Artfest",
+  VENDOR: "Vânzător",
+  SHARED: "Artfest + vânzător",
+};
+
+const appliedDiscountCodes = Object.values(
+  flatItems
+    .filter((item) => item.discountCodeId)
+    .reduce((byCode, item) => {
+      const key = item.discountCodeId;
+
+      if (!byCode[key]) {
+        byCode[key] = {
+          discountCodeId: item.discountCodeId,
+          discountCodeText: item.discountCodeText || "—",
+          discountCodeFundingSource:
+            item.discountCodeFundingSource || null,
+          amount: 0,
+          platformAmount: 0,
+          vendorAmount: 0,
+        };
+      }
+
+      byCode[key].amount += Number(item.discountCodeAmount || 0);
+
+      /*
+       * platformDiscountAmount/vendorDiscountAmount sunt split-ul
+       * REAL, deja calculat la checkout (vendorCommissionService),
+       * pentru promoția câștigătoare pe această linie - identice cu
+       * discountCodeAmount dacă un cod de reducere a câștigat pe
+       * toată linia (cazul uzual aici, de vreme ce filtrăm pe
+       * discountCodeId).
+       */
+      byCode[key].platformAmount += Number(
+        item.platformDiscountAmount || 0
+      );
+      byCode[key].vendorAmount += Number(
+        item.vendorDiscountAmount || 0
+      );
+
+      return byCode;
+    }, {})
+);
+
   const handleCancelOrder = async () => {
     setActionLoading(true);
     setActionError("");
@@ -978,65 +1139,100 @@ const totalDiscount =
   };
 
   const handleRefundPayment = async () => {
-  if (!localOrder?.id) {
-    return;
-  }
-
-  const confirmed = window.confirm(
-    `Sigur vrei să rambursezi plata pentru comanda ${
-      localOrder.orderNumber || localOrder.id
-    }?\n\n` +
-      `Această acțiune va returna banii clientului și nu trebuie folosită decât după verificarea situației.`
-  );
-
-  if (!confirmed) {
-    return;
-  }
-
-  setActionLoading(true);
-  setActionError("");
-  setActionMessage("");
-
-  try {
-    const result = await api(
-      `/api/admin/orders/${encodeURIComponent(
-        localOrder.id
-      )}/refund`,
-      {
-        method: "POST",
-      }
-    );
-
-    setActionMessage(
-      result?.message ||
-        "Rambursarea a fost inițiată cu succes."
-    );
-
-    /*
-     * Dacă backend-ul ne trimite
-     * comanda actualizată, actualizăm
-     * imediat drawer-ul.
-     */
-    if (result?.order) {
-      setLocalOrder(result.order);
+    if (!localOrder?.id || !isCardOrder) {
+      return;
     }
-  } catch (e) {
-    console.error(
-      "Admin refund failed:",
-      e
+
+    setRefundModalOpen(false);
+    setActionLoading(true);
+    setActionError("");
+    setActionMessage("");
+
+    try {
+      const result = await api(
+        `/api/admin/orders/${encodeURIComponent(localOrder.id)}/refund`,
+        { method: "POST" }
+      );
+
+      // "alreadyRefunded" (alreadyRefundedByStripe) este tot un caz de
+      // succes (ok: true), nu o eroare - backend-ul îl tratează idempotent.
+      setRefundResult(result);
+
+      setActionMessage(
+        result?.message || "Rambursarea a fost inițiată cu succes."
+      );
+
+      // reîncărcăm detaliul complet, ca statusul shipment-urilor și
+      // secțiunea "Calcul financiar" (comision/net reversat) să reflecte
+      // imediat rezultatul refund-ului.
+      await reloadOrderDetail();
+    } catch (e) {
+      console.error("Admin refund failed:", e);
+
+      const msg =
+        e?.response?.data?.message ||
+        e?.data?.message ||
+        e?.message ||
+        "Nu am putut rambursa plata.";
+
+      setActionError(msg);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  /*
+   * Flux SEPARAT, NESCHIMBAT, pentru COD + avans Stripe (CAZ 2 din
+   * ruta backend - rambursare doar a avansului, nu a plății integrale
+   * CARD). Auditul curent vizează STRICT refund-ul CARD (Secțiunile
+   * 1-13); acest caz rămâne pe comportamentul anterior (window.confirm),
+   * ca să nu modificăm un flux financiar în afara scopului cerut.
+   */
+  const handleRefundDeposit = async () => {
+    if (!localOrder?.id) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Sigur vrei să rambursezi avansul plătit pentru comanda ${
+        localOrder.orderNumber || localOrder.id
+      }?\n\n` +
+        `Această acțiune va returna avansul clientului și nu trebuie folosită decât după verificarea situației.`
     );
 
-    const msg =
-      e?.response?.data?.message ||
-      e?.data?.message ||
-      e?.message ||
-      "Nu am putut rambursa plata.";
+    if (!confirmed) {
+      return;
+    }
 
-    setActionError(msg);
-  } finally {
-    setActionLoading(false);
-  }
-};
+    setActionLoading(true);
+    setActionError("");
+    setActionMessage("");
+
+    try {
+      const result = await api(
+        `/api/admin/orders/${encodeURIComponent(localOrder.id)}/refund`,
+        { method: "POST" }
+      );
+
+      setActionMessage(
+        result?.message || "Rambursarea avansului a fost inițiată cu succes."
+      );
+
+      await reloadOrderDetail();
+    } catch (e) {
+      console.error("Admin deposit refund failed:", e);
+
+      const msg =
+        e?.response?.data?.message ||
+        e?.data?.message ||
+        e?.message ||
+        "Nu am putut rambursa avansul.";
+
+      setActionError(msg);
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const node = (
     <div className={styles.drawerOverlay} onClick={onClose}>
@@ -1134,6 +1330,30 @@ const totalDiscount =
     </span>
   </div>
 )}
+
+{appliedDiscountCodes.map((dc) => (
+  <div
+    className={styles.drawerField}
+    key={dc.discountCodeId}
+  >
+    <span>Cod de reducere</span>
+
+    <span>
+      {dc.discountCodeText}
+      {" · "}
+      {FUNDING_SOURCE_LABELS[dc.discountCodeFundingSource] ||
+        dc.discountCodeFundingSource ||
+        "—"}
+      {" · "}Total −{dc.amount.toFixed(2)} {currency}
+      {dc.discountCodeFundingSource === "SHARED" && (
+        <>
+          {" "}(din care Artfest −{dc.platformAmount.toFixed(2)}{" "}
+          {currency}, vânzător −{dc.vendorAmount.toFixed(2)} {currency})
+        </>
+      )}
+    </span>
+  </div>
+))}
 
 <div className={styles.drawerField}>
   <span>Transport</span>
@@ -1266,8 +1486,18 @@ const totalDiscount =
             >
               Status:{" "}
               <strong>
-                {deposit.status ||
-                  "—"}
+                {
+                  {
+                    NOT_REQUESTED: "nesolicitat",
+                    PENDING: "solicitat, neplătit",
+                    PAID: "plătit",
+                    FAILED: "plată eșuată",
+                    EXPIRED: "expirat",
+                    REFUNDED: "rambursat",
+                  }[deposit.status] ||
+                    deposit.status ||
+                    "—"
+                }
               </strong>
 
               <br />
@@ -1393,6 +1623,47 @@ const totalDiscount =
                       deposit.paymentError
                     }
                   </span>
+                </>
+              )}
+
+              {deposit.refunded && (
+                <>
+                  <br />
+                  <span
+                    style={{
+                      color: "#991b1b",
+                      fontWeight: 700,
+                    }}
+                  >
+                    ↩ Avans rambursat
+                    {deposit.refundedAmount != null
+                      ? `: ${Number(deposit.refundedAmount).toFixed(2)} ${currency}`
+                      : ""}
+                  </span>
+
+                  {deposit.refundedAt && (
+                    <>
+                      <br />
+                      Rambursat la:{" "}
+                      {formatDate(deposit.refundedAt)}
+                    </>
+                  )}
+
+                  {deposit.stripeRefundId && (
+                    <>
+                      <br />
+                      Refund ID:{" "}
+                      <code>{deposit.stripeRefundId}</code>
+                    </>
+                  )}
+
+                  {deposit.refundReversalId && (
+                    <>
+                      <br />
+                      Reversal ID:{" "}
+                      <code>{deposit.refundReversalId}</code>
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -1536,6 +1807,9 @@ const totalDiscount =
   {it._vendorName
     ? `Vendor: ${it._vendorName}`
     : "—"}
+
+  {" · "}
+  {PROMOTION_SOURCE_LABELS[it.discountSource] || "Fără promoție"}
 </div>
                   </div>
                 ))}
@@ -1552,31 +1826,241 @@ const totalDiscount =
             <h4>Shipments</h4>
             {shipments.length ? (
               <div className={styles.drawerList}>
-                {shipments.map((s) => (
-                  <div key={s.id} className={styles.drawerListItem}>
-                    <div className={styles.drawerListTitle}>
-                      {s.vendor?.displayName || "Vendor necunoscut"}{" "}
-                      {s.vendor?.city ? `(${s.vendor.city})` : ""}
-                    </div>
-                    <div className={styles.drawerListMeta}>
-                      ID shipment: <code>{s.id}</code>
-                      <br />
-                      Status: {s.status}
-                      <br />
-                      AWB: {s.awb || "—"}
-                      <br />
-                      {s.trackingUrl && (
-                        <a
-                          href={s.trackingUrl}
-                          target="_blank"
-                          rel="noreferrer"
+                {shipments.map((s) => {
+                  const shipmentItems = s.items || [];
+
+                  const shipmentSource = getShipmentSource(s);
+
+                  const attributionType = s.influencerId
+                    ? shipmentItems.some((it) => it.discountCodeId)
+                      ? "Cod de reducere"
+                      : "Referral (?ref=)"
+                    : null;
+
+                  const totalDiscount = shipmentItems.reduce(
+                    (sum, it) => sum + Number(it.discountAmount || 0),
+                    0
+                  );
+
+                  const platformDiscount = shipmentItems.reduce(
+                    (sum, it) =>
+                      sum + Number(it.platformDiscountAmount || 0),
+                    0
+                  );
+
+                  const vendorDiscount = shipmentItems.reduce(
+                    (sum, it) => sum + Number(it.vendorDiscountAmount || 0),
+                    0
+                  );
+
+                  const winningSources = [
+                    ...new Set(
+                      shipmentItems
+                        .map((it) => it.discountSource)
+                        .filter(Boolean)
+                    ),
+                  ];
+
+                  return (
+                    <div key={s.id} className={styles.drawerListItem}>
+                      <div className={styles.drawerListTitle}>
+                        {s.vendor?.displayName || "Vendor necunoscut"}{" "}
+                        {s.vendor?.city ? `(${s.vendor.city})` : ""}
+                      </div>
+                      <div className={styles.drawerListMeta}>
+                        ID shipment: <code>{s.id}</code>
+                        <br />
+                        Status: {s.status}
+                        <br />
+                        AWB: {s.awb || "—"}
+                        <br />
+                        {s.trackingUrl && (
+                          <a
+                            href={s.trackingUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Tracking
+                          </a>
+                        )}
+                      </div>
+
+                      <div
+                        className={styles.drawerListMeta}
+                        style={{ marginTop: 8 }}
+                      >
+                        <strong>Sursă vânzare:</strong> {shipmentSource}
+                        <br />
+                        {s.influencerId && (
+                          <>
+                            <strong>Influencer:</strong>{" "}
+                            {s.influencer?.displayName || "—"}
+                            {" · "}
+                            {attributionType}
+                            <br />
+                          </>
+                        )}
+                        {s.campaignId && (
+                          <>
+                            <strong>Campanie vendor:</strong>{" "}
+                            {s.campaign?.name || "—"}
+                            <br />
+                          </>
+                        )}
+                        <strong>Promoția câștigătoare:</strong>{" "}
+                        {winningSources.length
+                          ? winningSources
+                              .map(
+                                (src) =>
+                                  PROMOTION_SOURCE_LABELS[src] || src
+                              )
+                              .join(", ")
+                          : "Fără promoție"}
+                        <br />
+                        <strong>Reducere totală:</strong>{" "}
+                        {totalDiscount.toFixed(2)} RON
+                        {" · "}
+                        <strong>Artfest:</strong>{" "}
+                        {platformDiscount.toFixed(2)} RON
+                        {" · "}
+                        <strong>Vendor:</strong>{" "}
+                        {vendorDiscount.toFixed(2)} RON
+                      </div>
+
+                      {s.vendorFinancials && (
+                        <div
+                          className={styles.drawerListMeta}
+                          style={{ marginTop: 8 }}
                         >
-                          Tracking
-                        </a>
+                          <strong>
+                            {s.vendorFinancials.isMixedCommission
+                              ? "Comision mixt"
+                              : `Comision ${
+                                  s.vendorFinancials.commissionSource === "campaign"
+                                    ? "campanie"
+                                    : s.vendorFinancials.commissionSource ===
+                                      "vendor_collection_own_sale"
+                                    ? "colecție / vânzare proprie"
+                                    : s.vendorFinancials.commissionSource ===
+                                      "vendor_referral_own_sale"
+                                    ? "recomandare proprie"
+                                    : "standard"
+                                }${
+                                  s.vendorFinancials.commissionBps != null
+                                    ? ` (${(s.vendorFinancials.commissionBps / 100).toFixed(2)}%)`
+                                    : ""
+                                }`}
+                            :
+                          </strong>{" "}
+                          {s.vendorFinancials.isMixedCommission &&
+                            Array.isArray(s.vendorFinancials.commissionGroups) && (
+                              <>
+                                {s.vendorFinancials.commissionGroups
+                                  .map(
+                                    (g) =>
+                                      `${
+                                        g.label === "campaign" ? "campanie" : "standard"
+                                      } ${(g.commissionBps / 100).toFixed(2)}% pe ${
+                                        g.itemCount
+                                      } ${g.itemCount === 1 ? "produs" : "produse"} (${Number(
+                                        g.itemsAfterDiscount || 0
+                                      ).toFixed(2)} RON)`
+                                  )
+                                  .join(" · ")}
+                                {" · "}
+                              </>
+                            )}
+                          Bază de calcul{" "}
+                          {Number(s.vendorFinancials.itemsNet || 0).toFixed(2)}{" "}
+                          RON
+                          {s.vendorFinancials.commissionAmount != null && (
+                            <>
+                              {" · "}
+                              Comision Artfest brut{" "}
+                              {Number(s.vendorFinancials.commissionAmount || 0).toFixed(2)}{" "}
+                              RON
+                            </>
+                          )}
+                          {Number(s.vendorFinancials.platformSubsidyAmount || 0) > 0 && (
+                            <>
+                              {" · "}
+                              Subvenție Artfest{" "}
+                              {Number(s.vendorFinancials.platformSubsidyAmount || 0).toFixed(2)}{" "}
+                              RON
+                            </>
+                          )}
+                          {" · "}
+                          Comision Artfest (net){" "}
+                          {Number(s.vendorFinancials.commissionNet || 0).toFixed(2)}{" "}
+                          RON
+                          {" · "}
+                          Net magazin{" "}
+                          {Number(s.vendorFinancials.vendorNet || 0).toFixed(2)}{" "}
+                          RON
+                          {" · "}
+                          Net Artfest{" "}
+                          {Number(
+                            s.vendorFinancials.netArtfestAfterAttribution ??
+                              s.vendorFinancials.commissionNet ??
+                              0
+                          ).toFixed(2)}{" "}
+                          RON
+                          {!s.vendorFinancials.isSnapshot && (
+                            <span className={styles.subtle}> · estimat (comanda nu a fost încă finalizată)</span>
+                          )}
+                          {s.vendorFinancials.isReversed && (
+                            <span className={styles.subtle}> · reversat (retur/refuz)</span>
+                          )}
+                          <br />
+                          Metodă plată: {localOrder.paymentMethod || "—"}
+                          {localOrder.paymentMethod === "COD" &&
+                            s.deposit?.status &&
+                            s.deposit.status !== "NOT_REQUESTED" && (
+                              <>
+                                {" · "}
+                                Avans: {s.deposit.status}
+                                {s.deposit.requestedAmount != null &&
+                                  ` (${Number(s.deposit.requestedAmount).toFixed(2)} RON)`}
+                                {s.deposit.remainingCodAmount != null &&
+                                  `, rest ramburs ${Number(s.deposit.remainingCodAmount).toFixed(2)} RON`}
+                              </>
+                            )}
+                        </div>
+                      )}
+
+                      {(s.influencerCommission || s.vendorReferralCommission) && (
+                        <div
+                          className={styles.drawerListMeta}
+                          style={{ marginTop: 8 }}
+                        >
+                          {s.influencerCommission && (
+                            <>
+                              <strong>Comision influencer</strong>
+                              {s.influencerCommission.name
+                                ? ` (${s.influencerCommission.name})`
+                                : ""}
+                              : {Number(s.influencerCommission.amount || 0).toFixed(2)} RON
+                              {" "}({s.influencerCommission.commissionPercent}% din comisionul Artfest)
+                              {!s.influencerCommission.isSnapshot && " · estimat"}
+                              <br />
+                            </>
+                          )}
+                          {s.vendorReferralCommission && (
+                            <>
+                              <strong>Comision recomandare</strong>
+                              {s.vendorReferralCommission.name
+                                ? ` (${s.vendorReferralCommission.name})`
+                                : ""}
+                              : {Number(s.vendorReferralCommission.amount || 0).toFixed(2)} RON
+                              {" "}({s.vendorReferralCommission.commissionPercent}% din comisionul Artfest)
+                              {!s.vendorReferralCommission.isSnapshot && " · estimat"}
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className={styles.subtle}>Comanda nu are shipments încă.</p>
@@ -1643,35 +2127,81 @@ const totalDiscount =
               >
                 Anulează comanda
               </button>
-              <button
-  type="button"
-  className={styles.adminActionBtnDanger}
-  onClick={handleRefundPayment}
-  disabled={
-    actionLoading ||
-    (
-      localOrder.paymentMethod !== "CARD" &&
-      paidDepositTotal <= 0
-    )
-  }
-  title={
-    localOrder.paymentMethod === "CARD" ||
-    paidDepositTotal > 0
-      ? "Rambursează suma plătită online clientului"
-      : "Această comandă nu are o plată online de rambursat"
-  }
->
-  {actionLoading
-    ? "Se procesează..."
-    : "Rambursează plata"}
-</button>
+              {isCardOrder ? (
+                <button
+                  type="button"
+                  className={styles.adminActionBtnDanger}
+                  onClick={() => setRefundModalOpen(true)}
+                  disabled={
+                    actionLoading ||
+                    !cardRefundEligible ||
+                    cardRefundDoneThisSession
+                  }
+                  title={
+                    !cardPaymentConfirmed
+                      ? "Plata cu cardul nu este încă confirmată."
+                      : cardRefundDoneThisSession
+                      ? "Rambursarea a fost deja efectuată în această sesiune."
+                      : "Rambursează integral plata cu cardul"
+                  }
+                >
+                  {actionLoading
+                    ? "Se procesează..."
+                    : cardRefundDoneThisSession
+                    ? "Plată rambursată"
+                    : "Rambursează plata"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.adminActionBtnDanger}
+                  onClick={handleRefundDeposit}
+                  disabled={actionLoading || paidDepositTotal <= 0}
+                  title={
+                    paidDepositTotal > 0
+                      ? "Rambursează avansul plătit online clientului"
+                      : "Această comandă nu are un avans online de rambursat"
+                  }
+                >
+                  {actionLoading ? "Se procesează..." : "Rambursează avansul"}
+                </button>
+              )}
             </div>
 
             {actionError && (
               <p className={styles.actionError}>{actionError}</p>
             )}
-            {actionMessage && (
+            {actionMessage && !refundResult?.dbReversalNeedsAttention && (
               <p className={styles.actionSuccess}>{actionMessage}</p>
+            )}
+            {refundResult?.dbReversalNeedsAttention && (
+              <p
+                className={styles.actionError}
+                style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  borderRadius: 8,
+                  padding: "8px 12px",
+                  fontWeight: 600,
+                }}
+              >
+                Rambursarea Stripe a fost efectuată, dar actualizarea
+                financiară internă necesită reverificare. Reîncearcă sau
+                contactează suportul tehnic.
+              </p>
+            )}
+            {refundResult?.ok && (
+              <p className={styles.subtle} style={{ fontSize: 12 }}>
+                {refundResult.refundId && (
+                  <>ID rambursare Stripe: {refundResult.refundId} · </>
+                )}
+                {refundResult.refundedAmount != null && (
+                  <>
+                    Sumă rambursată: {Number(refundResult.refundedAmount).toFixed(2)}{" "}
+                    {refundResult.currency || currency}
+                  </>
+                )}
+              </p>
             )}
           </section>
         </div>
@@ -1690,5 +2220,103 @@ const totalDiscount =
     </div>
   );
 
-  return createPortal(node, document.body);
+  const refundModalNode = refundModalOpen && (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.45)",
+        zIndex: 10000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+      onClick={() => setRefundModalOpen(false)}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Confirmare rambursare"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff",
+          borderRadius: 12,
+          maxWidth: 440,
+          width: "100%",
+          padding: 24,
+          boxShadow: "0 10px 40px rgba(0,0,0,0.25)",
+        }}
+      >
+        <h3 style={{ marginTop: 0 }}>Confirmă rambursarea</h3>
+
+        <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 12 }}>
+          <div>
+            <strong>Comandă:</strong>{" "}
+            {localOrder.orderNumber || localOrder.id}
+          </div>
+          <div>
+            <strong>Sumă rambursată:</strong> {total.toFixed(2)} {currency}
+          </div>
+          <div>
+            <strong>Metodă de plată:</strong> Card
+          </div>
+          <div>
+            <strong>Tip rambursare:</strong> Rambursare integrală
+          </div>
+        </div>
+
+        <p
+          style={{
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            color: "#991b1b",
+            borderRadius: 8,
+            padding: "10px 12px",
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          Această acțiune va rambursa plata clientului și va reversa
+          evidențele financiare asociate comenzii.
+          <br />
+          Acțiunea nu poate fi anulată.
+        </p>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 10,
+            marginTop: 16,
+          }}
+        >
+          <button
+            type="button"
+            className={styles.adminActionBtn}
+            onClick={() => setRefundModalOpen(false)}
+            disabled={actionLoading}
+          >
+            Renunță
+          </button>
+          <button
+            type="button"
+            className={styles.adminActionBtnDanger}
+            onClick={handleRefundPayment}
+            disabled={actionLoading}
+          >
+            {actionLoading ? "Se procesează..." : "Confirmă rambursarea"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return createPortal(
+    <>
+      {node}
+      {refundModalNode}
+    </>,
+    document.body
+  );
 }

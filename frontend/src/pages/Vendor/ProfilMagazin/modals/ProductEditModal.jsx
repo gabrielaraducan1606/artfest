@@ -24,6 +24,7 @@ import { api } from "../../../../lib/api";
 import { uploadFile } from "../../../../lib/uploadFile";
 import ProductVideoField from "../../../../components/ProductVideoField";
 import styles from "../components/css/ProductModal.module.css";
+import ProductGpsrSection from "./ProductModal/components/ProductGpsrSection.jsx";
 
 // IMPORTURI CONSTANTE – la fel ca în ProductModal
 import {
@@ -611,6 +612,18 @@ const [uploadInfo, setUploadInfo] = useState("Niciun fișier ales");
     dimensions: "",
     careInstructions: "",
     specialNotes: "",
+
+    // GPSR (Regulamentul UE 2023/988)
+    isOwnManufacturer: null,
+    manufacturerName: "",
+    manufacturerAddress: "",
+    manufacturerEmail: "",
+    manufacturerInEU: null,
+    responsiblePersonName: "",
+    responsiblePersonAddress: "",
+    responsiblePersonEmail: "",
+    safetyWarnings: null,
+    isForChildren: null,
   });
 
   // === state pentru acordeoane – aliniat cu ProductModal ===
@@ -745,6 +758,17 @@ const onFilesPicked = useCallback(async (files) => {
         dimensions: "",
         careInstructions: "",
         specialNotes: "",
+
+        isOwnManufacturer: null,
+        manufacturerName: "",
+        manufacturerAddress: "",
+        manufacturerEmail: "",
+        manufacturerInEU: null,
+        responsiblePersonName: "",
+        responsiblePersonAddress: "",
+        responsiblePersonEmail: "",
+        safetyWarnings: null,
+        isForChildren: null,
       });
       setSectionsOpen({
         basic: false,
@@ -828,6 +852,29 @@ const onFilesPicked = useCallback(async (files) => {
           dimensions: p?.dimensions || "",
           careInstructions: p?.careInstructions || "",
           specialNotes: p?.specialNotes || "",
+
+          isOwnManufacturer:
+            p?.isOwnManufacturer === true || p?.isOwnManufacturer === false
+              ? p.isOwnManufacturer
+              : null,
+          manufacturerName: p?.manufacturerName || "",
+          manufacturerAddress: p?.manufacturerAddress || "",
+          manufacturerEmail: p?.manufacturerEmail || "",
+          manufacturerInEU:
+            p?.manufacturerInEU === true || p?.manufacturerInEU === false
+              ? p.manufacturerInEU
+              : null,
+          responsiblePersonName: p?.responsiblePersonName || "",
+          responsiblePersonAddress: p?.responsiblePersonAddress || "",
+          responsiblePersonEmail: p?.responsiblePersonEmail || "",
+          safetyWarnings:
+            p?.safetyWarnings === null || p?.safetyWarnings === undefined
+              ? null
+              : p.safetyWarnings,
+          isForChildren:
+            p?.isForChildren === true || p?.isForChildren === false
+              ? p.isForChildren
+              : null,
         });
 
         setCats(
@@ -1117,6 +1164,20 @@ const onFilesPicked = useCallback(async (files) => {
         dimensions: form.dimensions || null,
         careInstructions: form.careInstructions || null,
         specialNotes: form.specialNotes || null,
+
+        isOwnManufacturer: form.isOwnManufacturer,
+        manufacturerName: form.manufacturerName || null,
+        manufacturerAddress: form.manufacturerAddress || null,
+        manufacturerEmail: form.manufacturerEmail || null,
+        manufacturerInEU: form.manufacturerInEU,
+        responsiblePersonName: form.responsiblePersonName || null,
+        responsiblePersonAddress: form.responsiblePersonAddress || null,
+        responsiblePersonEmail: form.responsiblePersonEmail || null,
+        safetyWarnings:
+          form.safetyWarnings === null || form.safetyWarnings === undefined
+            ? null
+            : String(form.safetyWarnings),
+        isForChildren: form.isForChildren,
       };
 
       if (form.availability === "MADE_TO_ORDER") {
@@ -1572,6 +1633,16 @@ const onFilesPicked = useCallback(async (files) => {
                 />
                 Acceptă personalizare
               </label>
+
+              <ProductGpsrSection
+                form={form}
+                setForm={setForm}
+                vendorPreview={{
+                  displayName: initial?.vendor?.displayName || "",
+                  address: initial?.vendor?.address || "",
+                  email: initial?.vendor?.email || "",
+                }}
+              />
             </AccordionSection>
 
             {/* ===== Secțiunea 3: Disponibilitate & stoc ===== */}

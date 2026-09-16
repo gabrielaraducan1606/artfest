@@ -4,6 +4,14 @@
   padding: 24px 16px 64px;
 }
 
+/* Randată ca subtab în ProfitabilityPage - acela e deja .page
+   (max-width + padding proprii), nu mai dublăm spațierea. */
+.pageEmbedded {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
 .header {
   display: flex;
   align-items: flex-start;

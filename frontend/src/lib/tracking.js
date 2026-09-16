@@ -2,7 +2,7 @@
 import { api } from "./api";
 
 // ------------- sesiune unică pe vizitator -------------
-function getSessionId() {
+export function getSessionId() {
   try {
     const k = "af_sess_id";
     let id = localStorage.getItem(k);

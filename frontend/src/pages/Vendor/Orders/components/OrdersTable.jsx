@@ -344,19 +344,34 @@ title={
                         </button>
                       )}
 
-                      {["new", "preparing", "confirmed"].includes(o.status) && (
-                        <button
-                          className={styles.iconActionBtn}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenCancel(o);
-                          }}
-                          title="Anulează comanda"
-                          aria-label="Anulează comanda"
-                        >
-                          <XCircle size={16} />
-                        </button>
-                      )}
+                      {["new", "preparing", "confirmed"].includes(o.status) &&
+                        (o.paymentMethod === "CARD" && o.paymentStatus === "PAID" ? (
+                          /*
+                           * CARD deja plătit - vendorul NU poate anula direct
+                           * (backend: card_refund_requires_admin). Nu deschidem
+                           * modalul de anulare, ca să nu pară un flux de refund.
+                           */
+                          <button
+                            className={styles.iconActionBtn}
+                            disabled
+                            title="Comanda este plătită cu cardul. Rambursarea trebuie procesată de Artfest."
+                            aria-label="Rambursarea trebuie procesată de Artfest"
+                          >
+                            <XCircle size={16} />
+                          </button>
+                        ) : (
+                          <button
+                            className={styles.iconActionBtn}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenCancel(o);
+                            }}
+                            title="Anulează comanda"
+                            aria-label="Anulează comanda"
+                          >
+                            <XCircle size={16} />
+                          </button>
+                        ))}
                     </td>
                   </tr>
                 );

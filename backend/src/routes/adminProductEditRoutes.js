@@ -8,6 +8,11 @@ import {
   requireRole,
 } from "../api/auth.js";
 
+import {
+  pickGpsrPatchFromBody,
+  validateGpsrConsistency,
+} from "../lib/gpsrCompliance.js";
+
 const router = Router();
 
 /* =========================================================
@@ -493,6 +498,38 @@ if (
             body.specialNotes
           );
       }
+
+      /* =================================================
+         GPSR (Regulamentul UE 2023/988)
+
+         Adminul poate corecta/completa aceste câmpuri
+         (ex. la cererea vendorului prin suport), dar nu
+         le completează automat - dacă nu sunt trimise
+         explicit în body, rămân neatinse.
+      ================================================= */
+
+      const gpsrValidation =
+        validateGpsrConsistency(
+          body,
+          existing
+        );
+
+      if (!gpsrValidation.ok) {
+        return res
+          .status(400)
+          .json({
+            error:
+              gpsrValidation.error,
+
+            message:
+              gpsrValidation.message,
+          });
+      }
+
+      Object.assign(
+        data,
+        pickGpsrPatchFromBody(body)
+      );
 
       /* =================================================
          ACTIV / ASCUNS

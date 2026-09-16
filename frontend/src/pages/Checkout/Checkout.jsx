@@ -9,7 +9,18 @@ import {
   getGuestCart,
   clearGuestCart,
 } from "../../utils/guestCart";
-import { getAttributionsForCheckout } from "../../utils/campaignAttribution.js";
+import {
+  getAttributionsForCheckout,
+  consumeCampaignAttributions,
+} from "../../utils/campaignAttribution.js";
+import { getInfluencerAttributionForCheckout } from "../../utils/influencerAttribution.js";
+import { getVendorReferralAttributionForCheckout } from "../../utils/vendorReferralAttribution.js";
+import { getVendorCollectionAttributionForCheckout } from "../../utils/vendorCollectionAttribution.js";
+import {
+  getStoredDiscountCode,
+  storeDiscountCode,
+  clearStoredDiscountCode,
+} from "../../utils/discountCode.js";
 import { humanizeOptionValue } from "../../utils/optionLabels.js";
 import styles from "./Checkout.module.css";
 
@@ -615,6 +626,13 @@ const [me, setMe] = useState(null);
   const [items, setItems] = useState([]);
   const [groups, setGroups] = useState([]);
   const [currency, setCurrency] = useState("RON");
+
+  const [discountCodeInput, setDiscountCodeInput] = useState(() =>
+    getStoredDiscountCode()
+  );
+  const [discountCodeApplied, setDiscountCodeApplied] = useState(null);
+  const [discountCodeError, setDiscountCodeError] = useState("");
+  const [discountCodeReloadKey, setDiscountCodeReloadKey] = useState(0);
 
   const [shippingAddress, setShippingAddress] = useState({
     firstName: "",
@@ -1634,7 +1652,13 @@ const offer =
             await api(
               `/api/checkout/summary?campaignAttribution=${encodeURIComponent(
                 JSON.stringify(getAttributionsForCheckout())
-              )}`
+              )}${
+                getStoredDiscountCode()
+                  ? `&discountCode=${encodeURIComponent(
+                      getStoredDiscountCode()
+                    )}`
+                  : ""
+              }`
             );
         } else {
           /*
@@ -1669,6 +1693,9 @@ const offer =
 
                   campaignAttribution:
                     getAttributionsForCheckout(),
+
+                  discountCode:
+                    getStoredDiscountCode() || undefined,
                 },
               }
             );
@@ -1700,6 +1727,17 @@ const offer =
           summary?.currency ||
           "RON"
         );
+
+        if (summary?.discountCode?.valid) {
+          setDiscountCodeApplied(summary.discountCode);
+          setDiscountCodeError("");
+        } else if (summary?.discountCode) {
+          setDiscountCodeApplied(null);
+          setDiscountCodeError(summary.discountCode.message || "");
+          clearStoredDiscountCode();
+        } else {
+          setDiscountCodeApplied(null);
+        }
       }
 
       /*
@@ -1844,7 +1882,30 @@ const offer =
   quoteId,
   offerId,
   nav,
+  discountCodeReloadKey,
 ]);
+
+/*
+ * Aplică/elimină codul de reducere direct din Checkout - persistăm
+ * în sessionStorage (același helper ca în Cart) și forțăm efectul
+ * de mai sus să re-încarce sumarul, care revalidează codul FRESH
+ * din DB și recalculează items/subtotal/total server-side.
+ */
+const applyDiscountCode = () => {
+  const code = String(discountCodeInput || "").trim();
+  if (!code) return;
+
+  storeDiscountCode(code);
+  setDiscountCodeReloadKey((k) => k + 1);
+};
+
+const removeDiscountCode = () => {
+  clearStoredDiscountCode();
+  setDiscountCodeInput("");
+  setDiscountCodeApplied(null);
+  setDiscountCodeError("");
+  setDiscountCodeReloadKey((k) => k + 1);
+};
 
   useEffect(() => {
     let cancelled = false;
@@ -2081,6 +2142,11 @@ const offer =
         shipToDifferentAddress:
           customerType === "PJ" ? shipToDifferentAddress : false,
         campaignAttribution: getAttributionsForCheckout(),
+        influencerAttribution: getInfluencerAttributionForCheckout(),
+        vendorReferralAttribution: getVendorReferralAttributionForCheckout(),
+        vendorCollectionAttribution:
+          getVendorCollectionAttributionForCheckout(),
+        discountCode: getStoredDiscountCode() || undefined,
       };
 /*
  * =========================================================
@@ -2235,6 +2301,17 @@ if (result?.ok || result?.orderId) {
     clearGuestCart();
   }
 
+  clearStoredDiscountCode();
+
+  /*
+   * Consumare token campanie (audit 2026-09-14, lifecycle
+   * VendorCampaign) - DOAR pentru vendorii confirmați de backend
+   * (eligibleCampaignVendorIds) ca având ≥1 produs eligibil în
+   * ACEASTĂ comandă. Identic user/guest - același răspuns, același
+   * helper. Un token fără produs eligibil NU e atins aici.
+   */
+  consumeCampaignAttributions(result?.eligibleCampaignVendorIds);
+
  try {
   sessionStorage.removeItem(
     "cart:ui-cache:v1"
@@ -2289,7 +2366,26 @@ if (me) {
   nav("/multumim");
 }
     } catch (e) {
-      setError(getReadableApiError(e));
+      if (e?.data?.discountCodeInvalid) {
+        /*
+         * Fail-CLOSED: codul a devenit invalid chiar acum
+         * (expirat/dezactivat/limită atinsă între ultimul sumar
+         * și plasare). Nu plasăm comanda cu alt total în tăcere -
+         * arătăm eroarea clar și recalculăm checkout-ul.
+         */
+        clearStoredDiscountCode();
+        setDiscountCodeApplied(null);
+        setDiscountCodeError(
+          e?.message ||
+            "Codul de reducere nu mai este valabil. Am recalculat comanda."
+        );
+        setDiscountCodeReloadKey((k) => k + 1);
+        setError(
+          "Codul de reducere nu mai este valabil - te rugăm verifică totalul recalculat și încearcă din nou."
+        );
+      } else {
+        setError(getReadableApiError(e));
+      }
     } finally {
       setPlacing(false);
     }
@@ -3789,6 +3885,124 @@ if (me) {
                 <strong>{money(shippingTotal, currency)}</strong>
               </div>
 
+              {!isQuoteCheckout && (
+                <div style={{ margin: "10px 0" }}>
+                  {discountCodeApplied ? (
+                    <div>
+                      <div className={styles.summaryRow}>
+                        <span
+                          style={{
+                            color:
+                              discountCodeApplied.wonOnAnyItem === false
+                                ? "#92400e"
+                                : "#16a34a",
+                            fontWeight: 600,
+                          }}
+                        >
+                          Cod {discountCodeApplied.code}
+                          {discountCodeApplied.wonOnAnyItem === false &&
+                            " (valid)"}
+                        </span>
+
+                        <span
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          {discountCodeApplied.wonOnAnyItem !== false && (
+                            <strong style={{ color: "#16a34a" }}>
+                              −
+                              {money(
+                                (discountCodeApplied.estimatedDiscountAmountCents ||
+                                  0) / 100,
+                                currency
+                              )}
+                            </strong>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={removeDiscountCode}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "#6b7280",
+                              textDecoration: "underline",
+                              cursor: "pointer",
+                              fontSize: 12,
+                            }}
+                          >
+                            Elimină
+                          </button>
+                        </span>
+                      </div>
+
+                      {discountCodeApplied.message && (
+                        <div
+                          style={{
+                            color: "#92400e",
+                            fontSize: 12,
+                            marginTop: 4,
+                          }}
+                        >
+                          {discountCodeApplied.message}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        type="text"
+                        placeholder="Cod de reducere"
+                        value={discountCodeInput}
+                        onChange={(e) =>
+                          setDiscountCodeInput(e.target.value.toUpperCase())
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            applyDiscountCode();
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          border: "1px solid #d1d5db",
+                        }}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={applyDiscountCode}
+                        disabled={!discountCodeInput.trim()}
+                        style={{
+                          padding: "8px 14px",
+                          borderRadius: 8,
+                          border: "1px solid #d1d5db",
+                          background: "#f9fafb",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Aplică
+                      </button>
+                    </div>
+                  )}
+
+                  {discountCodeError && (
+                    <div
+                      style={{ color: "#dc2626", fontSize: 13, marginTop: 6 }}
+                      role="alert"
+                    >
+                      {discountCodeError}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className={styles.divider} />
 
               <div className={styles.summaryRow}>
@@ -3888,7 +4102,7 @@ if (me) {
 
               <p className={styles.legalNote}>
                 Continuând, accepți{" "}
-                <Link to="/termeni" target="_blank" rel="noreferrer">
+                <Link to="/termenii-si-conditiile" target="_blank" rel="noreferrer">
                   Termenii
                 </Link>{" "}
                 și confirmi că ai citit{" "}

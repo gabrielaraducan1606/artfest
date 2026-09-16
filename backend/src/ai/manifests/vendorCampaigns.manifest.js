@@ -62,6 +62,17 @@ export const VENDOR_CAMPAIGNS_MANIFEST = {
     "ce comision am daca clientul cumpara doua produse de ale mele",
     "ce comision am daca cumpara si de la alt vanzator",
     "comisionul de campanie e legat de produsul din campanie sau de tot magazinul",
+    "pot avea mai multe campanii",
+    "cate campanii pot crea",
+    "cum vad vizitele campaniei",
+    "cum vad performanta campaniei",
+
+    /*
+     * BATCH D (2026-09-07) - "ce campanii am active" e răspuns LIVE
+     * (vendorAssistantPromotions.js, copilotRouter.js), nu din acest
+     * FAQ - alias păstrat doar ca ancoră de retrieval de rezervă.
+     */
+    "ce campanii am active",
   ],
 
   uiLocations: [
@@ -178,6 +189,14 @@ export const VENDOR_CAMPAIGNS_MANIFEST = {
     {
       q: "Dacă clientul cumpără și de la alt vânzător în aceeași comandă, ce comision am eu față de celălalt vânzător?",
       a: "Fiecare vânzător e evaluat independent. Tu ai 5% dacă atribuirea prin campania TA e validă pentru acel client. Celălalt vânzător are propriul comision standard (de obicei 12%), decât dacă și clientul a intrat separat prin campania LUI - comisioanele nu se amestecă între vânzători într-o comandă cu produse de la mai mulți.",
+    },
+    {
+      q: "Pot avea mai multe campanii?",
+      a: "Da - poți crea, edita, activa/dezactiva și șterge oricâte campanii proprii vrei, fără limită.",
+    },
+    {
+      q: "Cum văd vizitele/performanța campaniei?",
+      a: "Fiecare campanie afișează numărul de vizite pe pagina ei publică și comenzile atribuite - le vezi în lista campaniilor tale, din contul de vânzător.",
     },
   ],
 

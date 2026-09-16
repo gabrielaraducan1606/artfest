@@ -1,20 +1,12 @@
 import {
   Outlet,
 } from "react-router-dom";
-import { lazy, Suspense } from "react";
 
 import Navbar from "./Navbar";
 import Footer from "../Footer/Footer";
-
-// Widget-uri de asistent AI - grele (includ printre altele fluxul
-// de căutare vizuală de produse, ~2000+ linii), dar folosite doar
-// când userul le deschide explicit. Lazy, ca să nu intre în
-// bundle-ul inițial al fiecărei pagini.
-const AiAssistant = lazy(() => import("../AIAssistant/AiAssistant.jsx"));
-const VendorAssistant = lazy(() =>
-  import("../AIAssistant/VendorAIAssistant/VendorAssistant.jsx")
-);
+import FloatingHub from "../FloatingHub/FloatingHub.jsx";
 import { CurrentEntityProvider } from "../AIAssistant/CurrentEntityContext.jsx";
+import { UnreadMessagesProvider } from "../../features/messages/hooks/UnreadMessagesProvider.jsx";
 
 import {
   useAuth,
@@ -29,26 +21,29 @@ export default function AppLayout() {
     me?.role ===
     "VENDOR";
 
+  /*
+   * FAZA 3 - influencerul reutilizează EXACT AiAssistant.jsx (nu un
+   * widget separat) - doar primește rolul real, ca resolveAssistantAction
+   * (assistantActionRegistry.js) și quick actions să știe să-l
+   * trateze diferit de un USER simplu.
+   */
+  const isInfluencer =
+    me?.role ===
+    "INFLUENCER";
+
   return (
     <CurrentEntityProvider>
-      <Navbar />
+      <UnreadMessagesProvider>
+        <Navbar />
 
-      <main>
-        <Outlet />
-      </main>
+        <main>
+          <Outlet />
+        </main>
 
-      <Footer />
+        <Footer />
 
-      <Suspense fallback={null}>
-        {isVendor ? (
-          <VendorAssistant />
-        ) : (
-          <AiAssistant
-            isVendor={false}
-            isAuthenticated={Boolean(me)}
-          />
-        )}
-      </Suspense>
+        <FloatingHub me={me} isVendor={isVendor} isInfluencer={isInfluencer} />
+      </UnreadMessagesProvider>
     </CurrentEntityProvider>
   );
 }

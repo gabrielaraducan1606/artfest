@@ -3,7 +3,15 @@ import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
-import { sseBroadcastToVendor } from "./vendorOrdersRoutes.js";
+import {
+  sseBroadcastToVendor,
+  ensureSaleLedgerEntry,
+  ensureInfluencerSaleLedgerEntry,
+  ensureVendorReferralSaleLedgerEntry,
+  ensureRefundLedgerEntry,
+  ensureInfluencerRefundLedgerEntry,
+  ensureVendorReferralRefundLedgerEntry,
+} from "./vendorOrdersRoutes.js";
 import { notifyVendorOnAwbAssigned } from "../services/notifications.js";
 
 const prisma = new PrismaClient();
@@ -567,6 +575,40 @@ router.patch("/pickups/:shipmentId/delivered", requireAdmin, async (req, res) =>
       });
     }
 
+    /*
+     * LEDGER (audit 2026-09-14, Bug 1 CRITICAL) - identic ca declanșator
+     * și ordine cu PATCH /api/vendor/orders/:id/status (vendorOrdersRoutes.js):
+     * status -> DELIVERED trebuie să creeze exact aceleași 3 intrări de
+     * ledger, indiferent dacă livrarea e confirmată de vendor sau de
+     * admin din pagina Pickups. Reutilizăm STRICT helper-ele canonice -
+     * niciun calcul nou. Toate 3 sunt idempotente (upsert pe shipmentId,
+     * update: {}) - un al doilea apel pe același shipment nu creează
+     * nimic în plus. Non-blocant: dacă ledger-ul eșuează, statusul deja
+     * scris rămâne (nu-l rulăm într-o tranzacție comună cu ledger-ul -
+     * helper-ele nu acceptă `db`/tx, la fel ca în vendorOrdersRoutes.js),
+     * dar eroarea e logată clar pentru reconciliere manuală.
+     */
+    try {
+      await ensureSaleLedgerEntry({
+        vendorId: updated.vendorId,
+        shipmentId: updated.id,
+      });
+
+      await ensureInfluencerSaleLedgerEntry({
+        shipmentId: updated.id,
+      });
+
+      await ensureVendorReferralSaleLedgerEntry({
+        shipmentId: updated.id,
+      });
+    } catch (ledgerError) {
+      console.error(
+        "[admin/pickups delivered] ledger creation failed:",
+        updated.id,
+        ledgerError
+      );
+    }
+
     sseBroadcastToVendor(updated.vendorId, "shipment_status", {
       orderId: updated.orderId,
       shipmentId: updated.id,
@@ -588,25 +630,53 @@ router.patch("/pickups/:shipmentId/refused", requireAdmin, async (req, res) => {
   try {
     const shipmentId = String(req.params.shipmentId);
 
-    const existing = await prisma.shipment.findUnique({
-      where: { id: shipmentId },
-      select: { id: true, status: true, vendorId: true, orderId: true },
-    });
-    if (!existing) return res.status(404).json({ error: "not_found" });
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.shipment.findUnique({
+        where: { id: shipmentId },
+        select: { id: true, status: true, vendorId: true, orderId: true },
+      });
+      if (!existing) {
+        throw Object.assign(new Error("not_found"), { code: "NOT_FOUND" });
+      }
 
-    if (!["AWB", "IN_TRANSIT", "PICKUP_SCHEDULED", "READY_FOR_PICKUP"].includes(existing.status)) {
-      return res.status(409).json({ error: "invalid_status" });
-    }
+      if (!["AWB", "IN_TRANSIT", "PICKUP_SCHEDULED", "READY_FOR_PICKUP"].includes(existing.status)) {
+        throw Object.assign(new Error("invalid_status"), { code: "INVALID_STATUS" });
+      }
 
-    const updated = await prisma.shipment.update({
-      where: { id: shipmentId },
-      data: {
-        status: "REFUSED",
-        refusedAt: new Date(),
-        deliveredAt: null,
-        returnedAt: null,
-      },
-      select: { id: true, status: true, orderId: true, vendorId: true, refusedAt: true },
+      const updatedShipment = await tx.shipment.update({
+        where: { id: shipmentId },
+        data: {
+          status: "REFUSED",
+          refusedAt: new Date(),
+          deliveredAt: null,
+          returnedAt: null,
+        },
+        select: { id: true, status: true, orderId: true, vendorId: true, refusedAt: true },
+      });
+
+      await ensureRefundLedgerEntry({
+        vendorId: updatedShipment.vendorId,
+        shipmentId: updatedShipment.id,
+        db: tx,
+      });
+      await ensureInfluencerRefundLedgerEntry({
+        shipmentId: updatedShipment.id,
+        db: tx,
+      });
+
+      /*
+       * Bug 2 CRITICAL (audit 2026-09-14) - lipsea complet aici; fără
+       * acest apel, un referral cross-vendor rămânea încasat de
+       * promoter chiar și după ce vânzarea era anulată din pagina
+       * admin de Pickups. Fail-open intern (no-op dacă shipmentul nu
+       * are referrerVendorId) - la fel ca celelalte două de mai sus.
+       */
+      await ensureVendorReferralRefundLedgerEntry({
+        shipmentId: updatedShipment.id,
+        db: tx,
+      });
+
+      return updatedShipment;
     });
 
     sseBroadcastToVendor(updated.vendorId, "shipment_status", {
@@ -618,6 +688,8 @@ router.patch("/pickups/:shipmentId/refused", requireAdmin, async (req, res) => {
 
     return res.json({ ok: true, shipment: updated });
   } catch (err) {
+    if (err?.code === "NOT_FOUND") return res.status(404).json({ error: "not_found" });
+    if (err?.code === "INVALID_STATUS") return res.status(409).json({ error: "invalid_status" });
     console.error("PATCH refused FAILED:", err);
     return res.status(500).json({ error: "server_error" });
   }
@@ -630,24 +702,52 @@ router.patch("/pickups/:shipmentId/returned", requireAdmin, async (req, res) => 
   try {
     const shipmentId = String(req.params.shipmentId);
 
-    const existing = await prisma.shipment.findUnique({
-      where: { id: shipmentId },
-      select: { id: true, status: true, vendorId: true, orderId: true },
-    });
-    if (!existing) return res.status(404).json({ error: "not_found" });
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.shipment.findUnique({
+        where: { id: shipmentId },
+        select: { id: true, status: true, vendorId: true, orderId: true },
+      });
+      if (!existing) {
+        throw Object.assign(new Error("not_found"), { code: "NOT_FOUND" });
+      }
 
-    if (!["REFUSED", "IN_TRANSIT", "AWB", "PICKUP_SCHEDULED", "READY_FOR_PICKUP"].includes(existing.status)) {
-      return res.status(409).json({ error: "invalid_status" });
-    }
+      if (!["REFUSED", "IN_TRANSIT", "AWB", "PICKUP_SCHEDULED", "READY_FOR_PICKUP"].includes(existing.status)) {
+        throw Object.assign(new Error("invalid_status"), { code: "INVALID_STATUS" });
+      }
 
-    const updated = await prisma.shipment.update({
-      where: { id: shipmentId },
-      data: {
-        status: "RETURNED",
-        returnedAt: new Date(),
-        deliveredAt: null,
-      },
-      select: { id: true, status: true, orderId: true, vendorId: true, returnedAt: true },
+      const updatedShipment = await tx.shipment.update({
+        where: { id: shipmentId },
+        data: {
+          status: "RETURNED",
+          returnedAt: new Date(),
+          deliveredAt: null,
+        },
+        select: { id: true, status: true, orderId: true, vendorId: true, returnedAt: true },
+      });
+
+      await ensureRefundLedgerEntry({
+        vendorId: updatedShipment.vendorId,
+        shipmentId: updatedShipment.id,
+        db: tx,
+      });
+      await ensureInfluencerRefundLedgerEntry({
+        shipmentId: updatedShipment.id,
+        db: tx,
+      });
+
+      /*
+       * Bug 2 CRITICAL (audit 2026-09-14) - lipsea complet aici; fără
+       * acest apel, un referral cross-vendor rămânea încasat de
+       * promoter chiar și după ce vânzarea era anulată din pagina
+       * admin de Pickups. Fail-open intern (no-op dacă shipmentul nu
+       * are referrerVendorId) - la fel ca celelalte două de mai sus.
+       */
+      await ensureVendorReferralRefundLedgerEntry({
+        shipmentId: updatedShipment.id,
+        db: tx,
+      });
+
+      return updatedShipment;
     });
 
     sseBroadcastToVendor(updated.vendorId, "shipment_status", {
@@ -659,6 +759,8 @@ router.patch("/pickups/:shipmentId/returned", requireAdmin, async (req, res) => 
 
     return res.json({ ok: true, shipment: updated });
   } catch (err) {
+    if (err?.code === "NOT_FOUND") return res.status(404).json({ error: "not_found" });
+    if (err?.code === "INVALID_STATUS") return res.status(409).json({ error: "invalid_status" });
     console.error("PATCH returned FAILED:", err);
     return res.status(500).json({ error: "server_error" });
   }

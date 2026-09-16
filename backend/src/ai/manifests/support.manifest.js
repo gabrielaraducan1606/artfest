@@ -62,6 +62,20 @@ export const SUPPORT_MANIFEST = {
       notes:
         "Tichetul propus de asistent NU se creează automat - ți se arată un rezumat și trebuie să confirmi explicit (buton sau răspuns 'da') înainte să fie trimis.",
     },
+
+    /*
+     * FINAL BATCH 3 (audit regression, 2026-09-07) - CONFIRMAT direct
+     * în cod (userSupportRoutes.js/vendorSupportRoutes.js: schema
+     * `attachments` pe crearea tichetului ȘI pe fiecare mesaj din
+     * conversație) - funcție reală, doar nedocumentată până acum în
+     * acest manifest (MISSING_KNOWLEDGE găsit în audit).
+     */
+    attachments: {
+      available: true,
+
+      notes:
+        "Poți atașa imagini (ex. screenshot-uri) atât la crearea tichetului, cât și la orice mesaj trimis într-o conversație de suport deja existentă. Nu am găsit, în cod, o limită explicită de numărul de atașamente per mesaj/tichet.",
+    },
   },
 
   limitations: [
@@ -144,6 +158,34 @@ export const SUPPORT_MANIFEST = {
     {
       q: "Cum deschid un tichet?",
       a: "Fie direct din pagina de contact suport (completezi subiect, categorie și mesaj), fie prin asistent - descrii problema, iar dacă asistentul nu o poate rezolva, îți propune un tichet pe care îl confirmi înainte să fie trimis.",
+    },
+
+    /*
+     * FINAL BATCH 3 (audit regression, 2026-09-07).
+     */
+    {
+      q: "Arată-mi tichetele mele.",
+      a: "Găsești toate tichetele tale de suport, cu status și conversația fiecăruia, în secțiunea de suport din contul tău.",
+    },
+    {
+      q: "Pot trimite o poză la suport?",
+      a: "Da - poți atașa imagini (ex. capturi de ecran) atât când deschizi un tichet nou, cât și la un mesaj într-o conversație de suport deja existentă.",
+    },
+    {
+      q: "Cum atașez un screenshot la un tichet?",
+      a: "La deschiderea tichetului sau la trimiterea unui mesaj în conversația de suport, ai opțiunea de a atașa o imagine - la fel ca la mesajele obișnuite din platformă.",
+    },
+    {
+      q: "Dacă deschid un tichet fără cont (ca guest), primesc răspunsul pe email?",
+      a: "Da - confirmat direct în cod: de fiecare dată când echipa răspunde la un tichet deschis fără cont, se trimite automat un email cu răspunsul, la adresa dată la deschiderea tichetului. Nu ai o pagină publică unde să vezi conversația (asta necesită cont), dar email-ul cu răspunsul ajunge oricum, necondiționat.",
+    },
+    {
+      q: "Cum văd dacă suportul a răspuns la tichetul meu, dacă nu am cont?",
+      a: "Prin email - vei primi automat un email cu răspunsul de fiecare dată când echipa scrie pe tichetul tău. Nu există o pagină publică de urmărire a tichetului fără cont; emailul e canalul de comunicare.",
+    },
+    {
+      q: "Pot anula un tichet deschis fără cont (ca guest)?",
+      a: "Nu - anularea unui tichet e disponibilă doar dintr-un cont autentificat. Fără cont, poți răspunde prin email la conversație (inclusiv pentru a spune că nu mai ai nevoie de ajutor), dar nu există o acțiune de „anulare” pe care să o faci singur, fără cont.",
     },
   ],
 

@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/api";
 
-// ajustează importul ăsta la calea ta reală (e desktop-ul actual de vendor)
-import VendorDesktop from "../Vendor/Desktop/Desktop"; // <- dacă la tine e alt path, schimbă-l
-
+import VendorDesktop from "../Vendor/Desktop/Desktop";
 import UserDesktop from "../User/UserDesktop/UserDesktop";
 
 export default function Desktop() {
@@ -30,6 +28,5 @@ export default function Desktop() {
   );
 
   if (me.role === "VENDOR") return <VendorDesktop />;
-  if (me.role === "ADMIN")  return <VendorDesktop />; // sau <AdminDesktop/> dacă ai unul separat
-  return <UserDesktop me={me} />; // rol: USER
+  return <UserDesktop me={me} />;
 }

@@ -888,6 +888,30 @@ async function handleAcceptGate() {
         dimensions: full.dimensions || "",
         careInstructions: full.careInstructions || "",
         specialNotes: full.specialNotes || "",
+
+        isOwnManufacturer:
+          full.isOwnManufacturer === true || full.isOwnManufacturer === false
+            ? full.isOwnManufacturer
+            : null,
+        manufacturerName: full.manufacturerName || "",
+        manufacturerAddress: full.manufacturerAddress || "",
+        manufacturerEmail: full.manufacturerEmail || "",
+        manufacturerInEU:
+          full.manufacturerInEU === true || full.manufacturerInEU === false
+            ? full.manufacturerInEU
+            : null,
+        responsiblePersonName: full.responsiblePersonName || "",
+        responsiblePersonAddress: full.responsiblePersonAddress || "",
+        responsiblePersonEmail: full.responsiblePersonEmail || "",
+        safetyWarnings:
+          full.safetyWarnings === null || full.safetyWarnings === undefined
+            ? null
+            : full.safetyWarnings,
+        isForChildren:
+          full.isForChildren === true || full.isForChildren === false
+            ? full.isForChildren
+            : null,
+
         orderMode: full.orderMode || "READY_TO_BUY",
 
 optionsSchema: Array.isArray(full.optionsSchema)
@@ -1202,6 +1226,7 @@ quoteSchema: Array.isArray(full.quoteSchema)
         categories={categories}
         handleSaveProduct={handleSaveProduct}
         storeSlug={storeSlug}
+        sellerData={_sellerData}
       />
 <StoreCampaignsModal
   open={campaignsModalOpen}

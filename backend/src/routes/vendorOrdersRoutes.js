@@ -21,8 +21,15 @@ import {
   createDepositPaymentForShipment,
 } from "../payments/orchestrator.js";
 import {
-  computeCommissionBreakdown,
+  computeGroupedCommissionBreakdown,
 } from "../services/commissionCalc.js";
+import {
+  getCampaignEligibilityInfo,
+  splitItemsByCampaignEligibility,
+} from "../services/campaignAttribution.js";
+import {
+  restoreStockFromItems,
+} from "../services/stockRestore.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -73,7 +80,7 @@ function generateOrderNumber() {
   return `AF-${t}-${r}`.slice(0, 32);
 }
 
-async function getActivePlanForVendor(vendorId) {
+export async function getActivePlanForVendor(vendorId) {
   const now = new Date();
 
   const sub = await prisma.vendorSubscription.findFirst({
@@ -196,6 +203,67 @@ function getVendorDiscountGross(
     )
   );
 }
+
+/**
+ * Preview/snapshot al comisionului de influencer/vendor-referral pentru
+ * afișare în Order Details - NU o a doua logică financiară.
+ *
+ * Formula (identică, EXACT, cu ensureInfluencerSaleLedgerEntry /
+ * ensureVendorReferralSaleLedgerEntry de mai sus, care creează
+ * rândurile reale în ledger la DELIVERED/IN_TRANSIT):
+ *
+ *   earningNet = artfestCommissionNet(=comisionul NET al Artfest pe
+ *     acest shipment, deja calculat mai sus) * commissionBpsSnapshot / 10000
+ *
+ * Dacă rândul de ledger (InfluencerEarningEntry/VendorReferralEarningEntry)
+ * există deja (comandă DELIVERED), folosim valorile STOCATE acolo -
+ * sursa de adevăr, nu recalculăm. Altfel arătăm un preview live, marcat
+ * explicit `isSnapshot: false`.
+ */
+export async function buildAttributionCommissionPreview({
+  type,
+  name,
+  commissionBpsSnapshot,
+  ledgerModel,
+  shipmentId,
+  liveArtfestCommissionNet,
+}) {
+  const bps = Number(commissionBpsSnapshot || 0);
+
+  if (!Number.isInteger(bps) || bps <= 0) {
+    return null;
+  }
+
+  const ledgerEntry = await ledgerModel.findUnique({
+    where: { shipmentId },
+  });
+
+  if (ledgerEntry) {
+    return {
+      type,
+      name: name || null,
+      commissionBps: bps,
+      commissionPercent: round2(bps / 100),
+      baseAmount: round2(Number(ledgerEntry.artfestCommissionNet || 0)),
+      amount: round2(Number(ledgerEntry.earningNet || 0)),
+      isSnapshot: true,
+    };
+  }
+
+  const baseAmount = round2(Number(liveArtfestCommissionNet || 0));
+  const amount = round2((baseAmount * bps) / 10000);
+
+  return {
+    type,
+    name: name || null,
+    commissionBps: bps,
+    commissionPercent: round2(bps / 100),
+    baseAmount,
+    amount,
+    isSnapshot: false,
+  };
+}
+
 /**
  * Calculează earning-ul vendorului pe shipment, folosind aceeași logică ca în GET /orders/:id:
  * - items subtotal gross -> net în funcție de TVA vendor
@@ -204,7 +272,7 @@ function getVendorDiscountGross(
  *
  * Notă: shipping NU intră în earning vendor.
  */
-async function computeVendorEarningForShipment({
+export async function computeVendorEarningForShipment({
   vendorId,
   shipmentId,
 }) {
@@ -311,19 +379,64 @@ async function computeVendorEarningForShipment({
   }
 
   /*
+   * Comision de referral vendor "own-sale" (override) - setat
+   * exclusiv server-side la checkout, când vendorul shipment-ului
+   * și-a promovat PROPRIUL produs (prin ?ref= sau cod de reducere
+   * al lui). Vezi buildShipmentAttributionFields din chekoutRoutes.js
+   * pentru unde se scrie acest câmp.
+   *
+   * PRIORITATE (audit 2026-09-14, regula finală de business):
+   * own-sale ARE PRIORITATE față de campanie - dacă vendorul are
+   * simultan pe același shipment atât o atribuire de campanie
+   * (vizitare /c/:slug), cât și own-sale valid (codul lui propriu,
+   * eligibil pe produs), own-sale câștigă. Cele două axe se pot scrie
+   * independent la checkout (campaignId + vendorReferralCommissionOverrideBps
+   * pot fi ambele nenule pe același shipment), deci ordinea contează.
+   */
+  const hasVendorReferralOwnSaleCommission =
+    shipment.vendorReferralCommissionOverrideBps !==
+      null &&
+    shipment.vendorReferralCommissionOverrideBps !==
+      undefined;
+
+  /*
+   * Sursa own-sale (audit 2026-09-15, regula finală de business
+   * pentru VendorCollection): 500bps e identic indiferent de sursă,
+   * dar UI-ul trebuie să distingă "colecție proprie" de "cod personal"
+   * - vezi marcajul scris în buildShipmentAttributionFields
+   * (chekoutRoutes.js), care refolosește câmpul
+   * referrerVendorReferralCodeSnapshot (mereu null în own-sale altfel,
+   * populat doar pe ramura de referral extern) ca marcaj
+   * "COLLECTION:<slug>" (prefix, NU egalitate strictă - audit
+   * 2026-09-15, persistent attribution, carry-ul slug-ului pentru
+   * afișare UI).
+   */
+  const isVendorCollectionOwnSale =
+    hasVendorReferralOwnSaleCommission &&
+    typeof shipment.referrerVendorReferralCodeSnapshot === "string" &&
+    shipment.referrerVendorReferralCodeSnapshot.startsWith(
+      "COLLECTION:"
+    );
+
+  /*
    * Comision de campanie (override) - setat exclusiv
    * server-side la checkout, pe shipment-ul curent, dacă
    * atribuirea a fost validă în acel moment. Are prioritate
-   * față de planul curent al vendorului.
+   * față de planul curent al vendorului, dar NU față de own-sale.
    */
   const hasCampaignCommission =
+    !hasVendorReferralOwnSaleCommission &&
     shipment.campaignCommissionBps !==
       null &&
     shipment.campaignCommissionBps !==
       undefined;
 
   const commissionBps =
-    hasCampaignCommission
+    hasVendorReferralOwnSaleCommission
+      ? Number(
+          shipment.vendorReferralCommissionOverrideBps
+        )
+      : hasCampaignCommission
       ? Number(
           shipment.campaignCommissionBps
         )
@@ -335,24 +448,82 @@ async function computeVendorEarningForShipment({
       : 0;
 
   /*
+   * Comision MIXT per item (audit 2026-09-14, lifecycle
+   * VendorCampaign): tokenul de atribuire NU acordă automat 5% pe
+   * tot shipment-ul - doar itemii efectiv eligibili pentru campania
+   * atașată (scope ALL_PRODUCTS => toți; SELECTED_PRODUCTS => doar
+   * cei din listă) beneficiază de comisionul redus. Restul rămân pe
+   * comisionul standard al planului. campaignId rămâne pe shipment
+   * pentru attribution/analytics chiar dacă 0 itemi sunt eligibili -
+   * attribution și commission eligibility sunt axe separate.
+   *
+   * own-sale/plan (fără campanie): un singur grup, cu toate itemii -
+   * comportament identic cu formula simplă de dinainte.
+   */
+  let groupInputs;
+
+  if (hasCampaignCommission) {
+    const eligibilityInfo =
+      await getCampaignEligibilityInfo(shipment.campaignId);
+
+    const { eligible, standard } =
+      splitItemsByCampaignEligibility(
+        shipment.items || [],
+        eligibilityInfo
+      );
+
+    groupInputs = [
+      { label: "campaign", items: eligible, commissionBps: Number(shipment.campaignCommissionBps) },
+      { label: "plan", items: standard, commissionBps: baseCommissionBps },
+    ];
+  } else {
+    groupInputs = [
+      {
+        label: hasVendorReferralOwnSaleCommission
+          ? isVendorCollectionOwnSale
+            ? "vendor_collection_own_sale"
+            : "vendor_referral_own_sale"
+          : "plan",
+        items: shipment.items || [],
+        commissionBps,
+      },
+    ];
+  }
+
+  const groupedBreakdownInputs = groupInputs.map((g) => {
+    const groupSubtotalGross = getShipmentPaidGross(g.items);
+    const groupPlatformDiscountGross = getPlatformDiscountGross(g.items);
+    const groupVendorDiscountGross = getVendorDiscountGross(g.items);
+
+    return {
+      label: g.label,
+      commissionBps: g.commissionBps,
+      itemCount: g.items.length,
+      itemsOriginalGross: round2(
+        groupSubtotalGross +
+          groupPlatformDiscountGross +
+          groupVendorDiscountGross
+      ),
+      itemsAfterDiscountGross: groupSubtotalGross,
+      platformDiscountAmount: groupPlatformDiscountGross,
+      vatFraction,
+    };
+  });
+
+  /*
    * Sursă unică pentru comision - identică cu CARD
    * (computeOrderSplits) și cu Order Details vendor.
    */
-  const breakdown =
-    computeCommissionBreakdown({
-      itemsOriginalGross:
-        commissionBaseGross,
+  const grouped =
+    computeGroupedCommissionBreakdown(groupedBreakdownInputs);
 
-      itemsAfterDiscountGross:
-        subtotalGross,
+  const effectiveCommissionBps =
+    grouped.commissionBps != null
+      ? grouped.commissionBps
+      : commissionBps;
 
-      platformDiscountAmount:
-        platformDiscountGross,
-
-      commissionBps,
-
-      vatFraction,
-    });
+  const effectiveCommissionSource =
+    grouped.commissionSource || "plan";
 
   return {
     currency:
@@ -364,7 +535,7 @@ async function computeVendorEarningForShipment({
       shipment.orderId,
 
     itemsNet:
-      breakdown.itemsAfterDiscount,
+      grouped.itemsAfterDiscount,
 
     /*
      * IMPORTANT: commissionNet reprezintă acum platformNet -
@@ -373,19 +544,32 @@ async function computeVendorEarningForShipment({
      * vendorului (adminInvoicesRoutes.js sumează acest câmp).
      */
     commissionNet:
-      breakdown.platformNet,
+      grouped.platformNet,
 
     vendorNet:
-      breakdown.vendorNet,
+      grouped.vendorNet,
 
     vatStatus,
     vatRate,
-    commissionBps,
+
+    commissionBps:
+      effectiveCommissionBps,
 
     commissionSource:
-      hasCampaignCommission
-        ? "campaign"
-        : "plan",
+      effectiveCommissionSource,
+
+    /*
+     * true DOAR când există ≥2 grupuri cu commissionBps diferite
+     * (ex: parte din itemi eligibili campanie, parte nu). UI-ul
+     * (Vendor/Admin Order Details) trebuie să verifice asta înainte
+     * să afișeze "Procent comision Artfest" ca număr unic - vezi
+     * `groups` pentru defalcarea reală.
+     */
+    isMixedCommission:
+      grouped.isMixed,
+
+    commissionGroups:
+      grouped.groups,
 
     campaignId:
       shipment.campaignId ||
@@ -407,23 +591,23 @@ async function computeVendorEarningForShipment({
       ),
 
     itemsAfterDiscount:
-      breakdown.itemsAfterDiscount,
+      grouped.itemsAfterDiscount,
 
     commissionBase:
-      breakdown.commissionBase,
+      grouped.commissionBase,
 
     commissionAmount:
-      breakdown.commissionAmount,
+      grouped.commissionAmount,
 
     platformSubsidyAmount:
-      breakdown.platformSubsidyAmount,
+      grouped.platformSubsidyAmount,
 
     platformNet:
-      breakdown.platformNet,
+      grouped.platformNet,
   };
 }
 
-async function ensureSaleLedgerEntry({
+export async function ensureSaleLedgerEntry({
   vendorId,
   shipmentId,
 }) {
@@ -507,13 +691,29 @@ async function ensureSaleLedgerEntry({
 
         platformNet:
           earning.platformNet,
+
+        /*
+         * Comision MIXT (audit 2026-09-14) - fără schimbare de
+         * schemă Prisma: `meta` e deja Json, doar extindem forma
+         * salvată. isMixedCommission=false + commissionGroups cu UN
+         * singur grup pentru orice shipment fără split (comportament
+         * identic cu înainte). Necesar ca ledger-ul (sursa de adevăr
+         * pentru vânzări CONFIRMATE) să păstreze exact aceeași
+         * defalcare per grup ca preview-ul live, pentru audit și
+         * pentru afișarea "Comision mixt" din Order Details.
+         */
+        isMixedCommission:
+          earning.isMixedCommission,
+
+        commissionGroups:
+          earning.commissionGroups,
       },
     },
   });
 }
 
-async function ensureRefundLedgerEntry({ vendorId, shipmentId }) {
-  const sale = await prisma.vendorEarningEntry.findUnique({
+export async function ensureRefundLedgerEntry({ vendorId, shipmentId, db = prisma }) {
+  const sale = await db.vendorEarningEntry.findUnique({
     where: { shipmentId },
   });
   if (!sale) return null;
@@ -521,7 +721,7 @@ async function ensureRefundLedgerEntry({ vendorId, shipmentId }) {
   let existingRefund = null;
 
   if (isPostgres) {
-    existingRefund = await prisma.vendorEarningEntry.findFirst({
+    existingRefund = await db.vendorEarningEntry.findFirst({
       where: {
         vendorId,
         type: "REFUND",
@@ -529,7 +729,7 @@ async function ensureRefundLedgerEntry({ vendorId, shipmentId }) {
       },
     });
   } else {
-    const lastRefunds = await prisma.vendorEarningEntry.findMany({
+    const lastRefunds = await db.vendorEarningEntry.findMany({
       where: { vendorId, type: "REFUND" },
       orderBy: { createdAt: "desc" },
       take: 50,
@@ -542,7 +742,7 @@ async function ensureRefundLedgerEntry({ vendorId, shipmentId }) {
 
   if (existingRefund) return existingRefund;
 
-  return prisma.vendorEarningEntry.create({
+  return db.vendorEarningEntry.create({
     data: {
       vendorId,
       shipmentId: null,
@@ -555,6 +755,327 @@ async function ensureRefundLedgerEntry({ vendorId, shipmentId }) {
         ? sale.commissionNet.mul(-1)
         : -Number(sale.commissionNet || 0),
       vendorNet: sale.vendorNet?.mul ? sale.vendorNet.mul(-1) : -Number(sale.vendorNet || 0),
+      meta: {
+        refShipmentId: shipmentId,
+        source: "shipment_status_returned",
+        /*
+         * Reversăm STRICT totalurile agregate ale vânzării originale
+         * (sale.itemsNet/commissionNet/vendorNet) - deja corect
+         * sumate pe grupuri, pentru shipment mixt sau nu (audit
+         * 2026-09-14). Păstrăm și defalcarea originală pe grupuri,
+         * doar pentru audit/traceability - nu recalculăm nimic din ea.
+         */
+        reversedCommissionGroups: sale.meta?.commissionGroups || null,
+        reversedIsMixedCommission: Boolean(sale.meta?.isMixedCommission),
+      },
+    },
+  });
+}
+
+/**
+ * Ledger de câștig INFLUENCER - mirror STRUCTURAL al
+ * ensureSaleLedgerEntry/ensureRefundLedgerEntry (upsert pe
+ * shipmentId, idempotent), dar model SEPARAT
+ * (InfluencerEarningEntry), apelat EXACT din același trigger
+ * (status shipment -> DELIVERED/IN_TRANSIT/REFUSED/RETURNED).
+ *
+ * NU recalculează comisionul Artfest - citește STRICT
+ * `vendorEarningEntry.commissionNet` (platformNet), deja calculat
+ * de computeVendorEarningForShipment/computeCommissionBreakdown
+ * (sursa unică de adevăr) - vezi ensureSaleLedgerEntry mai sus.
+ * Apelată DOAR după ce ensureSaleLedgerEntry a rulat deja pentru
+ * același shipment (vezi call site-ul din LEDGER, mai jos).
+ */
+export async function ensureInfluencerSaleLedgerEntry({ shipmentId }) {
+  const shipment = await prisma.shipment.findUnique({
+    where: { id: shipmentId },
+    select: {
+      id: true,
+      orderId: true,
+      influencerId: true,
+      influencerCommissionBpsSnapshot: true,
+    },
+  });
+
+  if (!shipment?.influencerId) return null;
+
+  const commissionBpsSnapshot = Number(
+    shipment.influencerCommissionBpsSnapshot || 0
+  );
+
+  if (
+    !Number.isInteger(commissionBpsSnapshot) ||
+    commissionBpsSnapshot <= 0
+  ) {
+    return null;
+  }
+
+  const vendorEntry = await prisma.vendorEarningEntry.findUnique({
+    where: { shipmentId },
+  });
+
+  /*
+   * Nu ar trebui să se întâmple (apelată doar după
+   * ensureSaleLedgerEntry), dar fără intrarea vendorului nu
+   * avem de unde citi comisionul Artfest real - nu inventăm
+   * un calcul separat.
+   */
+  if (!vendorEntry) return null;
+
+  const artfestCommissionNet = vendorEntry.commissionNet;
+  const eligibleItemsNet = vendorEntry.itemsNet;
+
+  const earningNet = artfestCommissionNet?.mul
+    ? artfestCommissionNet
+        .mul(commissionBpsSnapshot)
+        .div(10000)
+    : (Number(artfestCommissionNet || 0) * commissionBpsSnapshot) /
+      10000;
+
+  return prisma.influencerEarningEntry.upsert({
+    where: { shipmentId },
+
+    update: {},
+
+    create: {
+      influencerId: shipment.influencerId,
+      shipmentId,
+      orderId: shipment.orderId,
+
+      type: "SALE",
+
+      commissionBpsSnapshot,
+      currency: vendorEntry.currency,
+
+      eligibleItemsNet,
+      artfestCommissionNet,
+      earningNet,
+
+      occurredAt: new Date(),
+
+      meta: { source: "shipment_status_fulfilled" },
+    },
+  });
+}
+
+export async function ensureInfluencerRefundLedgerEntry({ shipmentId, db = prisma }) {
+  const sale = await db.influencerEarningEntry.findUnique({
+    where: { shipmentId },
+  });
+
+  if (!sale) return null;
+
+  let existingRefund = null;
+
+  if (isPostgres) {
+    existingRefund = await db.influencerEarningEntry.findFirst({
+      where: {
+        influencerId: sale.influencerId,
+        type: "REFUND",
+        meta: { path: ["refShipmentId"], equals: shipmentId },
+      },
+    });
+  } else {
+    const lastRefunds = await db.influencerEarningEntry.findMany({
+      where: { influencerId: sale.influencerId, type: "REFUND" },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: { id: true, meta: true },
+    });
+
+    existingRefund =
+      lastRefunds.find((r) => r?.meta?.refShipmentId === shipmentId) ||
+      null;
+  }
+
+  if (existingRefund) return existingRefund;
+
+  return db.influencerEarningEntry.create({
+    data: {
+      influencerId: sale.influencerId,
+      shipmentId: null,
+      orderId: sale.orderId,
+
+      type: "REFUND",
+
+      commissionBpsSnapshot: sale.commissionBpsSnapshot,
+      currency: sale.currency,
+
+      eligibleItemsNet: sale.eligibleItemsNet?.mul
+        ? sale.eligibleItemsNet.mul(-1)
+        : -Number(sale.eligibleItemsNet || 0),
+
+      artfestCommissionNet: sale.artfestCommissionNet?.mul
+        ? sale.artfestCommissionNet.mul(-1)
+        : -Number(sale.artfestCommissionNet || 0),
+
+      earningNet: sale.earningNet?.mul
+        ? sale.earningNet.mul(-1)
+        : -Number(sale.earningNet || 0),
+
+      occurredAt: new Date(),
+
+      meta: { refShipmentId: shipmentId, source: "shipment_status_returned" },
+    },
+  });
+}
+
+/**
+ * Ledger de câștig REFERRAL VENDOR - mirror STRUCTURAL al
+ * ensureInfluencerSaleLedgerEntry (upsert pe shipmentId, idempotent),
+ * dar model SEPARAT (VendorReferralEarningEntry), apelat EXACT din
+ * același trigger (status shipment -> DELIVERED/IN_TRANSIT/REFUSED/
+ * RETURNED).
+ *
+ * NU recalculează comisionul Artfest - citește STRICT
+ * `vendorEarningEntry.commissionNet` (platformNet), deja calculat de
+ * computeVendorEarningForShipment/computeCommissionBreakdown (sursa
+ * unică de adevăr) - vezi ensureSaleLedgerEntry mai sus. Apelată DOAR
+ * după ce ensureSaleLedgerEntry a rulat deja pentru același shipment.
+ *
+ * IMPORTANT (regula own-sale): shipment.referrerVendorId e null
+ * pentru vânzările "own-sale" (vendorul își promovează propriul
+ * produs) - vezi buildShipmentAttributionFields din
+ * chekoutRoutes.js, care scrie DOAR vendorReferralCommissionOverrideBps
+ * în acel caz, NICIODATĂ referrerVendorId. Garda de mai jos
+ * (`if (!shipment?.referrerVendorId) return null`) e deci suficientă
+ * să prevină orice VendorReferralEarningEntry pe o vânzare own-sale -
+ * nu mai e nevoie de o verificare separată aici.
+ */
+export async function ensureVendorReferralSaleLedgerEntry({ shipmentId }) {
+  const shipment = await prisma.shipment.findUnique({
+    where: { id: shipmentId },
+    select: {
+      id: true,
+      orderId: true,
+      referrerVendorId: true,
+      referrerVendorCommissionBpsSnapshot: true,
+    },
+  });
+
+  if (!shipment?.referrerVendorId) return null;
+
+  const commissionBpsSnapshot = Number(
+    shipment.referrerVendorCommissionBpsSnapshot || 0
+  );
+
+  if (
+    !Number.isInteger(commissionBpsSnapshot) ||
+    commissionBpsSnapshot <= 0
+  ) {
+    return null;
+  }
+
+  const vendorEntry = await prisma.vendorEarningEntry.findUnique({
+    where: { shipmentId },
+  });
+
+  /*
+   * Nu ar trebui să se întâmple (apelată doar după
+   * ensureSaleLedgerEntry), dar fără intrarea vendorului nu avem de
+   * unde citi comisionul Artfest real - nu inventăm un calcul
+   * separat.
+   */
+  if (!vendorEntry) return null;
+
+  const artfestCommissionNet = vendorEntry.commissionNet;
+  const eligibleItemsNet = vendorEntry.itemsNet;
+
+  /*
+   * earningNet = platformNet x comisionBps / 10000 - IDENTIC ca
+   * formulă cu influencerul, garantează earningNet <= platformNet
+   * (platformNet >= 0, commissionBpsSnapshot <= 10000 - vezi audit
+   * financiar din commissionCalc.js, neatins).
+   */
+  const earningNet = artfestCommissionNet?.mul
+    ? artfestCommissionNet.mul(commissionBpsSnapshot).div(10000)
+    : (Number(artfestCommissionNet || 0) * commissionBpsSnapshot) / 10000;
+
+  return prisma.vendorReferralEarningEntry.upsert({
+    where: { shipmentId },
+
+    update: {},
+
+    create: {
+      referrerVendorId: shipment.referrerVendorId,
+      shipmentId,
+      orderId: shipment.orderId,
+
+      type: "SALE",
+
+      commissionBpsSnapshot,
+      currency: vendorEntry.currency,
+
+      eligibleItemsNet,
+      artfestCommissionNet,
+      earningNet,
+
+      occurredAt: new Date(),
+
+      meta: { source: "shipment_status_fulfilled" },
+    },
+  });
+}
+
+export async function ensureVendorReferralRefundLedgerEntry({
+  shipmentId,
+  db = prisma,
+}) {
+  const sale = await db.vendorReferralEarningEntry.findUnique({
+    where: { shipmentId },
+  });
+
+  if (!sale) return null;
+
+  let existingRefund = null;
+
+  if (isPostgres) {
+    existingRefund = await db.vendorReferralEarningEntry.findFirst({
+      where: {
+        referrerVendorId: sale.referrerVendorId,
+        type: "REFUND",
+        meta: { path: ["refShipmentId"], equals: shipmentId },
+      },
+    });
+  } else {
+    const lastRefunds = await db.vendorReferralEarningEntry.findMany({
+      where: { referrerVendorId: sale.referrerVendorId, type: "REFUND" },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: { id: true, meta: true },
+    });
+
+    existingRefund =
+      lastRefunds.find((r) => r?.meta?.refShipmentId === shipmentId) || null;
+  }
+
+  if (existingRefund) return existingRefund;
+
+  return db.vendorReferralEarningEntry.create({
+    data: {
+      referrerVendorId: sale.referrerVendorId,
+      shipmentId: null,
+      orderId: sale.orderId,
+
+      type: "REFUND",
+
+      commissionBpsSnapshot: sale.commissionBpsSnapshot,
+      currency: sale.currency,
+
+      eligibleItemsNet: sale.eligibleItemsNet?.mul
+        ? sale.eligibleItemsNet.mul(-1)
+        : -Number(sale.eligibleItemsNet || 0),
+
+      artfestCommissionNet: sale.artfestCommissionNet?.mul
+        ? sale.artfestCommissionNet.mul(-1)
+        : -Number(sale.artfestCommissionNet || 0),
+
+      earningNet: sale.earningNet?.mul
+        ? sale.earningNet.mul(-1)
+        : -Number(sale.earningNet || 0),
+
+      occurredAt: new Date(),
+
       meta: { refShipmentId: shipmentId, source: "shipment_status_returned" },
     },
   });
@@ -1843,6 +2364,21 @@ router.get(
               },
             },
           },
+
+          /*
+           * DOAR numele - vendorul e proprietarul acestei campanii
+           * (VendorCampaign e mereu own-products, vezi
+           * validateOwnedProducts din vendorCampaignRoutes.js), deci
+           * afișarea numelui nu expune nimic din alt magazin. Necesar
+           * ca "Tip comision: Comision promoțional" să nu fie confundat
+           * cu discountSource-ul câștigător pe preț (ex: Artizanul
+           * săptămânii poate câștiga PREȚUL în timp ce o campanie
+           * proprie separată dă atribuirea de comision - două axe
+           * independente, vezi audit 2026-09-14).
+           */
+          campaign: {
+            select: { name: true },
+          },
         },
       });
 
@@ -2041,12 +2577,6 @@ router.get(
         ),
     };
 
-    let baseCommissionBps =
-      0;
-
-    let commissionBps =
-      0;
-
     let activePlan =
       null;
 
@@ -2055,106 +2585,196 @@ router.get(
         await getActivePlanForVendor(
           vendorId
         );
-
-      baseCommissionBps =
-        Number(
-          activePlan
-            ?.commissionBps ||
-            0
-        );
-
-      if (
-        !Number.isFinite(
-          baseCommissionBps
-        ) ||
-        baseCommissionBps <
-          0
-      ) {
-        baseCommissionBps =
-          0;
-      }
-
-      commissionBps =
-        baseCommissionBps;
     } catch (error) {
       console.error(
         "getActivePlanForVendor failed:",
         error
       );
 
-      baseCommissionBps =
-        0;
-
-      commissionBps =
-        0;
+      activePlan =
+        null;
     }
 
     /*
-     * Comision de campanie (override) - dacă shipment-ul a
-     * fost creat cu o atribuire de campanie validă la
-     * checkout, are prioritate față de planul curent al
-     * vendorului. Nu recalculăm din plan dacă shipment-ul
-     * are deja acest snapshot.
+     * Comision - DELEGAT integral către computeVendorEarningForShipment
+     * (sursa unică de adevăr, aceeași folosită de ensureSaleLedgerEntry
+     * și de Admin Order Details). Elimină recalculul duplicat care
+     * exista aici înainte (era motivul bug-ului "preview arăta comision
+     * greșit" din auditul 2026-09-14, rundele anterioare) - acum e
+     * imposibil ca vendorul și adminul să vadă valori diferite pentru
+     * același shipment, pentru că e UN singur calcul. Suportă și
+     * comision MIXT per item (parte din itemi eligibili campanie,
+     * parte pe comisionul standard al planului) - vezi
+     * isMixedCommission/commissionGroups mai jos.
      */
-    const hasCampaignCommission =
-      shipment.campaignCommissionBps !==
-        null &&
-      shipment.campaignCommissionBps !==
-        undefined;
-
-    if (hasCampaignCommission) {
-      commissionBps =
-        Number(
-          shipment.campaignCommissionBps
-        );
-    }
-
-    const commissionBaseGross =
-      round2(
-        shipmentSubtotal +
-          platformDiscountGross +
-          vendorDiscountGross
-      );
-
-    const detailVatFraction =
-      vatRate > 0
-        ? vatRate / 100
-        : 0;
-
-    /*
-     * Sursă unică pentru comision - identică cu COD
-     * (computeVendorEarningForShipment), CARD
-     * (computeOrderSplits) și lista de comenzi.
-     */
-    const detailBreakdown =
-      computeCommissionBreakdown({
-        itemsOriginalGross:
-          commissionBaseGross,
-
-        itemsAfterDiscountGross:
-          shipmentSubtotal,
-
-        platformDiscountAmount:
-          platformDiscountGross,
-
-        commissionBps,
-
-        vatFraction:
-          detailVatFraction,
+    const live =
+      await computeVendorEarningForShipment({
+        vendorId,
+        shipmentId: shipment.id,
       });
 
-    const itemsNet =
-      detailBreakdown.itemsAfterDiscount;
+    let commissionBps =
+      live.commissionBps;
+
+    let commissionSource =
+      live.commissionSource;
+
+    let isMixedCommission =
+      Boolean(live.isMixedCommission);
+
+    let commissionGroups =
+      live.commissionGroups || null;
+
+    let commissionNet =
+      live.commissionNet;
+
+    let vendorNetBeforeShipping =
+      live.vendorNet;
+
+    let itemsNetFinal =
+      live.itemsNet;
+
+    let financialsCommissionBaseGross =
+      live.commissionBaseGross;
+
+    let financialsPlatformDiscountGross =
+      live.platformDiscountGross;
+
+    let financialsVendorDiscountGross =
+      live.vendorDiscountGross;
+
+    let financialsCommissionAmount =
+      live.commissionAmount;
+
+    let financialsPlatformSubsidyAmount =
+      live.platformSubsidyAmount;
+
+    let financialsCommissionBase =
+      live.commissionBase;
+
+    let financialsItemsAfterDiscount =
+      live.itemsAfterDiscount;
 
     /*
-     * IMPORTANT: commissionNet afișat = platformNet (ce
-     * reține efectiv Artfest, după subvenția platformei).
+     * Dacă există deja o intrare CONFIRMATĂ în ledger
+     * (VendorEarningEntry, creată la DELIVERED/IN_TRANSIT) pentru
+     * acest shipment, ACEEA e sursa de adevăr - nu recalculăm live
+     * din planul curent al vendorului, care poate diferi de planul
+     * activ la momentul vânzării. Recalculul live de mai sus rămâne
+     * folosit DOAR ca preview, pentru shipment-uri fără ledger încă.
+     *
+     * Dacă shipment-ul a fost RETURNED/REFUSED, există și o intrare
+     * REFUND (ensureRefundLedgerEntry) - o adunăm la SALE, astfel
+     * încât comisionul/net-ul afișat vendorului să reflecte 0 (sau
+     * parțial reversat), NU suma originală ca și cum ar fi încă
+     * datorată/încasată.
      */
-    const commissionNet =
-      detailBreakdown.platformNet;
+    let isReversed = false;
 
-    const vendorNetBeforeShipping =
-      detailBreakdown.vendorNet;
+    const confirmedSale =
+      await prisma.vendorEarningEntry.findUnique({
+        where: { shipmentId: shipment.id },
+      });
+
+    if (confirmedSale) {
+      let confirmedRefund = null;
+
+      if (isPostgres) {
+        confirmedRefund =
+          await prisma.vendorEarningEntry.findFirst({
+            where: {
+              vendorId,
+              type: "REFUND",
+              meta: { path: ["refShipmentId"], equals: shipment.id },
+            },
+          });
+      } else {
+        const lastRefunds =
+          await prisma.vendorEarningEntry.findMany({
+            where: { vendorId, type: "REFUND" },
+            orderBy: { createdAt: "desc" },
+            take: 50,
+            select: {
+              id: true,
+              meta: true,
+              commissionNet: true,
+              vendorNet: true,
+              itemsNet: true,
+            },
+          });
+
+        confirmedRefund =
+          lastRefunds.find(
+            (r) => r?.meta?.refShipmentId === shipment.id
+          ) || null;
+      }
+
+      isReversed = Boolean(confirmedRefund);
+
+      commissionNet = round2(
+        Number(confirmedSale.commissionNet || 0) +
+          Number(confirmedRefund?.commissionNet || 0)
+      );
+
+      vendorNetBeforeShipping = round2(
+        Number(confirmedSale.vendorNet || 0) +
+          Number(confirmedRefund?.vendorNet || 0)
+      );
+
+      itemsNetFinal = round2(
+        Number(confirmedSale.itemsNet || 0) +
+          Number(confirmedRefund?.itemsNet || 0)
+      );
+
+      /*
+       * Sursa de adevăr pentru bps/sursă/grupuri comision, dacă
+       * shipment-ul e deja confirmat, e snapshot-ul din ledger
+       * (confirmedSale.meta), NU recalculul live de mai sus - planul
+       * vendorului sau produsele campaniei se pot schimba între
+       * momentul vânzării și vizualizare. Identic ca strategie cu
+       * Admin Order Details (adminOrdersRoutes.js).
+       */
+      if (confirmedSale.meta?.commissionBps != null) {
+        commissionBps = Number(confirmedSale.meta.commissionBps);
+      }
+
+      if (confirmedSale.meta?.commissionSource) {
+        commissionSource = confirmedSale.meta.commissionSource;
+      }
+
+      isMixedCommission = Boolean(confirmedSale.meta?.isMixedCommission);
+
+      commissionGroups =
+        confirmedSale.meta?.commissionGroups || commissionGroups;
+
+      if (confirmedSale.meta?.commissionBaseGross != null) {
+        financialsCommissionBaseGross = Number(confirmedSale.meta.commissionBaseGross);
+      }
+
+      if (confirmedSale.meta?.platformDiscountGross != null) {
+        financialsPlatformDiscountGross = Number(confirmedSale.meta.platformDiscountGross);
+      }
+
+      if (confirmedSale.meta?.vendorDiscountGross != null) {
+        financialsVendorDiscountGross = Number(confirmedSale.meta.vendorDiscountGross);
+      }
+
+      if (confirmedSale.meta?.commissionAmount != null) {
+        financialsCommissionAmount = Number(confirmedSale.meta.commissionAmount);
+      }
+
+      if (confirmedSale.meta?.platformSubsidyAmount != null) {
+        financialsPlatformSubsidyAmount = Number(confirmedSale.meta.platformSubsidyAmount);
+      }
+
+      if (confirmedSale.meta?.commissionBase != null) {
+        financialsCommissionBase = Number(confirmedSale.meta.commissionBase);
+      }
+
+      if (confirmedSale.meta?.itemsAfterDiscount != null) {
+        financialsItemsAfterDiscount = Number(confirmedSale.meta.itemsAfterDiscount);
+      }
+    }
 
     const vendorFinancials = {
       planCode:
@@ -2167,64 +2787,100 @@ router.get(
 
       commissionBps,
 
-      commissionSource:
-        hasCampaignCommission
-          ? "campaign"
-          : "plan",
+      commissionSource,
+
+      /*
+       * true DOAR când shipment-ul are itemi pe DOUĂ commissionBps
+       * diferite (parte eligibili campanie, parte pe planul standard).
+       * UI-ul trebuie să verifice asta înainte să afișeze "Procent
+       * comision Artfest" ca număr unic - vezi commissionGroups.
+       */
+      isMixedCommission,
+
+      commissionGroups,
 
       commissionPercent:
-        round2(
-          commissionBps /
-            100
-        ),
+        commissionBps != null
+          ? round2(commissionBps / 100)
+          : null,
 
       commissionRate:
-        round2(
-          commissionBps /
-            10000
-        ),
+        commissionBps != null
+          ? round2(commissionBps / 10000)
+          : null,
 
       itemsNet:
         round2(
-          itemsNet
+          itemsNetFinal
         ),
 
       commissionNet,
 
       vendorNetBeforeShipping,
 
-      baseCommissionBps,
+      isReversed,
+
+      baseCommissionBps:
+        Number(activePlan?.commissionBps || 0),
 
       platformDiscountGross:
         round2(
-          platformDiscountGross
+          financialsPlatformDiscountGross
         ),
 
       vendorDiscountGross:
         round2(
-          vendorDiscountGross
+          financialsVendorDiscountGross
         ),
 
       commissionBaseGross:
         round2(
-          commissionBaseGross
+          financialsCommissionBaseGross
         ),
 
       itemsAfterDiscount:
-        detailBreakdown.itemsAfterDiscount,
+        financialsItemsAfterDiscount,
 
       commissionBase:
-        detailBreakdown.commissionBase,
+        financialsCommissionBase,
 
       commissionAmount:
-        detailBreakdown.commissionAmount,
+        financialsCommissionAmount,
 
       platformSubsidyAmount:
-        detailBreakdown.platformSubsidyAmount,
+        financialsPlatformSubsidyAmount,
 
       platformNet:
-        detailBreakdown.platformNet,
+        commissionNet,
+
+      /*
+       * Numele campaniei proprii care a generat atribuirea de comision
+       * (doar când commissionId există pe shipment). Necesar în UI ca
+       * "Comision promoțional"/"Comision mixt" să nu fie confundat cu
+       * promoția care a câștigat prețul (ex: Artizanul săptămânii) -
+       * două axe independente (audit 2026-09-14).
+       */
+      campaignName:
+        shipment.campaignId
+          ? shipment.campaign?.name || null
+          : null,
     };
+
+    /*
+     * REGULA FINALĂ DE BUSINESS (audit 2026-09-14): Vendor Order
+     * Details NU mai calculează/expune comisionul influencer sau
+     * vendor-referral - vendorul vede STRICT finanțele propriului
+     * shipment (comision Artfest, net magazin), niciodată cât câștigă
+     * un promotor extern din comisionul Artfest. Acele date rămân
+     * DOAR în Admin Order Details (adminOrdersRoutes.js, NEATINS -
+     * folosește buildAttributionCommissionPreview separat, exportată
+     * mai sus tocmai pentru asta). "netArtfestAfterAttribution" a fost
+     * eliminat din acest motiv - arăta indirect că o parte din
+     * comisionul Artfest a plecat către un promotor extern, informație
+     * internă, irelevantă pentru vendor (comisionul lui e neschimbat
+     * de asta, vezi computeCommissionBreakdown/computeVendorEarningForShipment,
+     * NEATINSE).
+     */
 
     const productIdSet =
       new Set();
@@ -2537,6 +3193,36 @@ router.get(
 
               discountSource:
                 item.discountSource ||
+                null,
+
+              /*
+               * Snapshot cod de reducere (dacă acesta a fost promoția
+               * câștigătoare pe linie) - valori STOCATE la momentul
+               * comenzii, nu recalculate din setările curente ale
+               * codului (poate fi editat/șters ulterior de vendor).
+               */
+              discountCodeText:
+                item.discountCodeText ||
+                null,
+
+              discountCodePercent:
+                item.discountCodePercent !=
+                null
+                  ? Number(
+                      item.discountCodePercent
+                    )
+                  : null,
+
+              discountCodeAmount:
+                item.discountCodeAmount !=
+                null
+                  ? Number(
+                      item.discountCodeAmount
+                    )
+                  : null,
+
+              discountCodeFundingSource:
+                item.discountCodeFundingSource ||
                 null,
 
               selectedOptions:
@@ -3379,6 +4065,51 @@ if (order?.userId) {
 );
 
 /* ----------------------------------------------------
+   Helper: restoreShipmentStockAfterStatusChange
+
+   Refolosește sursa canonică UNICĂ de restaurare stoc
+   (src/services/stockRestore.js) - aceeași folosită acum și de
+   admin cancel și user cancel, ca să nu mai existe 3 implementări
+   separate. Vezi acel fișier pentru regula exactă (audit
+   2026-09-14): restaurare DOAR pentru produse ÎN CONTINUARE
+   stock-tracked (readyQty !== null) aflate în READY sau SOLD_OUT;
+   MADE_TO_ORDER/PREORDER nu sunt niciodată atinse.
+----------------------------------------------------- */
+async function restoreShipmentStockAfterStatusChange(
+  tx,
+  shipmentId
+) {
+  const shipment =
+    await tx.shipment.findUnique({
+      where: {
+        id: shipmentId,
+      },
+
+      select: {
+        id: true,
+
+        items: {
+          select: {
+            productId: true,
+            qty: true,
+          },
+        },
+      },
+    });
+
+  if (!shipment) {
+    throw new Error(
+      "shipment_not_found"
+    );
+  }
+
+  await restoreStockFromItems(
+    tx,
+    shipment.items
+  );
+}
+
+/* ----------------------------------------------------
    PATCH /api/vendor/orders/:id/status
 ----------------------------------------------------- */
 
@@ -3607,6 +4338,47 @@ if (
         });
     }
 
+    /*
+     * =====================================================
+     * ANULARE CARD DEJA PLĂTIT - blocată pentru vendor
+     * =====================================================
+     *
+     * Vendorul NU execută refund Stripe. Dacă anularea ar continua,
+     * s-ar face reversal DB (ensureRefundLedgerEntry etc, mai jos)
+     * FĂRĂ stripe.transfers.createReversal / stripe.refunds.create -
+     * ledger-ul ar arăta "reversat" cât timp banii reali nu s-au
+     * mișcat. Refund-ul CARD rămâne exclusiv POST
+     * /api/admin/orders/:id/refund (singurul flux care reversează
+     * transferul vendorului, rambursează clientul și reversează
+     * ledger-ul, toate împreună).
+     */
+    if (
+      nextUi ===
+        "cancelled" &&
+      paymentState
+        .isOnlineCard &&
+      paymentState
+        .paid
+    ) {
+      return res
+        .status(409)
+        .json({
+          error:
+            "card_refund_requires_admin",
+
+          message:
+            "Comanda a fost plătită cu cardul și necesită rambursare din Admin înainte de anulare.",
+
+          paymentMethod:
+            paymentState
+              .paymentMethod,
+
+          paymentStatus:
+            paymentState
+              .paymentStatus,
+        });
+    }
+
     let updatedShipment;
 
     try {
@@ -3824,6 +4596,30 @@ if (
           shipmentId:
             updatedShipment.id,
         });
+
+        /*
+         * Rulează DUPĂ ensureSaleLedgerEntry - are nevoie de
+         * vendorEarningEntry deja creat, ca sursă a comisionului
+         * Artfest real. Fail-open dacă shipment-ul nu are
+         * influencer atribuit (return null, fără efect).
+         */
+        await ensureInfluencerSaleLedgerEntry({
+          shipmentId:
+            updatedShipment.id,
+        });
+
+        /*
+         * Idem pentru referral vendor - single-promoter-per-shipment
+         * e deja garantat la checkout (shipment.influencerId și
+         * shipment.referrerVendorId nu sunt niciodată populate
+         * simultan, vezi buildShipmentAttributionFields din
+         * chekoutRoutes.js), deci apelarea ambelor aici e sigură:
+         * cel mult UNA dintre ele creează efectiv o intrare.
+         */
+        await ensureVendorReferralSaleLedgerEntry({
+          shipmentId:
+            updatedShipment.id,
+        });
       }
 
       if (
@@ -3835,6 +4631,16 @@ if (
         await ensureRefundLedgerEntry({
           vendorId,
 
+          shipmentId:
+            updatedShipment.id,
+        });
+
+        await ensureInfluencerRefundLedgerEntry({
+          shipmentId:
+            updatedShipment.id,
+        });
+
+        await ensureVendorReferralRefundLedgerEntry({
           shipmentId:
             updatedShipment.id,
         });

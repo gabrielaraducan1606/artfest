@@ -4,6 +4,21 @@ import {
   prisma,
 } from "../db.js";
 
+import {
+  getZonedDayRange,
+  getZonedWeekRange,
+  getZonedDayKey,
+  getZonedWeekKey,
+} from "../lib/bucharestDate.js";
+
+import {
+  notifyVendorOnHomepageFeatureCreated,
+} from "./notifications.js";
+
+import {
+  sendHomepageFeatureSelectedEmail,
+} from "../lib/mailer.js";
+
 /* =========================================================
    CONFIGURARE
 ========================================================= */
@@ -200,6 +215,53 @@ export const eligibleProductWhere = {
    HELPERS DATĂ
 ========================================================= */
 
+/*
+ * Audit promoții 2026-09-15 (fix timezone): funcțiile de mai jos
+ * delegau înainte la ora LOCALĂ a procesului Node
+ * (`Date.setHours(0,0,0,0)`), fără nicio ancorare explicită în
+ * Europe/Bucharest - pe un server care rulează în UTC (Render),
+ * ziua/săptămâna s-ar fi schimbat la ora greșită (2-3h diferență).
+ *
+ * Acum delegă STRICT la sursa unică `lib/bucharestDate.js`, aceeași
+ * folosită și de `adminHomepageFeatureRoutes.js` (care avea o
+ * duplicare identică, eliminată) și de
+ * `services/influencerGeneratedContent.js` (care avea deja o
+ * implementare corectă, dar izolată). Semnăturile și numele
+ * exportate rămân neschimbate, ca niciun apelant existent să nu
+ * aibă nevoie de modificări.
+ */
+export function getDayRange(
+  value = new Date()
+) {
+  return getZonedDayRange(
+    value
+  );
+}
+
+export function getWeekRange(
+  value = new Date()
+) {
+  return getZonedWeekRange(
+    value
+  );
+}
+
+export function getDayKey(
+  value = new Date()
+) {
+  return getZonedDayKey(
+    value
+  );
+}
+
+export function getWeekKey(
+  value = new Date()
+) {
+  return getZonedWeekKey(
+    value
+  );
+}
+
 function cloneDate(value) {
   const date =
     value instanceof Date
@@ -217,176 +279,6 @@ function cloneDate(value) {
   }
 
   return date;
-}
-
-export function getDayRange(
-  value = new Date()
-) {
-  const startsAt =
-    cloneDate(value);
-
-  if (!startsAt) {
-    return null;
-  }
-
-  startsAt.setHours(
-    0,
-    0,
-    0,
-    0
-  );
-
-  const endsAt =
-    new Date(startsAt);
-
-  endsAt.setDate(
-    endsAt.getDate() + 1
-  );
-
-  return {
-    startsAt,
-    endsAt,
-  };
-}
-
-export function getWeekRange(
-  value = new Date()
-) {
-  const startsAt =
-    cloneDate(value);
-
-  if (!startsAt) {
-    return null;
-  }
-
-  startsAt.setHours(
-    0,
-    0,
-    0,
-    0
-  );
-
-  const day =
-    startsAt.getDay();
-
-  const diffToMonday =
-    day === 0
-      ? -6
-      : 1 - day;
-
-  startsAt.setDate(
-    startsAt.getDate() +
-      diffToMonday
-  );
-
-  const endsAt =
-    new Date(startsAt);
-
-  endsAt.setDate(
-    endsAt.getDate() + 7
-  );
-
-  return {
-    startsAt,
-    endsAt,
-  };
-}
-
-export function getDayKey(
-  value = new Date()
-) {
-  const range =
-    getDayRange(value);
-
-  if (!range) {
-    return null;
-  }
-
-  const date =
-    range.startsAt;
-
-  const year =
-    date.getFullYear();
-
-  const month =
-    String(
-      date.getMonth() + 1
-    ).padStart(
-      2,
-      "0"
-    );
-
-  const day =
-    String(
-      date.getDate()
-    ).padStart(
-      2,
-      "0"
-    );
-
-  return `${year}-${month}-${day}`;
-}
-
-export function getWeekKey(
-  value = new Date()
-) {
-  const range =
-    getWeekRange(value);
-
-  if (!range) {
-    return null;
-  }
-
-  const localDate =
-    range.startsAt;
-
-  const date =
-    new Date(
-      Date.UTC(
-        localDate.getFullYear(),
-        localDate.getMonth(),
-        localDate.getDate()
-      )
-    );
-
-  const dayNumber =
-    date.getUTCDay() ||
-    7;
-
-  date.setUTCDate(
-    date.getUTCDate() +
-      4 -
-      dayNumber
-  );
-
-  const yearStart =
-    new Date(
-      Date.UTC(
-        date.getUTCFullYear(),
-        0,
-        1
-      )
-    );
-
-  const weekNumber =
-    Math.ceil(
-      (
-        (
-          date -
-          yearStart
-        ) /
-          86400000 +
-        1
-      ) /
-        7
-    );
-
-  return `${date.getUTCFullYear()}-W${String(
-    weekNumber
-  ).padStart(
-    2,
-    "0"
-  )}`;
 }
 
 function addDays(
@@ -475,7 +367,7 @@ function buildInitialVendorResponse() {
   };
 }
 
-function isServiceVisuallyEligible(
+export function isServiceVisuallyEligible(
   service
 ) {
   if (!service) {
@@ -1019,6 +911,307 @@ async function chooseArtisanForDate(
 }
 
 /* =========================================================
+   NOTIFICARE VENDOR (audit promoții 2026-09-15)
+
+   Mutat aici din adminHomepageFeatureRoutes.js (era definit STRICT
+   pentru butonul manual "Retrimite" din admin) - acum e sursa unică,
+   reutilizată atât de acel buton, cât și de generarea automată de
+   mai jos (la creare, nu la request manual).
+
+   Idempotent pe ambele canale:
+   - notificarea în platformă: notifyVendorOnHomepageFeatureCreated
+     face upsert pe un dedupeKey unic (notifications.js) - reapelarea
+     nu creează un al doilea rând, doar readuce aceeași notificare ca
+     necitită (comportament dorit și pentru "Retrimite").
+   - emailul: dacă vendorEmailedAt e deja setat, NU retrimitem -
+     `emailSkipped: true`. Dacă emailul eșuează, NU setăm
+     vendorEmailedAt (rămâne null, cu vendorEmailError completat) -
+     o reîncercare ulterioară (același apel, mai târziu) va încerca
+     din nou doar emailul, fără să atingă din nou notificarea deja
+     trimisă.
+   - Niciuna dintre cele două erori nu blochează cealaltă ramură și
+     nu aruncă mai departe - generarea feature-ului nu trebuie
+     niciodată blocată de un eșec de notificare/email.
+========================================================= */
+
+export async function notifyVendorAboutFeatureCreated(
+  feature
+) {
+  const featureId =
+    feature?.id;
+
+  if (!featureId) {
+    return {
+      ok: false,
+      notification: null,
+      notificationSent: false,
+      emailSent: false,
+      emailSkipped: false,
+      notificationError:
+        new Error(
+          "Missing homepage feature"
+        ),
+      emailError: null,
+      vendorNotifiedAt:
+        feature?.vendorNotifiedAt ||
+        null,
+      vendorEmailedAt:
+        feature?.vendorEmailedAt ||
+        null,
+      vendorEmailError:
+        feature?.vendorEmailError ||
+        null,
+    };
+  }
+
+  let notification =
+    null;
+
+  let notificationSent =
+    false;
+
+  let emailSent =
+    false;
+
+  let emailSkipped =
+    false;
+
+  let notificationError =
+    null;
+
+  let emailError =
+    null;
+
+  let vendorNotifiedAt =
+    feature.vendorNotifiedAt ||
+    null;
+
+  let vendorEmailedAt =
+    feature.vendorEmailedAt ||
+    null;
+
+  let vendorEmailError =
+    feature.vendorEmailError ||
+    null;
+
+  /*
+   * 1. Notificarea din platformă.
+   */
+  try {
+    notification =
+      await notifyVendorOnHomepageFeatureCreated(
+        featureId
+      );
+
+    if (notification) {
+      notificationSent =
+        true;
+
+      vendorNotifiedAt =
+        new Date();
+
+      await prisma.homepageFeature.update({
+        where: {
+          id:
+            featureId,
+        },
+
+        data: {
+          vendorNotifiedAt,
+        },
+      });
+    }
+  } catch (error) {
+    notificationError =
+      error;
+
+    console.error(
+      "[homepage-features] vendor notification failed",
+      error
+    );
+  }
+
+  /*
+   * 2. Emailul - sărit dacă a fost deja trimis cu succes.
+   */
+  if (
+    feature.vendorEmailedAt
+  ) {
+    emailSkipped =
+      true;
+  } else {
+    try {
+      const vendor =
+        feature.vendor ||
+        feature.service?.vendor ||
+        feature.product?.service
+          ?.vendor ||
+        null;
+
+      const vendorEmail =
+        String(
+          vendor?.user?.email ||
+            vendor?.email ||
+            ""
+        ).trim();
+
+      if (!vendorEmail) {
+        throw new Error(
+          "Vendorul nu are o adresă de email."
+        );
+      }
+
+      const accountName =
+        String(
+          vendor?.user?.name ||
+            ""
+        ).trim();
+
+      const composedAccountName =
+        [
+          vendor?.user
+            ?.firstName,
+          vendor?.user
+            ?.lastName,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+
+      const vendorName =
+        accountName ||
+        composedAccountName ||
+        vendor?.displayName ||
+        feature.service?.profile
+          ?.displayName ||
+        feature.product?.service
+          ?.profile?.displayName ||
+        "creator";
+
+      const storeName =
+        feature.service?.profile
+          ?.displayName ||
+        feature.product?.service
+          ?.profile?.displayName ||
+        vendor?.displayName ||
+        null;
+
+      await sendHomepageFeatureSelectedEmail({
+        to:
+          vendorEmail,
+
+        userId:
+          vendor?.userId ||
+          null,
+
+        vendorName,
+
+        featureId:
+          feature.id,
+
+        featureType:
+          feature.type,
+
+        productTitle:
+          feature.product
+            ?.title ||
+          null,
+
+        storeName,
+
+        startsAt:
+          feature.startsAt,
+
+        endsAt:
+          feature.endsAt,
+
+        platformDiscountPercent:
+          feature
+            .platformDiscountPercent,
+      });
+
+      emailSent =
+        true;
+
+      vendorEmailedAt =
+        new Date();
+
+      vendorEmailError =
+        null;
+
+      await prisma.homepageFeature.update({
+        where: {
+          id:
+            featureId,
+        },
+
+        data: {
+          vendorEmailedAt,
+
+          vendorEmailError:
+            null,
+        },
+      });
+    } catch (error) {
+      emailError =
+        error;
+
+      const errorMessage =
+        String(
+          error?.message ||
+            error ||
+            "Email error"
+        ).slice(
+          0,
+          1000
+        );
+
+      vendorEmailError =
+        errorMessage;
+
+      console.error(
+        "[homepage-features] vendor email failed",
+        error
+      );
+
+      await prisma.homepageFeature
+        .update({
+          where: {
+            id:
+              featureId,
+          },
+
+          data: {
+            vendorEmailError:
+              errorMessage,
+          },
+        })
+        .catch(
+          () => null
+        );
+    }
+  }
+
+  return {
+    ok:
+      !notificationError &&
+      !emailError,
+
+    notification,
+    notificationSent,
+    emailSent,
+    emailSkipped,
+
+    notificationError,
+    emailError,
+
+    vendorNotifiedAt,
+    vendorEmailedAt,
+    vendorEmailError,
+  };
+}
+
+/* =========================================================
    GENERARE PRODUSUL ZILEI
 ========================================================= */
 
@@ -1142,11 +1335,32 @@ export async function generateProductFeatureForDate(
           productFeatureInclude,
       });
 
+    /*
+     * Notificare automată o singură dată, la creare - vezi
+     * notifyVendorAboutFeatureCreated mai sus. Nu blocăm
+     * generarea feature-ului dacă notificarea/emailul eșuează.
+     */
+    const notifyResult =
+      await notifyVendorAboutFeatureCreated(
+        feature
+      );
+
     return {
       created:
         true,
 
-      feature,
+      feature: {
+        ...feature,
+
+        vendorNotifiedAt:
+          notifyResult.vendorNotifiedAt,
+
+        vendorEmailedAt:
+          notifyResult.vendorEmailedAt,
+
+        vendorEmailError:
+          notifyResult.vendorEmailError,
+      },
 
       reason:
         "created",
@@ -1308,11 +1522,32 @@ export async function generateArtisanFeatureForDate(
           artisanFeatureInclude,
       });
 
+    /*
+     * Notificare automată o singură dată, la creare - vezi
+     * notifyVendorAboutFeatureCreated mai sus. Nu blocăm
+     * generarea feature-ului dacă notificarea/emailul eșuează.
+     */
+    const notifyResult =
+      await notifyVendorAboutFeatureCreated(
+        feature
+      );
+
     return {
       created:
         true,
 
-      feature,
+      feature: {
+        ...feature,
+
+        vendorNotifiedAt:
+          notifyResult.vendorNotifiedAt,
+
+        vendorEmailedAt:
+          notifyResult.vendorEmailedAt,
+
+        vendorEmailError:
+          notifyResult.vendorEmailError,
+      },
 
       reason:
         "created",

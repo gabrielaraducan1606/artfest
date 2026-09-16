@@ -11,6 +11,8 @@ import {
   enforceTokenVersion,
 } from "../api/auth.js";
 
+import { enforceInfluencerTermsGate } from "../middleware/enforceInfluencerTermsGate.js";
+
 const router = Router();
 
 /* =========================================================
@@ -274,7 +276,7 @@ async function getOwnedCollection(
   });
 }
 
-function formatCollection(collection) {
+export function formatCollection(collection) {
   return {
     id:
       collection.id,
@@ -463,6 +465,36 @@ const ReorderProductsSchema =
       .optional(),
   });
 
+/*
+ * Lista colecțiilor unui influencer (același query folosit de
+ * GET /api/influencer/collections) - extrasă ca funcție reutilizabilă
+ * pentru influencerAssistantContext.js (asistentul AI), ca să nu
+ * duplicăm acest query acolo.
+ */
+export async function listInfluencerCollectionsSummary(influencerId) {
+  const collections =
+    await prisma.influencerCollection.findMany({
+      where: {
+        influencerId,
+      },
+
+      orderBy: {
+        createdAt:
+          "desc",
+      },
+
+      include: {
+        _count: {
+          select: {
+            items: true,
+          },
+        },
+      },
+    });
+
+  return collections.map(formatCollection);
+}
+
 /* =========================================================
    GET /api/influencer/collections
 
@@ -486,33 +518,14 @@ router.get(
       }
 
       const collections =
-        await prisma.influencerCollection.findMany({
-          where: {
-            influencerId:
-              influencer.id,
-          },
-
-          orderBy: {
-            createdAt:
-              "desc",
-          },
-
-          include: {
-            _count: {
-              select: {
-                items: true,
-              },
-            },
-          },
-        });
+        await listInfluencerCollectionsSummary(
+          influencer.id
+        );
 
       return res.json({
         ok: true,
 
-        collections:
-          collections.map(
-            formatCollection
-          ),
+        collections,
       });
     } catch (error) {
       console.error(
@@ -539,6 +552,7 @@ router.post(
   "/",
   authRequired,
   enforceTokenVersion,
+  enforceInfluencerTermsGate,
   async (req, res) => {
     try {
       const influencer =
@@ -647,6 +661,7 @@ router.post(
 
   authRequired,
   enforceTokenVersion,
+  enforceInfluencerTermsGate,
 
   async (req, res) => {
     try {
@@ -1573,6 +1588,7 @@ router.patch(
   "/:id",
   authRequired,
   enforceTokenVersion,
+  enforceInfluencerTermsGate,
   async (req, res) => {
     try {
       const influencer =
@@ -1725,6 +1741,7 @@ router.delete(
   "/:id",
   authRequired,
   enforceTokenVersion,
+  enforceInfluencerTermsGate,
   async (req, res) => {
     try {
       const influencer =
@@ -1799,6 +1816,7 @@ router.post(
   "/:id/products",
   authRequired,
   enforceTokenVersion,
+  enforceInfluencerTermsGate,
   async (req, res) => {
     try {
       const influencer =
@@ -2047,6 +2065,7 @@ router.delete(
   "/:id/products/:productId",
   authRequired,
   enforceTokenVersion,
+  enforceInfluencerTermsGate,
   async (req, res) => {
     try {
       const influencer =
@@ -2150,6 +2169,7 @@ router.patch(
   "/:id/products/reorder",
   authRequired,
   enforceTokenVersion,
+  enforceInfluencerTermsGate,
   async (req, res) => {
     try {
       const influencer =
@@ -2321,6 +2341,8 @@ router.get(
                 id: true,
                 displayName:
                   true,
+                referralCode:
+                  true,
               },
             },
 
@@ -2365,6 +2387,39 @@ router.get(
                       true,
                     category:
                       true,
+                    color: true,
+
+                    /*
+                     * Necesare ca ProductCard (viewMode="guest") să
+                     * NU le confunde cu "PENDING"/dezactivat -
+                     * query-ul de mai sus filtrează deja doar
+                     * produse valide (isActive/isHidden/moderation),
+                     * dar fără aceste câmpuri în select, clientul nu
+                     * are de unde ști asta.
+                     */
+                    isActive: true,
+                    isHidden: true,
+                    moderationStatus:
+                      true,
+
+                    /*
+                     * Necesare ca ProductCard să decidă corect
+                     * comportamentul butonului de coș (DIRECT vs.
+                     * OPTIONS vs. QUOTE_ONLY, personalizare, variante,
+                     * SOLD_OUT) - identic cu ce trimite deja
+                     * baseProductSelect din publicProductRoutes.js
+                     * pentru /produse. Fără ele, orice produs pare
+                     * READY_TO_BUY, indiferent de modul lui real.
+                     */
+                    orderMode: true,
+                    acceptsCustom: true,
+                    optionsSchema: true,
+                    customSchema: true,
+                    repeatedGroups: true,
+                    quoteSchema: true,
+                    readyQty: true,
+                    leadTimeDays: true,
+                    nextShipDate: true,
 
                     service: {
                       select: {
@@ -2455,6 +2510,11 @@ router.get(
               collection
                 .influencer
                 .displayName,
+
+            referralCode:
+              collection
+                .influencer
+                .referralCode,
           },
 
           products:

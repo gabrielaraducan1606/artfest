@@ -129,3 +129,12 @@ export async function api(path, opts = {}) {
 
 // pentru debugging în consolă (vezi ce API_BASE folosește aplicația)
 export const __API_BASE__ = API_BASE;
+
+/**
+ * Expune aceeași rezolvare de URL folosită de api() - utilă pentru
+ * requesturi care NU pot trece prin api() (ex. descărcare de fișier,
+ * unde avem nevoie de răspunsul brut/blob, nu JSON parsat).
+ */
+export function buildApiUrl(path) {
+  return buildUrl(path);
+}

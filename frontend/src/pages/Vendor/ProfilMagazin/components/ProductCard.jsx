@@ -6,6 +6,7 @@ import React, {
   useEffect,
 } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
+import { toast } from "react-toastify";
 import {
   FaEdit,
   FaTrash,
@@ -14,6 +15,9 @@ import {
   FaRegHeart,
   FaChevronLeft,
   FaChevronRight,
+  FaBan,
+  FaSlidersH,
+  FaFileInvoice,
 } from "react-icons/fa";
 import styles from "./css/ProductCard.module.css";
 import {
@@ -122,6 +126,7 @@ function ProductCard({
   vendorActionsOverride,
   priorityImage = false,
   autoPrefetch = false,
+  linkQuery = "",
 }) {
   const nav = useNavigate();
   const loc = useLocation();
@@ -315,6 +320,7 @@ promoLabel:
       optionsSchema: getSchemaFields(p?.optionsSchema),
       customSchema: getSchemaFields(p?.customSchema),
       quoteSchema: getSchemaFields(p?.quoteSchema),
+      repeatedGroups: getSchemaFields(p?.repeatedGroups),
     };
   }, [p]);
 
@@ -324,10 +330,24 @@ promoLabel:
   const hasPersonalization =
     safe.orderMode === "OPTIONS" && safe.customSchema.length > 0;
 
+  /*
+   * Un produs are nevoie de configurare înainte de a fi adăugat în
+   * coș nu doar când orderMode === "OPTIONS" (câmp independent în
+   * schemă, fără constrângere care să-l lege de acceptsCustom/
+   * customSchema/repeatedGroups) - verificăm și acestea explicit,
+   * ca butonul din card să nu adauge niciodată o configurație
+   * incompletă direct în coș.
+   */
+  const needsConfiguration =
+    safe.orderMode === "OPTIONS" ||
+    safe.acceptsCustom ||
+    safe.customSchema.length > 0 ||
+    safe.repeatedGroups.length > 0;
+
   const isQuoteOnly = safe.orderMode === "QUOTE_ONLY";
 
   const href = safe.id
-  ? `/produs/${safe.id}`
+  ? `/produs/${safe.id}${linkQuery ? `?${linkQuery}` : ""}`
   : null;
 
   const imgCount = safe.images.length;
@@ -418,6 +438,43 @@ promoLabel:
     viewMode === "vendor"
       ? false
       : !safe.isActive || safe.isHidden || !isApproved;
+
+  /*
+   * Starea butonului de coș - un singur loc, folosit identic în
+   * ambele variante de randare de mai jos. Iconul și clasa CSS
+   * diferă vizibil pe stare - nu ne bazăm doar pe tooltip (hover)
+   * sau pe atributul disabled nativ, ca un produs epuizat/cu ofertă
+   * să nu arate identic cu unul cumpărabil direct.
+   */
+  const cartButtonState = isDisabled
+    ? "unavailable"
+    : isSoldOut
+    ? "soldout"
+    : cartBusy
+    ? "busy"
+    : needsConfiguration
+    ? "options"
+    : safe.orderMode === "QUOTE_ONLY"
+    ? "quote"
+    : "buy";
+
+  const cartButtonLabel = {
+    unavailable: "Produs indisponibil",
+    soldout: "Epuizat",
+    busy: "Se adaugă…",
+    options: "Alege opțiuni",
+    quote: "Cere ofertă",
+    buy: "Adaugă în coș",
+  }[cartButtonState];
+
+  const CartButtonIcon =
+    cartButtonState === "unavailable" || cartButtonState === "soldout"
+      ? FaBan
+      : cartButtonState === "options"
+      ? FaSlidersH
+      : cartButtonState === "quote"
+      ? FaFileInvoice
+      : FaShoppingCart;
 
   const moderation = useMemo(
     () => moderationMeta(safe.moderationStatus),
@@ -581,14 +638,38 @@ const handleCart = useCallback(
     e?.preventDefault?.();
     e?.stopPropagation?.();
 
-    if (!safe.id || isDisabled || isSoldOut || cartBusy) {
+    if (!safe.id || cartBusy) {
+      return;
+    }
+
+    if (isSoldOut) {
+      toast.warning("Produs epuizat momentan.");
+      return;
+    }
+
+    if (isDisabled) {
+      toast.warning("Produsul nu este disponibil momentan.");
+      return;
+    }
+
+    if (safe.orderMode === "OPTIONS") {
+      toast.info("Alege mai întâi opțiunile produsului.");
+      goTo(href);
       return;
     }
 
     if (
-      safe.orderMode === "OPTIONS" ||
-      safe.orderMode === "QUOTE_ONLY"
+      safe.acceptsCustom ||
+      safe.customSchema.length > 0 ||
+      safe.repeatedGroups.length > 0
     ) {
+      toast.info("Completează personalizarea înainte de adăugarea în coș.");
+      goTo(href);
+      return;
+    }
+
+    if (safe.orderMode === "QUOTE_ONLY") {
+      toast.info("Acest produs se comandă prin cerere de ofertă.");
       goTo(href);
       return;
     }
@@ -621,7 +702,10 @@ const handleCart = useCallback(
         });
 
         if (response?.error === "cannot_add_own_product") {
-          alert("Nu poți adăuga în coș propriul produs.");
+          toast.error(
+            response?.message ||
+              "Nu poți adăuga în coș propriul produs."
+          );
           return;
         }
 
@@ -629,11 +713,11 @@ const handleCart = useCallback(
           new CustomEvent("cart:changed")
         );
 
-        alert("Produs adăugat în coș.");
+        toast.success("Produs adăugat în coș.");
       } else {
         addToGuestCart(safe.id, 1);
 
-        alert("Produs adăugat în coș.");
+        toast.success("Produs adăugat în coș.");
       }
     } catch (err) {
       const message =
@@ -643,7 +727,7 @@ const handleCart = useCallback(
           ? "Nu poți adăuga în coș propriul produs."
           : "Nu am putut adăuga produsul în coș.");
 
-      alert(message);
+      toast.error(message);
     } finally {
       setCartBusy(false);
     }
@@ -651,6 +735,9 @@ const handleCart = useCallback(
   [
     safe.id,
     safe.orderMode,
+    safe.acceptsCustom,
+    safe.customSchema,
+    safe.repeatedGroups,
     isDisabled,
     isSoldOut,
     cartBusy,
@@ -819,6 +906,12 @@ const handleCart = useCallback(
               Cere ofertă
             </span>
           )}
+
+          {viewMode === "vendor" && p?.gpsrComplete === false && (
+            <span className={`${styles.badge} ${styles.badgeWarning}`}>
+              Informații de siguranță incomplete
+            </span>
+          )}
         </div>
 
         {isSoldOut && (
@@ -933,6 +1026,16 @@ const handleCart = useCallback(
           <p className={styles.moderationMessage}>
             Mesaj admin: {safe.moderationMessage}
           </p>
+        )}
+
+        {viewMode === "vendor" && p?.gpsrComplete === false && (
+          <button
+            type="button"
+            className={styles.catPill}
+            onClick={handleEdit}
+          >
+            Completează informațiile de siguranță
+          </button>
         )}
 
         {colorLabel && (
@@ -1076,37 +1179,19 @@ const handleCart = useCallback(
 
               <button
                 type="button"
-                className={styles.iconBtn}
+                className={`${styles.iconBtn} ${
+                  cartButtonState === "soldout" ||
+                  cartButtonState === "unavailable"
+                    ? styles.iconBtnUnavailable
+                    : ""
+                }`}
                 onClick={handleCart}
-                title={
-                  isDisabled
-                    ? "Produs indisponibil"
-                    : isSoldOut
-                    ? "Epuizat"
-                    : cartBusy
-                    ? "Se adaugă…"
-                    : safe.orderMode === "OPTIONS"
-                    ? "Alege opțiuni"
-                    : safe.orderMode === "QUOTE_ONLY"
-                    ? "Cere ofertă"
-                    : "Adaugă în coș"
-                }
-                aria-label={
-                  isDisabled
-                    ? "Produs indisponibil"
-                    : isSoldOut
-                    ? "Epuizat"
-                    : cartBusy
-                    ? "Se adaugă…"
-                    : safe.orderMode === "OPTIONS"
-                    ? "Alege opțiuni"
-                    : safe.orderMode === "QUOTE_ONLY"
-                    ? "Cere ofertă"
-                    : "Adaugă în coș"
-                }
-                disabled={isDisabled || isSoldOut || cartBusy}
+                title={cartButtonLabel}
+                aria-label={cartButtonLabel}
+                aria-disabled={isDisabled || isSoldOut || cartBusy}
+                disabled={cartBusy}
               >
-                <FaShoppingCart />
+                <CartButtonIcon />
               </button>
             </div>
           ) : (
@@ -1126,41 +1211,22 @@ const handleCart = useCallback(
 
             <button
   type="button"
-  className={styles.iconBtn}
+  className={`${styles.iconBtn} ${
+    cartButtonState === "soldout" || cartButtonState === "unavailable"
+      ? styles.iconBtnUnavailable
+      : ""
+  }`}
   onClick={handleCart}
-  title={
-    isDisabled
-      ? "Produs indisponibil"
-      : isSoldOut
-      ? "Epuizat"
-      : cartBusy
-      ? "Se adaugă…"
-      : safe.orderMode === "OPTIONS"
-      ? "Alege opțiuni"
-      : safe.orderMode === "QUOTE_ONLY"
-      ? "Cere ofertă"
-      : "Adaugă în coș"
-  }
-  aria-label={
-    isDisabled
-      ? "Produs indisponibil"
-      : isSoldOut
-      ? "Epuizat"
-      : cartBusy
-      ? "Se adaugă…"
-      : safe.orderMode === "OPTIONS"
-      ? "Alege opțiuni"
-      : safe.orderMode === "QUOTE_ONLY"
-      ? "Cere ofertă"
-      : "Adaugă în coș"
-  }
-  disabled={
+  title={cartButtonLabel}
+  aria-label={cartButtonLabel}
+  aria-disabled={
     isDisabled ||
     isSoldOut ||
     cartBusy
   }
+  disabled={cartBusy}
 >
-  <FaShoppingCart />
+  <CartButtonIcon />
 </button>
             </div>
           )}

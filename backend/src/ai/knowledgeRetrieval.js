@@ -17,6 +17,7 @@
 import { openai } from "../lib/openai.js";
 import {
   scoreTextMatch,
+  scoreTextMatchStrict,
   tokenizeSearchText,
 } from "../lib/textRelevance.js";
 import { getPlatformManifests } from "./manifests/index.js";
@@ -62,6 +63,37 @@ const VAGUE_QUERY_MAX_TOKENS = 4;
  * complet, ~4.0) - nu vrem să depășească o potrivire genuină.
  */
 const VAGUE_QUERY_STRUCTURAL_SCORE = 3.5;
+
+/*
+ * BATCH 1 (FINAL GAP PASS, 2026-09-07) - înlocuiește vechiul
+ * LAST_CATEGORY_HINT_SCORE (constantă fixă 1.5, aplicată LOCAL în
+ * scoreManifest). Auditul a confirmat, prin rulare directă, 3 cazuri
+ * reale în care 1.5 fix nu era suficient: alte manifeste complet
+ * nerelevante puteau avea un scor organic mai mare pe cuvinte
+ * generice ("îl mai pot recupera?", "unde o văd?") și scoteau
+ * manifestul indicat de context din top-3, în ciuda hint-ului.
+ *
+ * Noul mecanism (vezi getRelevantPlatformKnowledge) e GLOBAL, nu
+ * local: se calculează întâi scorul organic al TUTUROR manifestelor
+ * pentru mesajul curent, izolat de conversație, apoi:
+ * - dacă cel mai mare scor organic e sub CONFIDENT_MATCH_SCORE
+ *   (niciun manifest nu are un match de-sine-stătător de încredere -
+ *   semnalul de "mesaj eliptic/dependent de context", NU numărul de
+ *   tokeni), manifestul indicat de lastCategory primește un scor
+ *   suficient să DOMINE orice zgomot organic existent;
+ * - dacă există deja un match organic de încredere (pe ACEST mesaj,
+ *   pe ORICE manifest), hint-ul nu se aplică deloc - nu retrogradează
+ *   niciodată un răspuns deja corect.
+ */
+const CONFIDENT_MATCH_SCORE = 2.5;
+const LAST_CATEGORY_DOMINANCE_MARGIN = 0.5;
+
+/*
+ * Un query cu mai puține cuvinte de conținut real (lungime >= 3
+ * caractere) decât atât nu poate produce un match "de încredere",
+ * indiferent de scor - vezi comentariul din getRelevantPlatformKnowledge.
+ */
+const MIN_MEANINGFUL_TOKENS_FOR_CONFIDENCE = 3;
 
 /*
  * Filtru de dominanță (zgomot din retrieval): dacă top-1 e clar
@@ -169,6 +201,23 @@ function scoreManifest({
     if (score > best) best = score;
   }
 
+  /*
+   * BATCH 1 (FINAL GAP PASS, 2026-09-07) - FIX SISTEMIC pentru
+   * WEAK_RETRIEVAL: auditul a găsit 57 de cazuri unde răspunsul
+   * corect exista deja, verbatim, în manifest.faq[].q - dar
+   * retrieval-ul nu-l vedea NICIODATĂ, pentru că scora doar title/
+   * tags/aliases/description, niciodată întrebările din FAQ. Fix
+   * SISTEMIC (nu 57 de aliases scrise manual): tratăm fiecare
+   * faq[].q exact ca un alias - aceeași funcție de scor, același
+   * prag. FAQ-urile sunt fraze curate, scrise de audit direct din
+   * întrebări reale de vânzători - același nivel de semnal ca
+   * aliases, nu zgomot nou.
+   */
+  for (const faqEntry of manifest.faq || []) {
+    const score = scoreTextMatchStrict(faqEntry?.q || "", query);
+    if (score > best) best = score;
+  }
+
   const descriptionScore = scoreTextMatch(
     manifest.description || "",
     query
@@ -191,6 +240,19 @@ function scoreManifest({
     currentEntity?.type || ""
   ).toUpperCase();
 
+  /*
+   * BATCH 1 (FINAL GAP PASS, 2026-09-07) - hint-ul de context pe
+   * lastCategory NU mai e calculat AICI (local, per-manifest) - s-a
+   * mutat în getRelevantPlatformKnowledge, unde poate compara scorul
+   * organic al manifestului indicat de context cu scorul organic al
+   * TUTUROR celorlalte manifeste pentru acest mesaj, nu doar cu 0.
+   * Motiv: auditul a confirmat, prin rulare directă, cazuri reale
+   * unde un hint fix (1.5) era depășit de zgomot organic pe alte
+   * manifeste complet nerelevante - vezi CONFIDENT_MATCH_SCORE mai
+   * sus. Hint-ul de pagină/entitate (hasStructuralHint) rămâne
+   * neschimbat - semnal diferit, mai stabil (o pagină nu se schimbă
+   * de la o tură la alta), fără regresii găsite în audit pe acesta.
+   */
   const hasStructuralHint =
     (pageTypeHint &&
       PAGE_TYPE_MANIFEST_HINTS[pageTypeHint] === manifest.id) ||
@@ -407,18 +469,117 @@ export async function getRelevantPlatformKnowledge({
     );
   });
 
-  const ranked = manifests
-    .map((manifest) => ({
-      manifest,
+  const organic = manifests.map((manifest) => ({
+    manifest,
 
-      score: scoreManifest({
-        manifest,
-        query: safeQuery,
-        currentPage,
-        currentEntity,
-        conversationContext,
-      }),
-    }))
+    score: scoreManifest({
+      manifest,
+      query: safeQuery,
+      currentPage,
+      currentEntity,
+      conversationContext,
+    }),
+  }));
+
+  /*
+   * BATCH 1 (FINAL GAP PASS, 2026-09-07) - hint de context GLOBAL,
+   * calculat DUPĂ ce toate manifestele au un scor organic (izolat de
+   * conversație). Fixează 3 cazuri confirmate prin rulare directă
+   * unde vechiul hint local (scor fix 1.5) era depășit de zgomot
+   * organic pe manifeste complet nerelevante:
+   * - "Când primesc factura?" -> "Unde o văd?" (lastCategory=
+   *   checkout-payments, dar catalog-imports/catalog-products/orders
+   *   scorau mai mult pe cuvinte generice)
+   * - "Cum conectez Stripe?" -> "Unde văd dacă este conectat?" (5
+   *   tokeni - peste vechiul VAGUE_QUERY_MAX_TOKENS, hint-ul nu se
+   *   aplica NICIODATĂ, indiferent de context)
+   * - "Cum șterg definitiv contul?" -> "Îl mai pot recupera?"
+   *   (hint 1.5 depășit de 3 manifeste nerelevante)
+   *
+   * Semnalul de "mesaj eliptic/dependent de context" NU mai e numărul
+   * de tokeni (arbitrar) - e faptul că NICIUN manifest nu are deja un
+   * match organic de încredere pentru acest mesaj, privit izolat de
+   * conversație. Dacă există un asemenea match (>= CONFIDENT_MATCH_
+   * SCORE, pe ORICE manifest, nu neapărat pe cel indicat de context),
+   * hint-ul nu se aplică deloc - nu retrogradează niciodată un răspuns
+   * deja corect, indiferent de conversație (cerința explicită a
+   * auditului: "fără să strice query-urile independente clare").
+   *
+   * Când hint-ul SE aplică, manifestul indicat primește un scor peste
+   * cel mai mare scor organic existent + o marjă - suficient să
+   * domine zgomotul, dar NU exagerat de mare, ca alte manifeste cu
+   * scor organic real (ex. "messages" la "Mai pot răspunde la
+   * mesaje?" după o tură despre pauza magazinului) să rămână și ele
+   * în rezultat, prin filtrul de dominanță de mai jos - LLM-ul de
+   * răspuns le vede pe amândouă, nu doar pe cea indicată de context.
+   */
+  const lastCategoryId = String(
+    conversationContext?.lastCategory || ""
+  );
+
+  /*
+   * USER BATCH 3 (#362, audit 2026-09-08, fix GENERAL aprobat) - flag
+   * setat DOAR când mesajul curent e un follow-up eliptic/dependent de
+   * context (isContextDependent, calculat mai jos) ȚINTIND manifestul
+   * indicat de lastCategory. Folosit mai departe la filtrul de
+   * dominanță: când e activ, un manifest SECUNDAR (diferit de cel
+   * dominant) supraviețuiește filtrului DOAR dacă are el însuși un
+   * scor organic de încredere (>= CONFIDENT_MATCH_SCORE) - nu doar
+   * pentru că trece pragul relativ DOMINANCE_RATIO față de scorul
+   * ARTIFICIAL (boostat) al celui dominant. Nu e specific niciunui
+   * cuvânt ("email"/"telefon"/etc.) - se aplică oricărui follow-up
+   * eliptic, pe orice domeniu, exact cerința "nu hardcodat".
+   */
+  let ellipticalContinuationHintApplied = false;
+
+  if (lastCategoryId) {
+    const hinted = organic.find(
+      ({ manifest }) => manifest.id === lastCategoryId
+    );
+
+    if (hinted) {
+      const bestOrganicScore = organic.reduce(
+        (max, o) => Math.max(max, o.score),
+        0
+      );
+
+      /*
+       * BATCH 1 (FINAL GAP PASS, 2026-09-07) - a doua condiție,
+       * necesară după regresia Q255: un scor organic mare NU e
+       * automat un "match de încredere" care trebuie protejat de
+       * hint. Cazul real găsit prin audit: "Unde o văd?" (3 tokeni)
+       * atinge scor 4.0 (acoperire completă) pe FAQ-ul quotes "Unde
+       * văd conversația legată de o ofertă?" - dar acoperirea e
+       * completă DOAR pentru că query-ul are 2 cuvinte de conținut
+       * ("unde", "văd"), amândouă extrem de generice, comune la
+       * majoritatea manifestelor cu conținut "unde văd X". Bonusul de
+       * acoperire completă favorizează disproporționat query-urile
+       * scurte, indiferent cât de generice sunt cuvintele - de-aia
+       * cerem, în plus, un NUMĂR MINIM de cuvinte de conținut real
+       * (lungime >= 3) în query, nu doar scorul. Sub acest minim, un
+       * match "complet" e prea ambiguu ca să blocheze contextul.
+       */
+      const meaningfulQueryTokenCount = tokenizeSearchText(
+        safeQuery
+      ).filter((token) => token.length >= 3).length;
+
+      const isContextDependent =
+        bestOrganicScore < CONFIDENT_MATCH_SCORE ||
+        meaningfulQueryTokenCount < MIN_MEANINGFUL_TOKENS_FOR_CONFIDENCE;
+
+      if (isContextDependent) {
+        hinted.score = Math.max(
+          hinted.score,
+          bestOrganicScore + LAST_CATEGORY_DOMINANCE_MARGIN,
+          MIN_RELEVANCE_SCORE
+        );
+
+        ellipticalContinuationHintApplied = true;
+      }
+    }
+  }
+
+  const ranked = organic
     .filter(({ score }) => score >= MIN_RELEVANCE_SCORE)
     .sort((a, b) => b.score - a.score);
 
@@ -435,9 +596,29 @@ export async function getRelevantPlatformKnowledge({
   const dominanceThreshold =
     ranked[0].score * DOMINANCE_RATIO;
 
-  const dominant = ranked.filter(
+  let dominant = ranked.filter(
     ({ score }) => score >= dominanceThreshold
   );
+
+  /*
+   * USER BATCH 3 (#362, fix GENERAL) - când follow-up-ul e eliptic
+   * (hint aplicat mai sus), scorul manifestului dominant e ARTIFICIAL
+   * (boostat, nu organic) - pragul relativ DOMINANCE_RATIO calculat
+   * față de el e prea permisiv și lasă să treacă manifeste secundare
+   * complet nerelevante organic (ex. "quotes" lângă "checkout-
+   * payments" la "Unde o văd?", "auth-account" lângă "vendor-store-
+   * profile" la "Îl mai pot recupera?" - confirmate prin audit ca
+   * bug-uri reale). Restrângem manifestele secundare la cele cu scor
+   * organic de-sine-stătător de încredere (>= CONFIDENT_MATCH_SCORE) -
+   * o schimbare REALĂ de subiect (alt manifest, independent relevant
+   * pe mesajul curent) rămâne vizibilă, doar zgomotul e tăiat.
+   */
+  if (ellipticalContinuationHintApplied) {
+    dominant = dominant.filter(
+      ({ manifest, score }) =>
+        manifest.id === lastCategoryId || score >= CONFIDENT_MATCH_SCORE
+    );
+  }
 
   const top = dominant.slice(0, MAX_RESULTS);
 

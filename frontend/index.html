@@ -3,6 +3,38 @@
   <head>
     <meta charset="UTF-8" />
 
+    <!--
+      Google Consent Mode v2 - TREBUIE să ruleze înaintea containerului
+      GTM de mai jos (orice tag Google configurat în GTM - GA4, Google
+      Ads - citește starea de consimțământ din acest dataLayer chiar
+      de la inițializare, nu doar la evenimente ulterioare).
+
+      Implicit: tot refuzat (cea mai sigură stare posibilă înainte ca
+      utilizatorul să fi făcut vreo alegere). Starea reală (dacă
+      utilizatorul are deja o preferință salvată dintr-o vizită
+      anterioară) este aplicată imediat după, din React
+      (services/analytics.js -> syncGoogleConsentFromStorage(), apelat
+      din setupAnalyticsConsentListener()), și actualizată live la
+      fiecare schimbare din bannerul de cookie-uri.
+
+      `gtag` de mai jos e un shim minimal (push în dataLayer) - NU
+      încarcă gtag.js separat. GTM citește aceleași comenzi din
+      dataLayer, deci funcționează indiferent dacă în interiorul
+      containerului GTM e configurat sau nu un tag Google explicit.
+    -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){ window.dataLayer.push(arguments); }
+
+      gtag('consent', 'default', {
+        'analytics_storage': 'denied',
+        'ad_storage': 'denied',
+        'ad_user_data': 'denied',
+        'ad_personalization': 'denied'
+      });
+    </script>
+    <!-- End Google Consent Mode default -->
+
     <!-- Google Tag Manager -->
     <script>
       (function(w,d,s,l,i){
@@ -25,7 +57,7 @@
     <!-- End Google Tag Manager -->
 
     <!-- 🔐 Maintenance / Access Guard -->
-    <!--
+    
     <script>
       (function () {
         try {
@@ -67,7 +99,7 @@
         }
       })();
     </script>
-    -->
+    
 
     <meta
       name="viewport"

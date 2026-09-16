@@ -7,7 +7,9 @@ import {
   ShoppingCart,
   Search as SearchIcon,
   ChevronDown,
+  ChevronRight,
   Menu,
+  X,
   Sun,
   Moon,
   Bell,
@@ -19,6 +21,25 @@ import {
   LifeBuoy,
   Store,
   Package,
+  Users,
+  Upload,
+  Layers,
+  Tag,
+  ShoppingBag,
+  Megaphone,
+  Percent,
+  Receipt,
+  CreditCard,
+  TrendingUp,
+  Settings,
+  FileText,
+  LogOut,
+  CalendarDays,
+  Activity,
+  Sparkles,
+  UserPlus,
+  Wrench,
+  AlertTriangle,
 } from "lucide-react";
 
 import { api } from "../../lib/api";
@@ -31,6 +52,95 @@ import { getGuestCartCount } from "../../utils/guestCart";
 import NotificationsPopover from "./NotificationsPopover";
 import MessagesPopover from "./MessagesPopover";
 import { useImageSearch } from "../../hooks/useImageSearch";
+import { useUnreadMessagesCount } from "../../features/messages/hooks/useUnreadMessagesCount";
+import {
+  VENDOR_DASHBOARD_LINK,
+  VENDOR_NAV_SECTIONS,
+} from "../../config/vendorNavigation.js";
+import {
+  USER_DASHBOARD_LINK,
+  USER_NAV_SECTIONS,
+} from "../../config/userNavigation.js";
+import {
+  INFLUENCER_DASHBOARD_LINK,
+  INFLUENCER_NAV_SECTIONS,
+} from "../../config/influencerNavigation.js";
+import { GUEST_NAV_SECTIONS } from "../../config/guestNavigation.js";
+import {
+  ADMIN_DASHBOARD_LINK,
+  ADMIN_NAV_SECTIONS,
+} from "../../config/adminNavigation.js";
+
+/*
+ * Lookup de iconițe pentru drawerul de rol (VendorDrawer - shell comun,
+ * reutilizat acum și de USER, vezi mai jos) - config-urile statice
+ * (vendorNavigation.js, userNavigation.js) țin doar numele (string),
+ * nu JSX/componente.
+ */
+const VENDOR_DRAWER_ICONS = {
+  Store,
+  Users,
+  Package,
+  Upload,
+  Layers,
+  Tag,
+  ShoppingBag,
+  MessageSquare,
+  Megaphone,
+  Percent,
+  Receipt,
+  CreditCard,
+  TrendingUp,
+  Settings,
+  LifeBuoy,
+  FileText,
+  LayoutGrid,
+  CalendarDays,
+  Bell,
+  Heart,
+  Activity,
+  Home,
+  Sparkles,
+  UserPlus,
+  UserIcon,
+  Wrench,
+  AlertTriangle,
+};
+
+function VendorDrawerIcon({ name, size = 18 }) {
+  const IconComponent = VENDOR_DRAWER_ICONS[name];
+  if (!IconComponent) return null;
+  return <IconComponent size={size} aria-hidden="true" />;
+}
+
+/*
+ * Un item de drawer e "activ" dacă pathname-ul curent se potrivește
+ * (exact sau ca prefix, pentru rute cu :id ca /vendor/orders/:id) și,
+ * dacă item.to are un query string (?tab=...), toate perechile din el
+ * regăsindu-se identic în query-ul curent - altfel toate tab-urile
+ * /vendor/catalog ar apărea simultan active. Pură/generică - folosită
+ * acum de orice rol care are drawer (nu doar vendor).
+ */
+function isVendorNavItemActive(item, location) {
+  const [itemPath, itemQuery] = (item?.to || "").split("?");
+  if (!itemPath) return false;
+
+  const pathname = location.pathname;
+  const matchesPath =
+    pathname === itemPath || pathname.startsWith(`${itemPath}/`);
+
+  if (!matchesPath) return false;
+  if (!itemQuery) return true;
+
+  const itemParams = new URLSearchParams(itemQuery);
+  const currentParams = new URLSearchParams(location.search);
+
+  for (const [key, value] of itemParams.entries()) {
+    if (currentParams.get(key) !== value) return false;
+  }
+
+  return true;
+}
 
 /* ========================= Modal (cu portal & blur) ========================= */
 function Modal({ open, onClose, title, children }) {
@@ -174,6 +284,215 @@ function MobileBar({ me, unreadNotif, cartCount, onOpenAuth }) {
   return createPortal(node, document.body);
 }
 
+/* ==========================================
+   Drawer vendor (portal în document.body)
+
+   Deschis din burgerul principal / trigger-ul mobil (state
+   burgerOpen, reutilizat - nu e un al doilea sistem de state).
+   Are propriul backdrop (navBackdrop existent e ascuns pe mobil cu
+   !important pentru vechiul .nav, deci nu poate fi reutilizat ca
+   atare) - Escape și scroll lock rămân gestionate central în Navbar,
+   pe același burgerOpen.
+========================================== */
+function VendorDrawer({
+  open,
+  onClose,
+  displayName,
+  eyebrow = "Dashboard vendor",
+  dashboardLink = VENDOR_DASHBOARD_LINK,
+  sections,
+  openSections,
+  onToggleSection,
+  isItemActive,
+  nextStepCTA,
+  theme,
+  onToggleTheme,
+  onLogout,
+}) {
+  if (!open) return null;
+
+  const isDark = theme === "dark";
+
+  const node = (
+    <>
+      <button
+        type="button"
+        className={styles.vendorDrawerBackdrop}
+        onClick={onClose}
+        aria-label="Închide meniul"
+      />
+
+      <aside
+        className={styles.vendorDrawer}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Meniu"
+        onClick={(e) => {
+          if (e.target.closest("a")) onClose();
+        }}
+      >
+      <header className={styles.vendorDrawerHead}>
+        <div className={styles.vendorDrawerHeadText}>
+          <div className={styles.vendorDrawerEyebrow}>{eyebrow}</div>
+          {displayName && (
+            <div className={styles.vendorDrawerName} title={displayName}>
+              {displayName}
+            </div>
+          )}
+        </div>
+
+        <button
+          type="button"
+          className={styles.vendorDrawerClose}
+          onClick={onClose}
+          aria-label="Închide meniul"
+        >
+          <X size={18} />
+        </button>
+      </header>
+
+      <nav className={styles.vendorDrawerBody} aria-label="Navigație">
+        {dashboardLink && (
+          <NavLink
+            to={dashboardLink.to}
+            className={`${styles.vendorDrawerDashboardLink} ${
+              isItemActive(dashboardLink)
+                ? styles.vendorDrawerItemActive
+                : ""
+            }`}
+          >
+            <VendorDrawerIcon name={dashboardLink.icon} />
+            {dashboardLink.label}
+          </NavLink>
+        )}
+
+        {sections.map((section) => {
+          const isOpen = openSections.has(section.key);
+
+          return (
+            <div key={section.key} className={styles.vendorDrawerSection}>
+              <button
+                type="button"
+                className={styles.vendorDrawerSectionHead}
+                onClick={() => onToggleSection(section.key)}
+                aria-expanded={isOpen ? "true" : "false"}
+                aria-controls={`vendor-drawer-section-${section.key}`}
+                id={`vendor-drawer-section-${section.key}-trigger`}
+              >
+                <VendorDrawerIcon name={section.icon} />
+                <span className={styles.vendorDrawerSectionLabel}>
+                  {section.label}
+                </span>
+                {isOpen ? (
+                  <ChevronDown size={16} />
+                ) : (
+                  <ChevronRight size={16} />
+                )}
+              </button>
+
+              {isOpen && (
+                <div
+                  className={styles.vendorDrawerSectionBody}
+                  id={`vendor-drawer-section-${section.key}`}
+                  role="group"
+                  aria-labelledby={`vendor-drawer-section-${section.key}-trigger`}
+                >
+                  {section.items.map((item) =>
+                    item.to ? (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={`${styles.vendorDrawerItem} ${
+                          isItemActive(item)
+                            ? styles.vendorDrawerItemActive
+                            : ""
+                        }`}
+                      >
+                        <VendorDrawerIcon name={item.icon} size={16} />
+                        {item.label}
+                      </NavLink>
+                    ) : (
+                      <button
+                        key={item.label}
+                        type="button"
+                        className={styles.vendorDrawerItem}
+                        onClick={() => {
+                          item.onSelect?.();
+                          onClose();
+                        }}
+                      >
+                        <VendorDrawerIcon name={item.icon} size={16} />
+                        {item.label}
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </nav>
+
+      {nextStepCTA && (
+        <div className={styles.vendorDrawerNextStep}>
+          <div className={styles.vendorDrawerNextStepLabel}>
+            Următorul pas
+          </div>
+
+          <NavLink
+            to={nextStepCTA.href}
+            className={styles.vendorDrawerNextStepBtn}
+          >
+            {nextStepCTA.label}
+          </NavLink>
+        </div>
+      )}
+
+      <div className={styles.vendorDrawerFooter}>
+        <div className={styles.vendorDrawerPrefRow}>
+          <span className={styles.vendorDrawerPrefLabel}>
+            {isDark ? (
+              <Moon size={18} aria-hidden="true" />
+            ) : (
+              <Sun size={18} aria-hidden="true" />
+            )}
+            {isDark ? "Mod întunecat" : "Mod luminos"}
+          </span>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={isDark}
+            aria-label="Comută tema deschisă/închisă"
+            className={styles.vendorDrawerThemeSwitch}
+            onClick={onToggleTheme}
+          >
+            <span className={styles.vendorDrawerThemeSwitchThumb} />
+          </button>
+        </div>
+
+        {onLogout && (
+          <button
+            type="button"
+            className={styles.vendorDrawerLogoutBtn}
+            onClick={() => {
+              onClose();
+              onLogout();
+            }}
+            aria-label="Deconectare din cont"
+          >
+            <LogOut size={18} aria-hidden="true" />
+            Deconectare
+          </button>
+        )}
+      </div>
+      </aside>
+    </>
+  );
+
+  return createPortal(node, document.body);
+}
+
 /* ===================== Navbar principal ===================== */
 export default function Navbar() {
   const { me, refresh } = useAuth();
@@ -200,7 +519,7 @@ export default function Navbar() {
   const [wishCount, setWishCount] = useState(0);
   const [cartCount, setCartCount] = useState(0);
   const [vServices, setVServices] = useState([]);
-  const [unreadMsgs, setUnreadMsgs] = useState(0);
+  const { count: unreadMsgs } = useUnreadMessagesCount();
   const [unreadNotif, setUnreadNotif] = useState(0);
   const [onboarding, setOnboarding] = useState(null);
   const [supportUnread, setSupportUnread] = useState(0);
@@ -239,6 +558,20 @@ export default function Navbar() {
   }, [theme]);
 
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+
+  /*
+   * Logout - o singură logică, reutilizată de dropdown-ul avatarului
+   * (admin + normal) și de drawer-ul vendor, ca să nu se dubleze.
+   */
+  const handleLogout = useCallback(async () => {
+    try {
+      await api("/api/auth/logout", { method: "POST" });
+      if (typeof refresh === "function") await refresh();
+    } catch {
+      // ignore
+    }
+    navigate("/autentificare", { replace: true });
+  }, [refresh, navigate]);
 
   const computeGuestCartCount = useCallback(() => {
   try {
@@ -456,7 +789,13 @@ useEffect(() => {
     };
   }, [me?.role]);
 
-  /* ===== notif + messages + onboarding ===== */
+  /* ===== notif + onboarding =====
+   * ETAPA 1 (audit Mesaje, #3 MEDIUM): unread-count-ul de mesaje era
+   * preluat aici ȘI în fetchUnreadMessages de mai jos (dublu request
+   * spre aceleași endpoint-uri la fiecare load/poll). Rămâne un singur
+   * loc: fetchUnreadMessages. Acest efect gestionează doar notif +
+   * onboarding, care nu sunt duplicate nicăieri altundeva.
+   */
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -472,41 +811,18 @@ useEffect(() => {
       }
 
       if (!me) {
-        if (alive) {
-          setUnreadMsgs(0);
-          setOnboarding(null);
-        }
+        if (alive) setOnboarding(null);
         return;
       }
 
       if (me.role === "VENDOR") {
-        const [customerMsgs, vendorThreads] = await Promise.all([
-  api("/api/inbox/unread-count").catch(() => ({ count: 0 })),
-  api("/api/inbox/vendor-threads?scope=unread").catch(() => ({ items: [] })),
-]);
-
-const vendorUnreadCount = Array.isArray(vendorThreads?.items)
-  ? vendorThreads.items.reduce((sum, t) => sum + (t.unreadCount || 0), 0)
-  : 0;
         const ob = await api("/api/vendors/me/onboarding-status").catch(() => null);
         if (!alive) return;
-        setUnreadMsgs((customerMsgs?.count || 0) + vendorUnreadCount);
         setOnboarding(ob || null);
         return;
       }
 
-      if (me.role === "USER") {
-        const msgs = await api("/api/user-inbox/unread-count").catch(() => ({ count: 0 }));
-        if (!alive) return;
-        setUnreadMsgs(msgs?.count || 0);
-        setOnboarding(null);
-        return;
-      }
-
-      if (alive) {
-        setUnreadMsgs(0);
-        setOnboarding(null);
-      }
+      if (alive) setOnboarding(null);
     })();
 
     return () => {
@@ -565,147 +881,6 @@ const vendorUnreadCount = Array.isArray(vendorThreads?.items)
     };
   }, [me, fetchSupportUnread]);
 
-  /* ===== messages unread ===== */
-const fetchUnreadMessages = useCallback(async () => {
-  if (!me) {
-    setUnreadMsgs(0);
-    return;
-  }
-
-  try {
-    if (me.role === "USER") {
-      const data = await api(
-        "/api/user-inbox/unread-count"
-      ).catch(() => ({
-        count: 0,
-      }));
-
-      setUnreadMsgs(
-        data?.count || 0
-      );
-
-      return;
-    }
-
-    if (me.role === "VENDOR") {
-      const [
-        customerMsgs,
-        vendorThreads,
-      ] = await Promise.all([
-        api(
-          "/api/inbox/unread-count"
-        ).catch(() => ({
-          count: 0,
-        })),
-
-        api(
-          "/api/inbox/vendor-threads?scope=unread"
-        ).catch(() => ({
-          items: [],
-        })),
-      ]);
-
-      const vendorUnreadCount =
-        Array.isArray(
-          vendorThreads?.items
-        )
-          ? vendorThreads.items.reduce(
-              (
-                sum,
-                thread
-              ) =>
-                sum +
-                Number(
-                  thread?.unreadCount ||
-                    0
-                ),
-              0
-            )
-          : 0;
-
-      setUnreadMsgs(
-        Number(
-          customerMsgs?.count ||
-            0
-        ) +
-          vendorUnreadCount
-      );
-
-      return;
-    }
-
-    setUnreadMsgs(0);
-  } catch {
-    setUnreadMsgs(0);
-  }
-}, [
-  me,
-]);
-
-useEffect(() => {
-  if (!me) {
-    setUnreadMsgs(0);
-    return undefined;
-  }
-
-  fetchUnreadMessages();
-
-  const intervalId =
-    window.setInterval(
-      () => {
-        if (
-          document.visibilityState ===
-          "visible"
-        ) {
-          fetchUnreadMessages();
-        }
-      },
-      8000
-    );
-
-  function handleVisibilityChange() {
-    if (
-      document.visibilityState ===
-      "visible"
-    ) {
-      fetchUnreadMessages();
-    }
-  }
-
-  function handleMessagesChanged() {
-    fetchUnreadMessages();
-  }
-
-  document.addEventListener(
-    "visibilitychange",
-    handleVisibilityChange
-  );
-
-  window.addEventListener(
-    "messages:changed",
-    handleMessagesChanged
-  );
-
-  return () => {
-    window.clearInterval(
-      intervalId
-    );
-
-    document.removeEventListener(
-      "visibilitychange",
-      handleVisibilityChange
-    );
-
-    window.removeEventListener(
-      "messages:changed",
-      handleMessagesChanged
-    );
-  };
-}, [
-  me,
-  fetchUnreadMessages,
-]);
-
   /* ===== scroll lock pt burger ===== */
   useEffect(() => {
     if (!burgerOpen) return;
@@ -714,6 +889,18 @@ useEffect(() => {
     return () => {
       document.body.style.overflow = prev;
     };
+  }, [burgerOpen]);
+
+  /* ===== Escape închide burgerul (meniu / drawer vendor) ===== */
+  useEffect(() => {
+    if (!burgerOpen) return;
+
+    function onKeyDown(e) {
+      if (e.key === "Escape") setBurgerOpen(false);
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [burgerOpen]);
 
   /* ===== open modal via query params ===== */
@@ -908,6 +1095,10 @@ useEffect(() => {
   const avatarUrl = me?.avatarUrl || null;
   const isVendor = me?.role === "VENDOR";
 const isInfluencer = me?.role === "INFLUENCER";
+const isUser = me?.role === "USER";
+const isGuest = !me;
+const isAdmin = me?.role === "ADMIN";
+const isAdminRoute = location.pathname.startsWith("/admin");
   const supportHref = useMemo(() => {
     if (!me) return "/support";
     if (me.role === "ADMIN") return "/admin/support";
@@ -948,7 +1139,308 @@ const isInfluencer = me?.role === "INFLUENCER";
     return null;
   }, [onboarding, isVendor, vServices]);
 
-  const ACHIZITII_LABEL = "Achiziții";
+  /* ===== Drawer vendor: secțiuni (config static + profileLinks) ===== */
+  const [vendorOpenSections, setVendorOpenSections] = useState(
+    () => new Set()
+  );
+
+  const vendorSections = useMemo(() => {
+    return VENDOR_NAV_SECTIONS.map((section) => {
+      if (section.key !== "magazin") return section;
+
+      const profileItems = profileLinks.map(([href, label]) => ({
+        label,
+        to: href,
+        icon: "Store",
+      }));
+
+      return {
+        ...section,
+        items: [
+          section.items[0],
+          ...profileItems,
+          ...section.items.slice(1),
+        ],
+      };
+    });
+  }, [profileLinks]);
+
+  const activeVendorSectionKey = useMemo(() => {
+    if (!isVendor) return null;
+
+    for (const section of vendorSections) {
+      if (
+        section.items.some((item) =>
+          isVendorNavItemActive(item, location)
+        )
+      ) {
+        return section.key;
+      }
+    }
+
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVendor, vendorSections, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!activeVendorSectionKey) return;
+
+    setVendorOpenSections((prev) => {
+      if (prev.has(activeVendorSectionKey)) return prev;
+      const next = new Set(prev);
+      next.add(activeVendorSectionKey);
+      return next;
+    });
+  }, [activeVendorSectionKey, burgerOpen]);
+
+  const toggleVendorSection = useCallback((key) => {
+    setVendorOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const isVendorItemActive = useCallback(
+    (item) => isVendorNavItemActive(item, location),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [location.pathname, location.search]
+  );
+
+  const vendorDisplayName =
+    me?.name ||
+    `${me?.firstName || ""} ${me?.lastName || ""}`.trim() ||
+    me?.email ||
+    "Vendor";
+
+  /*
+   * Drawer USER - același shell (VendorDrawer), config separat
+   * (userNavigation.js), fără nimic dinamic de injectat (spre
+   * deosebire de vendor, care combină profileLinks) - secțiunile
+   * sunt folosite direct din config.
+   */
+  const [userOpenSections, setUserOpenSections] = useState(
+    () => new Set()
+  );
+
+  const activeUserSectionKey = useMemo(() => {
+    if (!isUser) return null;
+
+    for (const section of USER_NAV_SECTIONS) {
+      if (
+        section.items.some((item) =>
+          isVendorNavItemActive(item, location)
+        )
+      ) {
+        return section.key;
+      }
+    }
+
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUser, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!activeUserSectionKey) return;
+
+    setUserOpenSections((prev) => {
+      if (prev.has(activeUserSectionKey)) return prev;
+      const next = new Set(prev);
+      next.add(activeUserSectionKey);
+      return next;
+    });
+  }, [activeUserSectionKey, burgerOpen]);
+
+  const toggleUserSection = useCallback((key) => {
+    setUserOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const userDisplayName =
+    me?.name ||
+    `${me?.firstName || ""} ${me?.lastName || ""}`.trim() ||
+    me?.email ||
+    "Contul meu";
+
+  /*
+   * Drawer INFLUENCER - același shell, config separat
+   * (influencerNavigation.js), fără nimic dinamic de injectat.
+   */
+  const [influencerOpenSections, setInfluencerOpenSections] = useState(
+    () => new Set()
+  );
+
+  const activeInfluencerSectionKey = useMemo(() => {
+    if (!isInfluencer) return null;
+
+    for (const section of INFLUENCER_NAV_SECTIONS) {
+      if (
+        section.items.some((item) =>
+          isVendorNavItemActive(item, location)
+        )
+      ) {
+        return section.key;
+      }
+    }
+
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInfluencer, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!activeInfluencerSectionKey) return;
+
+    setInfluencerOpenSections((prev) => {
+      if (prev.has(activeInfluencerSectionKey)) return prev;
+      const next = new Set(prev);
+      next.add(activeInfluencerSectionKey);
+      return next;
+    });
+  }, [activeInfluencerSectionKey, burgerOpen]);
+
+  const toggleInfluencerSection = useCallback((key) => {
+    setInfluencerOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const influencerDisplayName =
+    me?.name ||
+    `${me?.firstName || ""} ${me?.lastName || ""}`.trim() ||
+    me?.email ||
+    "Influencer";
+
+  /*
+   * Drawer GUEST - același shell, config separat (guestNavigation.js).
+   * Autentificare/Creează cont/Devino partener nu sunt rute (item.to
+   * lipsă) - sunt modalele deja existente (authOpen/partnerOpen),
+   * legate aici prin item.action, NU în config (care rămâne date pure).
+   */
+  const GUEST_ACTIONS = {
+    login: () => {
+      setAuthTab("login");
+      setAuthOpen(true);
+    },
+    register: () => {
+      setAuthTab("register");
+      setAuthOpen(true);
+    },
+    partner: () => setPartnerOpen(true),
+  };
+
+  const guestSections = useMemo(() => {
+    return GUEST_NAV_SECTIONS.map((section) => ({
+      ...section,
+      items: section.items.map((item) =>
+        item.action
+          ? { ...item, onSelect: GUEST_ACTIONS[item.action] }
+          : item
+      ),
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [guestOpenSections, setGuestOpenSections] = useState(
+    () => new Set()
+  );
+
+  const activeGuestSectionKey = useMemo(() => {
+    if (!isGuest) return null;
+
+    for (const section of guestSections) {
+      if (
+        section.items.some((item) =>
+          isVendorNavItemActive(item, location)
+        )
+      ) {
+        return section.key;
+      }
+    }
+
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGuest, guestSections, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!activeGuestSectionKey) return;
+
+    setGuestOpenSections((prev) => {
+      if (prev.has(activeGuestSectionKey)) return prev;
+      const next = new Set(prev);
+      next.add(activeGuestSectionKey);
+      return next;
+    });
+  }, [activeGuestSectionKey, burgerOpen]);
+
+  const toggleGuestSection = useCallback((key) => {
+    setGuestOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  /*
+   * Drawer ADMIN - același shell, config separat (adminNavigation.js).
+   * Declarat aici (înainte de return-ul early al branch-ului admin,
+   * câteva zeci de linii mai jos) ca să respecte regulile hook-urilor
+   * React - nu poate fi condiționat de acel return.
+   */
+  const [adminOpenSections, setAdminOpenSections] = useState(
+    () => new Set()
+  );
+
+  const activeAdminSectionKey = useMemo(() => {
+    if (!isAdmin) return null;
+
+    for (const section of ADMIN_NAV_SECTIONS) {
+      if (
+        section.items.some((item) =>
+          isVendorNavItemActive(item, location)
+        )
+      ) {
+        return section.key;
+      }
+    }
+
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!activeAdminSectionKey) return;
+
+    setAdminOpenSections((prev) => {
+      if (prev.has(activeAdminSectionKey)) return prev;
+      const next = new Set(prev);
+      next.add(activeAdminSectionKey);
+      return next;
+    });
+  }, [activeAdminSectionKey, burgerOpen]);
+
+  const toggleAdminSection = useCallback((key) => {
+    setAdminOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const adminDisplayName =
+    me?.name ||
+    `${me?.firstName || ""} ${me?.lastName || ""}`.trim() ||
+    me?.email ||
+    "Admin";
 
  const loginRedirect = (() => {
   try {
@@ -992,15 +1484,22 @@ const isInfluencer = me?.role === "INFLUENCER";
   }
 })();
 
-  const isAdmin = me?.role === "ADMIN";
-  const isAdminRoute = location.pathname.startsWith("/admin");
-
   /* ================= NAVBAR SPECIAL PENTRU ADMIN ================= */
   if (isAdmin && isAdminRoute) {
     return (
       <header className={styles.header}>
         <div className={styles.container}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <button
+              type="button"
+              className={`${styles.burger} ${styles.burgerVendor}`}
+              onClick={() => setBurgerOpen((v) => !v)}
+              aria-label="Meniu admin"
+              aria-expanded={burgerOpen ? "true" : "false"}
+            >
+              <Menu size={22} />
+            </button>
+
             <Link to="/" aria-label="Artfest – Acasă" title="Pagina principală">
               <img src={logo} alt="Artfest" className={styles.logo} />
             </Link>
@@ -1025,7 +1524,7 @@ const isInfluencer = me?.role === "INFLUENCER";
             <NavLink className={styles.navLink} to="/admin/pickups" end>
               Colete
             </NavLink>
-            <NavLink className={styles.navLink} to="billing" end>
+            <NavLink className={styles.navLink} to="/admin/billing" end>
               Facturare
             </NavLink>
           </nav>
@@ -1101,15 +1600,9 @@ const isInfluencer = me?.role === "INFLUENCER";
                     <button
                       type="button"
                       className={styles.accountBtn}
-                      onClick={async (e) => {
+                      onClick={(e) => {
                         e.preventDefault();
-                        try {
-                          await api("/api/auth/logout", { method: "POST" });
-                          if (typeof refresh === "function") await refresh();
-                        } catch {
-                          // ignore
-                        }
-                        navigate("/autentificare", { replace: true });
+                        handleLogout();
                       }}
                       style={{ width: "100%", justifyContent: "center" }}
                     >
@@ -1121,6 +1614,45 @@ const isInfluencer = me?.role === "INFLUENCER";
             </div>
           </div>
         </div>
+
+        {/*
+         * .container e ascuns pe mobil (regulă CSS comună tuturor
+         * rolurilor) - burgerul de mai sus devine invizibil acolo.
+         * .mobileSearch e vizibil doar pe mobil (regulă deja
+         * existentă) - îl reutilizăm doar ca declanșator de drawer,
+         * fără câmp de căutare (adminul nu are search de produse).
+         */}
+        <div className={styles.mobileSearch}>
+          <div className={styles.mobileSearchRow}>
+            <div className={styles.mobileSearchLeft}>
+              <button
+                type="button"
+                className={styles.iconWrapper}
+                onClick={() => setBurgerOpen(true)}
+                title="Meniu admin"
+                aria-label="Meniu admin"
+                aria-expanded={burgerOpen ? "true" : "false"}
+              >
+                <Menu size={22} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <VendorDrawer
+          open={burgerOpen}
+          onClose={() => setBurgerOpen(false)}
+          displayName={adminDisplayName}
+          eyebrow="Dashboard admin"
+          dashboardLink={ADMIN_DASHBOARD_LINK}
+          sections={ADMIN_NAV_SECTIONS}
+          openSections={adminOpenSections}
+          onToggleSection={toggleAdminSection}
+          isItemActive={isVendorItemActive}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onLogout={handleLogout}
+        />
       </header>
     );
   }
@@ -1132,9 +1664,21 @@ const isInfluencer = me?.role === "INFLUENCER";
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <button
             type="button"
-            className={styles.burger}
+            className={`${styles.burger} ${
+              isVendor || isUser || isInfluencer || isGuest
+                ? styles.burgerVendor
+                : ""
+            }`}
             onClick={() => setBurgerOpen((v) => !v)}
-            aria-label="Meniu"
+            aria-label={
+              isVendor
+                ? "Meniu vendor"
+                : isInfluencer
+                ? "Meniu influencer"
+                : isUser
+                ? "Meniu cont"
+                : "Meniu"
+            }
             aria-expanded={burgerOpen ? "true" : "false"}
           >
             <Menu size={22} />
@@ -1154,71 +1698,6 @@ const isInfluencer = me?.role === "INFLUENCER";
         >
           {isVendor ? (
             <>
-              <div className={styles.dropdown} tabIndex={0}>
-                <button
-                  type="button"
-                  className={styles.navLink}
-                  aria-haspopup="menu"
-                  aria-label={ACHIZITII_LABEL}
-                >
-                  {ACHIZITII_LABEL}
-                  <ChevronDown className={styles.dropdownIcon} size={14} />
-                </button>
-
-                <div
-                  className={styles.dropdownContent}
-                  role="menu"
-                  style={{ padding: 10, minWidth: 280 }}
-                >
-                  <div className={styles.menuGrid}>
-                    <div>
-                      <div className={styles.groupLabel}>Servicii digitale</div>
-                      <div className={styles.colGrid}>
-                        <NavLink to="/servicii-digitale" role="menuitem">
-                          Invitație tip site
-                        </NavLink>
-                        <NavLink to="/servicii-digitale" role="menuitem">
-                          Așezarea la mese (SMS)
-                        </NavLink>
-                        <NavLink to="/servicii-digitale" role="menuitem">
-                          Album QR
-                        </NavLink>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className={styles.groupLabel}>Produse</div>
-                      <div className={styles.colGrid}>
-                        <NavLink to="/produse" role="menuitem">
-                          Produse
-                        </NavLink>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className={styles.groupLabel}>Servicii</div>
-                      <div className={styles.colGrid}>
-                        <NavLink to="/magazine" role="menuitem">
-                          Magazine
-                        </NavLink>
-                        <div
-                          style={{
-                            marginTop: 10,
-                            fontSize: 12,
-                            color: "var(--color-text-muted)",
-                            fontStyle: "italic",
-                            borderTop: "1px solid var(--color-border)",
-                            paddingTop: 6,
-                          }}
-                        >
-                          * Toate serviciile pentru evenimente vor fi disponibile în curând
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               {profileLinks.length <= 1 ? (
                 <NavLink
                   className={styles.navLink}
@@ -1246,18 +1725,15 @@ const isInfluencer = me?.role === "INFLUENCER";
                 </div>
               )}
 
+              <NavLink className={styles.navLink} to="/vendor/catalog?tab=products">
+                Catalog produse
+              </NavLink>
               <NavLink className={styles.navLink} to="/vendor/orders">
-                Comenzile mele
+                Comenzi
               </NavLink>
               <NavLink className={styles.navLink} to="/vendor/visitors">
                 Vizitatori
               </NavLink>
-
-              {nextStepCTA && (
-                <NavLink className={styles.accountBtn} to={nextStepCTA.href} title="Următorul pas">
-                  {nextStepCTA.label}
-                </NavLink>
-              )}
             </>
           ) : (
             <>
@@ -1452,7 +1928,7 @@ const isInfluencer = me?.role === "INFLUENCER";
           )}
         </nav>
 
-        {burgerOpen && (
+        {burgerOpen && !isVendor && !isUser && !isInfluencer && !isGuest && (
           <button
             type="button"
             className={styles.navBackdrop}
@@ -1610,18 +2086,6 @@ const isInfluencer = me?.role === "INFLUENCER";
                   {isVendor ? (
   <>
     <li>
-      <NavLink to="/vendor/orders">
-        Comenzile mele
-      </NavLink>
-    </li>
-
-    <li>
-      <NavLink to="/vendor/invoices">
-        Facturi
-      </NavLink>
-    </li>
-
-    <li>
       <NavLink to="/setari">
         Setări
       </NavLink>
@@ -1655,15 +2119,9 @@ const isInfluencer = me?.role === "INFLUENCER";
                     <button
                       type="button"
                       className={styles.accountBtn}
-                      onClick={async (e) => {
+                      onClick={(e) => {
                         e.preventDefault();
-                        try {
-                          await api("/api/auth/logout", { method: "POST" });
-                          if (typeof refresh === "function") await refresh();
-                        } catch {
-                          // ignore
-                        }
-                        navigate("/autentificare", { replace: true });
+                        handleLogout();
                       }}
                       style={{ width: "100%", justifyContent: "center" }}
                     >
@@ -1681,6 +2139,19 @@ const isInfluencer = me?.role === "INFLUENCER";
         <div className={styles.mobileSearchRow}>
           <div className={styles.mobileSearchLeft}>
             {isVendor && (
+              <button
+                type="button"
+                className={styles.iconWrapper}
+                onClick={() => setBurgerOpen(true)}
+                title="Meniu vendor"
+                aria-label="Meniu vendor"
+                aria-expanded={burgerOpen ? "true" : "false"}
+              >
+                <Menu size={22} />
+              </button>
+            )}
+
+            {isVendor && (
               <NavLink
                 className={styles.iconWrapper}
                 to="/vendor/orders"
@@ -1689,6 +2160,45 @@ const isInfluencer = me?.role === "INFLUENCER";
               >
                 <Package size={22} />
               </NavLink>
+            )}
+
+            {isUser && (
+              <button
+                type="button"
+                className={styles.iconWrapper}
+                onClick={() => setBurgerOpen(true)}
+                title="Meniu cont"
+                aria-label="Meniu cont"
+                aria-expanded={burgerOpen ? "true" : "false"}
+              >
+                <Menu size={22} />
+              </button>
+            )}
+
+            {isInfluencer && (
+              <button
+                type="button"
+                className={styles.iconWrapper}
+                onClick={() => setBurgerOpen(true)}
+                title="Meniu influencer"
+                aria-label="Meniu influencer"
+                aria-expanded={burgerOpen ? "true" : "false"}
+              >
+                <Menu size={22} />
+              </button>
+            )}
+
+            {isGuest && (
+              <button
+                type="button"
+                className={styles.iconWrapper}
+                onClick={() => setBurgerOpen(true)}
+                title="Meniu"
+                aria-label="Meniu"
+                aria-expanded={burgerOpen ? "true" : "false"}
+              >
+                <Menu size={22} />
+              </button>
             )}
 
             {me && (
@@ -1953,6 +2463,69 @@ const isInfluencer = me?.role === "INFLUENCER";
           setPartnerOpen(false);
         }}
       />
+
+      {isVendor && (
+        <VendorDrawer
+          open={burgerOpen}
+          onClose={() => setBurgerOpen(false)}
+          displayName={vendorDisplayName}
+          sections={vendorSections}
+          openSections={vendorOpenSections}
+          onToggleSection={toggleVendorSection}
+          isItemActive={isVendorItemActive}
+          nextStepCTA={nextStepCTA}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onLogout={handleLogout}
+        />
+      )}
+
+      {isUser && (
+        <VendorDrawer
+          open={burgerOpen}
+          onClose={() => setBurgerOpen(false)}
+          displayName={userDisplayName}
+          dashboardLink={USER_DASHBOARD_LINK}
+          sections={USER_NAV_SECTIONS}
+          openSections={userOpenSections}
+          onToggleSection={toggleUserSection}
+          isItemActive={isVendorItemActive}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onLogout={handleLogout}
+        />
+      )}
+
+      {isInfluencer && (
+        <VendorDrawer
+          open={burgerOpen}
+          onClose={() => setBurgerOpen(false)}
+          displayName={influencerDisplayName}
+          dashboardLink={INFLUENCER_DASHBOARD_LINK}
+          sections={INFLUENCER_NAV_SECTIONS}
+          openSections={influencerOpenSections}
+          onToggleSection={toggleInfluencerSection}
+          isItemActive={isVendorItemActive}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onLogout={handleLogout}
+        />
+      )}
+
+      {isGuest && (
+        <VendorDrawer
+          open={burgerOpen}
+          onClose={() => setBurgerOpen(false)}
+          eyebrow="Meniu"
+          dashboardLink={null}
+          sections={guestSections}
+          openSections={guestOpenSections}
+          onToggleSection={toggleGuestSection}
+          isItemActive={isVendorItemActive}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
+      )}
 
       <NotificationsPopover
         open={notifOpen}

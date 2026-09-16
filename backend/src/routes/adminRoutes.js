@@ -262,6 +262,14 @@ const adminVendorSelect = {
   stripeDisabledReason: true,
   stripeOnboardedAt: true,
 
+  /*
+   * Referral vendor (vendor ca promotor) - referralCommissionBps e
+   * setat EXCLUSIV de admin (vezi PATCH /vendors/:id/referral-commission
+   * mai jos) - vendorul nu are nicio rută prin care să-l modifice.
+   */
+  referralCode: true,
+  referralCommissionBps: true,
+
   user: {
     select: {
       id: true,
@@ -642,6 +650,9 @@ marketingPrefs: {
         entitySelfDeclaredIp: v.entitySelfDeclaredIp || null,
         entitySelfDeclaredUa: v.entitySelfDeclaredUa || null,
         entitySelfDeclaredMeta: v.entitySelfDeclaredMeta ?? null,
+
+        referralCode: v.referralCode || null,
+        referralCommissionBps: Number(v.referralCommissionBps || 0),
 
         stripeAccountId: v.stripeAccountId || null,
         stripeConnectStatus: v.stripeConnectStatus || "not_started",
@@ -1040,6 +1051,8 @@ router.get("/orders", async (req, res) => {
         shipments: {
           include: {
             vendor: { select: { id: true, displayName: true } },
+            influencer: { select: { id: true, displayName: true } },
+            campaign: { select: { id: true, name: true, slug: true } },
             items: true,
           },
         },
@@ -1501,6 +1514,91 @@ router.post("/vendors/:id/deactivate", async (req, res) => {
   } catch (e) {
     console.error("ADMIN /vendors/:id/deactivate error", e);
     res.status(500).json({ error: "admin_vendor_deactivate_failed" });
+  }
+});
+
+/*
+ * PATCH /vendors/:id/referral-commission
+ *
+ * Singurul loc din aplicație unde Vendor.referralCommissionBps poate
+ * fi modificat - vendorul NU are nicio rută (vendorRoutes.js/
+ * vendorDiscountCodesRoutes.js/vendorCollectionsRoutes.js) prin care
+ * să-și seteze singur acest procent. Ruta e montată sub
+ * router.use(authRequired, requireRole("ADMIN")) de la începutul
+ * fișierului (linia 12), deci un vendor autentificat primește 403
+ * înainte să ajungă aici.
+ *
+ * IMPORTANT (semantica bps): referralCommissionBps NU e procent din
+ * prețul produsului - e procentul din platformNet (marja Artfest
+ * rămasă după reduceri, pe shipmentul extern) pe care vendorul
+ * promotor îl încasează. Formula (computeVendorEarningForShipment +
+ * ensureVendorReferralSaleLedgerEntry din vendorOrdersRoutes.js) NU
+ * e atinsă aici - acest endpoint scrie DOAR valoarea de configurare,
+ * niciodată nu recalculează sau plătește ceva direct. Garanția
+ * earningNet <= platformNet vine din formulă (bps <= 10000), nu de
+ * aici - validarea de mai jos doar previne o valoare imposibilă
+ * (peste 100% sau negativă) să ajungă vreodată în DB.
+ *
+ * SCHIMBARE (audit 2026-09-14, regula finală de business): `0` NU mai
+ * înseamnă "dezactivat" - vendorAttribution.js
+ * (DEFAULT_VENDOR_PROMOTER_COMMISSION_BPS) tratează `0`/neconfigurat
+ * ca "foloseşte implicitul de platformă, 20%". Setarea aici rămâne
+ * singurul loc unde admin poate impune un procent DIFERIT pentru un
+ * vendor anume - vendorul nu-l controlează niciodată.
+ */
+router.patch("/vendors/:id/referral-commission", async (req, res) => {
+  const { id } = req.params;
+
+  const rawValue = req.body?.referralCommissionBps;
+  const referralCommissionBps = Number(rawValue);
+
+  if (
+    !Number.isInteger(referralCommissionBps) ||
+    referralCommissionBps < 0 ||
+    referralCommissionBps > 10000
+  ) {
+    return res.status(400).json({
+      error: "invalid_referral_commission_bps",
+      message:
+        "Comisionul de referral trebuie să fie un număr întreg între 0 și 10000 (0 = valoarea implicită de platformă, 20%; 10000 = 100%).",
+    });
+  }
+
+  try {
+    const existing = await prisma.vendor.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!existing) return res.status(404).json({ error: "vendor_not_found" });
+
+    const vendor = await prisma.vendor.update({
+      where: { id },
+      data: { referralCommissionBps },
+      select: adminVendorSelect,
+    });
+
+    res.json({
+      vendor: {
+        ...vendor,
+        createdAt: toIso(vendor.createdAt),
+        stripeOnboardedAt: toIso(vendor.stripeOnboardedAt),
+        user: vendor.user
+          ? {
+              ...vendor.user,
+              createdAt: toIso(vendor.user.createdAt),
+              lastLoginAt: toIso(vendor.user.lastLoginAt),
+              UserConsent: mapUserConsentList(vendor.user.UserConsent),
+              marketingPrefs: mapMarketingPrefs(vendor.user.marketingPrefs),
+              consentSummary: buildUserConsentsSummary(vendor.user),
+            }
+          : null,
+        billing: mapVendorBilling(vendor.billing),
+      },
+    });
+  } catch (e) {
+    console.error("ADMIN /vendors/:id/referral-commission error", e);
+    res.status(500).json({ error: "admin_vendor_referral_commission_failed" });
   }
 });
 

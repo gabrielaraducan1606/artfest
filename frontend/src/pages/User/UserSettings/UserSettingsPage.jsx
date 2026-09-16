@@ -1,5 +1,6 @@
 // src/pages/Account/UserSettingsPage.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   User as UserIcon,
   Shield,
@@ -8,11 +9,14 @@ import {
   RefreshCcw,
   Loader2,
   Megaphone,
+  Landmark,
 } from "lucide-react";
 
 import { api } from "../../../lib/api";
+import { useAuth } from "../../Auth/Context/context.js";
 import settingsStyles from "./UserSettingsPage.module.css";
 import MarketingPreferences from "../MarketingPreferences/MarketingPreferences.jsx";
+import InfluencerPayoutProfileSettings from "./InfluencerPayoutProfileSettings.jsx";
 
 const FORGOT_PASSWORD_URL = "/reset-parola";
 
@@ -41,15 +45,62 @@ function Section({ icon, title, subtitle, children, right }) {
 export default function UserSettingsPage() {
   const [loading, setLoading] = useState(true);
 
-  const tabs = [
-    { key: "profile", label: "Profil", icon: <UserIcon size={16} /> },
-    { key: "notifications", label: "Notificări", icon: <Bell size={16} /> },
-    { key: "marketing", label: "Marketing", icon: <Megaphone size={16} /> },
-    { key: "security", label: "Securitate", icon: <Shield size={16} /> },
-    { key: "danger", label: "Ștergere cont", icon: <Trash2 size={16} /> },
-  ];
+  /*
+   * Rol curent - DOAR pentru a decide dacă tab-ul „Fiscalizare &
+   * plăți” e vizibil (influencer). Reutilizăm useAuth() (același
+   * context global, alimentat de GET /api/auth/me) în loc să facem
+   * un fetch separat - nu atingem `load()`/`loading` de mai jos,
+   * care rămân exact cum erau pentru restul paginii (profil/
+   * parolă/email/ștergere cont, neschimbate pentru USER).
+   */
+  const { me } = useAuth();
+  const isInfluencer = me?.role === "INFLUENCER";
+
+  /*
+   * Ordinea cerută explicit: Profil, Notificări, Marketing,
+   * Securitate, [Fiscalizare & plăți - doar influencer], Ștergere
+   * cont (mereu ultimul).
+   */
+  const tabs = useMemo(() => {
+    const list = [
+      { key: "profile", label: "Profil", icon: <UserIcon size={16} /> },
+      { key: "notifications", label: "Notificări", icon: <Bell size={16} /> },
+      { key: "marketing", label: "Marketing", icon: <Megaphone size={16} /> },
+      { key: "security", label: "Securitate", icon: <Shield size={16} /> },
+    ];
+
+    if (isInfluencer) {
+      list.push({
+        key: "fiscalizare",
+        label: "Fiscalizare & plăți",
+        icon: <Landmark size={16} />,
+      });
+    }
+
+    list.push({ key: "danger", label: "Ștergere cont", icon: <Trash2 size={16} /> });
+
+    return list;
+  }, [isInfluencer]);
 
   const [active, setActive] = useState("profile");
+
+  /*
+   * Deep-link: /cont/setari?tab=fiscalizare (folosit de CTA-ul din
+   * reminder-ul dashboard-ului de influencer). Validăm STRICT
+   * împotriva `tabs` (care deja exclude "fiscalizare" pentru
+   * non-influenceri) - un USER care ar accesa direct acest URL
+   * rămâne pe tab-ul implicit "profile" (fallback sigur), nu
+   * primește niciodată formularul fiscal.
+   */
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+
+    if (tab && tabs.some((t) => t.key === tab)) {
+      setActive(tab);
+    }
+  }, [searchParams, tabs]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +121,8 @@ export default function UserSettingsPage() {
     firstName: "",
     lastName: "",
     avatarUrl: "",
+    phone: "",
+    city: "",
   });
   const [profileInitial, setProfileInitial] = useState(null);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -90,6 +143,8 @@ export default function UserSettingsPage() {
         firstName: u.firstName || "",
         lastName: u.lastName || "",
         avatarUrl: u.avatarUrl || "",
+        phone: u.phone || "",
+        city: u.city || "",
       };
       setProfile(next);
       setProfileInitial(next);
@@ -109,6 +164,8 @@ export default function UserSettingsPage() {
         firstName: profile.firstName,
         lastName: profile.lastName,
         avatarUrl: profile.avatarUrl,
+        phone: profile.phone,
+        city: profile.city,
       };
       const d = await api("/api/account/me/profile", {
         method: "PATCH",
@@ -120,6 +177,8 @@ export default function UserSettingsPage() {
         firstName: u.firstName || "",
         lastName: u.lastName || "",
         avatarUrl: u.avatarUrl || "",
+        phone: u.phone || "",
+        city: u.city || "",
       };
       setProfile(next);
       setProfileInitial(next);
@@ -150,6 +209,175 @@ export default function UserSettingsPage() {
       loadProfile();
     }
   }, [loading, loadProfile]);
+
+  /* ================== PROFIL PUBLIC INFLUENCER ==================
+     SEPARAT de profilul de mai sus: `displayName`/linkurile social
+     vin din InfluencerProfile (GET /api/influencer/me, PATCH
+     /api/influencer/profile), nu din User - nu se amestecă cu
+     firstName/lastName/phone/city de mai sus. Doar pentru influencer.
+  ================================================================== */
+  const [influencerProfile, setInfluencerProfile] = useState({
+    displayName: "",
+    instagramUrl: "",
+    tiktokUrl: "",
+    facebookUrl: "",
+    websiteUrl: "",
+  });
+  const [influencerProfileInitial, setInfluencerProfileInitial] = useState(null);
+  const [influencerProfileLoading, setInfluencerProfileLoading] = useState(false);
+  const [influencerProfileSaving, setInfluencerProfileSaving] = useState(false);
+  const [influencerProfileErr, setInfluencerProfileErr] = useState("");
+  const [influencerProfileOk, setInfluencerProfileOk] = useState(false);
+
+  const canSaveInfluencerProfile =
+    !influencerProfileSaving &&
+    influencerProfileInitial &&
+    JSON.stringify(influencerProfile) !== JSON.stringify(influencerProfileInitial);
+
+  const loadInfluencerProfile = useCallback(async () => {
+    setInfluencerProfileLoading(true);
+    setInfluencerProfileErr("");
+    try {
+      const d = await api("/api/influencer/me", { method: "GET" });
+      const p = d?.profile || {};
+      const next = {
+        displayName: p.displayName || "",
+        instagramUrl: p.instagramUrl || "",
+        tiktokUrl: p.tiktokUrl || "",
+        facebookUrl: p.facebookUrl || "",
+        websiteUrl: p.websiteUrl || "",
+      };
+      setInfluencerProfile(next);
+      setInfluencerProfileInitial(next);
+    } catch (e) {
+      setInfluencerProfileErr(
+        e?.data?.message ||
+          e?.message ||
+          "Nu am putut încărca profilul public de influencer."
+      );
+    } finally {
+      setInfluencerProfileLoading(false);
+    }
+  }, []);
+
+  const saveInfluencerProfile = useCallback(async () => {
+    setInfluencerProfileErr("");
+    setInfluencerProfileOk(false);
+    setInfluencerProfileSaving(true);
+    try {
+      const payload = {
+        displayName: influencerProfile.displayName.trim(),
+        instagramUrl: influencerProfile.instagramUrl.trim(),
+        tiktokUrl: influencerProfile.tiktokUrl.trim(),
+        facebookUrl: influencerProfile.facebookUrl.trim(),
+        websiteUrl: influencerProfile.websiteUrl.trim(),
+      };
+      const d = await api("/api/influencer/profile", {
+        method: "PATCH",
+        body: payload,
+      });
+      const p = d?.profile || {};
+      const next = {
+        displayName: p.displayName || "",
+        instagramUrl: p.instagramUrl || "",
+        tiktokUrl: p.tiktokUrl || "",
+        facebookUrl: p.facebookUrl || "",
+        websiteUrl: p.websiteUrl || "",
+      };
+      setInfluencerProfile(next);
+      setInfluencerProfileInitial(next);
+      setInfluencerProfileOk(true);
+    } catch (e) {
+      setInfluencerProfileErr(
+        e?.data?.message ||
+          e?.message ||
+          "Nu am putut salva profilul public de influencer."
+      );
+    } finally {
+      setInfluencerProfileSaving(false);
+    }
+  }, [influencerProfile]);
+
+  useEffect(() => {
+    if (!loading && isInfluencer) {
+      loadInfluencerProfile();
+    }
+  }, [loading, isInfluencer, loadInfluencerProfile]);
+
+  /* ================== NOTIFICĂRI ==================
+     GET/PATCH /api/account/me/notifications - EXACT cele 3
+     preferințe suportate de model (User.preferences.notifications),
+     fără categorii inventate.
+  ================================================== */
+  const [notifPrefs, setNotifPrefs] = useState({
+    inAppMessageNew: true,
+    inAppBookingUpdates: true,
+    inAppEventReminders: true,
+  });
+  const [notifInitial, setNotifInitial] = useState(null);
+  const [notifLoading, setNotifLoading] = useState(true);
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [notifErr, setNotifErr] = useState("");
+  const [notifOk, setNotifOk] = useState(false);
+
+  const canSaveNotif =
+    !notifSaving &&
+    notifInitial &&
+    JSON.stringify(notifPrefs) !== JSON.stringify(notifInitial);
+
+  const loadNotifPrefs = useCallback(async () => {
+    setNotifLoading(true);
+    setNotifErr("");
+    try {
+      const d = await api("/api/account/me/notifications", { method: "GET" });
+      const n = d?.notifications || {};
+      const next = {
+        inAppMessageNew: n.inAppMessageNew ?? true,
+        inAppBookingUpdates: n.inAppBookingUpdates ?? true,
+        inAppEventReminders: n.inAppEventReminders ?? true,
+      };
+      setNotifPrefs(next);
+      setNotifInitial(next);
+    } catch (e) {
+      setNotifErr(
+        e?.data?.message ||
+          e?.message ||
+          "Nu am putut încărca preferințele de notificări."
+      );
+    } finally {
+      setNotifLoading(false);
+    }
+  }, []);
+
+  const saveNotifPrefs = useCallback(async () => {
+    setNotifErr("");
+    setNotifOk(false);
+    setNotifSaving(true);
+    try {
+      const d = await api("/api/account/me/notifications", {
+        method: "PATCH",
+        body: { notifications: notifPrefs },
+      });
+      const next = d?.notifications || notifPrefs;
+      setNotifPrefs(next);
+      setNotifInitial(next);
+      setNotifOk(true);
+    } catch (e) {
+      setNotifErr(
+        e?.data?.message ||
+          e?.message ||
+          "Nu am putut salva preferințele de notificări."
+      );
+    } finally {
+      setNotifSaving(false);
+    }
+  }, [notifPrefs]);
+
+  useEffect(() => {
+    if (!loading) {
+      loadNotifPrefs();
+    }
+  }, [loading, loadNotifPrefs]);
 
   /* ================== SECURITATE: PAROLĂ ================== */
   const [oldPass, setOldPass] = useState("");
@@ -343,6 +571,8 @@ export default function UserSettingsPage() {
             onClick={() => {
               load();
               loadProfile();
+              loadNotifPrefs();
+              if (isInfluencer) loadInfluencerProfile();
             }}
             title="Reîncarcă"
           >
@@ -374,7 +604,7 @@ export default function UserSettingsPage() {
         {!loading && active === "profile" && (
           <Section
             icon={<UserIcon size={18} />}
-            title="Profil"
+            title="Date personale"
             subtitle="Datele tale de bază"
             right={
               <button className={settingsStyles.primary} onClick={saveProfile} disabled={!canSaveProfile}>
@@ -424,6 +654,30 @@ export default function UserSettingsPage() {
                 </label>
               </div>
 
+              <div className={settingsStyles.grid2}>
+                <label className={settingsStyles.field}>
+                  <span>Telefon</span>
+                  <input
+                    className={settingsStyles.input}
+                    type="tel"
+                    value={profile.phone}
+                    onChange={(e) => setProfile((p) => ({ ...p, phone: e.target.value }))}
+                    placeholder="Ex: 07xx xxx xxx"
+                  />
+                </label>
+
+                <label className={settingsStyles.field}>
+                  <span>Oraș</span>
+                  <input
+                    className={settingsStyles.input}
+                    type="text"
+                    value={profile.city}
+                    onChange={(e) => setProfile((p) => ({ ...p, city: e.target.value }))}
+                    placeholder="Ex: București"
+                  />
+                </label>
+              </div>
+
               <label className={settingsStyles.field}>
                 <span>Poză profil</span>
                 <div className={settingsStyles.avatarRow}>
@@ -464,28 +718,186 @@ export default function UserSettingsPage() {
           </Section>
         )}
 
-        {/* ================== NOTIFICĂRI (informativ) ================== */}
+        {/* ================== PROFIL PUBLIC INFLUENCER (doar influencer) ================== */}
+        {!loading && active === "profile" && isInfluencer && (
+          <Section
+            icon={<UserIcon size={18} />}
+            title="Profil public influencer"
+            subtitle="Numele afișat și linkurile social folosite în Programul de Influenceri. Separat de datele fiscale/de plată, care rămân în tabul „Fiscalizare & plăți”."
+            right={
+              <button
+                className={settingsStyles.primary}
+                onClick={saveInfluencerProfile}
+                disabled={!canSaveInfluencerProfile}
+              >
+                {influencerProfileSaving ? "Se salvează…" : "Salvează profilul de influencer"}
+              </button>
+            }
+          >
+            {influencerProfileLoading ? (
+              <div className={settingsStyles.loading}>
+                <Loader2 className={settingsStyles.spin} size={18} /> Se încarcă…
+              </div>
+            ) : (
+              <div className={settingsStyles.grid1}>
+                <label className={settingsStyles.field}>
+                  <span>Nume afișat</span>
+                  <input
+                    className={settingsStyles.input}
+                    type="text"
+                    value={influencerProfile.displayName}
+                    onChange={(e) =>
+                      setInfluencerProfile((p) => ({ ...p, displayName: e.target.value }))
+                    }
+                    placeholder="Numele afișat public ca influencer"
+                  />
+                </label>
+
+                <div className={settingsStyles.grid2}>
+                  <label className={settingsStyles.field}>
+                    <span>Instagram</span>
+                    <input
+                      className={settingsStyles.input}
+                      type="url"
+                      value={influencerProfile.instagramUrl}
+                      onChange={(e) =>
+                        setInfluencerProfile((p) => ({ ...p, instagramUrl: e.target.value }))
+                      }
+                      placeholder="https://instagram.com/..."
+                    />
+                  </label>
+
+                  <label className={settingsStyles.field}>
+                    <span>TikTok</span>
+                    <input
+                      className={settingsStyles.input}
+                      type="url"
+                      value={influencerProfile.tiktokUrl}
+                      onChange={(e) =>
+                        setInfluencerProfile((p) => ({ ...p, tiktokUrl: e.target.value }))
+                      }
+                      placeholder="https://tiktok.com/@..."
+                    />
+                  </label>
+                </div>
+
+                <div className={settingsStyles.grid2}>
+                  <label className={settingsStyles.field}>
+                    <span>Facebook</span>
+                    <input
+                      className={settingsStyles.input}
+                      type="url"
+                      value={influencerProfile.facebookUrl}
+                      onChange={(e) =>
+                        setInfluencerProfile((p) => ({ ...p, facebookUrl: e.target.value }))
+                      }
+                      placeholder="https://facebook.com/..."
+                    />
+                  </label>
+
+                  <label className={settingsStyles.field}>
+                    <span>Website</span>
+                    <input
+                      className={settingsStyles.input}
+                      type="url"
+                      value={influencerProfile.websiteUrl}
+                      onChange={(e) =>
+                        setInfluencerProfile((p) => ({ ...p, websiteUrl: e.target.value }))
+                      }
+                      placeholder="https://..."
+                    />
+                  </label>
+                </div>
+
+                {influencerProfileErr && (
+                  <div className={settingsStyles.error} role="alert">
+                    {influencerProfileErr}
+                  </div>
+                )}
+                {influencerProfileOk && (
+                  <div className={settingsStyles.success}>
+                    ✅ Profilul de influencer a fost actualizat.
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* ================== NOTIFICĂRI ================== */}
         {!loading && active === "notifications" && (
           <Section
             icon={<Bell size={18} />}
             title="Notificări în aplicație"
-            subtitle="Notificările sunt informative: îți arătăm evenimente importante din contul tău (comenzi, mesaje, suport, recenzii). Nu e nevoie să le configurezi. Emailurile esențiale (comenzi, plăți, securitate) vor fi trimise în continuare."
+            subtitle="Alege ce notificări în aplicație vrei să primești. Emailurile esențiale (comenzi, plăți, securitate) sunt trimise în continuare, indiferent de aceste preferințe."
+            right={
+              <button
+                className={settingsStyles.primary}
+                onClick={saveNotifPrefs}
+                disabled={!canSaveNotif}
+              >
+                {notifSaving ? "Se salvează…" : "Salvează preferințele"}
+              </button>
+            }
           >
-            <div className={settingsStyles.grid1}>
-              <div className={settingsStyles.card} style={{ padding: 12 }}>
-                <div className={settingsStyles.title}>Primești notificări când:</div>
-                <ul style={{ margin: "10px 0 0 18px" }}>
-                  <li>Primești mesaje noi de la magazine (conversații).</li>
-                  <li>Statusul comenzii se modifică (confirmare, pregătire, livrare, anulare).</li>
-                  <li>Ai activitate de suport (răspunsuri / status la tichete).</li>
-                  <li>Primești răspuns la recenzii/comentarii (acolo unde e cazul).</li>
-                </ul>
+            {notifLoading ? (
+              <div className={settingsStyles.loading}>
+                <Loader2 className={settingsStyles.spin} size={18} /> Se încarcă…
+              </div>
+            ) : (
+              <div className={settingsStyles.grid1}>
+                <label className={settingsStyles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={notifPrefs.inAppMessageNew}
+                    onChange={(e) =>
+                      setNotifPrefs((p) => ({ ...p, inAppMessageNew: e.target.checked }))
+                    }
+                  />
+                  <span>Mesaje noi de la magazine (conversații)</span>
+                </label>
 
-                <div className={settingsStyles.subtitle} style={{ marginTop: 10 }}>
+                <label className={settingsStyles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={notifPrefs.inAppBookingUpdates}
+                    onChange={(e) =>
+                      setNotifPrefs((p) => ({ ...p, inAppBookingUpdates: e.target.checked }))
+                    }
+                  />
+                  <span>Actualizări comandă (confirmare, pregătire, livrare, anulare)</span>
+                </label>
+
+                <label
+                  className={settingsStyles.checkboxRow}
+                  style={{ opacity: 0.6 }}
+                  title="Această funcționalitate nu este încă disponibilă - preferința nu are niciun efect momentan."
+                >
+                  <input
+                    type="checkbox"
+                    checked={notifPrefs.inAppEventReminders}
+                    disabled
+                    readOnly
+                  />
+                  <span>Mementouri evenimente (în curând)</span>
+                </label>
+
+                <div className={settingsStyles.subtitle} style={{ marginTop: 4 }}>
                   Preferințele de marketing (promoții, recomandări) se gestionează separat în tab-ul „Marketing”.
                 </div>
+
+                {notifErr && (
+                  <div className={settingsStyles.error} role="alert">
+                    {notifErr}
+                  </div>
+                )}
+                {notifOk && (
+                  <div className={settingsStyles.success}>
+                    ✅ Preferințele de notificări au fost salvate.
+                  </div>
+                )}
               </div>
-            </div>
+            )}
           </Section>
         )}
 
@@ -645,6 +1057,11 @@ export default function UserSettingsPage() {
           </>
         )}
 
+        {/* ================== FISCALIZARE & PLĂȚI (doar influencer) ================== */}
+        {!loading && active === "fiscalizare" && isInfluencer && (
+          <InfluencerPayoutProfileSettings />
+        )}
+
         {/* ȘTERGERE CONT */}
         {!loading && active === "danger" && (
           <Section icon={<Trash2 size={18} />} title="Zonă periculoasă" subtitle="Acțiuni ireversibile">
@@ -652,8 +1069,9 @@ export default function UserSettingsPage() {
               <div>
                 <div className={settingsStyles.title}>Ștergere cont</div>
                 <div className={settingsStyles.subtitle}>
-                  Această acțiune nu poate fi anulată. Toate datele tale vor fi eliminate și nu vei mai putea accesa
-                  contul.
+                  Această acțiune nu poate fi anulată. Profilul, fișierele personale și datele de autentificare vor
+                  fi șterse sau anonimizate. Datele financiar-contabile (facturi, plăți, câștiguri) și dovezile de
+                  acceptare a documentelor legale pot fi păstrate pentru perioada impusă de lege.
                 </div>
               </div>
 
