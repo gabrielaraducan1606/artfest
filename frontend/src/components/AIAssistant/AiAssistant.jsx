@@ -901,6 +901,18 @@ export default function AiAssistant({
    */
   pendingAssistantEvent = null,
   onPendingAssistantEventHandled = null,
+
+  /*
+   * BUGFIX (buton X nu închide panoul) - în modul `embedded`
+   * (singurul folosit azi, din FloatingHub.jsx), vizibilitatea REALĂ
+   * a panoului e controlată de state-ul `open` din FloatingHub
+   * (`hidden={!open}`), nu de `isOpen`-ul intern de mai jos - acela
+   * randează mereu panoul cât timp `embedded` e true, indiferent de
+   * valoarea lui. `closeAssistant()` seta doar `isOpen`, fără nicio
+   * legătură către FloatingHub, deci X-ul nu avea niciun efect
+   * vizibil. `onClose` e apelul explicit către părinte.
+   */
+  onClose = null,
 }) {
   /*
    * Widget-ul ăsta nu e montat deloc pentru VENDOR (vezi AppLayout.jsx
@@ -2300,6 +2312,16 @@ function closeAssistant() {
    * „Conversație nouă”, care apelează resetConversation().
    */
   setIsOpen(false);
+
+  /*
+   * În modul embedded, `isOpen` de mai sus nu controlează nimic
+   * vizual (vezi `(embedded || isOpen)` mai jos) - fără acest apel,
+   * X-ul rămânea fără efect. Componenta-părinte (FloatingHub) e cea
+   * care ține state-ul real de vizibilitate.
+   */
+  if (embedded) {
+    onClose?.();
+  }
 }
 
 function resetConversation() {

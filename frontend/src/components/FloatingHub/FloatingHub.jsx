@@ -310,6 +310,19 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
     setHasOpenedAssistant(true);
   }, [open, activePanel]);
 
+  /*
+   * BUGFIX (buton X din AiAssistant/VendorAssistant nu închidea
+   * panoul) - `open` de aici e SINGURUL state care controlează
+   * vizibilitatea reală a panoului (`hidden={!open}` mai jos).
+   * Componentele embedded au propriul `isOpen` intern, dar acela nu
+   * mai are niciun efect vizual în modul embedded - X-ul avea nevoie
+   * de o cale explicită să anunțe hub-ul. Nu schimbăm `activePanel`
+   * (dacă userul redeschide bula, revine la ce avea deschis).
+   */
+  const handleAssistantClose = useCallback(() => {
+    setOpen(false);
+  }, []);
+
   const handleMessagesClick = useCallback(() => {
     // bula Mesaje există doar când `open` e deja true, deci aici
     // închiderea/comutarea se raportează mereu la un panel deschis
@@ -418,7 +431,10 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
             <div className={styles.panelContent} hidden={activePanel !== "assistant"}>
               <Suspense fallback={<div className={styles.loading}>Se încarcă…</div>}>
                 {isVendor && !isUserQuoteDeepLink && !forceUserAssistant ? (
-                  <VendorAssistant embedded />
+                  <VendorAssistant
+                    embedded
+                    onClose={handleAssistantClose}
+                  />
                 ) : (
                   <AiAssistant
                     embedded
@@ -431,6 +447,7 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
                     onPendingAssistantEventHandled={
                       handlePendingAssistantEventHandled
                     }
+                    onClose={handleAssistantClose}
                   />
                 )}
               </Suspense>

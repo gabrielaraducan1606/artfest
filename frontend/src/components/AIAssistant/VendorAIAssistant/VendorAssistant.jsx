@@ -820,7 +820,18 @@ function getSavedDraft() {
    Componentă
 ========================================================= */
 
-export default function VendorAssistant({ embedded = false } = {}) {
+export default function VendorAssistant({
+  embedded = false,
+
+  /*
+   * BUGFIX (buton X nu închide panoul) - identic cu AiAssistant.jsx:
+   * în modul `embedded` (singurul folosit azi, din FloatingHub.jsx),
+   * vizibilitatea reală vine din state-ul `open` din FloatingHub, nu
+   * din `isOpen`-ul intern - `closeAssistant()` seta doar `isOpen`,
+   * fără efect vizibil. `onClose` anunță explicit părintele.
+   */
+  onClose = null,
+} = {}) {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -4357,6 +4368,15 @@ if (resetBatch) {
     );
 
     setIsOpen(false);
+
+    /*
+     * În modul embedded, `isOpen` de mai sus nu controlează nimic
+     * vizual (vezi `(embedded || isOpen)` mai jos) - fără acest apel,
+     * X-ul rămânea fără efect. FloatingHub ține state-ul real.
+     */
+    if (embedded) {
+      onClose?.();
+    }
   }
 
   function resetConversation() {
