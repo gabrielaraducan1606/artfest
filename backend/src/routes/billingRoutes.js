@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { authRequired } from "../api/auth.js";
+import { authRequired, enforceTokenVersion } from "../api/auth.js";
 import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 import { verifyCuiAtAnaf } from "../utils/anaf.js";
 import { z } from "zod";
@@ -165,6 +165,7 @@ const BillingSchema = z
 router.get(
   "/me/billing",
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
   async (req, res) => {
     const meVendor =
@@ -222,6 +223,7 @@ router.get(
 router.put(
   "/me/billing",
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
   async (req, res) => {
     const meVendor =
@@ -372,6 +374,7 @@ router.put(
 router.post(
   "/me/billing/verify",
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
   async (req, res) => {
     try {

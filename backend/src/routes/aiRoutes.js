@@ -1518,71 +1518,106 @@ router.post(
           imageUrl
         );
 
+      /*
+       * AUDIT UX/conservare 2026-09-17: filozofia s-a schimbat de la
+       * "edit the photo" la "conservative professional photo RETOUCH"
+       * - obiectivul explicit al vendorului nu mai e "o fotografie
+       * nouă inspirată din produs", ci "aceeași fotografie, retușată
+       * profesionist". Sursa e ground truth: unghiul de cameră,
+       * perspectiva, poziția/scara produsului în cadru și compoziția
+       * originală trebuie păstrate, nu doar produsul în sine. Clauza
+       * finală ("If a requested improvement risks altering the
+       * product... preserve the original instead") e un fail-safe
+       * explicit la nivel de model - în caz de ambiguitate, modelul
+       * trebuie să aleagă conservator, nu creativ.
+       */
       const prompt = `
-PRODUCT PRESERVATION IS THE HIGHEST PRIORITY.
+Perform a CONSERVATIVE PROFESSIONAL PHOTO RETOUCH of the provided
+product photograph - comparable to Lightroom/studio retouching, NOT a
+new photo and NOT a regeneration.
 
-The product itself is LOCKED and must remain visually identical.
+The source image is the ground truth. The goal is NOT "a new photo
+inspired by the product" - the goal is "the exact same photo, retouched
+professionally".
+
+The product itself is LOCKED and IMMUTABLE. Preserve it pixel-faithfully,
+as much as technically possible:
+- exact shape
+- exact silhouette
+- exact geometry
+- exact proportions
+- exact dimensions and apparent size
+- exact colors
+- exact material
+- exact texture (fabric weave, crochet patterns, knitting patterns,
+  stitching, embroidery, brush strokes, ceramic details, wood grain,
+  resin effects - whichever apply)
+- exact pattern/print
+- exact accessories, ornaments, and decorative elements that are part
+  of the product
+- exact packaging, if the packaging is part of the product itself
+- exact text, inscriptions, and logos on the product
+- exact number and position of the product's own components/elements
+- exact visible imperfections and handmade details - these are proof
+  of authenticity, never remove or "fix" them
+
+Also preserve, as part of the same conservative retouch:
+- the exact original camera angle
+- the exact original perspective
+- the exact original position of the product in the frame
+- the exact original scale of the product
+- the original composition, as much as possible
 
 DO NOT:
-- redesign the product
-- regenerate the product
-- improve the product
-- beautify the product
-- change the shape
-- change proportions
-- change dimensions
-- change colors
-- change texture
-- change fabric weave
-- change crochet patterns
-- change knitting patterns
-- change stitching
-- change embroidery
-- change brush strokes
-- change ceramic details
-- change wood grain
-- change resin effects
-- change surface details
-- remove imperfections from the product
-- add details to the product
-- smooth the product
-- sharpen product details artificially
+- redesign, regenerate, reinterpret, or reconstruct the product
+- move, rotate, or reposition the product
+- reshape, smooth, beautify, or "repair" the product
+- symmetrize the product
+- add anything to the product, or invent product details
+- remove anything from the product
+- change the product's texture, material, or colors
+- add artificial reflections
+- invent shadows that change the perceived shape of the product
 - replace any part of the product
+- change the background into a completely different scene, unless
+  strictly necessary to remove a genuinely distracting element
+- add new props, new furniture, new room, or new decorations
+- use dramatic or stylized lighting
+- restyle the product in any way
 
-The product must remain exactly the same object from the original photo.
+Treat the product as READ ONLY. Treat only the photographic
+presentation as editable - and even there, prefer the smallest
+possible change that achieves a professional look.
 
-Treat the product as READ ONLY.
-Treat only the environment around the product as editable.
+Only perform subtle photographic improvements, comparable to
+professional Lightroom/studio retouching:
+- improve exposure
+- correct white balance
+- subtle contrast
+- subtle clarity and sharpness of the overall photo (not of product
+  micro-details)
+- subtle noise reduction
+- gentle background cleanup - remove genuinely distracting background
+  imperfections, keep it clean, neutral, and minimalist
+- natural shadow cleanup, preserving realistic depth
+- slight background blur ONLY if the product's own edges/silhouette
+  remain completely untouched and sharp
+- no props, no decorations, no additional objects, no text, no logo,
+  no watermark added to the background
 
-You may modify ONLY:
-- background
-- lighting
-- exposure
-- white balance
-- shadows
-- overall photo cleanliness
-
-Background rules:
-- use a clean minimalist e-commerce background
-- neutral and elegant
-- no props
-- no decorations
-- no additional objects
-- no text
-- no logo
-- no watermark
-
-Style:
-- realistic studio photography
-- realistic catalog photography
-- soft natural light
-- centered product
-- square 1:1 composition
+Style: realistic studio/catalog photography, soft natural light,
+no fantasy elements, no exaggerated or busy backgrounds, no strong
+artistic effects.
 
 Final requirement:
-The result must look like the SAME PHOTO taken by a professional photographer.
-It must NOT look AI generated.
-It must NOT look like a newly generated product image.
+The result must look like the SAME PHOTO of the SAME real product,
+only photographed/retouched more professionally - realistic, premium,
+commercial, clean, and natural. It must NOT look AI generated and must
+NOT look like a newly generated or restaged product photo.
+
+If a requested improvement risks altering the product or the original
+composition in any way, preserve the original instead of applying
+that improvement.
 
 Variant: ${variant}
 `;
@@ -1592,7 +1627,15 @@ Variant: ${variant}
           model: "gpt-image-1",
           image: imageFile,
           prompt,
-          size: "1024x1024",
+
+          /*
+           * "auto" (nu mai "1024x1024" fix) - un canvas pătrat forțat
+           * pe o fotografie ne-pătrată ar obliga modelul să recadreze/
+           * repoziționeze produsul ca să umple cadrul, exact ce
+           * promptul de mai sus cere să NU se întâmple. "auto" lasă
+           * gpt-image-1 să păstreze proporția apropiată de original.
+           */
+          size: "auto",
           quality: "medium",
         });
 

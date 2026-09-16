@@ -2626,6 +2626,191 @@ export async function sendVendorCommissionInvoiceEmail({
 }
 
 /* ============================================================
+   ARTFEST DATOREAZĂ VENDORULUI (audit 2026-09-16) - solicitare
+   document (factură SAU documente fiscale, în funcție de
+   VendorBilling.sellerType - vezi adminInvoicesRoutes.js pentru
+   decizia server-side, NU se decide aici). Mirror STRUCTURAL de
+   sendVendorCommissionInvoiceEmail (același transport, șablon,
+   senderKey) - doar conținut diferit, per cerința explicită de a NU
+   presupune că persoana fizică fără formă juridică poate emite
+   factură.
+============================================================ */
+
+const WHATSAPP_PAYOUT_NUMBER_DISPLAY = "0760 565 147";
+const WHATSAPP_PAYOUT_LINK = "https://wa.me/40760565147";
+
+/**
+ * Vendor CU formă juridică (verified_business: SRL/PFA/II/IF) - i se
+ * cere să trimită factura pentru suma datorată de Artfest.
+ */
+export async function sendVendorPayoutInvoiceRequestEmail({
+  to,
+  vendorName,
+  periodLabel,
+  amount,
+  currency = "RON",
+}) {
+  if (!to) return;
+
+  const amountLabel = formatMoney(amount || 0, currency);
+  const subject = `Solicitare factură - sumă de încasat de la ${BRAND_NAME}`;
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+
+  <h2 style="color:#111827;margin:0 0 8px;">Ai o sumă de încasat de la ${BRAND_NAME}</h2>
+
+  <p style="color:#374151;margin:0 0 12px;">
+    Bună${vendorName ? `, ${vendorName}` : ""},
+  </p>
+
+  <p style="color:#374151;margin:0 0 12px;">
+    Ai o sumă de încasat de la ${BRAND_NAME} pentru perioada <strong>${periodLabel}</strong>.
+  </p>
+
+  <p style="color:#374151;margin:0 0 12px;">
+    Pentru procesarea plății, te rugăm să ne transmiți factura pentru suma de
+    <strong>${amountLabel}</strong>.
+  </p>
+
+  <p style="color:#374151;margin:0 0 12px;">
+    Poți trimite factura:
+  </p>
+  <ul style="color:#374151;margin:0 0 16px;padding-left:20px;">
+    <li>WhatsApp: <strong>${WHATSAPP_PAYOUT_NUMBER_DISPLAY}</strong></li>
+    <li>prin Suport ${BRAND_NAME}, deschizând un tichet și atașând documentul${APP_URL ? ` (<a href="${APP_URL}/vendor/support">${APP_URL}/vendor/support</a>)` : ""}</li>
+  </ul>
+
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>`.trim();
+
+  const text = [
+    `Bună${vendorName ? `, ${vendorName}` : ""},`,
+    "",
+    `Ai o sumă de încasat de la ${BRAND_NAME} pentru perioada ${periodLabel}.`,
+    "",
+    `Pentru procesarea plății, te rugăm să ne transmiți factura pentru suma de ${amountLabel}.`,
+    "",
+    "Poți trimite factura:",
+    `- WhatsApp: ${WHATSAPP_PAYOUT_NUMBER_DISPLAY}`,
+    `- prin Suport ${BRAND_NAME}, deschizând un tichet și atașând documentul${APP_URL ? ` (${APP_URL}/vendor/support)` : ""}`,
+  ].join("\n");
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "vendor_payout_invoice_request",
+    toName: vendorName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
+/**
+ * Vendor PERSOANĂ FIZICĂ, FĂRĂ formă juridică (independent_creator) -
+ * NU i se cere factură (nu presupunem că poate emite una) - i se cer
+ * STRICT documentele fiscale necesare, fără promisiune de plată până
+ * la verificare (cerință explicită, audit 2026-09-16).
+ */
+export async function sendVendorPayoutFiscalDocsRequestEmail({
+  to,
+  vendorName,
+  periodLabel,
+  amount,
+  currency = "RON",
+}) {
+  if (!to) return;
+
+  const amountLabel = formatMoney(amount || 0, currency);
+  const subject = `Documente necesare pentru plata ${BRAND_NAME}`;
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+
+  <h2 style="color:#111827;margin:0 0 8px;">Documente necesare pentru plata ${BRAND_NAME}</h2>
+
+  <p style="color:#374151;margin:0 0 12px;">
+    Bună${vendorName ? `, ${vendorName}` : ""},
+  </p>
+
+  <p style="color:#374151;margin:0 0 12px;">
+    Ai o sumă de încasat de la ${BRAND_NAME} pentru perioada <strong>${periodLabel}</strong>,
+    în valoare de <strong>${amountLabel}</strong>.
+  </p>
+
+  <p style="color:#374151;margin:0 0 12px;">
+    Pentru procesarea corectă a plății, avem nevoie de verificarea documentelor fiscale
+    necesare pentru situația ta.
+  </p>
+
+  <p style="color:#374151;margin:0 0 12px;">
+    Te rugăm să ne contactezi prin:
+  </p>
+  <ul style="color:#374151;margin:0 0 12px;padding-left:20px;">
+    <li>WhatsApp: <strong>${WHATSAPP_PAYOUT_NUMBER_DISPLAY}</strong></li>
+    <li>Suport ${BRAND_NAME}${APP_URL ? ` (<a href="${APP_URL}/vendor/support">${APP_URL}/vendor/support</a>)` : ""}</li>
+  </ul>
+
+  <p style="color:#374151;margin:0 0 16px;">
+    Nu este necesar să emiți o factură dacă nu ai o formă juridică autorizată.
+  </p>
+
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>`.trim();
+
+  const text = [
+    `Bună${vendorName ? `, ${vendorName}` : ""},`,
+    "",
+    `Ai o sumă de încasat de la ${BRAND_NAME} pentru perioada ${periodLabel}, în valoare de ${amountLabel}.`,
+    "",
+    "Pentru procesarea corectă a plății, avem nevoie de verificarea documentelor fiscale necesare pentru situația ta.",
+    "",
+    "Te rugăm să ne contactezi prin:",
+    `- WhatsApp: ${WHATSAPP_PAYOUT_NUMBER_DISPLAY}`,
+    `- Suport ${BRAND_NAME}${APP_URL ? ` (${APP_URL}/vendor/support)` : ""}`,
+    "",
+    "Nu este necesar să emiți o factură dacă nu ai o formă juridică autorizată.",
+  ].join("\n");
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "vendor_payout_fiscal_docs_request",
+    toName: vendorName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
+/* ============================================================
    HOMEPAGE FEATURE – VENDOR SELECTAT
 ============================================================ */
 

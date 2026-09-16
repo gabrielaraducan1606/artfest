@@ -1,40 +1,14 @@
 import { prisma } from "../db.js";
 
-export async function vendorAccessRequired(req, res, next) {
-  try {
-    if (
-      req.user?.role === "VENDOR" ||
-      req.user?.role === "ADMIN"
-    ) {
-      return next();
-    }
-
-    const vendor = await prisma.vendor.findUnique({
-      where: {
-        userId: req.user.sub,
-      },
-    });
-
-    if (!vendor) {
-      return res.status(403).json({
-        error: "forbidden",
-      });
-    }
-
-    req.meVendor = vendor;
-
-    return next();
-  } catch (error) {
-    console.error(
-      "vendorAccessRequired error:",
-      error
-    );
-
-    return res.status(500).json({
-      error: "server_error",
-    });
-  }
-}
+/*
+ * (audit 2026-09-16) - fostă implementare LOCALĂ, cu același bug ca
+ * celelalte copii găsite (accepta orice JWT cu role=VENDOR fără
+ * verificare de isActive) - re-exportăm acum versiunea întărită din
+ * middleware/vendorAccessRequired.js, ca sursă UNICĂ, fără să
+ * schimbăm importurile existente (vendorProductAIRoutes.js,
+ * assistantRoutes/assistant/vendorQuotesRoutes.js importă de aici).
+ */
+export { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 
 export async function getOwnedProductsServiceBySlug(
   slug,

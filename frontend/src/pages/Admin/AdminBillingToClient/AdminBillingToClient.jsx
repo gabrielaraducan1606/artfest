@@ -13,6 +13,7 @@ import {
 
 import styles from "./AdminBillingToClient.module.css";
 import VendorCommissionBreakdownModal from "./VendorCommissionBreakdownModal.jsx";
+import VendorPayoutRequestBlock from "./VendorPayoutRequestBlock.jsx";
 
 function formatMoney(n, currency = "RON") {
   const v = Number(n || 0);
@@ -67,6 +68,16 @@ export default function AdminBillingToClientPage() {
   const [createErr, setCreateErr] = useState("");
 
   const [detailsVendor, setDetailsVendor] = useState(null); // { vendorId, displayName } | null
+
+  // Solicitare factură/documente, când Artfest DATOREAZĂ vendorului
+  // (audit 2026-09-16) - stare per rând, cheie vendorId - STRICT
+  // pentru loading/eroare imediat după click; statusul persistent
+  // ("Factură solicitată"/"Documente solicitate") vine din
+  // row.payoutRequestStatus (backend, GET /billing/vendors-due),
+  // NU din acest state local - vezi refreshTick mai jos.
+  const [payoutRequests, setPayoutRequests] = useState({});
+
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -134,7 +145,7 @@ export default function AdminBillingToClientPage() {
     return () => {
       alive = false;
     };
-  }, [query, tab]);
+  }, [query, tab, refreshTick]);
 
   function reset() {
     setPage(1);
@@ -144,8 +155,7 @@ export default function AdminBillingToClientPage() {
   }
 
   function refresh() {
-    setPage((p) => p);
-    setData((prev) => ({ ...prev }));
+    setRefreshTick((n) => n + 1);
   }
 // ADAUGI AICI
 async function openInvoicePdf(invoiceId) {
@@ -201,6 +211,63 @@ async function openInvoicePdf(invoiceId) {
       setCreateErr(message);
     } finally {
       setCreatingId("");
+    }
+  }
+
+  /*
+   * Artfest DATOREAZĂ vendorului (audit 2026-09-16) - solicitare
+   * factură (vendor cu formă juridică) SAU documente fiscale
+   * (persoană fizică fără formă juridică). Server-side decide tipul
+   * fiscal DIN NOU (nu are încredere în ce a calculat frontend-ul) -
+   * aici doar alegem eticheta corectă de buton, pe baza `row.fiscalType`
+   * întors de API. Idempotent: al doilea click pe același vendor
+   * (aceeași perioadă implicită - "de facturat azi") întoarce
+   * `alreadyRequested: true`, fără duplicat de notificare/email.
+   */
+  async function requestVendorPayout(row) {
+    const vendorId = row.vendorId;
+    setPayoutRequests((prev) => ({ ...prev, [vendorId]: { loading: true, error: "" } }));
+
+    try {
+      /*
+       * Perioada NU se mai trimite de aici (audit 2026-09-16) - se
+       * calculează STRICT server-side (getPreviousBucharestMonthBoundaries),
+       * ca sursă unică, identică cu cea folosită la afișarea
+       * statusului "Factură solicitată" (GET /billing/vendors-due) -
+       * altfel un calcul ușor diferit pe client ar putea produce un
+       * dedupeKey care nu se mai potrivește niciodată la citire.
+       */
+      await api(`/api/admin/billing/request-vendor-payout`, {
+        method: "POST",
+        body: JSON.stringify({
+          vendorId,
+          amount: Number(row.vendorNet || 0),
+          currency: row.currency || "RON",
+        }),
+      });
+
+      setPayoutRequests((prev) => {
+        const next = { ...prev };
+        delete next[vendorId];
+        return next;
+      });
+
+      /*
+       * Sursa persistentă a statusului e backend-ul
+       * (row.payoutRequestStatus, din GET /billing/vendors-due) - NU
+       * un flag local (cerință explicită: statusul trebuie să
+       * supraviețuiască unui refresh de pagină). Aici doar reîncărcăm
+       * lista ca să apară imediat, fără să așteptăm alt trigger.
+       */
+      setRefreshTick((n) => n + 1);
+    } catch (e) {
+      const status = e?.status || e?.response?.status;
+      const message =
+        status === 409
+          ? "Tipul fiscal nu este cunoscut sau nu este complet - verifică datele fiscale ale vendorului."
+          : e?.data?.message || e?.response?.data?.message || "Nu am putut trimite solicitarea.";
+
+      setPayoutRequests((prev) => ({ ...prev, [vendorId]: { loading: false, error: message } }));
     }
   }
 
@@ -448,6 +515,14 @@ async function openInvoicePdf(invoiceId) {
                               Creează factură
                             </button>
                           </div>
+
+                          {Number(row.vendorNet || 0) > 0 && (
+                            <VendorPayoutRequestBlock
+                              row={row}
+                              state={payoutRequests[row.vendorId]}
+                              onRequest={() => requestVendorPayout(row)}
+                            />
+                          )}
                         </td>
                       </tr>
                     );

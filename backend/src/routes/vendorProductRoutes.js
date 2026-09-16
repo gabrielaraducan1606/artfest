@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { authRequired } from "../api/auth.js";
+import { authRequired, enforceTokenVersion } from "../api/auth.js";
+import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 import { CATEGORY_SET } from "../constants/categories.js";
 import { COLOR_SET } from "../constants/colors.js";
 import {
@@ -17,25 +18,12 @@ const router = Router();
 
 /* ================= Helpers comune ================= */
 
-async function vendorAccessRequired(req, res, next) {
-  try {
-    if (req.user?.role === "VENDOR" || req.user?.role === "ADMIN") return next();
-
-    const v = await prisma.vendor.findUnique({
-      where: { userId: req.user.sub },
-    });
-
-    if (v) {
-      req.meVendor = v;
-      return next();
-    }
-
-    return res.status(403).json({ error: "forbidden" });
-  } catch (e) {
-    console.error("vendorAccessRequired error:", e);
-    return res.status(500).json({ error: "server_error" });
-  }
-}
+/*
+ * Fostă implementare LOCALĂ a vendorAccessRequired, cu același bug
+ * (accepta orice JWT cu role=VENDOR fără verificare de isActive) -
+ * eliminată (audit 2026-09-16), reutilizează versiunea întărită din
+ * middleware/vendorAccessRequired.js, importată mai sus.
+ */
 
 async function getOwnedProductsServiceBySlug(slug, userSub) {
   const profile = await prisma.serviceProfile.findUnique({
@@ -2254,17 +2242,19 @@ function registerProductRoutes(prefix) {
   router.get(
     `/${prefix}/store/:slug/products`,
     authRequired,
+    enforceTokenVersion,
     vendorAccessRequired,
     listVendorProducts
   );
 
-  router.get(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, getProduct);
+  router.get(`/${prefix}/products/:id`, authRequired, enforceTokenVersion, vendorAccessRequired, getProduct);
 
-  router.post(`/${prefix}/store/:slug/products`, authRequired, vendorAccessRequired, createProduct);
+  router.post(`/${prefix}/store/:slug/products`, authRequired, enforceTokenVersion, vendorAccessRequired, createProduct);
 
   router.get(
     `/${prefix}/store/:slug/products/limits`,
     authRequired,
+    enforceTokenVersion,
     vendorAccessRequired,
     getProductLimits
   );
@@ -2272,23 +2262,25 @@ function registerProductRoutes(prefix) {
   router.get(
     `/${prefix}/store/:slug/products/pricing`,
     authRequired,
+    enforceTokenVersion,
     vendorAccessRequired,
     getProductPricing
   );
 router.post(
   `/${prefix}/store/:slug/products/price-suggestion`,
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
   suggestProductPrice
 );
-  router.put(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, updateProduct);
+  router.put(`/${prefix}/products/:id`, authRequired, enforceTokenVersion, vendorAccessRequired, updateProduct);
 
-  router.delete(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, deleteProduct);
+  router.delete(`/${prefix}/products/:id`, authRequired, enforceTokenVersion, vendorAccessRequired, deleteProduct);
 }
 
 registerProductRoutes("vendors");
 registerProductRoutes("vendor");
 
-router.get("/products/:id", authRequired, vendorAccessRequired, getProduct);
+router.get("/products/:id", authRequired, enforceTokenVersion, vendorAccessRequired, getProduct);
 
 export default router;

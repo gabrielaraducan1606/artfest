@@ -1,7 +1,7 @@
 // server/routes/productAiRoutes.js
 
 import { Router } from "express";
-import { authRequired } from "../api/auth.js";
+import { authRequired, enforceTokenVersion } from "../api/auth.js";
 
 import { CATEGORY_SET } from "../constants/categories.js";
 import { COLORS_DETAILED } from "../constants/colors.js";
@@ -836,6 +836,7 @@ function registerAiRoutes(prefix) {
   router.post(
     `/${prefix}/store/:slug/products/analyze`,
     authRequired,
+    enforceTokenVersion,
     vendorAccessRequired,
     analyzeProductVariants
   );

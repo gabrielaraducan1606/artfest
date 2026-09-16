@@ -129,11 +129,11 @@
   color: var(--color-text);
 }
 .search:focus-within { box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-primary) 18%, transparent); }
-.input::placeholder { color: var(--color-text-muted); }
+.input::placeholder { color: var(--color-muted); }
 
 .searchBtn {
   background-color: var(--color-primary);
-  color: white;
+  color: var(--on-primary);
   border: none;
   padding: 8px 12px;
   display: inline-flex;
@@ -239,7 +239,7 @@
   top: -4px;
   right: -6px;
   background: var(--color-primary);
-  color: white;
+  color: var(--on-primary);
   font-size: 11px;
   font-weight: 700;
   min-width: 18px;
@@ -257,7 +257,7 @@
   align-items: center;
   gap: 0.35rem;
   background-color: var(--color-primary);
-  color: #fff;
+  color: var(--on-primary);
   padding: 0.45rem 1rem;
   font-size: 0.85rem;
   font-weight: 600;
@@ -280,11 +280,11 @@
   border: 2px solid var(--color-primary);
   transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease, transform .08s ease;
 }
-.sellBtn:hover { background-color: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.sellBtn:hover { background-color: var(--color-primary); color: var(--on-primary); border-color: var(--color-primary); }
 .sellBtn:active { transform: translateY(1px); }
 
 /* ===== Seller Nav ===== */
-.sellerNav { background: #fff7ed; border-radius: var(--radius); padding: 0.3rem 0.5rem; }
+.sellerNav { background: color-mix(in oklab, var(--surface) 92%, var(--color-primary) 8%); border-radius: var(--radius); padding: 0.3rem 0.5rem; }
 .sellerNavLink {
   display: inline-block;
   padding: 0.4rem 0.8rem;
@@ -297,8 +297,8 @@
   text-decoration: none;
   transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
-.sellerNavLink:hover { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
-.sellerNavLinkActive { background: var(--color-primary); color: #fff !important; border-color: var(--color-primary); }
+.sellerNavLink:hover { background: var(--color-primary); color: var(--on-primary); border-color: var(--color-primary); }
+.sellerNavLinkActive { background: var(--color-primary); color: var(--on-primary) !important; border-color: var(--color-primary); }
 .sellerNav .navLink { margin: 0; }
 
 /* ===== Theme Toggle ===== */
@@ -373,7 +373,7 @@
 }
 .primaryBtn {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--on-primary);
   border: 2px solid var(--color-primary);
   padding: 0.6rem 0.9rem;
   border-radius: 9999px;
@@ -384,7 +384,7 @@
 
 .menuGrid { display: grid; gap: 10px; }
 .colGrid { display: grid; gap: 6px; }
-.groupLabel { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
+.groupLabel { font-size: 12px; color: var(--color-muted); margin-bottom: 6px; }
 .zoneForm { display: grid; gap: 6px; margin-top: 6px; }
 
 /* Icon mic pentru autentificare */
@@ -419,7 +419,7 @@
   border-radius: var(--radius);
   cursor: pointer;
 }
-.avatarBtn:hover { background: rgba(0,0,0,.04); }
+.avatarBtn:hover { background: var(--hover-bg); }
 .avatar {
   width: 28px;
   height: 28px;
@@ -428,7 +428,7 @@
   border-radius: 999px;
   font-weight: 800;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .actionsRight .dropdown { position: relative; }
@@ -682,7 +682,7 @@
   padding: 10px 12px;
   border-radius: 9999px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--on-primary);
   font-weight: 700;
   font-size: 13.5px;
   text-decoration: none;
@@ -874,7 +874,7 @@
   top: 2px;
   right: 18%;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--on-primary);
   font-size: 10px;
   font-weight: 800;
   min-width: 16px;
@@ -924,7 +924,7 @@
   top: -1px;
   right: 18%;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--on-primary);
   font-size: 10px;
   font-weight: 800;
   min-width: 13px;

@@ -2361,10 +2361,12 @@ function VendorProductEditWizard({
           options={controller.options}
           aiImagePreview={controller.aiImagePreview}
           aiImageLoading={controller.aiImageLoading}
+          aiImageTargetIndex={controller.aiImageTargetIndex}
           aiLoading={controller.aiLoading}
           uploadInfo={controller.uploadInfo}
           allImagesReadyForAi={controller.allImagesReadyForAi}
           mainImageReadyForAi={controller.mainImageReadyForAi}
+          isUploadedImage={controller.isUploadedImage}
           resolveProductImageUrl={controller.resolveProductImageUrl}
           onPasteImages={controller.onPasteImages}
           onFilesPicked={controller.onFilesPicked}
@@ -2376,6 +2378,7 @@ function VendorProductEditWizard({
           handleAiAnalyze={controller.handleAiAnalyze}
           handleAiEnhanceImage={controller.handleAiEnhanceImage}
           useAiImage={controller.useAiImage}
+          discardAiImagePreview={controller.discardAiImagePreview}
           updateField={controller.updateField}
           materialOptions={controller.materialOptions}
           techniqueOptions={controller.techniqueOptions}

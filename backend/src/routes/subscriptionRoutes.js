@@ -2,7 +2,7 @@
 
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { authRequired } from "../api/auth.js";
+import { authRequired, enforceTokenVersion } from "../api/auth.js";
 import { z } from "zod";
 import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 
@@ -473,6 +473,7 @@ router.get(
   "/vendors/me/subscription",
 
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
 
   asyncHandler(
@@ -550,6 +551,7 @@ router.get(
   "/vendors/me/subscription/status",
 
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
 
   asyncHandler(
@@ -747,6 +749,7 @@ router.post(
   "/vendors/me/subscription/trial-select",
 
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
 
   asyncHandler(
@@ -774,6 +777,7 @@ router.post(
   "/billing/checkout",
 
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
 
   asyncHandler(
@@ -928,6 +932,7 @@ router.post(
   "/vendors/me/subscription/cancel",
 
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
 
   asyncHandler(

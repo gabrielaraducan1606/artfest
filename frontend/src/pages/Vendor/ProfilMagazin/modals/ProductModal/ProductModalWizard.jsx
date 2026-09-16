@@ -74,10 +74,12 @@ export default function ProductModalWizard({
 
   aiImagePreview,
   aiImageLoading,
+  aiImageTargetIndex,
   aiLoading,
   uploadInfo,
   allImagesReadyForAi,
   mainImageReadyForAi,
+  isUploadedImage,
   resolveProductImageUrl,
   onPasteImages,
   onFilesPicked,
@@ -89,6 +91,7 @@ export default function ProductModalWizard({
   handleAiAnalyze,
   handleAiEnhanceImage,
   useAiImage,
+  discardAiImagePreview,
 
   updateField,
   materialOptions,
@@ -541,6 +544,9 @@ quoteSchema: [],
           aiImageLoading={
             aiImageLoading
           }
+          aiImageTargetIndex={
+            aiImageTargetIndex
+          }
           aiLoading={
             aiLoading
           }
@@ -552,6 +558,9 @@ quoteSchema: [],
           }
           mainImageReadyForAi={
             mainImageReadyForAi
+          }
+          isUploadedImage={
+            isUploadedImage
           }
           resolveProductImageUrl={
             resolveProductImageUrl
@@ -585,6 +594,9 @@ quoteSchema: [],
           }
           useAiImage={
             useAiImage
+          }
+          discardAiImagePreview={
+            discardAiImagePreview
           }
         />
       )}

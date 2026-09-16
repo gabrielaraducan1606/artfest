@@ -1,18 +1,17 @@
 @import "../../../styles/variables.css";
 
-/* Fallback variabile (dacă nu există în variables.css) */
-:root {
-  --color-bg: #0b0b0c;
-  --surface: #0f1012;
-  --color-text: #eaeaf0;
-  --color-text-muted: #a6a8b3;
-  --color-border: #23242a;
-  --color-primary: #7c3aed;
-  --color-hover: #6d28d9;
-  --color-warning: #f59e0b;
-
-  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.04);
-}
+/*
+ * AUDIT dark mode 2026-09-18 - blocul ":root" de "fallback" de aici a
+ * fost eliminat. Nu era un fallback real: `@import` de mai sus aduce
+ * deja TOATE aceste variabile (inclusiv `--color-text-muted`, adăugat
+ * acum în variables.css - lipsea din sursa globală, motiv pentru care
+ * fusese redefinit aici local, cu o valoare fixă nepotrivită pentru
+ * light mode). Fiind un `:root` NESCOPAT într-un fișier CSS Module,
+ * valorile de aici se aplicau global, pe TOATĂ platforma (CSS Modules
+ * scopează doar numele claselor, nu și selectorii de element/`:root`)
+ * - un risc real de a suprascrie tema globală în funcție de ordinea
+ * de bundling, nu de pagina curent afișată.
+ */
 
 /* ===== bază & smooth scroll ===== */
 html {

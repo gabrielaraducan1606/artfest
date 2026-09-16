@@ -992,6 +992,81 @@ export async function notifyVendorStripePayoutsRequired(vendorId, mode = "grace"
   });
 }
 
+/*
+ * Chei/format PARTAJATE cu adminInvoicesRoutes.js (audit 2026-09-16,
+ * verificare finală status) - EXPORTATE explicit, ca sursă UNICĂ a
+ * formatului de dedupeKey. Statusul "factură solicitată"/"documente
+ * solicitate" afișat în Admin Billing se derivă STRICT căutând un
+ * Notification cu acest dedupeKey exact - dacă formatul ar diverge
+ * între cele două fișiere, statusul nu s-ar mai găsi niciodată.
+ */
+export const VENDOR_PAYOUT_INVOICE_REQUEST_PREFIX = "vendor_payout_invoice_request";
+export const VENDOR_PAYOUT_FISCAL_DOCS_REQUEST_PREFIX = "vendor_payout_fiscal_docs_request";
+
+export function buildVendorPayoutPeriodKey(periodFrom, periodTo) {
+  return `${new Date(periodFrom).toISOString().slice(0, 10)}_${new Date(periodTo).toISOString().slice(0, 10)}`;
+}
+
+/**
+ * ARTFEST DATOREAZĂ VENDORULUI (audit 2026-09-16) - notificare
+ * internă de solicitare document, la click admin pe "Solicită
+ * factura" (vendor CU formă juridică). Idempotent: dedupeKey pe
+ * vendor + interval - un al doilea click pe același interval NU
+ * creează un al doilea rând (createVendorNotification ignoră P2002),
+ * și returnează `null`, folosit de apelant (adminInvoicesRoutes.js)
+ * ca semnal explicit "deja solicitat" - NU trimite un al doilea
+ * email în acel caz.
+ */
+export async function notifyVendorPayoutInvoiceRequested(vendorId, { periodFrom, periodTo, amount, currency = "RON" }) {
+  if (!vendorId) return null;
+
+  const periodKey = buildVendorPayoutPeriodKey(periodFrom, periodTo);
+
+  return createVendorNotification(vendorId, {
+    dedupeKey: `${VENDOR_PAYOUT_INVOICE_REQUEST_PREFIX}:${vendorId}:${periodKey}`,
+    type: "system",
+    title: "Solicitare factură - sumă de încasat",
+    body: `Ai o sumă de încasat de la Artfest (${amount} ${currency}). Te rugăm să ne trimiți factura pentru procesarea plății.`,
+    link: "/vendor/support",
+    meta: {
+      kind: "vendor_payout_invoice_requested",
+      vendorId,
+      periodFrom,
+      periodTo,
+      amount,
+      currency,
+    },
+  });
+}
+
+/**
+ * ARTFEST DATOREAZĂ VENDORULUI - persoană fizică FĂRĂ formă
+ * juridică (independent_creator) - mirror STRUCTURAL de mai sus,
+ * NICIODATĂ nu cere "factură" explicit (regulă de business, nu
+ * presupunem că PF poate emite una).
+ */
+export async function notifyVendorPayoutFiscalDocsRequested(vendorId, { periodFrom, periodTo, amount, currency = "RON" }) {
+  if (!vendorId) return null;
+
+  const periodKey = buildVendorPayoutPeriodKey(periodFrom, periodTo);
+
+  return createVendorNotification(vendorId, {
+    dedupeKey: `${VENDOR_PAYOUT_FISCAL_DOCS_REQUEST_PREFIX}:${vendorId}:${periodKey}`,
+    type: "system",
+    title: "Documente necesare pentru plata Artfest",
+    body: `Ai o sumă de încasat de la Artfest (${amount} ${currency}). Avem nevoie de verificarea documentelor fiscale necesare pentru situația ta - te rugăm să ne contactezi.`,
+    link: "/vendor/support",
+    meta: {
+      kind: "vendor_payout_fiscal_docs_requested",
+      vendorId,
+      periodFrom,
+      periodTo,
+      amount,
+      currency,
+    },
+  });
+}
+
 /**
  * Reminder pentru INFLUENCER: prima comandă atribuită + profil de
  * plată (InfluencerPayoutProfile) incomplet.

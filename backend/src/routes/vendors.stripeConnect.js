@@ -2,7 +2,7 @@
 import { Router } from "express";
 import Stripe from "stripe";
 import { prisma } from "../db.js";
-import { authRequired } from "../api/auth.js";
+import { authRequired, enforceTokenVersion } from "../api/auth.js";
 import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 
 const router = Router();
@@ -11,7 +11,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
 const RETURN_URL = process.env.STRIPE_CONNECT_RETURN_URL;
 const REFRESH_URL = process.env.STRIPE_CONNECT_REFRESH_URL || RETURN_URL;
 
-router.use(authRequired, vendorAccessRequired);
+router.use(authRequired, enforceTokenVersion, vendorAccessRequired);
 
 function getUserId(req) {
   return req.user?.sub || req.user?.id;

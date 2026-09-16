@@ -84,6 +84,7 @@ import AdminSupportPage from "./pages/Admin/AdminSupport/AdminSupportPage.jsx";
 import GuestOrderPage from "./pages/Guest/GuestOrder/GuestOrder.jsx";
 
 import SettingsPage from "./pages/Vendor/Settings/Settings";
+import ConfirmDeactivateVendor from "./pages/Vendor/Settings/ConfirmDeactivateVendor.jsx";
 import NotificationsPage from "./pages/Vendor/Notifications/Notifications";
 
 import OrdersPage from "./pages/User/Orders/UserOrders.jsx";
@@ -1024,6 +1025,21 @@ export default function App() {
                   <SettingsPage />
                 </RequireVendor>
               }
+            />
+
+            {/*
+              Confirmarea ștergerii contului vânzător (audit 2026-09-16,
+              fix bug raportat) - link din email, NEÎNCONJURAT de
+              RequireVendor intenționat: dacă sesiunea nu mai e validă
+              în acest browser (alt device, expirat), RequireVendor ar
+              redirecta la /autentificare FĂRĂ să păstreze tokenul din
+              URL (Navigate nu are query param de return) - pagina își
+              gestionează singură cazul neautentificat, cu mesaj clar,
+              fără să piardă tokenul.
+            */}
+            <Route
+              path="/vendor/settings/confirm-deactivate"
+              element={<ConfirmDeactivateVendor />}
             />
 
             <Route

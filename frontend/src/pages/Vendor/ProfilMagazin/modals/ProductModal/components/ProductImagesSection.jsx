@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import styles from "../../../components/css/ProductModal.module.css";
+import localStyles from "./ProductImagesSection.module.css";
 import ProductVideoField from "../../../../../../components/ProductVideoField";
 
 export default function ProductImagesSection({
@@ -8,10 +9,12 @@ export default function ProductImagesSection({
   setForm,
   aiImagePreview,
   aiImageLoading,
+  aiImageTargetIndex,
   aiLoading,
   uploadInfo,
   allImagesReadyForAi,
   mainImageReadyForAi,
+  isUploadedImage,
   resolveProductImageUrl,
   onPasteImages,
   onFilesPicked,
@@ -23,7 +26,24 @@ export default function ProductImagesSection({
   handleAiAnalyze,
   handleAiEnhanceImage,
   useAiImage,
+  discardAiImagePreview,
 }) {
+  /*
+   * Poza-sursă a preview-ului AI curent (pentru comparație
+   * original/rezultat) - `aiImageTargetIndex` e `null` doar dacă
+   * previzualizarea a pornit înainte de acest fix (state vechi,
+   * imposibil practic după redeploy) sau dacă poza-sursă a fost
+   * ștearsă între timp; în ambele cazuri, index 0 e fallback-ul
+   * rezonabil, IDENTIC cu comportamentul dinainte de fix.
+   */
+  const aiPreviewSourceIndex =
+    aiImageTargetIndex ?? 0;
+
+  const aiPreviewSourceUrl =
+    form.images?.[
+      aiPreviewSourceIndex
+    ];
+
   const [
     imagesHelpOpen,
     setImagesHelpOpen,
@@ -63,7 +83,7 @@ export default function ProductImagesSection({
               Adaugă fotografiile produsului și,
               opțional, folosește funcțiile AI
               pentru analiză și îmbunătățirea
-              imaginii principale.
+              fotografiilor.
             </p>
 
             <div
@@ -104,21 +124,17 @@ export default function ProductImagesSection({
 
               <div>
                 <strong>
-  ✨ Completează automat cu AI
-</strong>
+                  ✨ Completează detalii cu AI
+                </strong>
 
                 <p>
                   După încărcarea fotografiilor,
-apasă pe „Completează automat
-cu AI”.
-                </p>
-
-                <p>
-                 AI-ul folosește fotografiile
-produsului pentru a completa
-automat titlul, descrierea,
-categoria, materialul, tehnica,
-culoarea și alte informații.
+                  apasă pe „Completează detalii”.
+                  AI-ul folosește fotografiile
+                  produsului pentru a completa
+                  automat titlul, descrierea,
+                  categoria, materialul, tehnica,
+                  culoarea și alte informații.
                 </p>
 
                 <p>
@@ -131,25 +147,32 @@ culoarea și alte informații.
 
               <div>
                 <strong>
-                  📸 Editează poza cu AI
+                  📸 Îmbunătățește fotografia
                 </strong>
 
                 <p>
-                  Funcția folosește imaginea
-                  principală marcată cu ★ și
-                  generează o versiune editată.
+                  Retușează fundalul, lumina și
+                  claritatea unei fotografii, fără
+                  să modifice produsul din ea
+                  (formă, culoare, textură, text
+                  sau logo rămân neschimbate).
                 </p>
 
                 <p>
-                  Poți alege „Folosește poza
-                  asta” sau poți genera o altă
-                  variantă.
+                  Apasă „✨” de sub fotografia pe
+                  care vrei să o îmbunătățești -
+                  poate fi oricare, nu doar cea
+                  principală (★).
                 </p>
 
                 <p>
-                  Imaginea generată nu este
-                  folosită automat până când nu
-                  confirmi tu acest lucru.
+                  După generare vezi originalul
+                  și rezultatul unul lângă altul
+                  și alegi: „Folosește varianta
+                  îmbunătățită”, „Păstrează
+                  originalul” sau „Încearcă din
+                  nou”. Nimic nu se schimbă până
+                  nu confirmi tu.
                 </p>
               </div>
             </div>
@@ -231,93 +254,131 @@ culoarea și alte informații.
         >
           Adaugă fotografiile produsului și,
           opțional, folosește AI pentru analiză
-          sau îmbunătățirea imaginii principale.
+          sau pentru a îmbunătăți o fotografie.
         </p>
       </div>
 
+      {/* =====================================================
+          PREVIZUALIZARE AI: ORIGINAL vs REZULTAT
+          Nimic din form.images nu se schimbă până la confirmare
+          explicită (✅ mai jos) - regulă neschimbată.
+      ===================================================== */}
+
       {aiImagePreview && (
         <div
-          style={{
-            marginBottom: 14,
-          }}
+          className={
+            localStyles.previewPanel
+          }
         >
-          <label
+          <p
             className={
-              styles.label
+              localStyles.previewHeader
             }
           >
-            Poză editată cu AI
-          </label>
+            Fotografie profesională - previzualizare
+          </p>
 
-          <img
-            src={
-              aiImagePreview
+          <p
+            className={
+              localStyles.previewSubtitle
             }
-            alt="Poză editată cu AI"
-            style={{
-              width: "100%",
-              maxWidth: 350,
-              borderRadius: 12,
-              display: "block",
-              margin:
-                "0 auto 12px",
-            }}
-          />
+          >
+            Produsul rămâne identic - s-au
+            îmbunătățit doar fundalul, lumina și
+            claritatea. Alege ce variantă
+            păstrezi.
+          </p>
 
           <div
-            style={{
-              display: "flex",
-              gap: 10,
-              justifyContent:
-                "center",
-              alignItems:
-                "center",
-              flexWrap:
-                "wrap",
-            }}
+            className={
+              localStyles.previewGrid
+            }
+          >
+            <div
+              className={
+                localStyles.previewColumn
+              }
+            >
+              <span
+                className={`${localStyles.previewColumnLabel} ${localStyles.previewColumnLabelOriginal}`}
+              >
+                Original
+              </span>
+
+              {aiPreviewSourceUrl && (
+                <img
+                  src={resolveProductImageUrl(
+                    aiPreviewSourceUrl
+                  )}
+                  alt="Fotografia originală"
+                  className={
+                    localStyles.previewImage
+                  }
+                />
+              )}
+            </div>
+
+            <div
+              className={
+                localStyles.previewColumn
+              }
+            >
+              <span
+                className={`${localStyles.previewColumnLabel} ${localStyles.previewColumnLabelResult}`}
+              >
+                Îmbunătățit
+              </span>
+
+              <img
+                src={
+                  aiImagePreview
+                }
+                alt="Fotografie îmbunătățită cu AI"
+                className={`${localStyles.previewImage} ${localStyles.previewImageResult}`}
+              />
+            </div>
+          </div>
+
+          <div
+            className={
+              localStyles.previewActions
+            }
           >
             <button
               type="button"
               onClick={
                 useAiImage
               }
-              className={
-                styles.primaryBtn
-              }
-              style={{
-                width: "auto",
-                whiteSpace:
-                  "nowrap",
-                flex:
-                  "1 1 220px",
-                maxWidth: 260,
-              }}
+              className={`${localStyles.previewButton} ${localStyles.previewButtonPrimary}`}
             >
-              ✅ Folosește poza asta
+              ✅ Folosește varianta îmbunătățită
             </button>
 
             <button
               type="button"
               onClick={
-                handleAiEnhanceImage
+                discardAiImagePreview
+              }
+              className={`${localStyles.previewButton} ${localStyles.previewButtonSecondary}`}
+            >
+              Păstrează originalul
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                handleAiEnhanceImage(
+                  aiPreviewSourceIndex
+                )
               }
               disabled={
                 aiImageLoading
               }
-              className={
-                styles.smallBtn
-              }
-              style={{
-                whiteSpace:
-                  "nowrap",
-                flex:
-                  "1 1 220px",
-                maxWidth: 260,
-              }}
+              className={`${localStyles.previewButton} ${localStyles.previewButtonGhost}`}
             >
               {aiImageLoading
-                ? "Generez..."
-                : "🔁 Generează altă variantă"}
+                ? "Se generează..."
+                : "🔁 Încearcă din nou"}
             </button>
           </div>
         </div>
@@ -436,152 +497,303 @@ culoarea și alte informații.
                 (
                   img,
                   idx
-                ) => (
-                  <div
-                    key={`${img}-${idx}`}
-                    className={
-                      styles.thumbItem
-                    }
-                    draggable
-                    onDragStart={
-                      onDragStart(
-                        idx
-                      )
-                    }
-                    onDragOver={
-                      onDragOver
-                    }
-                    onDrop={
-                      onDrop(
-                        idx
-                      )
-                    }
-                    title={
-                      idx ===
-                      0
-                        ? "Imagine principală"
-                        : "Trage pentru a reordona"
-                    }
-                  >
-                    <img
-                      src={
-                        resolveProductImageUrl(
-                          img
+                ) => {
+                  const isMain =
+                    idx === 0;
+
+                  const isProcessingThis =
+                    aiImageLoading &&
+                    aiImageTargetIndex ===
+                      idx;
+
+                  return (
+                    <div
+                      key={`${img}-${idx}`}
+                      className={
+                        styles.thumbItem
+                      }
+                      draggable
+                      onDragStart={
+                        onDragStart(
+                          idx
                         )
                       }
-                      alt={`Imagine produs ${
-                        idx +
-                        1
-                      }`}
-                      className={
-                        styles.thumbImg
+                      onDragOver={
+                        onDragOver
                       }
-                    />
-
-                    <div
-                      style={{
-                        display:
-                          "flex",
-                        gap: 6,
-                        marginTop:
-                          6,
-                      }}
+                      onDrop={
+                        onDrop(
+                          idx
+                        )
+                      }
+                      title={
+                        isMain
+                          ? "Imagine principală"
+                          : "Trage pentru a reordona"
+                      }
                     >
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setMainImage(
-                            idx
-                          )
-                        }
-                        title={
-                          idx ===
-                          0
-                            ? "Imagine principală folosită de AI"
-                            : "Setează ca imagine principală"
-                        }
+                      <div
                         className={
-                          styles.smallBtn
+                          localStyles.thumbImageWrap
                         }
-                        style={{
-                          fontWeight:
-                            idx ===
-                            0
-                              ? 800
-                              : 500,
-                        }}
                       >
-                        {idx ===
-                        0
-                          ? "★"
-                          : "☆"}
-                      </button>
+                        {isMain && (
+                          <span
+                            className={
+                              localStyles.mainBadge
+                            }
+                          >
+                            Principală
+                          </span>
+                        )}
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          removeImage(
-                            idx
-                          )
-                        }
-                        title="Șterge imagine"
+                        <img
+                          src={
+                            resolveProductImageUrl(
+                              img
+                            )
+                          }
+                          alt={`Imagine produs ${
+                            idx +
+                            1
+                          }`}
+                          className={
+                            styles.thumbImg
+                          }
+                        />
+
+                        {isProcessingThis && (
+                          <div
+                            className={
+                              localStyles.thumbLoadingOverlay
+                            }
+                          >
+                            <div
+                              className={
+                                localStyles.spinner
+                              }
+                              aria-hidden="true"
+                            />
+
+                            <span
+                              className={
+                                localStyles.thumbLoadingText
+                              }
+                            >
+                              Retușez
+                              fotografia…
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div
                         className={
-                          styles.smallBtn
+                          localStyles.thumbControls
                         }
                       >
-                        Șterge
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setMainImage(
+                              idx
+                            )
+                          }
+                          title={
+                            isMain
+                              ? "Imagine principală"
+                              : "Setează ca imagine principală"
+                          }
+                          className={`${localStyles.thumbControlBtn} ${
+                            isMain
+                              ? localStyles.thumbControlMain
+                              : ""
+                          }`}
+                        >
+                          {isMain
+                            ? "★"
+                            : "☆"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleAiEnhanceImage(
+                              idx
+                            )
+                          }
+                          disabled={
+                            aiImageLoading ||
+                            !isUploadedImage?.(
+                              img
+                            )
+                          }
+                          title="Fotografie profesională - îmbunătățește fundalul, lumina și claritatea acestei poze, fără să modifice produsul"
+                          aria-label="Îmbunătățește această fotografie cu AI"
+                          className={
+                            localStyles.thumbControlBtn
+                          }
+                        >
+                          ✨
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            removeImage(
+                              idx
+                            )
+                          }
+                          title="Șterge fotografia"
+                          aria-label="Șterge fotografia"
+                          className={`${localStyles.thumbControlBtn} ${localStyles.thumbControlDanger}`}
+                        >
+                          🗑
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )
+                  );
+                }
               )}
             </div>
 
+            {/* =============================================
+                CELE DOUĂ FUNCȚII AI - separate vizual, ca să
+                nu pară că fac același lucru.
+            ============================================= */}
+
             <div
               className={
-                styles.aiActions
+                localStyles.aiCardsGrid
               }
             >
-              <button
-                type="button"
-                onClick={
-                  handleAiAnalyze
-                }
-                disabled={
-                  aiLoading ||
-                  !allImagesReadyForAi
-                }
-                className={
-                  styles.primaryBtn
-                }
+              <div
+                className={`${localStyles.aiCard} ${localStyles.aiCardDetails}`}
               >
-                {aiLoading
-  ? "Completez automat..."
-  : !allImagesReadyForAi
-  ? "Se încarcă imaginile..."
-  : "✨ Completează automat cu AI"}
-              </button>
+                <div
+                  className={
+                    localStyles.aiCardTop
+                  }
+                >
+                  <span
+                    className={
+                      localStyles.aiCardIcon
+                    }
+                    aria-hidden="true"
+                  >
+                    ✨
+                  </span>
 
-              <button
-                type="button"
-                onClick={
-                  handleAiEnhanceImage
-                }
-                disabled={
-                  aiImageLoading ||
-                  !mainImageReadyForAi
-                }
-                className={
-                  styles.smallBtn
-                }
+                  <p
+                    className={
+                      localStyles.aiCardTitle
+                    }
+                  >
+                    Completează detalii cu AI
+                  </p>
+                </div>
+
+                <p
+                  className={
+                    localStyles.aiCardDescription
+                  }
+                >
+                  AI analizează fotografiile și
+                  completează automat titlul,
+                  descrierea, categoria și
+                  celelalte informații ale
+                  produsului.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={
+                    handleAiAnalyze
+                  }
+                  disabled={
+                    aiLoading ||
+                    !allImagesReadyForAi
+                  }
+                  className={`${localStyles.aiCardButton} ${localStyles.aiCardButtonDetails}`}
+                >
+                  {aiLoading
+                    ? "Completez..."
+                    : !allImagesReadyForAi
+                    ? "Se încarcă imaginile..."
+                    : "Completează detalii"}
+                </button>
+              </div>
+
+              <div
+                className={`${localStyles.aiCard} ${localStyles.aiCardPhoto}`}
               >
-                {aiImageLoading
-                  ? "Editez poza..."
-                  : !mainImageReadyForAi
-                  ? "Se încarcă imaginea..."
-                  : "📸 Editează poza cu AI"}
-              </button>
+                <div
+                  className={
+                    localStyles.aiCardTop
+                  }
+                >
+                  <span
+                    className={
+                      localStyles.aiCardIcon
+                    }
+                    aria-hidden="true"
+                  >
+                    📸
+                  </span>
+
+                  <p
+                    className={
+                      localStyles.aiCardTitle
+                    }
+                  >
+                    Îmbunătățește fotografia
+                  </p>
+                </div>
+
+                <p
+                  className={
+                    localStyles.aiCardDescription
+                  }
+                >
+                  Retușează fundalul, lumina și
+                  claritatea fotografiei
+                  principale (★), fără să
+                  modifice produsul. Pentru alte
+                  fotografii, apasă „✨” de sub
+                  poza dorită.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleAiEnhanceImage(
+                      0
+                    )
+                  }
+                  disabled={
+                    aiImageLoading ||
+                    !mainImageReadyForAi
+                  }
+                  className={`${localStyles.aiCardButton} ${localStyles.aiCardButtonPhoto}`}
+                >
+                  {aiImageLoading
+                    ? "Retușez fotografia..."
+                    : !mainImageReadyForAi
+                    ? "Se încarcă imaginea..."
+                    : "Îmbunătățește fotografia"}
+                </button>
+              </div>
             </div>
+
+            <p
+              className={
+                localStyles.aiReassurance
+              }
+            >
+              AI îmbunătățește doar fundalul și
+              calitatea fotografiei. Produsul
+              rămâne neschimbat.
+            </p>
           </>
         )}
 
@@ -590,10 +802,9 @@ culoarea și alte informații.
             styles.tip
           }
         >
-        AI folosește fotografiile produsului
-pentru a completa automat detaliile.
-Poza marcată cu ★ este folosită
-pentru editarea imaginii cu AI.
+          Trage o fotografie pentru a schimba
+          ordinea. Prima fotografie (★) este
+          imaginea principală a produsului.
         </div>
       </div>
 

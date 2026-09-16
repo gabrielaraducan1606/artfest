@@ -11,7 +11,7 @@
     56px;
 
   background:
-    #f7f5f8;
+    var(--surface-muted, #f7f5f8);
 
   color:
     var(
@@ -184,7 +184,7 @@
   object-fit: cover;
 
   background:
-    #f1eff3;
+    var(--surface-muted, #f1eff3);
 }
 
 .avatarFallback {
@@ -254,16 +254,11 @@
   border-radius: 50%;
 
   background:
-    #22c55e;
+    var(--color-success, #22c55e);
 
   box-shadow:
     0 0 0 3px
-    rgba(
-      34,
-      197,
-      94,
-      0.12
-    );
+    color-mix(in srgb, var(--color-success, #22c55e) 12%, transparent);
 }
 
 .metaRow {
@@ -367,7 +362,7 @@
 
   color:
     var(
-      --color-text-soft,
+      --color-muted,
       #5f5966
     );
 
@@ -403,7 +398,7 @@
   border-radius: 17px;
 
   background:
-    #f4f2f5;
+    var(--surface-muted, #f4f2f5);
 }
 
 .mainImage {
@@ -417,7 +412,7 @@
   object-fit: contain;
 
   background:
-    #f4f2f5;
+    var(--surface-muted, #f4f2f5);
 }
 
 .thumbnailRow {
@@ -452,7 +447,7 @@
   border-radius: 11px;
 
   background:
-    #f1eff3;
+    var(--surface-muted, #f1eff3);
 
   cursor: pointer;
 
@@ -536,7 +531,7 @@
   border-radius: 14px;
 
   background:
-    #fbfafc;
+    var(--surface-muted, #fbfafc);
 }
 
 .detailIcon {
@@ -552,12 +547,7 @@
   border-radius: 11px;
 
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.08
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 8%, transparent);
 
   font-size: 16px;
 }
@@ -745,16 +735,11 @@
       #8b5cf6
     );
 
-  color: #ffffff;
+  color: var(--on-primary, #ffffff);
 
   box-shadow:
     0 10px 22px
-    rgba(
-      139,
-      92,
-      246,
-      0.2
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 20%, transparent);
 }
 
 .primaryButton:hover {
@@ -763,12 +748,7 @@
 
   box-shadow:
     0 13px 28px
-    rgba(
-      139,
-      92,
-      246,
-      0.26
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 26%, transparent);
 }
 
 .secondaryButton {
@@ -780,7 +760,7 @@
     );
 
   background:
-    #ffffff;
+    var(--surface, #ffffff);
 
   color:
     var(
@@ -791,15 +771,10 @@
 
 .secondaryButton:hover {
   background:
-    #f7f5f8;
+    var(--hover-bg, #f7f5f8);
 
   border-color:
-    rgba(
-      139,
-      92,
-      246,
-      0.26
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 26%, transparent);
 }
 
 /* =========================================================
@@ -823,41 +798,26 @@
 
 .ownerHint {
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.06
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 6%, transparent);
 
   color:
-    #6e637c;
+    var(--color-muted, #6e637c);
 }
 
 .safeHint {
   background:
-    rgba(
-      34,
-      197,
-      94,
-      0.07
-    );
+    color-mix(in srgb, var(--color-success, #22c55e) 7%, transparent);
 
   color:
-    #39724b;
+    var(--color-success, #39724b);
 }
 
 .closedHint {
   background:
-    rgba(
-      107,
-      114,
-      128,
-      0.08
-    );
+    color-mix(in srgb, var(--color-muted, #6b7280) 8%, transparent);
 
   color:
-    #68636d;
+    var(--color-muted, #68636d);
 }
 
 /* =========================================================
@@ -961,7 +921,7 @@
   border-radius: 19px;
 
   background:
-    #ffffff;
+    var(--surface, #ffffff);
 
   text-align: center;
 
@@ -1088,7 +1048,7 @@
       34px;
 
     background:
-      #ffffff;
+      var(--surface, #ffffff);
   }
 
   .container {

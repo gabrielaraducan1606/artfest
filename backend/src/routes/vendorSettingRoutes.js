@@ -583,7 +583,15 @@ router.post("/vendor/settings/account/deactivate/confirm", async (req, res) => {
         where: { vendorId: vendor.id, archived: false },
         data: { archived: true },
       });
-    });
+    }, { timeout: 15000 });
+    /*
+     * timeout mărit (audit 2026-09-16, verificare live a fix-ului de
+     * confirmare) - default-ul Prisma (5000ms) a picat live, o
+     * singură dată, cu "Transaction already closed" pe conexiunea
+     * Neon de dev (latență cold-start) - tranzacția în sine face
+     * DOAR write-uri simple, fără apeluri externe; 15s dă marjă
+     * fără să schimbe nimic din logica de anonimizare.
+     */
 
     return res.json({
       ok: true,

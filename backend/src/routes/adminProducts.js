@@ -13,25 +13,11 @@ const router = Router();
 
 /* ================= Helpers comune ================= */
 
-async function vendorAccessRequired(req, res, next) {
-  try {
-    if (req.user?.role === "VENDOR" || req.user?.role === "ADMIN") return next();
-
-    const v = await prisma.vendor.findUnique({
-      where: { userId: req.user.sub },
-    });
-
-    if (v) {
-      req.meVendor = v;
-      return next();
-    }
-
-    return res.status(403).json({ error: "forbidden" });
-  } catch (e) {
-    console.error("vendorAccessRequired error:", e);
-    return res.status(500).json({ error: "server_error" });
-  }
-}
+/*
+ * (audit 2026-09-16) - fostă vendorAccessRequired locală, nefolosită
+ * de nicio rută din acest fișier (doar adminRequired e aplicat mai
+ * jos) - eliminată ca dead code, fără efect funcțional.
+ */
 
 async function adminRequired(req, res, next) {
   try {

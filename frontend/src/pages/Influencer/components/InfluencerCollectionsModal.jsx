@@ -2,12 +2,34 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
 import { api } from "../../../lib/api.js";
 
 import styles from "./InfluencerCollectionsModal.module.css";
+
+/*
+ * Oglindesc EXACT constantele din backend
+ * (influencerCollectionRoutes.js) - doar pentru validare client-side
+ * instantanee, înainte de request. Sursa de adevăr rămâne backend-ul
+ * (Zod) - dacă vreodată aceste numere diverg, serverul tot respinge
+ * corect, doar mesajul instant de-aici ar întârzia cu un round-trip.
+ */
+const MAX_TITLE_LENGTH = 160;
+const MAX_DESCRIPTION_LENGTH = 5000;
+const MAX_COLLECTION_PRODUCTS = 100;
+
+const AI_PROMPT_EXAMPLES = [
+  "Cadouri sub 100 lei",
+  "Bijuterii minimaliste",
+  "Cadouri pentru profesoare",
+  "Produse pentru botez",
+];
+
+const CREATE_COLLECTION_FORM_ID =
+  "influencer-create-collection-form";
 
 export default function InfluencerCollectionsModal({
   onClose,
@@ -37,15 +59,64 @@ export default function InfluencerCollectionsModal({
     setDetailLoading,
   ] = useState(false);
 
+  /*
+   * Mesajele de eroare/succes sunt SCOPATE pe zonă ("field"), nu mai
+   * e un singur banner global - fiecare acțiune (listă/creare/detaliu/
+   * AI/căutare/produse) își arată mesajul lângă zona ei, nu în capul
+   * modalului. `setErrorFor`/`setSuccessFor` sunt singurele locuri
+   * care scriu în aceste 4 state-uri - restul codului le folosește pe
+   * acestea, nu `setError`/`setSuccess` direct.
+   */
   const [
     error,
     setError,
   ] = useState("");
 
   const [
+    errorField,
+    setErrorField,
+  ] = useState("");
+
+  const [
     success,
     setSuccess,
   ] = useState("");
+
+  const [
+    successField,
+    setSuccessField,
+  ] = useState("");
+
+  const setErrorFor = useCallback(
+    (field, message) => {
+      setError(message || "");
+      setErrorField(message ? field : "");
+    },
+    []
+  );
+
+  const setSuccessFor = useCallback(
+    (field, message) => {
+      setSuccess(message || "");
+      setSuccessField(message ? field : "");
+    },
+    []
+  );
+
+  const clearMessages = useCallback(
+    (field) => {
+      if (!field || errorField === field) {
+        setError("");
+        setErrorField("");
+      }
+
+      if (!field || successField === field) {
+        setSuccess("");
+        setSuccessField("");
+      }
+    },
+    [errorField, successField]
+  );
 
   const [
     title,
@@ -99,12 +170,16 @@ export default function InfluencerCollectionsModal({
 
   /* =========================================================
      AI
+
+     `productTab` e strict vizual (Manual/AI) - înlocuiește vechiul
+     toggle `aiOpen`. Nu schimbă nimic din logica de selecție/adăugare
+     produse, doar CARE panou e vizibil.
   ========================================================= */
 
   const [
-    aiOpen,
-    setAiOpen,
-  ] = useState(false);
+    productTab,
+    setProductTab,
+  ] = useState("manual");
 
   const [
     aiPrompt,
@@ -148,7 +223,14 @@ export default function InfluencerCollectionsModal({
 
   /* =========================================================
      MODAL
+
+     Escape închide, Tab/Shift+Tab rămân captive în interiorul
+     modalului (focus trap simplu, fără librărie nouă), iar focusul
+     pleacă automat pe primul element focusabil la deschidere.
   ========================================================= */
+
+  const modalRef =
+    useRef(null);
 
   useEffect(() => {
     const previous =
@@ -158,6 +240,36 @@ export default function InfluencerCollectionsModal({
     document.body.style.overflow =
       "hidden";
 
+    const previouslyFocused =
+      document.activeElement;
+
+    function getFocusable() {
+      const node =
+        modalRef.current;
+
+      if (!node) {
+        return [];
+      }
+
+      return Array.from(
+        node.querySelectorAll(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter(
+        (element) =>
+          element.offsetParent !==
+          null
+      );
+    }
+
+    const initialFocusTimer =
+      window.setTimeout(
+        () => {
+          getFocusable()[0]?.focus();
+        },
+        0
+      );
+
     function onKeyDown(
       event
     ) {
@@ -166,6 +278,49 @@ export default function InfluencerCollectionsModal({
         "Escape"
       ) {
         onClose?.();
+
+        return;
+      }
+
+      if (
+        event.key !==
+        "Tab"
+      ) {
+        return;
+      }
+
+      const focusable =
+        getFocusable();
+
+      if (
+        !focusable.length
+      ) {
+        return;
+      }
+
+      const first =
+        focusable[0];
+
+      const last =
+        focusable[
+          focusable.length -
+            1
+        ];
+
+      if (
+        event.shiftKey &&
+        document.activeElement ===
+          first
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        document.activeElement ===
+          last
+      ) {
+        event.preventDefault();
+        first.focus();
       }
     }
 
@@ -175,6 +330,10 @@ export default function InfluencerCollectionsModal({
     );
 
     return () => {
+      window.clearTimeout(
+        initialFocusTimer
+      );
+
       document.body.style.overflow =
         previous;
 
@@ -182,6 +341,13 @@ export default function InfluencerCollectionsModal({
         "keydown",
         onKeyDown
       );
+
+      if (
+        previouslyFocused instanceof
+        HTMLElement
+      ) {
+        previouslyFocused.focus();
+      }
     };
   }, [onClose]);
 
@@ -193,7 +359,7 @@ export default function InfluencerCollectionsModal({
     useCallback(
       async () => {
         setLoading(true);
-        setError("");
+        clearMessages("list");
 
         try {
           const data =
@@ -209,16 +375,17 @@ export default function InfluencerCollectionsModal({
               : []
           );
         } catch (err) {
-          setError(
+          setErrorFor(
+            "list",
             err?.data?.message ||
               err?.message ||
-              "Nu am putut încărca colecțiile."
+              "Nu am putut încărca colecțiile. Încearcă din nou."
           );
         } finally {
           setLoading(false);
         }
       },
-      []
+      [clearMessages, setErrorFor]
     );
 
   useEffect(() => {
@@ -274,7 +441,7 @@ export default function InfluencerCollectionsModal({
         }
 
         setDetailLoading(true);
-        setError("");
+        clearMessages("detail");
 
         try {
           const data =
@@ -287,16 +454,17 @@ export default function InfluencerCollectionsModal({
               null
           );
         } catch (err) {
-          setError(
+          setErrorFor(
+            "detail",
             err?.data?.message ||
               err?.message ||
-              "Nu am putut încărca această colecție."
+              "Nu am putut încărca această colecție. Încearcă din nou."
           );
         } finally {
           setDetailLoading(false);
         }
       },
-      []
+      [clearMessages, setErrorFor]
     );
 
   useEffect(() => {
@@ -319,7 +487,7 @@ export default function InfluencerCollectionsModal({
    * când influencerul schimbă colecția.
    */
   useEffect(() => {
-    setAiOpen(false);
+    setProductTab("manual");
     setAiPrompt("");
     setAiBudgetMin("");
     setAiBudgetMax("");
@@ -329,10 +497,19 @@ export default function InfluencerCollectionsModal({
 
     setProductSearch("");
     setProductSuggestions([]);
+
+    clearMessages("ai");
+    clearMessages("search");
+    clearMessages("products");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   /* =========================================================
      CREATE
+
+     Validări client-side (feedback instant, lângă câmp) - backend-ul
+     (Zod) rămâne sursa de adevăr finală, aceste verificări doar evită
+     un round-trip pentru greșeli evidente.
   ========================================================= */
 
   async function createCollection(
@@ -340,22 +517,63 @@ export default function InfluencerCollectionsModal({
   ) {
     event.preventDefault();
 
+    if (saving) {
+      // previne double-submit (ex. Enter + click rapid pe buton)
+      return;
+    }
+
     const cleanTitle =
       title.trim();
+
+    const cleanDescription =
+      description.trim();
+
+    if (!cleanTitle) {
+      setErrorFor(
+        "create",
+        "Adaugă un titlu pentru colecție."
+      );
+
+      return;
+    }
 
     if (
       cleanTitle.length < 2
     ) {
-      setError(
-        "Scrie un nume pentru colecție."
+      setErrorFor(
+        "create",
+        "Titlul este prea scurt. Scrie minimum 2 caractere."
+      );
+
+      return;
+    }
+
+    if (
+      cleanTitle.length >
+      MAX_TITLE_LENGTH
+    ) {
+      setErrorFor(
+        "create",
+        `Titlul poate avea cel mult ${MAX_TITLE_LENGTH} de caractere.`
+      );
+
+      return;
+    }
+
+    if (
+      cleanDescription.length >
+      MAX_DESCRIPTION_LENGTH
+    ) {
+      setErrorFor(
+        "create",
+        `Descrierea poate avea cel mult ${MAX_DESCRIPTION_LENGTH} de caractere.`
       );
 
       return;
     }
 
     setSaving(true);
-    setError("");
-    setSuccess("");
+    clearMessages("create");
 
     try {
       const data =
@@ -370,7 +588,7 @@ export default function InfluencerCollectionsModal({
                 cleanTitle,
 
               description:
-                description.trim() ||
+                cleanDescription ||
                 null,
 
               isActive:
@@ -392,14 +610,20 @@ export default function InfluencerCollectionsModal({
         );
       }
 
-      setSuccess(
+      setSuccessFor(
+        "create",
         "Colecția a fost creată."
       );
     } catch (err) {
-      setError(
+      /*
+       * Datele completate NU se pierd la eroare - title/description
+       * se golesc DOAR în ramura de succes de mai sus.
+       */
+      setErrorFor(
+        "create",
         err?.data?.message ||
           err?.message ||
-          "Nu am putut crea colecția."
+          "Nu am putut crea colecția. Încearcă din nou."
       );
     } finally {
       setSaving(false);
@@ -422,8 +646,7 @@ export default function InfluencerCollectionsModal({
       return;
     }
 
-    setError("");
-    setSuccess("");
+    clearMessages("list");
 
     try {
       await api(
@@ -449,14 +672,16 @@ export default function InfluencerCollectionsModal({
 
       await loadCollections();
 
-      setSuccess(
+      setSuccessFor(
+        "list",
         "Colecția a fost ștearsă."
       );
     } catch (err) {
-      setError(
+      setErrorFor(
+        "list",
         err?.data?.message ||
           err?.message ||
-          "Nu am putut șterge colecția."
+          "Nu am putut șterge colecția. Încearcă din nou."
       );
     }
   }
@@ -468,8 +693,7 @@ export default function InfluencerCollectionsModal({
   async function toggleCollection(
     collection
   ) {
-    setError("");
-    setSuccess("");
+    clearMessages("list");
 
     try {
       await api(
@@ -496,10 +720,11 @@ export default function InfluencerCollectionsModal({
         );
       }
     } catch (err) {
-      setError(
+      setErrorFor(
+        "list",
         err?.data?.message ||
           err?.message ||
-          "Nu am putut actualiza colecția."
+          "Nu am putut actualiza colecția. Încearcă din nou."
       );
     }
   }
@@ -540,7 +765,8 @@ export default function InfluencerCollectionsModal({
         1500
       );
     } catch {
-      setError(
+      setErrorFor(
+        "detail",
         "Nu am putut copia linkul."
       );
     }
@@ -602,6 +828,10 @@ export default function InfluencerCollectionsModal({
               true
             );
 
+            clearMessages(
+              "search"
+            );
+
             const response =
               await fetch(
                 `/api/public/products/suggest?q=${encodeURIComponent(
@@ -647,6 +877,11 @@ export default function InfluencerCollectionsModal({
               setProductSuggestions(
                 []
               );
+
+              setErrorFor(
+                "search",
+                "Nu am putut încărca produsele. Încearcă din nou."
+              );
             }
           } finally {
             if (
@@ -669,6 +904,7 @@ export default function InfluencerCollectionsModal({
 
       controller.abort();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     productSearch,
     selectedCollection?.id,
@@ -696,7 +932,8 @@ export default function InfluencerCollectionsModal({
         ?.trim();
 
     if (!prompt) {
-      setError(
+      setErrorFor(
+        "ai",
         "Scrie ce fel de produse vrei să găsească AI-ul."
       );
 
@@ -726,7 +963,8 @@ export default function InfluencerCollectionsModal({
         min < 0
       )
     ) {
-      setError(
+      setErrorFor(
+        "ai",
         "Bugetul minim nu este valid."
       );
 
@@ -742,7 +980,8 @@ export default function InfluencerCollectionsModal({
         max < 0
       )
     ) {
-      setError(
+      setErrorFor(
+        "ai",
         "Bugetul maxim nu este valid."
       );
 
@@ -754,7 +993,8 @@ export default function InfluencerCollectionsModal({
       max !== null &&
       min > max
     ) {
-      setError(
+      setErrorFor(
+        "ai",
         "Bugetul minim nu poate fi mai mare decât bugetul maxim."
       );
 
@@ -762,8 +1002,7 @@ export default function InfluencerCollectionsModal({
     }
 
     setAiLoading(true);
-    setError("");
-    setSuccess("");
+    clearMessages("ai");
     setAiRecommendations([]);
     setAiSelectedIds([]);
 
@@ -827,15 +1066,17 @@ export default function InfluencerCollectionsModal({
       if (
         !filtered.length
       ) {
-        setError(
-          "AI-ul nu a găsit momentan produse potrivite pentru această selecție."
+        setErrorFor(
+          "ai",
+          "Nu am găsit suficiente produse potrivite. Încearcă o descriere mai generală."
         );
       }
     } catch (err) {
-      setError(
+      setErrorFor(
+        "ai",
         err?.data?.message ||
           err?.message ||
-          "AI-ul nu a putut genera recomandările."
+          "Nu am putut genera recomandările acum. Poți încerca din nou sau selecta produsele manual."
       );
     } finally {
       setAiLoading(false);
@@ -876,30 +1117,36 @@ export default function InfluencerCollectionsModal({
   }
 
   async function addAiSelectedProducts() {
-    if (
-      !selectedCollection?.id ||
-      !aiSelectedIds.length
-    ) {
+    if (!selectedCollection?.id) {
+      return;
+    }
+
+    if (!aiSelectedIds.length) {
+      setErrorFor(
+        "ai",
+        "Selectează cel puțin un produs din recomandări."
+      );
+
       return;
     }
 
     setAiAdding(true);
-    setError("");
-    setSuccess("");
+    clearMessages("ai");
 
     try {
-      await api(
-        `/api/influencer/collections/${selectedCollection.id}/products`,
-        {
-          method:
-            "POST",
+      const data =
+        await api(
+          `/api/influencer/collections/${selectedCollection.id}/products`,
+          {
+            method:
+              "POST",
 
-          body: {
-            productIds:
-              aiSelectedIds,
-          },
-        }
-      );
+            body: {
+              productIds:
+                aiSelectedIds,
+            },
+          }
+        );
 
       setAiRecommendations(
         []
@@ -919,14 +1166,18 @@ export default function InfluencerCollectionsModal({
 
       await loadCollections();
 
-      setSuccess(
-        "Produsele selectate au fost adăugate în colecție."
+      setSuccessFor(
+        "ai",
+        data?.added
+          ? "Produsele selectate au fost adăugate în colecție."
+          : "Produsele erau deja în colecție."
       );
     } catch (err) {
-      setError(
+      setErrorFor(
+        "ai",
         err?.data?.message ||
           err?.message ||
-          "Nu am putut adăuga produsele recomandate."
+          "Nu am putut adăuga produsele recomandate. Încearcă din nou."
       );
     } finally {
       setAiAdding(false);
@@ -961,7 +1212,8 @@ export default function InfluencerCollectionsModal({
       product.id
     );
 
-    setError("");
+    clearMessages("search");
+    clearMessages("products");
 
     try {
       await api(
@@ -981,6 +1233,11 @@ export default function InfluencerCollectionsModal({
       setProductSearch("");
       setProductSuggestions([]);
 
+      /*
+       * Produsul tocmai adăugat manual nu mai trebuie oferit și ca
+       * recomandare AI încă bifată - AI + manual nu trebuie să
+       * lucreze contra unul altuia (cerință #7).
+       */
       setAiRecommendations(
         (current) =>
           current.filter(
@@ -1005,10 +1262,11 @@ export default function InfluencerCollectionsModal({
 
       await loadCollections();
     } catch (err) {
-      setError(
+      setErrorFor(
+        "search",
         err?.data?.message ||
           err?.message ||
-          "Nu am putut adăuga produsul."
+          "Nu am putut adăuga produsul. Încearcă din nou."
       );
     } finally {
       setProductBusyId(
@@ -1034,7 +1292,7 @@ export default function InfluencerCollectionsModal({
       productId
     );
 
-    setError("");
+    clearMessages("products");
 
     try {
       await api(
@@ -1051,10 +1309,11 @@ export default function InfluencerCollectionsModal({
 
       await loadCollections();
     } catch (err) {
-      setError(
+      setErrorFor(
+        "products",
         err?.data?.message ||
           err?.message ||
-          "Nu am putut elimina produsul."
+          "Nu am putut elimina produsul. Încearcă din nou."
       );
     } finally {
       setProductBusyId(
@@ -1106,6 +1365,7 @@ export default function InfluencerCollectionsModal({
       temp;
 
     setReorderBusy(true);
+    clearMessages("products");
 
     try {
       await api(
@@ -1135,10 +1395,11 @@ export default function InfluencerCollectionsModal({
         selectedCollection.id
       );
     } catch (err) {
-      setError(
+      setErrorFor(
+        "products",
         err?.data?.message ||
           err?.message ||
-          "Nu am putut schimba ordinea produselor."
+          "Nu am putut schimba ordinea produselor. Încearcă din nou."
       );
     } finally {
       setReorderBusy(false);
@@ -1159,9 +1420,15 @@ export default function InfluencerCollectionsModal({
       }
     >
       <div
+        ref={
+          modalRef
+        }
         className={
           styles.modal
         }
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="influencer-collections-title"
         onMouseDown={(event) =>
           event.stopPropagation()
         }
@@ -1171,7 +1438,11 @@ export default function InfluencerCollectionsModal({
             styles.header
           }
         >
-          <div>
+          <div
+            className={
+              styles.headerText
+            }
+          >
             <div
               className={
                 styles.eyebrow
@@ -1180,11 +1451,17 @@ export default function InfluencerCollectionsModal({
               PROMOVARE
             </div>
 
-            <h2>
+            <h2
+              id="influencer-collections-title"
+            >
               Colecțiile mele
             </h2>
 
-            <p>
+            <p
+              className={
+                styles.headerSubtitle
+              }
+            >
               Creează selecții de produse și distribuie-le comunității tale.
             </p>
           </div>
@@ -1192,112 +1469,238 @@ export default function InfluencerCollectionsModal({
           <button
             type="button"
             className={
-              styles.secondaryButton
+              styles.closeIconButton
             }
+            aria-label="Închide fereastra"
             onClick={
               onClose
             }
           >
-            Închide
+            ×
           </button>
         </header>
 
-        {error && (
-          <div
-            className={
-              styles.errorBox
-            }
-          >
-            {error}
-          </div>
-        )}
-
-        {success && (
-          <div
-            className={
-              styles.successBox
-            }
-          >
-            {success}
-          </div>
-        )}
-
-        {/* CREATE */}
-
-        <form
-          onSubmit={
-            createCollection
-          }
+        <div
           className={
-            styles.createBox
+            styles.body
           }
         >
-          <strong>
-            Colecție nouă
-          </strong>
+          {errorField === "list" &&
+            error && (
+              <div
+                className={
+                  styles.errorBox
+                }
+                role="alert"
+                aria-live="polite"
+              >
+                {error}
+              </div>
+            )}
 
-          <input
-            value={
-              title
-            }
-            onChange={(event) =>
-              setTitle(
-                event.target.value
-              )
-            }
-            placeholder="Ex: Cadouri pentru profesoare"
-            maxLength={
-              160
-            }
-          />
+          {successField ===
+            "list" &&
+            success && (
+              <div
+                className={
+                  styles.successBox
+                }
+                role="status"
+                aria-live="polite"
+              >
+                {success}
+              </div>
+            )}
 
-          <textarea
-            value={
-              description
-            }
-            onChange={(event) =>
-              setDescription(
-                event.target.value
-              )
-            }
-            placeholder="Descriere opțională..."
-            rows={
-              3
-            }
-          />
+          {/* CREATE */}
 
-          <button
-            type="submit"
+          <section
             className={
-              styles.primaryButton
-            }
-            disabled={
-              saving
+              styles.sectionCard
             }
           >
-            {saving
-              ? "Se creează…"
-              : "Creează colecția"}
-          </button>
-        </form>
+            <div
+              className={
+                styles.sectionCardHeader
+              }
+            >
+              <span
+                className={
+                  styles.sectionBadge
+                }
+              >
+                1
+              </span>
 
-        {loading ? (
-          <div
-            className={
-              styles.centerState
-            }
-          >
-            Se încarcă…
-          </div>
-        ) : !collections.length ? (
-          <div
-            className={
-              styles.emptyState
-            }
-          >
-            Nu ai creat încă nicio colecție.
-          </div>
-        ) : (
+              <div>
+                <h3
+                  className={
+                    styles.sectionTitle
+                  }
+                >
+                  Detalii colecție
+                </h3>
+
+                <p
+                  className={
+                    styles.sectionSubtitle
+                  }
+                >
+                  Numele și descrierea pe care le vede comunitatea ta.
+                </p>
+              </div>
+            </div>
+
+            <form
+              id={
+                CREATE_COLLECTION_FORM_ID
+              }
+              onSubmit={
+                createCollection
+              }
+              className={
+                styles.createForm
+              }
+            >
+              {errorField ===
+                "create" &&
+                error && (
+                  <div
+                    className={
+                      styles.errorBox
+                    }
+                    role="alert"
+                    aria-live="polite"
+                    id="create-collection-error"
+                  >
+                    {error}
+                  </div>
+                )}
+
+              {successField ===
+                "create" &&
+                success && (
+                  <div
+                    className={
+                      styles.successBox
+                    }
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {success}
+                  </div>
+                )}
+
+              <label
+                className={
+                  styles.field
+                }
+              >
+                <span
+                  className={
+                    styles.fieldLabel
+                  }
+                >
+                  Titlu colecție
+                </span>
+
+                <input
+                  className={
+                    styles.textInput
+                  }
+                  value={
+                    title
+                  }
+                  onChange={(event) =>
+                    setTitle(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Ex: Cadouri pentru profesoare"
+                  maxLength={
+                    MAX_TITLE_LENGTH
+                  }
+                  aria-invalid={
+                    errorField ===
+                    "create"
+                  }
+                  aria-describedby={
+                    errorField ===
+                    "create"
+                      ? "create-collection-error"
+                      : undefined
+                  }
+                />
+
+                <small
+                  className={
+                    styles.helperText
+                  }
+                >
+                  {
+                    title.length
+                  }
+                  /
+                  {
+                    MAX_TITLE_LENGTH
+                  }
+                </small>
+              </label>
+
+              <label
+                className={
+                  styles.field
+                }
+              >
+                <span
+                  className={
+                    styles.fieldLabel
+                  }
+                >
+                  Descriere (opțional)
+                </span>
+
+                <textarea
+                  className={
+                    styles.textInput
+                  }
+                  value={
+                    description
+                  }
+                  onChange={(event) =>
+                    setDescription(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Descriere opțională..."
+                  rows={
+                    2
+                  }
+                  maxLength={
+                    MAX_DESCRIPTION_LENGTH
+                  }
+                />
+              </label>
+            </form>
+          </section>
+
+          {loading ? (
+            <div
+              className={
+                styles.centerState
+              }
+            >
+              Se încarcă…
+            </div>
+          ) : !collections.length ? (
+            <div
+              className={
+                styles.emptyState
+              }
+            >
+              Nu ai creat încă nicio colecție.
+            </div>
+          ) : (
           <div
             className={
               styles.layout
@@ -1470,52 +1873,137 @@ export default function InfluencerCollectionsModal({
                     </div>
                   </div>
 
-                  {/* AI */}
+                  {errorField ===
+                    "detail" &&
+                    error && (
+                      <div
+                        className={
+                          styles.errorBox
+                        }
+                        role="alert"
+                        aria-live="polite"
+                      >
+                        {error}
+                      </div>
+                    )}
 
-                  <div
+                  {successField ===
+                    "detail" &&
+                    success && (
+                      <div
+                        className={
+                          styles.successBox
+                        }
+                        role="status"
+                        aria-live="polite"
+                      >
+                        {success}
+                      </div>
+                    )}
+
+                  {/* ALEGE PRODUSELE */}
+
+                  <section
                     className={
-                      styles.aiBox
+                      styles.sectionCard
                     }
                   >
                     <div
                       className={
-                        styles.aiHeader
+                        styles.sectionCardHeader
                       }
                     >
-                      <div>
-                        <strong>
-                          ✨ Alege produse cu AI
-                        </strong>
+                      <span
+                        className={
+                          styles.sectionBadge
+                        }
+                      >
+                        2
+                      </span>
 
-                        <p>
-                          Spune ce fel de selecție vrei, iar AI-ul îți recomandă produse reale din Artfest. Tu alegi ce adaugi.
+                      <div>
+                        <h3
+                          className={
+                            styles.sectionTitle
+                          }
+                        >
+                          Alege produsele
+                        </h3>
+
+                        <p
+                          className={
+                            styles.sectionSubtitle
+                          }
+                        >
+                          Manual sau cu ajutorul AI-ului.
                         </p>
                       </div>
+                    </div>
 
+                    <div
+                      className={
+                        styles.tabs
+                      }
+                      role="tablist"
+                      aria-label="Mod de selecție produse"
+                    >
                       <button
                         type="button"
-                        className={
-                          styles.secondaryButton
+                        role="tab"
+                        id="product-tab-manual"
+                        aria-selected={
+                          productTab ===
+                          "manual"
                         }
+                        aria-controls="product-panel-manual"
+                        className={`${styles.tab} ${
+                          productTab ===
+                          "manual"
+                            ? styles.tabActive
+                            : ""
+                        }`}
                         onClick={() =>
-                          setAiOpen(
-                            (
-                              current
-                            ) =>
-                              !current
+                          setProductTab(
+                            "manual"
                           )
                         }
                       >
-                        {aiOpen
-                          ? "Închide AI"
-                          : "Folosește AI"}
+                        🔍 Manual
+                      </button>
+
+                      <button
+                        type="button"
+                        role="tab"
+                        id="product-tab-ai"
+                        aria-selected={
+                          productTab ===
+                          "ai"
+                        }
+                        aria-controls="product-panel-ai"
+                        className={`${styles.tab} ${
+                          productTab ===
+                          "ai"
+                            ? styles.tabActive
+                            : ""
+                        }`}
+                        onClick={() =>
+                          setProductTab(
+                            "ai"
+                          )
+                        }
+                      >
+                        ✨ Cu AI
                       </button>
                     </div>
 
-                    {aiOpen && (
+                    {productTab ===
+                      "manual" && (
                       <div
+                        id="product-panel-manual"
+                        role="tabpanel"
+                        aria-labelledby="product-tab-manual"
                         className={
-                          styles.aiForm
+                          styles.tabPanel
                         }
                       >
                         <label
@@ -1523,264 +2011,106 @@ export default function InfluencerCollectionsModal({
                             styles.field
                           }
                         >
-                          <span>
-                            Ce fel de produse cauți?
+                          <span
+                            className={
+                              styles.srOnly
+                            }
+                          >
+                            Caută produse Artfest
                           </span>
 
-                          <textarea
+                          <input
+                            className={
+                              styles.textInput
+                            }
+                            type="search"
                             value={
-                              aiPrompt
-                            }
-                            rows={
-                              3
-                            }
-                            maxLength={
-                              1500
+                              productSearch
                             }
                             onChange={(event) =>
-                              setAiPrompt(
+                              setProductSearch(
                                 event.target.value
                               )
                             }
-                            placeholder={`Ex: ${
-                              selectedCollection.title ||
-                              "Cadouri elegante pentru profesoare"
-                            }`}
+                            placeholder="Caută produse Artfest..."
+                            aria-describedby={
+                              errorField ===
+                              "search"
+                                ? "manual-search-error"
+                                : undefined
+                            }
                           />
-
-                          <small>
-                            Dacă îl lași gol, AI-ul folosește automat titlul și descrierea colecției.
-                          </small>
                         </label>
 
-                        <div
-                          className={
-                            styles.aiFieldsGrid
-                          }
-                        >
-                          <label
+                        {productSearchLoading && (
+                          <div
                             className={
-                              styles.field
+                              styles.searchStatus
                             }
+                            role="status"
+                            aria-live="polite"
                           >
-                            <span>
-                              Buget minim
-                            </span>
+                            Se caută…
+                          </div>
+                        )}
 
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={
-                                aiBudgetMin
+                        {!productSearchLoading &&
+                          errorField ===
+                            "search" &&
+                          error && (
+                            <div
+                              className={
+                                styles.searchMessage
                               }
-                              onChange={(event) =>
-                                setAiBudgetMin(
-                                  event.target.value
-                                )
+                              id="manual-search-error"
+                              role="alert"
+                              aria-live="polite"
+                            >
+                              {
+                                error
                               }
-                              placeholder="50"
-                            />
-                          </label>
+                            </div>
+                          )}
 
-                          <label
-                            className={
-                              styles.field
-                            }
-                          >
-                            <span>
-                              Buget maxim
-                            </span>
-
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={
-                                aiBudgetMax
-                              }
-                              onChange={(event) =>
-                                setAiBudgetMax(
-                                  event.target.value
-                                )
-                              }
-                              placeholder="150"
-                            />
-                          </label>
-
-                          <label
-                            className={
-                              styles.field
-                            }
-                          >
-                            <span>
-                              Sugestii
-                            </span>
-
-                            <select
-                              value={
-                                aiLimit
-                              }
-                              onChange={(event) =>
-                                setAiLimit(
-                                  Number(
-                                    event.target.value
-                                  )
-                                )
+                        {!productSearchLoading &&
+                          errorField !==
+                            "search" &&
+                          productSearch.trim()
+                            .length >=
+                            2 &&
+                          !productSuggestions.length && (
+                            <div
+                              className={
+                                styles.searchMessage
                               }
                             >
-                              <option
-                                value={
-                                  6
-                                }
-                              >
-                                6 produse
-                              </option>
-
-                              <option
-                                value={
-                                  12
-                                }
-                              >
-                                12 produse
-                              </option>
-
-                              <option
-                                value={
-                                  18
-                                }
-                              >
-                                18 produse
-                              </option>
-
-                              <option
-                                value={
-                                  24
-                                }
-                              >
-                                24 produse
-                              </option>
-                            </select>
-                          </label>
-                        </div>
-
-                        <button
-                          type="button"
-                          className={
-                            styles.primaryButton
-                          }
-                          disabled={
-                            aiLoading
-                          }
-                          onClick={
-                            loadAiRecommendations
-                          }
-                        >
-                          {aiLoading
-                            ? "AI caută produse…"
-                            : "✨ Găsește produse potrivite"}
-                        </button>
-                      </div>
-                    )}
-
-                    {aiRecommendations.length >
-                      0 && (
-                      <div
-                        className={
-                          styles.aiResults
-                        }
-                      >
-                        <div
-                          className={
-                            styles.aiResultsHeader
-                          }
-                        >
-                          <div>
-                            <strong>
-                              Sugestii AI
-                            </strong>
-
-                            <span>
+                              Nu am găsit produse pentru „
                               {
-                                aiRecommendations.length
-                              }{" "}
-                              recomandări ·{" "}
-                              {
-                                aiSelectedIds.length
-                              }{" "}
-                              selectate
-                            </span>
-                          </div>
+                                productSearch.trim()
+                              }
+                              ”.
+                            </div>
+                          )}
 
-                          <label
+                        {productSuggestions.length >
+                          0 && (
+                          <div
                             className={
-                              styles.checkAll
+                              styles.productGrid
                             }
                           >
-                            <input
-                              type="checkbox"
-                              checked={
-                                allAiSelected
-                              }
-                              onChange={(event) => {
-                                setAiSelectedIds(
-                                  event.target.checked
-                                    ? aiRecommendations.map(
-                                        (
-                                          item
-                                        ) =>
-                                          item.productId
-                                      )
-                                    : []
-                                );
-                              }}
-                            />
-
-                            Selectează toate
-                          </label>
-                        </div>
-
-                        <div
-                          className={
-                            styles.aiList
-                          }
-                        >
-                          {aiRecommendations.map(
-                            (
-                              recommendation
-                            ) => {
-                              const product =
-                                recommendation.product;
-
-                              const checked =
-                                aiSelectedIds.includes(
-                                  recommendation.productId
-                                );
-
-                              return (
-                                <label
+                            {productSuggestions.map(
+                              (
+                                product
+                              ) => (
+                                <div
                                   key={
-                                    recommendation.productId
+                                    product.id
                                   }
-                                  className={`${styles.aiItem} ${
-                                    checked
-                                      ? styles.aiItemSelected
-                                      : ""
-                                  }`}
+                                  className={
+                                    styles.productCard
+                                  }
                                 >
-                                  <input
-                                    type="checkbox"
-                                    checked={
-                                      checked
-                                    }
-                                    onChange={(event) =>
-                                      toggleAiProduct(
-                                        recommendation.productId,
-                                        event.target.checked
-                                      )
-                                    }
-                                  />
-
                                   <ProductThumb
                                     product={
                                       product
@@ -1789,333 +2119,977 @@ export default function InfluencerCollectionsModal({
 
                                   <div
                                     className={
-                                      styles.productMeta
+                                      styles.productCardBody
                                     }
                                   >
-                                    <strong>
-                                      {product?.title ||
-                                        "Produs"}
+                                    <strong
+                                      className={
+                                        styles.productTitle
+                                      }
+                                    >
+                                      {
+                                        product.title
+                                      }
                                     </strong>
 
-                                    <b>
-                                      {formatPriceCents(
-                                        product?.priceCents,
-                                        product?.currency
+                                    <div
+                                      className={
+                                        styles.productMetaRow
+                                      }
+                                    >
+                                      <b
+                                        className={
+                                          styles.productPrice
+                                        }
+                                      >
+                                        {formatPriceCents(
+                                          product.priceCents,
+                                          product.currency
+                                        )}
+                                      </b>
+
+                                      {product
+                                        ?.service
+                                        ?.vendor
+                                        ?.displayName && (
+                                        <span
+                                          className={
+                                            styles.productVendor
+                                          }
+                                        >
+                                          {
+                                            product
+                                              .service
+                                              .vendor
+                                              .displayName
+                                          }
+                                        </span>
                                       )}
-                                    </b>
-
-                                    {product
-                                      ?.service
-                                      ?.vendor
-                                      ?.displayName && (
-                                      <span>
-                                        {
-                                          product
-                                            .service
-                                            .vendor
-                                            .displayName
-                                        }
-                                      </span>
-                                    )}
-
-                                    {recommendation.reason && (
-                                      <p>
-                                        <strong>
-                                          De ce îl recomandă AI:
-                                        </strong>{" "}
-                                        {
-                                          recommendation.reason
-                                        }
-                                      </p>
-                                    )}
+                                    </div>
                                   </div>
-                                </label>
-                              );
-                            }
-                          )}
-                        </div>
 
-                        <button
-                          type="button"
+                                  <button
+                                    type="button"
+                                    className={
+                                      styles.selectButton
+                                    }
+                                    aria-label={`Adaugă ${product.title} în colecție`}
+                                    disabled={
+                                      productBusyId ===
+                                      product.id
+                                    }
+                                    onClick={() =>
+                                      addProduct(
+                                        product
+                                      )
+                                    }
+                                  >
+                                    {productBusyId ===
+                                    product.id
+                                      ? "…"
+                                      : "Selectează"}
+                                  </button>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {productTab ===
+                      "ai" && (
+                      <div
+                        id="product-panel-ai"
+                        role="tabpanel"
+                        aria-labelledby="product-tab-ai"
+                        className={`${styles.tabPanel} ${styles.aiPanel}`}
+                      >
+                        <div
                           className={
-                            styles.primaryButton
-                          }
-                          disabled={
-                            aiAdding ||
-                            !aiSelectedIds.length
-                          }
-                          onClick={
-                            addAiSelectedProducts
+                            styles.aiPanelIntro
                           }
                         >
-                          {aiAdding
-                            ? "Se adaugă produsele…"
-                            : `Adaugă ${aiSelectedIds.length} ${
-                                aiSelectedIds.length ===
-                                1
-                                  ? "produs"
-                                  : "produse"
-                              } în colecție`}
-                        </button>
+                          <span
+                            className={
+                              styles.aiIconBadge
+                            }
+                            aria-hidden="true"
+                          >
+                            ✨
+                          </span>
+
+                          <div>
+                            <strong
+                              className={
+                                styles.aiPanelTitle
+                              }
+                            >
+                              Alege produse cu AI
+                            </strong>
+
+                            <p
+                              className={
+                                styles.aiPanelSubtitle
+                              }
+                            >
+                              Spune ce fel de colecție vrei, iar AI-ul îți propune produse potrivite din Artfest. Nimic nu se adaugă fără confirmarea ta.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div
+                          className={
+                            styles.aiForm
+                          }
+                        >
+                          <label
+                            className={
+                              styles.field
+                            }
+                          >
+                            <span
+                              className={
+                                styles.fieldLabel
+                              }
+                            >
+                              Ce fel de produse cauți?
+                            </span>
+
+                            <textarea
+                              className={`${styles.textInput} ${styles.aiTextarea}`}
+                              value={
+                                aiPrompt
+                              }
+                              rows={
+                                3
+                              }
+                              maxLength={
+                                1500
+                              }
+                              onChange={(event) =>
+                                setAiPrompt(
+                                  event.target.value
+                                )
+                              }
+                              placeholder={`Ex: ${
+                                selectedCollection.title ||
+                                "Cadouri pentru profesoare sub 100 lei"
+                              }`}
+                            />
+
+                            <small
+                              className={
+                                styles.helperText
+                              }
+                            >
+                              Dacă îl lași gol, AI-ul folosește automat titlul și descrierea colecției.
+                            </small>
+
+                            <div
+                              className={
+                                styles.aiExamples
+                              }
+                            >
+                              {AI_PROMPT_EXAMPLES.map(
+                                (
+                                  example
+                                ) => (
+                                  <button
+                                    key={
+                                      example
+                                    }
+                                    type="button"
+                                    className={
+                                      styles.aiExampleChip
+                                    }
+                                    onClick={() =>
+                                      setAiPrompt(
+                                        example
+                                      )
+                                    }
+                                  >
+                                    {
+                                      example
+                                    }
+                                  </button>
+                                )
+                              )}
+                            </div>
+                          </label>
+
+                          <details
+                            className={
+                              styles.aiAdvanced
+                            }
+                          >
+                            <summary>
+                              Buget și număr de sugestii (opțional)
+                            </summary>
+
+                            <div
+                              className={
+                                styles.aiFieldsGrid
+                              }
+                            >
+                              <label
+                                className={
+                                  styles.field
+                                }
+                              >
+                                <span
+                                  className={
+                                    styles.fieldLabel
+                                  }
+                                >
+                                  Buget minim
+                                </span>
+
+                                <input
+                                  className={
+                                    styles.textInput
+                                  }
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={
+                                    aiBudgetMin
+                                  }
+                                  onChange={(event) =>
+                                    setAiBudgetMin(
+                                      event.target.value
+                                    )
+                                  }
+                                  placeholder="50"
+                                />
+                              </label>
+
+                              <label
+                                className={
+                                  styles.field
+                                }
+                              >
+                                <span
+                                  className={
+                                    styles.fieldLabel
+                                  }
+                                >
+                                  Buget maxim
+                                </span>
+
+                                <input
+                                  className={
+                                    styles.textInput
+                                  }
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={
+                                    aiBudgetMax
+                                  }
+                                  onChange={(event) =>
+                                    setAiBudgetMax(
+                                      event.target.value
+                                    )
+                                  }
+                                  placeholder="150"
+                                />
+                              </label>
+
+                              <label
+                                className={
+                                  styles.field
+                                }
+                              >
+                                <span
+                                  className={
+                                    styles.fieldLabel
+                                  }
+                                >
+                                  Sugestii
+                                </span>
+
+                                <select
+                                  className={
+                                    styles.textInput
+                                  }
+                                  value={
+                                    aiLimit
+                                  }
+                                  onChange={(event) =>
+                                    setAiLimit(
+                                      Number(
+                                        event.target.value
+                                      )
+                                    )
+                                  }
+                                >
+                                  <option
+                                    value={
+                                      6
+                                    }
+                                  >
+                                    6 produse
+                                  </option>
+
+                                  <option
+                                    value={
+                                      12
+                                    }
+                                  >
+                                    12 produse
+                                  </option>
+
+                                  <option
+                                    value={
+                                      18
+                                    }
+                                  >
+                                    18 produse
+                                  </option>
+
+                                  <option
+                                    value={
+                                      24
+                                    }
+                                  >
+                                    24 produse
+                                  </option>
+                                </select>
+                              </label>
+                            </div>
+                          </details>
+
+                          <button
+                            type="button"
+                            className={
+                              styles.aiPrimaryButton
+                            }
+                            disabled={
+                              aiLoading
+                            }
+                            onClick={
+                              loadAiRecommendations
+                            }
+                          >
+                            {aiLoading
+                              ? "AI caută produse potrivite pentru colecția ta…"
+                              : "✨ Găsește produse potrivite"}
+                          </button>
+                        </div>
+
+                        {aiLoading && (
+                          <div
+                            className={
+                              styles.aiStatus
+                            }
+                            role="status"
+                            aria-live="polite"
+                          >
+                            <span
+                              className={
+                                styles.aiSpinner
+                              }
+                              aria-hidden="true"
+                            />
+                            AI caută produse potrivite pentru colecția ta…
+                          </div>
+                        )}
+
+                        {!aiLoading &&
+                          errorField ===
+                            "ai" &&
+                          error && (
+                            <div
+                              className={
+                                styles.aiStatus
+                              }
+                              role="alert"
+                              aria-live="polite"
+                            >
+                              <p>
+                                {
+                                  error
+                                }
+                              </p>
+
+                              <button
+                                type="button"
+                                className={
+                                  styles.secondaryButton
+                                }
+                                onClick={
+                                  loadAiRecommendations
+                                }
+                              >
+                                Încearcă din nou
+                              </button>
+                            </div>
+                          )}
+
+                        {!aiLoading &&
+                          successField ===
+                            "ai" &&
+                          success && (
+                            <div
+                              className={
+                                styles.successBox
+                              }
+                              role="status"
+                              aria-live="polite"
+                            >
+                              {
+                                success
+                              }
+                            </div>
+                          )}
+
+                        {aiRecommendations.length >
+                          0 && (
+                          <div
+                            className={
+                              styles.aiResults
+                            }
+                          >
+                            <div
+                              className={
+                                styles.aiResultsHeader
+                              }
+                            >
+                              <div>
+                                <strong>
+                                  Sugestii AI
+                                </strong>
+
+                                <span>
+                                  {
+                                    aiRecommendations.length
+                                  }{" "}
+                                  recomandări ·{" "}
+                                  {
+                                    aiSelectedIds.length
+                                  }{" "}
+                                  selectate
+                                </span>
+                              </div>
+
+                              <label
+                                className={
+                                  styles.checkAll
+                                }
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    allAiSelected
+                                  }
+                                  onChange={(event) => {
+                                    setAiSelectedIds(
+                                      event.target.checked
+                                        ? aiRecommendations.map(
+                                            (
+                                              item
+                                            ) =>
+                                              item.productId
+                                          )
+                                        : []
+                                    );
+                                  }}
+                                />
+
+                                Selectează toate
+                              </label>
+                            </div>
+
+                            <div
+                              className={
+                                styles.productGrid
+                              }
+                            >
+                              {aiRecommendations.map(
+                                (
+                                  recommendation
+                                ) => {
+                                  const product =
+                                    recommendation.product;
+
+                                  const checked =
+                                    aiSelectedIds.includes(
+                                      recommendation.productId
+                                    );
+
+                                  return (
+                                    <label
+                                      key={
+                                        recommendation.productId
+                                      }
+                                      className={`${styles.productCard} ${styles.aiProductCard} ${
+                                        checked
+                                          ? styles.productCardSelected
+                                          : ""
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        className={
+                                          styles.srOnly
+                                        }
+                                        checked={
+                                          checked
+                                        }
+                                        onChange={(event) =>
+                                          toggleAiProduct(
+                                            recommendation.productId,
+                                            event.target.checked
+                                          )
+                                        }
+                                      />
+
+                                      <div
+                                        className={
+                                          styles.productThumbWrap
+                                        }
+                                      >
+                                        <ProductThumb
+                                          product={
+                                            product
+                                          }
+                                        />
+
+                                        {checked && (
+                                          <span
+                                            className={
+                                              styles.selectedCheck
+                                            }
+                                            aria-hidden="true"
+                                          >
+                                            ✓
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <div
+                                        className={
+                                          styles.productCardBody
+                                        }
+                                      >
+                                        <strong
+                                          className={
+                                            styles.productTitle
+                                          }
+                                        >
+                                          {product?.title ||
+                                            "Produs"}
+                                        </strong>
+
+                                        <div
+                                          className={
+                                            styles.productMetaRow
+                                          }
+                                        >
+                                          <b
+                                            className={
+                                              styles.productPrice
+                                            }
+                                          >
+                                            {formatPriceCents(
+                                              product?.priceCents,
+                                              product?.currency
+                                            )}
+                                          </b>
+
+                                          {product
+                                            ?.service
+                                            ?.vendor
+                                            ?.displayName && (
+                                            <span
+                                              className={
+                                                styles.productVendor
+                                              }
+                                            >
+                                              {
+                                                product
+                                                  .service
+                                                  .vendor
+                                                  .displayName
+                                              }
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        {recommendation.reason && (
+                                          <p
+                                            className={
+                                              styles.aiReason
+                                            }
+                                          >
+                                            {
+                                              recommendation.reason
+                                            }
+                                          </p>
+                                        )}
+                                      </div>
+
+                                      <span
+                                        className={`${styles.selectButton} ${
+                                          checked
+                                            ? styles.selectButtonActive
+                                            : ""
+                                        }`}
+                                        aria-hidden="true"
+                                      >
+                                        {checked
+                                          ? "Selectat ✓"
+                                          : "Selectează"}
+                                      </span>
+                                    </label>
+                                  );
+                                }
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              className={
+                                styles.aiPrimaryButton
+                              }
+                              disabled={
+                                aiAdding ||
+                                !aiSelectedIds.length
+                              }
+                              onClick={
+                                addAiSelectedProducts
+                              }
+                            >
+                              {aiAdding
+                                ? "Se adaugă produsele…"
+                                : `Adaugă ${aiSelectedIds.length} ${
+                                    aiSelectedIds.length ===
+                                    1
+                                      ? "produs"
+                                      : "produse"
+                                  } în colecție`}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
+                  </section>
 
-                  {/* MANUAL */}
+                  {/* PRODUSE SELECTATE */}
 
-                  <div
+                  <section
                     className={
-                      styles.manualLabel
+                      styles.sectionCard
                     }
                   >
-                    Sau caută manual
-                  </div>
-
-                  <div
-                    className={
-                      styles.searchWrap
-                    }
-                  >
-                    <input
-                      type="search"
-                      value={
-                        productSearch
+                    <div
+                      className={
+                        styles.sectionCardHeader
                       }
-                      onChange={(event) =>
-                        setProductSearch(
-                          event.target.value
-                        )
-                      }
-                      placeholder="Caută produse Artfest..."
-                    />
-
-                    {productSearchLoading && (
-                      <div
+                    >
+                      <span
                         className={
-                          styles.searchStatus
+                          styles.sectionBadge
                         }
                       >
-                        Se caută…
+                        3
+                      </span>
+
+                      <div>
+                        <h3
+                          className={
+                            styles.sectionTitle
+                          }
+                        >
+                          Produse selectate (
+                          {selectedCollection
+                            .items
+                            ?.length ||
+                            0}
+                          )
+                        </h3>
+
+                        <p
+                          className={
+                            styles.sectionSubtitle
+                          }
+                        >
+                          {selectedCollection
+                            .items
+                            ?.length ||
+                            0}
+                          {" "}
+                          din maximum{" "}
+                          {
+                            MAX_COLLECTION_PRODUCTS
+                          }
+                        </p>
                       </div>
-                    )}
+                    </div>
 
-                    {productSuggestions.length >
-                      0 && (
+                    {errorField ===
+                      "products" &&
+                      error && (
+                        <div
+                          className={
+                            styles.errorBox
+                          }
+                          role="alert"
+                          aria-live="polite"
+                        >
+                          {error}
+                        </div>
+                      )}
+
+                    {!selectedCollection
+                      .items?.length ? (
                       <div
                         className={
-                          styles.suggestions
+                          styles.emptyProducts
                         }
                       >
-                        {productSuggestions.map(
+                        Colecția nu are încă produse. Folosește AI sau caută manual mai sus.
+                      </div>
+                    ) : (
+                      <div
+                        className={
+                          styles.selectedList
+                        }
+                      >
+                        {selectedCollection.items.map(
                           (
-                            product
-                          ) => (
+                            item,
+                            index
+                          ) => {
+                            const unavailable =
+                              item.product &&
+                              (item.product
+                                .isActive ===
+                                false ||
+                                item.product
+                                  .isHidden ===
+                                  true ||
+                                item.product
+                                  .availability ===
+                                  "SOLD_OUT");
+
+                            return (
                             <div
                               key={
-                                product.id
+                                item.productId
                               }
                               className={
-                                styles.suggestion
+                                styles.selectedRow
                               }
                             >
                               <ProductThumb
                                 product={
-                                  product
+                                  item.product
                                 }
                               />
 
                               <div
                                 className={
-                                  styles.productMeta
+                                  styles.productCardBody
                                 }
                               >
-                                <strong>
-                                  {
-                                    product.title
+                                <strong
+                                  className={
+                                    styles.productTitle
                                   }
+                                >
+                                  {item
+                                    .product
+                                    ?.title ||
+                                    "Produs"}
                                 </strong>
 
-                                <span>
-                                  {formatPriceCents(
-                                    product.priceCents,
-                                    product.currency
+                                <div
+                                  className={
+                                    styles.productMetaRow
+                                  }
+                                >
+                                  <b
+                                    className={
+                                      styles.productPrice
+                                    }
+                                  >
+                                    {formatPriceCents(
+                                      item
+                                        .product
+                                        ?.priceCents,
+                                      item
+                                        .product
+                                        ?.currency
+                                    )}
+                                  </b>
+
+                                  {item
+                                    .product
+                                    ?.service
+                                    ?.vendor
+                                    ?.displayName && (
+                                    <span
+                                      className={
+                                        styles.productVendor
+                                      }
+                                    >
+                                      {
+                                        item
+                                          .product
+                                          .service
+                                          .vendor
+                                          .displayName
+                                      }
+                                    </span>
                                   )}
-                                </span>
+                                </div>
+
+                                {(!item.product ||
+                                  unavailable) && (
+                                  <span
+                                    className={
+                                      styles.unavailableBadge
+                                    }
+                                  >
+                                    {!item.product
+                                      ? "Produs indisponibil"
+                                      : "Momentan indisponibil"}
+                                  </span>
+                                )}
                               </div>
 
-                              <button
-                                type="button"
+                              <div
                                 className={
-                                  styles.primaryButton
-                                }
-                                disabled={
-                                  productBusyId ===
-                                  product.id
-                                }
-                                onClick={() =>
-                                  addProduct(
-                                    product
-                                  )
+                                  styles.selectedRowActions
                                 }
                               >
-                                {productBusyId ===
-                                product.id
-                                  ? "..."
-                                  : "Adaugă"}
-                              </button>
+                                <button
+                                  type="button"
+                                  className={
+                                    styles.iconButton
+                                  }
+                                  aria-label={`Mută ${
+                                    item.product
+                                      ?.title ||
+                                    "produsul"
+                                  } mai sus`}
+                                  disabled={
+                                    index ===
+                                      0 ||
+                                    reorderBusy
+                                  }
+                                  onClick={() =>
+                                    moveProduct(
+                                      index,
+                                      -1
+                                    )
+                                  }
+                                >
+                                  ↑
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className={
+                                    styles.iconButton
+                                  }
+                                  aria-label={`Mută ${
+                                    item.product
+                                      ?.title ||
+                                    "produsul"
+                                  } mai jos`}
+                                  disabled={
+                                    index ===
+                                      selectedCollection
+                                        .items
+                                        .length -
+                                        1 ||
+                                    reorderBusy
+                                  }
+                                  onClick={() =>
+                                    moveProduct(
+                                      index,
+                                      1
+                                    )
+                                  }
+                                >
+                                  ↓
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className={`${styles.iconButton} ${styles.iconButtonDanger}`}
+                                  aria-label={`Elimină ${
+                                    item.product
+                                      ?.title ||
+                                    "produsul"
+                                  } din colecție`}
+                                  disabled={
+                                    productBusyId ===
+                                    item.productId
+                                  }
+                                  onClick={() =>
+                                    removeProduct(
+                                      item.productId
+                                    )
+                                  }
+                                >
+                                  {productBusyId ===
+                                  item.productId
+                                    ? "…"
+                                    : "🗑"}
+                                </button>
+                              </div>
                             </div>
-                          )
+                            );
+                          }
                         )}
                       </div>
                     )}
-                  </div>
-
-                  {/* PRODUCTS */}
-
-                  {!selectedCollection
-                    .items?.length ? (
-                    <div
-                      className={
-                        styles.emptyProducts
-                      }
-                    >
-                      Colecția nu are încă produse.
-                    </div>
-                  ) : (
-                    <div
-                      className={
-                        styles.productList
-                      }
-                    >
-                      {selectedCollection.items.map(
-                        (
-                          item,
-                          index
-                        ) => (
-                          <div
-                            key={
-                              item.productId
-                            }
-                            className={
-                              styles.productRow
-                            }
-                          >
-                            <ProductThumb
-                              product={
-                                item.product
-                              }
-                            />
-
-                            <div
-                              className={
-                                styles.productMeta
-                              }
-                            >
-                              <strong>
-                                {item
-                                  .product
-                                  ?.title ||
-                                  "Produs"}
-                              </strong>
-
-                              <span>
-                                {item
-                                  .product
-                                  ?.service
-                                  ?.vendor
-                                  ?.displayName ||
-                                  ""}
-                              </span>
-
-                              <b>
-                                {formatPriceCents(
-                                  item
-                                    .product
-                                    ?.priceCents,
-                                  item
-                                    .product
-                                    ?.currency
-                                )}
-                              </b>
-                            </div>
-
-                            <div
-                              className={
-                                styles.productActions
-                              }
-                            >
-                              <button
-                                type="button"
-                                className={
-                                  styles.secondaryButton
-                                }
-                                disabled={
-                                  index ===
-                                    0 ||
-                                  reorderBusy
-                                }
-                                onClick={() =>
-                                  moveProduct(
-                                    index,
-                                    -1
-                                  )
-                                }
-                              >
-                                ↑
-                              </button>
-
-                              <button
-                                type="button"
-                                className={
-                                  styles.secondaryButton
-                                }
-                                disabled={
-                                  index ===
-                                    selectedCollection
-                                      .items
-                                      .length -
-                                      1 ||
-                                  reorderBusy
-                                }
-                                onClick={() =>
-                                  moveProduct(
-                                    index,
-                                    1
-                                  )
-                                }
-                              >
-                                ↓
-                              </button>
-
-                              <button
-                                type="button"
-                                className={`${styles.secondaryButton} ${styles.dangerText}`}
-                                disabled={
-                                  productBusyId ===
-                                  item.productId
-                                }
-                                onClick={() =>
-                                  removeProduct(
-                                    item.productId
-                                  )
-                                }
-                              >
-                                {productBusyId ===
-                                item.productId
-                                  ? "..."
-                                  : "Elimină"}
-                              </button>
-                            </div>
-                          </div>
-                        )
-                      )}
-                    </div>
-                  )}
+                  </section>
                 </>
               ) : null}
             </section>
           </div>
-        )}
+          )}
+        </div>
+
+        <footer
+          className={
+            styles.footer
+          }
+        >
+          <button
+            type="button"
+            className={
+              styles.footerCancelButton
+            }
+            onClick={
+              onClose
+            }
+          >
+            Închide
+          </button>
+
+          <button
+            type="submit"
+            form={
+              CREATE_COLLECTION_FORM_ID
+            }
+            className={
+              styles.footerPrimaryButton
+            }
+            disabled={
+              saving
+            }
+          >
+            {saving
+              ? "Se creează colecția…"
+              : "Creează colecția"}
+          </button>
+        </footer>
       </div>
     </div>
   );

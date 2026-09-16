@@ -1,20 +1,18 @@
-/* Dacă ai un fișier global cu variabile, îl poți (re)activa:
-   @import "../../styles/variables.css";
-*/
-
-/* Fallback variabile (în caz că nu există importul de mai sus) */
-:root{
-  --color-bg: #0b0b0c;
-  --surface: #0f1012;
-  --color-text: #eaeaf0;
-  --color-text-muted: #a6a8b3;
-  --color-border: #23242a;
-  --color-primary: #7c3aed;        /* mov plăcut */
-  --color-hover: #6d28d9;
-  --color-warning: #f59e0b;
-
-  --shadow-sm: 0 1px 0 rgba(0,0,0,.04);
-}
+/*
+ * AUDIT dark mode 2026-09-18 - "importul de mai sus" era comentat, deci
+ * acest fișier folosea DOAR blocul de "fallback" de mai jos - dar
+ * variables.css e oricum încărcat global din main.jsx/index.css, deci
+ * toate aceste nume (`--color-bg`, `--surface`, `--color-text`,
+ * `--color-border`, `--color-primary`, `--color-hover`,
+ * `--color-warning`, `--shadow-sm`) erau deja disponibile din sursa
+ * unică globală. Blocul local a fost eliminat: fiind un `:root`
+ * NESCOPAT într-un fișier CSS Module, valorile lui hardcodate (fixe,
+ * indiferent de temă) se aplicau global, pe toată platforma, nu doar
+ * pe această pagină - un risc real, dependent doar de ordinea de
+ * bundling, nu de pagina afișată. `--color-text-muted` (singurul nume
+ * care lipsea din sursa globală) a fost adăugat acum, corect, în
+ * variables.css.
+ */
 
 /* ===== Pagina: mobile only, full width, fără overflow ===== */
 .page { max-width: 560px; margin: 0 auto; padding: 0 12px calc(16px + env(safe-area-inset-bottom)); }

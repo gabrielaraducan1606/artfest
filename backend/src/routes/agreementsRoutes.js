@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { authRequired } from "../api/auth.js";
+import { authRequired, enforceTokenVersion } from "../api/auth.js";
 import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 
 const router = Router();
@@ -69,6 +69,7 @@ async function getLatestPolicies(documents = ONBOARDING_VENDOR_DOCS) {
 router.get(
   "/vendor/agreements/required",
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
   async (req, res) => {
     try {
@@ -103,6 +104,7 @@ router.get(
 router.post(
   "/vendor/agreements/accept",
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
   async (req, res) => {
     try {
@@ -227,6 +229,7 @@ router.post(
 router.get(
   "/vendor/agreements/status",
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
   async (req, res) => {
     try {
@@ -309,6 +312,7 @@ router.get(
 router.post(
   "/legal/vendor-accept",
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
   async (req, res) => {
     try {
@@ -452,6 +456,7 @@ router.post(
 router.get(
   "/vendor/product-declaration/status",
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
   async (req, res) => {
     try {
@@ -488,6 +493,7 @@ router.get(
 router.post(
   "/vendor/product-declaration/accept",
   authRequired,
+  enforceTokenVersion,
   vendorAccessRequired,
   async (req, res) => {
     try {

@@ -49,8 +49,11 @@ export default function ProductModal({
     aiImageLoading,
     aiImagePreview,
     setAiImagePreview,
+    aiImageTargetIndex,
+    discardAiImagePreview,
     handleAiEnhanceImage,
     useAiImage,
+    isUploadedImage,
     priceSuggestion,
     setPriceSuggestion,
     priceWarningConfirmed,
@@ -194,6 +197,9 @@ removeQuoteFieldOption={
           aiImageLoading={
             aiImageLoading
           }
+          aiImageTargetIndex={
+            aiImageTargetIndex
+          }
           aiLoading={aiLoading}
           uploadInfo={uploadInfo}
           allImagesReadyForAi={
@@ -201,6 +207,9 @@ removeQuoteFieldOption={
           }
           mainImageReadyForAi={
             mainImageReadyForAi
+          }
+          isUploadedImage={
+            isUploadedImage
           }
           resolveProductImageUrl={
             resolveProductImageUrl
@@ -232,6 +241,9 @@ removeQuoteFieldOption={
           }
           useAiImage={
             useAiImage
+          }
+          discardAiImagePreview={
+            discardAiImagePreview
           }
           updateField={
             updateField

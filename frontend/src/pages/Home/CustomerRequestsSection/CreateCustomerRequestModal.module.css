@@ -209,7 +209,7 @@
   border-radius: 50%;
 
   background:
-    #f4f2f6;
+    var(--surface-muted, #f4f2f6);
 
   color:
     var(
@@ -229,7 +229,7 @@
 
 .closeButton:hover:not(:disabled) {
   background:
-    #ebe8ef;
+    var(--hover-bg, #ebe8ef);
 
   transform:
     scale(1.04);
@@ -265,7 +265,7 @@
   border-radius: 14px;
 
   background:
-    #f4f2f6;
+    var(--surface-muted, #f4f2f6);
 }
 
 .modeButton {
@@ -513,7 +513,7 @@
       #8b5cf6
     );
 
-  color: #ffffff;
+  color: var(--on-primary, #ffffff);
 
   font-family:
     var(
@@ -680,27 +680,17 @@
 .textarea:focus,
 .smallSelect:focus {
   border-color:
-    rgba(
-      139,
-      92,
-      246,
-      0.55
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 55%, transparent);
 
   box-shadow:
     0 0 0 3px
-    rgba(
-      139,
-      92,
-      246,
-      0.09
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 9%, transparent);
 }
 
 .input::placeholder,
 .textarea::placeholder {
   color:
-    #a5a0aa;
+    var(--color-muted, #a5a0aa);
 }
 
 /* =========================================================
@@ -736,7 +726,7 @@
   border-radius: 15px;
 
   background:
-    #faf9fb;
+    var(--surface-muted, #faf9fb);
 }
 
 .budgetHeader {
@@ -1014,7 +1004,7 @@
   border-radius: 999px;
 
   background:
-    #f4f2f6;
+    var(--surface-muted, #f4f2f6);
 
   color:
     var(
@@ -1070,7 +1060,7 @@
   border-radius: 12px;
 
   background:
-    #f4f2f6;
+    var(--surface-muted, #f4f2f6);
 }
 
 .imageItem img {
@@ -1125,25 +1115,15 @@
 
   border:
     1px solid
-    rgba(
-      220,
-      38,
-      38,
-      0.18
-    );
+    color-mix(in srgb, var(--color-danger, #a32020) 18%, transparent);
 
   border-radius: 11px;
 
   background:
-    rgba(
-      220,
-      38,
-      38,
-      0.05
-    );
+    color-mix(in srgb, var(--color-danger, #a32020) 5%, transparent);
 
   color:
-    #a32020;
+    var(--color-danger, #a32020);
 
   font-size: 12px;
   line-height: 1.45;
@@ -1182,12 +1162,7 @@
     );
 
   background:
-    rgba(
-      255,
-      255,
-      255,
-      0.97
-    );
+    color-mix(in srgb, var(--surface, #fff) 97%, transparent);
 
   backdrop-filter:
     blur(10px);
@@ -1248,7 +1223,7 @@
 
 .secondaryButton:hover:not(:disabled) {
   background:
-    #f5f4f6;
+    var(--hover-bg, #f5f4f6);
 }
 
 .primaryButton {
@@ -1262,16 +1237,11 @@
       #8b5cf6
     );
 
-  color: #ffffff;
+  color: var(--on-primary, #ffffff);
 
   box-shadow:
     0 9px 22px
-    rgba(
-      139,
-      92,
-      246,
-      0.2
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 20%, transparent);
 }
 
 .primaryButton:hover:not(:disabled) {
@@ -1280,12 +1250,7 @@
 
   box-shadow:
     0 12px 28px
-    rgba(
-      139,
-      92,
-      246,
-      0.26
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 26%, transparent);
 }
 
 .primaryButton:disabled,

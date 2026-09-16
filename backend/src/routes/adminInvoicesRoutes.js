@@ -13,9 +13,61 @@ import {
   generateVendorCommissionInvoice,
   getPreviousBucharestMonthBoundaries,
 } from "../services/vendorCommissionInvoiceService.js";
+import {
+  notifyVendorPayoutInvoiceRequested,
+  notifyVendorPayoutFiscalDocsRequested,
+  buildVendorPayoutPeriodKey,
+  VENDOR_PAYOUT_INVOICE_REQUEST_PREFIX,
+  VENDOR_PAYOUT_FISCAL_DOCS_REQUEST_PREFIX,
+} from "../services/notifications.js";
+import {
+  sendVendorPayoutInvoiceRequestEmail,
+  sendVendorPayoutFiscalDocsRequestEmail,
+} from "../lib/mailer.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
+
+/*
+ * Clasificare fiscală vendor (audit 2026-09-16, Artfest DATOREAZĂ
+ * vendorului) - STRICT pe baza VendorBilling.sellerType, câmp
+ * EXISTENT deja, validat la salvare (billingRoutes.js:
+ * ALLOWED_SELLER_TYPES=["independent_creator","verified_business"],
+ * "verified_business" cere obligatoriu legalType/companyName/cui/
+ * regCom/vatStatus - "independent_creator" NU cere niciunul din
+ * astea). NU inventăm niciun proxy nou - dacă billing lipsește sau
+ * sellerType nu e una din cele două valori cunoscute, întoarcem
+ * explicit UNKNOWN (fail-closed pentru trimiterea cererii, NU
+ * presupunem nimic despre capacitatea fiscală a vendorului).
+ */
+const LEGAL_TYPE_LABELS = {
+  SRL: "SRL",
+  PFA: "PFA",
+  II: "Întreprindere Individuală",
+  IF: "Întreprindere Familială",
+};
+
+function classifyVendorFiscalType(billing) {
+  if (!billing || !billing.sellerType) {
+    return { category: "UNKNOWN", label: null };
+  }
+
+  if (billing.sellerType === "verified_business") {
+    return {
+      category: "LEGAL_ENTITY",
+      label: LEGAL_TYPE_LABELS[billing.legalType] || "Persoană juridică",
+    };
+  }
+
+  if (billing.sellerType === "independent_creator") {
+    return {
+      category: "INDEPENDENT_PF",
+      label: "Persoană fizică (fără formă juridică)",
+    };
+  }
+
+  return { category: "UNKNOWN", label: null };
+}
 
 /* ---------------------------
    Attach req.user from token
@@ -788,6 +840,7 @@ router.get("/billing/vendors-due", requireAdmin, async (_req, res) => {
         billing: {
           select: {
             sellerType: true,
+            legalType: true,
             companyName: true,
             vendorName: true,
             cui: true,
@@ -832,6 +885,72 @@ router.get("/billing/vendors-due", requireAdmin, async (_req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
+    /*
+     * Status "Factură solicitată" / "Documente solicitate" (audit
+     * 2026-09-16, verificare finală) - derivat STRICT din date deja
+     * existente (Notification.dedupeKey + createdAt, EmailLog),
+     * FĂRĂ niciun câmp nou în Prisma. Perioada e ACEEAȘI folosită la
+     * trimiterea cererii (getPreviousBucharestMonthBoundaries) - un
+     * vendor cu cerere pentru luna trecută NU apare "deja solicitat"
+     * luna curentă (dedupeKey diferă pe periodKey).
+     */
+    const payoutPeriod = getPreviousBucharestMonthBoundaries();
+    const payoutPeriodKey = buildVendorPayoutPeriodKey(payoutPeriod.periodFrom, payoutPeriod.periodTo);
+
+    const relevantVendorIds = vendors.filter((v) => v.id !== "platform").map((v) => v.id);
+    const payoutDedupeKeys = relevantVendorIds.flatMap((id) => [
+      `${VENDOR_PAYOUT_INVOICE_REQUEST_PREFIX}:${id}:${payoutPeriodKey}`,
+      `${VENDOR_PAYOUT_FISCAL_DOCS_REQUEST_PREFIX}:${id}:${payoutPeriodKey}`,
+    ]);
+
+    const payoutNotifications = payoutDedupeKeys.length
+      ? await prisma.notification.findMany({
+          where: { dedupeKey: { in: payoutDedupeKeys } },
+          select: { vendorId: true, dedupeKey: true, createdAt: true },
+        })
+      : [];
+
+    const payoutNotificationByVendorId = new Map(
+      payoutNotifications.map((n) => [n.vendorId, n])
+    );
+
+    /*
+     * Status email (audit 2026-09-16) - corelat STRICT prin date deja
+     * existente (EmailLog.template + toEmail + createdAt aproape de
+     * cel al notificării - NU există FK direct Notification<->EmailLog,
+     * dar ordinea de scriere e garantată: notificarea se creează
+     * ÎNAINTE de trimiterea emailului, în același request). Doar
+     * pentru vendorii cu o cerere deja făcută - nu interogăm EmailLog
+     * pentru restul.
+     */
+    const payoutEmailStatusByVendorId = new Map();
+
+    await Promise.all(
+      payoutNotifications.map(async (n) => {
+        const vendorRow = vendors.find((v) => v.id === n.vendorId);
+        const toEmail = vendorRow?.billing?.email || vendorRow?.email || vendorRow?.user?.email || null;
+        if (!toEmail) return;
+
+        const template = n.dedupeKey.startsWith(`${VENDOR_PAYOUT_INVOICE_REQUEST_PREFIX}:`)
+          ? "vendor_payout_invoice_request"
+          : "vendor_payout_fiscal_docs_request";
+
+        const emailLog = await prisma.emailLog.findFirst({
+          where: {
+            template,
+            toEmail,
+            createdAt: { gte: new Date(n.createdAt.getTime() - 5000) },
+          },
+          orderBy: { createdAt: "asc" },
+          select: { status: true, error: true },
+        });
+
+        if (emailLog) {
+          payoutEmailStatusByVendorId.set(n.vendorId, emailLog);
+        }
+      })
+    );
+
     const items = vendors
       .filter((v) => v.id !== "platform")
       .map((v) => {
@@ -850,11 +969,27 @@ router.get("/billing/vendors-due", requireAdmin, async (_req, res) => {
           v.invoices.reduce((sum, inv) => sum + Number(inv.totalGross || 0), 0)
         );
 
+        const payoutNotification = payoutNotificationByVendorId.get(v.id) || null;
+        const payoutEmailLog = payoutEmailStatusByVendorId.get(v.id) || null;
+
+        const payoutRequestStatus = payoutNotification
+          ? {
+              type: payoutNotification.dedupeKey.startsWith(`${VENDOR_PAYOUT_INVOICE_REQUEST_PREFIX}:`)
+                ? "INVOICE"
+                : "FISCAL_DOCS",
+              requestedAt: payoutNotification.createdAt,
+              emailStatus: payoutEmailLog?.status || null,
+              emailError: payoutEmailLog?.error || null,
+            }
+          : null;
+
         return {
           vendorId: v.id,
           displayName: v.displayName,
           email: v.billing?.email || v.email || v.user?.email || null,
           billing: v.billing,
+          fiscalType: classifyVendorFiscalType(v.billing),
+          payoutRequestStatus,
           entryCount,
           currency,
           totalSalesNet,
@@ -883,6 +1018,146 @@ router.get("/billing/vendors-due", requireAdmin, async (_req, res) => {
     return res.status(500).json({
       error: "vendors_due_failed",
       message: err?.message || "Nu am putut încărca sumele datorate de vendori.",
+    });
+  }
+});
+
+const RequestVendorPayoutPayload = z.object({
+  vendorId: z.string().min(6),
+  amount: z.number(),
+  currency: z.string().trim().min(1).max(8).default("RON"),
+});
+
+/* =========================================================
+   6.4) POST /api/admin/billing/request-vendor-payout
+   (audit 2026-09-16, Artfest DATOREAZĂ vendorului)
+
+   STRICT o notificare + un email - NU:
+   - payout automat;
+   - modificare ledger (VendorEarningEntry/VendorPayout neatinse);
+   - SmartBill;
+   - schimbare de sold.
+
+   Fiscal type decis STRICT server-side, din VendorBilling.sellerType
+   FRESH din DB (NU se are încredere în ce trimite clientul) - dacă
+   tipul fiscal nu e cunoscut (billing lipsă sau sellerType gol),
+   respinge explicit cu 409 "fiscal_type_unknown" - NU trimite nimic,
+   NU presupune că poate emite factură.
+
+   Idempotent: notifyVendor...Requested foloseste dedupeKey unic pe
+   vendor+interval+tip cerere (Notification.dedupeKey e @unique în
+   Prisma, deja existent) - a doua cerere pentru ACELAȘI interval
+   întoarce `null` (P2002 înghițit de createVendorNotification), caz
+   în care NU se mai trimite nici emailul (altfel ar duplica emailul
+   chiar dacă notificarea in-app e deduplicată).
+
+   PERIOADA (audit 2026-09-16, fix găsit la verificarea finală):
+   NU se mai ia din body-ul clientului - se calculează STRICT
+   server-side, cu ACEEAȘI funcție (getPreviousBucharestMonthBoundaries)
+   folosită și de statusul afișat mai jos (GET /billing/vendors-due) -
+   altfel un dedupeKey calculat din limite de lună ușor diferite
+   (fus orar/rotunjire pe client) ar putea să nu se mai potrivească
+   niciodată cu statusul căutat ulterior.
+========================================================= */
+router.post("/billing/request-vendor-payout", requireAdmin, async (req, res) => {
+  try {
+    const parsed = RequestVendorPayoutPayload.parse(req.body || {});
+    const { vendorId, amount, currency } = parsed;
+    const { periodFrom, periodTo } = getPreviousBucharestMonthBoundaries();
+
+    const vendor = await prisma.vendor.findUnique({
+      where: { id: vendorId },
+      include: {
+        billing: { select: { sellerType: true, legalType: true, email: true } },
+        user: { select: { email: true } },
+      },
+    });
+
+    if (!vendor) return res.status(404).json({ error: "vendor_not_found" });
+
+    const fiscalType = classifyVendorFiscalType(vendor.billing);
+
+    if (fiscalType.category === "UNKNOWN") {
+      return res.status(409).json({
+        error: "fiscal_type_unknown",
+        message: "Tipul fiscal al vendorului nu este cunoscut sau nu este complet. Verifică datele fiscale înainte de a trimite o solicitare.",
+      });
+    }
+
+    const periodLabel = `${periodFrom.toLocaleDateString("ro-RO")} - ${periodTo.toLocaleDateString("ro-RO")}`;
+    const to = vendor.billing?.email || vendor.email || vendor.user?.email || null;
+
+    let notification = null;
+    let emailSent = false;
+
+    if (fiscalType.category === "LEGAL_ENTITY") {
+      notification = await notifyVendorPayoutInvoiceRequested(vendorId, {
+        periodFrom,
+        periodTo,
+        amount,
+        currency,
+      });
+
+      if (notification && to) {
+        try {
+          await sendVendorPayoutInvoiceRequestEmail({
+            to,
+            vendorName: vendor.displayName,
+            periodLabel,
+            amount,
+            currency,
+          });
+          emailSent = true;
+        } catch (emailErr) {
+          /*
+           * Non-fatal, IDENTIC ca strategie cu
+           * vendorCommissionInvoiceService.js (emailErr nu anulează
+           * factura deja creată) - notificarea in-app (sursa
+           * "oficială" a cererii, deja creată mai sus) rămâne
+           * valabilă chiar dacă providerul de email eșuează temporar.
+           */
+          console.error("[adminInvoices] sendVendorPayoutInvoiceRequestEmail FAILED:", emailErr);
+        }
+      }
+    } else {
+      notification = await notifyVendorPayoutFiscalDocsRequested(vendorId, {
+        periodFrom,
+        periodTo,
+        amount,
+        currency,
+      });
+
+      if (notification && to) {
+        try {
+          await sendVendorPayoutFiscalDocsRequestEmail({
+            to,
+            vendorName: vendor.displayName,
+            periodLabel,
+            amount,
+            currency,
+          });
+          emailSent = true;
+        } catch (emailErr) {
+          console.error("[adminInvoices] sendVendorPayoutFiscalDocsRequestEmail FAILED:", emailErr);
+        }
+      }
+    }
+
+    return res.json({
+      ok: true,
+      fiscalType: fiscalType.category,
+      alreadyRequested: !notification,
+      emailSent,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: "invalid_payload", details: err.errors });
+    }
+
+    console.error("POST /api/admin/billing/request-vendor-payout FAILED:", err);
+    return res.status(500).json({
+      error: "request_vendor_payout_failed",
+      message: err?.message || "Nu am putut trimite solicitarea către vendor.",
     });
   }
 });

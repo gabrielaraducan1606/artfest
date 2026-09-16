@@ -85,6 +85,16 @@ const [
     setAiImageVariant,
   ] = useState(1);
 
+  /*
+   * Indexul din form.images care e ținta previzualizării AI curente -
+   * NU mai presupunem mereu imaginea principală (index 0). Fiecare
+   * fotografie se editează separat, vendorul alege exact care.
+   */
+  const [
+    aiImageTargetIndex,
+    setAiImageTargetIndex,
+  ] = useState(null);
+
   const navigate = useNavigate();
 
   const [
@@ -604,9 +614,9 @@ const closeManualPrompt =
   ===================================================== */
 
   const handleAiEnhanceImage =
-    useCallback(async () => {
+    useCallback(async (index = 0) => {
       const imageUrl =
-        form.images?.[0];
+        form.images?.[index];
 
       if (!imageUrl) {
         alert(
@@ -626,6 +636,7 @@ const closeManualPrompt =
 
       try {
         setAiImageLoading(true);
+        setAiImageTargetIndex(index);
 
         const result = await api(
           "/ai/product-image-enhance",
@@ -655,6 +666,10 @@ const closeManualPrompt =
       } catch (error) {
         console.error(error);
 
+        /*
+         * Eșec API -> originalul rămâne neatins. Nu setăm
+         * aiImagePreview, deci form.images nu se schimbă deloc.
+         */
         alert(
           error?.message ||
             "Nu am putut edita imaginea cu AI."
@@ -668,6 +683,16 @@ const closeManualPrompt =
       resolveProductImageUrl,
       isUploadedImage,
     ]);
+
+  /*
+   * Renunță la previzualizarea AI fără nicio schimbare asupra
+   * produsului - "Păstrează originalul".
+   */
+  const discardAiImagePreview =
+    useCallback(() => {
+      setAiImagePreview("");
+      setAiImageTargetIndex(null);
+    }, []);
 
   const useAiImage =
     useCallback(async () => {
@@ -694,27 +719,65 @@ const closeManualPrompt =
         const url =
           await doUpload(file);
 
-        setForm((current) => ({
-          ...current,
-
-          images: [
-            url,
-            ...(current.images || []),
-          ],
+        setForm((current) => {
+          const images =
+            current.images || [];
 
           /*
-           * Imaginea principală s-a schimbat după analiză.
+           * Înlocuim STRICT poza-sursă (același index), nu o
+           * adăugăm ca poză nouă - altfel originalul rămânea
+           * permanent în galerie, duplicat, iar ordinea pozelor
+           * se strica. Dacă între timp indexul nu mai există
+           * (ex. poza a fost ștearsă cât timp preview-ul era
+           * deschis), adăugăm defensiv la final, fără să pierdem
+           * nimic.
            */
-          aiManuallyEdited:
-            current.aiAnalyzedAt
-              ? true
-              : current.aiManuallyEdited,
-        }));
+          const targetIndex =
+            aiImageTargetIndex ??
+            0;
+
+          const nextImages =
+            targetIndex >= 0 &&
+            targetIndex <
+              images.length
+              ? images.map(
+                  (img, i) =>
+                    i ===
+                    targetIndex
+                      ? url
+                      : img
+                )
+              : [
+                  ...images,
+                  url,
+                ];
+
+          return {
+            ...current,
+
+            images: nextImages,
+
+            /*
+             * Imaginea a fost schimbată de utilizator (prin
+             * confirmarea manuală a variantei AI) după analiză.
+             */
+            aiManuallyEdited:
+              current.aiAnalyzedAt
+                ? true
+                : current.aiManuallyEdited,
+          };
+        });
 
         setAiImagePreview("");
+        setAiImageTargetIndex(null);
       } catch (error) {
         console.error(error);
 
+        /*
+         * Eșec la upload/salvare -> NU atingem form.images,
+         * previzualizarea rămâne deschisă ca utilizatorul să poată
+         * încerca din nou sau să renunțe explicit.
+         */
         alert(
           error?.message ||
             "Nu am putut salva imaginea AI."
@@ -722,6 +785,7 @@ const closeManualPrompt =
       }
     }, [
       aiImagePreview,
+      aiImageTargetIndex,
       doUpload,
       setForm,
     ]);
@@ -1102,6 +1166,46 @@ quoteSchema: [],
               ? true
               : current.aiManuallyEdited,
         }));
+
+        /*
+         * Dacă tocmai a fost ștearsă poza pentru care era deschis
+         * un preview AI, previzualizarea nu mai are sens - o
+         * închidem, ca să nu ajungă confirmată peste altă poză.
+         * Dacă a fost ștearsă o poză DINAINTEA țintei, indexul se
+         * ajustează ca preview-ul să rămână legat de aceeași poză.
+         */
+        setAiImageTargetIndex(
+          (currentTarget) => {
+            if (
+              currentTarget ===
+              null
+            ) {
+              return currentTarget;
+            }
+
+            if (
+              index ===
+              currentTarget
+            ) {
+              setAiImagePreview(
+                ""
+              );
+              return null;
+            }
+
+            if (
+              index <
+              currentTarget
+            ) {
+              return (
+                currentTarget -
+                1
+              );
+            }
+
+            return currentTarget;
+          }
+        );
       },
       [setForm]
     );
@@ -2056,8 +2160,11 @@ const removeQuoteFieldOption =
     aiImageLoading,
     aiImagePreview,
     setAiImagePreview,
+    aiImageTargetIndex,
+    discardAiImagePreview,
     handleAiEnhanceImage,
     useAiImage,
+    isUploadedImage,
 
     priceSuggestion,
     setPriceSuggestion,

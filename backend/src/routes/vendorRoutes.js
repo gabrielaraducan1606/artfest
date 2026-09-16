@@ -3,7 +3,7 @@ import { Router } from "express";
 import Stripe from "stripe";
 import crypto from "node:crypto";
 import { prisma } from "../db.js";
-import { authRequired /*, requireRole*/ } from "../api/auth.js";
+import { authRequired, enforceTokenVersion /*, requireRole*/ } from "../api/auth.js";
 import { enforcePolicyGate } from "../middleware/enforcePolicyGate.js";
 import {
   getVendorReferralConfirmedTotals,
@@ -456,7 +456,7 @@ router.get("/me/onboarding-status", authRequired, async (req, res) => {
   });
 });
 
-router.get("/me/dashboard", authRequired, vendorAccessRequired, async (req, res) => {
+router.get("/me/dashboard", authRequired, enforceTokenVersion, vendorAccessRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
     const now = new Date();
@@ -683,7 +683,7 @@ required: false,
 
 /* ===================== Subscription ===================== */
 
-router.get("/me/subscription", authRequired, vendorAccessRequired, async (req, res) => {
+router.get("/me/subscription", authRequired, enforceTokenVersion, vendorAccessRequired, async (req, res) => {
   try {
     const meVendor =
       req.meVendor ??
@@ -833,7 +833,7 @@ router.get(
 
 /* ===================== Onboarding ===================== */
 
-router.post("/me/onboarding/reset", authRequired, vendorAccessRequired, async (req, res) => {
+router.post("/me/onboarding/reset", authRequired, enforceTokenVersion, vendorAccessRequired, async (req, res) => {
   const vendor =
     req.meVendor ??
     (await prisma.vendor.findUnique({
@@ -852,7 +852,7 @@ router.post("/me/onboarding/reset", authRequired, vendorAccessRequired, async (r
 
 /* ====== Stats pentru Desktop ====== */
 
-router.get("/me/stats", authRequired, vendorAccessRequired, async (req, res) => {
+router.get("/me/stats", authRequired, enforceTokenVersion, vendorAccessRequired, async (req, res) => {
   try {
     const window = String(req.query.window || "7d");
     const serviceId = req.query.serviceId ? String(req.query.serviceId) : null;
@@ -935,7 +935,7 @@ router.get("/me/stats", authRequired, vendorAccessRequired, async (req, res) => 
 
 /* ====== Activity feed ====== */
 
-router.get("/me/activity", authRequired, vendorAccessRequired, async (req, res) => {
+router.get("/me/activity", authRequired, enforceTokenVersion, vendorAccessRequired, async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 10, 50);
   void limit;
   res.json({ items: [] });
@@ -1168,7 +1168,7 @@ router.post(
   }
 );
 
-router.patch("/me/services/:id", authRequired, vendorAccessRequired, async (req, res) => {
+router.patch("/me/services/:id", authRequired, enforceTokenVersion, vendorAccessRequired, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.sub;
@@ -1279,7 +1279,7 @@ router.patch("/me/services/:id", authRequired, vendorAccessRequired, async (req,
   }
 });
 
-router.delete("/me/services/:id", authRequired, vendorAccessRequired, async (req, res) => {
+router.delete("/me/services/:id", authRequired, enforceTokenVersion, vendorAccessRequired, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1826,7 +1826,7 @@ if (existingBilling) {
   }
 });
 
-router.get("/me", authRequired, vendorAccessRequired, async (req, res) => {
+router.get("/me", authRequired, enforceTokenVersion, vendorAccessRequired, async (req, res) => {
   const vendorSelect = {
     id: true,
     displayName: true,
@@ -2036,7 +2036,7 @@ entitySelfDeclaredMeta: true,
   });
 });
 
-router.patch("/me", authRequired, vendorAccessRequired, async (req, res) => {
+router.patch("/me", authRequired, enforceTokenVersion, vendorAccessRequired, async (req, res) => {
   const v = await prisma.vendor.findUnique({
     where: { userId: req.user.sub },
   });

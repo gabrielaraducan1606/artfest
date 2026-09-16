@@ -2685,6 +2685,28 @@ router.get("/store/:slug", async (req, res) => {
   const vendor = svc.vendor;
   const isActive = svc.status === "ACTIVE" && svc.isActive && vendor.isActive;
 
+  /*
+   * FIX (audit 2026-09-16, data leak vendor șters) - condiția
+   * `isActive` de mai sus (service.status===ACTIVE && service.isActive
+   * && vendor.isActive) e deja calculată, deja folosită de rutele
+   * "surori" din acest fișier (/products/:id) și de /store/:slug din
+   * publicStoreRoutes.js, ambele deja corecte - doar AICI nu era
+   * folosită să blocheze răspunsul, ci doar să populeze un câmp
+   * `status` informativ. Înainte de acest fix, un vendor cu
+   * isActive=false (sau service dezactivat/nepublicat) tot primea 200
+   * cu profilul complet (nume, descriere, adresă, telefon, imagini).
+   * Acum: magazin inactiv = magazin inexistent, IDENTIC cu "slug
+   * greșit" - niciun câmp din ServiceProfile nu mai ajunge în răspuns.
+   *
+   * NU verificăm separat user.locked/status aici - vendor.isActive e
+   * deja flip-uit pe false de tranzacția de soft-delete
+   * (vendorSettingRoutes.js), deci e suficient și evită o interogare
+   * suplimentară fără rost.
+   */
+  if (!isActive) {
+    return res.status(404).json({ error: "store_not_found" });
+  }
+
   res.json({
     _id: svc.id,
     id: svc.id,
@@ -2769,6 +2791,24 @@ router.get(
         !profile ||
         profile?.service?.type
           ?.code !== "products"
+      ) {
+        return res.status(404).json({
+          error:
+            "store_not_found",
+        });
+      }
+
+      /*
+       * FIX (audit 2026-09-16, aceeași clasă de bug ca /store/:slug
+       * de mai sus) - fără acest guard, endpoint-ul se baza STRICT pe
+       * flag-urile per-produs (isActive/isHidden), fără o verificare
+       * proprie de vendor.isActive - defense-in-depth, consistent cu
+       * restul rutelor publice din acest fișier.
+       */
+      if (
+        !profile.service.isActive ||
+        profile.service.status !== "ACTIVE" ||
+        !profile.service.vendor?.isActive
       ) {
         return res.status(404).json({
           error:

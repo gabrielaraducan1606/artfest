@@ -5,8 +5,8 @@
   background:
     linear-gradient(
       180deg,
-      #ffffff 0%,
-      #faf9fc 100%
+      var(--surface, #ffffff) 0%,
+      var(--surface-muted, #faf9fc) 100%
     );
 }
 
@@ -81,11 +81,10 @@
   border-radius: 50%;
 
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.13
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 13%,
+      transparent
     );
 
   color:
@@ -122,7 +121,7 @@
   border-radius: 999px;
 
   background:
-    #f6f5f7;
+    var(--surface-muted, #f6f5f7);
 
   color:
     var(
@@ -141,14 +140,13 @@
 
 .composerInput:hover {
   background:
-    #f0eef3;
+    var(--hover-bg, #f0eef3);
 
   border-color:
-    rgba(
-      139,
-      92,
-      246,
-      0.28
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 28%,
+      var(--color-border, transparent)
     );
 }
 
@@ -196,11 +194,10 @@
 
 .composerPhotoIcon:hover {
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.08
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 8%,
+      transparent
     );
 }
 
@@ -261,7 +258,7 @@
 
 .composerAction:hover {
   background:
-    #f5f4f6;
+    var(--hover-bg, #f5f4f6);
 
   color:
     var(
@@ -398,11 +395,10 @@
     );
 
   border-color:
-    rgba(
-      139,
-      92,
-      246,
-      0.3
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 30%,
+      var(--color-border, transparent)
     );
 }
 
@@ -522,11 +518,10 @@
   justify-content: center;
 
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.11
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 11%,
+      transparent
     );
 
   color:
@@ -574,7 +569,7 @@
   border-radius: 50%;
 
   background:
-    #24b46b;
+    var(--color-success, #24b46b);
 }
 
 .postTime {
@@ -617,7 +612,7 @@
 
 .moreButton:hover {
   background:
-    #f4f3f5;
+    var(--hover-bg, #f4f3f5);
 }
 
 /* =========================================================
@@ -690,7 +685,7 @@
   border: 0;
 
   background:
-    #efedf2;
+    var(--surface-muted, #efedf2);
 
   cursor: pointer;
 }
@@ -734,21 +729,19 @@
 
   border:
     1px solid
-    rgba(
-      139,
-      92,
-      246,
-      0.12
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 12%,
+      transparent
     );
 
   border-radius: 999px;
 
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.06
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 6%,
+      transparent
     );
 
   color:
@@ -807,11 +800,10 @@
   border-radius: 50%;
 
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.11
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 11%,
+      transparent
     );
 
   font-size: 9px;
@@ -901,7 +893,7 @@
 
 .postActionButton:hover {
   background:
-    #f4f3f5;
+    var(--hover-bg, #f4f3f5);
 
   color:
     var(
@@ -938,21 +930,19 @@
 
   border:
     1px solid
-    rgba(
-      139,
-      92,
-      246,
-      0.25
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 25%,
+      transparent
     );
 
   border-radius: 13px;
 
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.07
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 7%,
+      transparent
     );
 
   color:
@@ -969,19 +959,17 @@
 
 .moreRequestsButton:hover {
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.12
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 12%,
+      transparent
     );
 
   border-color:
-    rgba(
-      139,
-      92,
-      246,
-      0.4
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 40%,
+      transparent
     );
 
   transform:
@@ -1026,7 +1014,7 @@ and (
       32px;
 
     background:
-      #f2f2f4;
+      var(--surface-muted, #f2f2f4);
   }
 
   .container {
@@ -1399,7 +1387,7 @@ and (
 
 .moreMenuItem:hover {
   background:
-    #f5f3f7;
+    var(--hover-bg, #f5f3f7);
 }
 
 .moreMenuItem:disabled {
@@ -1408,16 +1396,15 @@ and (
 }
 
 .moreMenuDanger {
-  color: #b42318;
+  color: var(--color-danger, #b42318);
 }
 
 .moreMenuDanger:hover {
   background:
-    rgba(
-      180,
-      35,
-      24,
-      0.07
+    color-mix(
+      in srgb,
+      var(--color-danger, #b42318) 7%,
+      transparent
     );
 }
 
@@ -1432,21 +1419,19 @@ and (
 
   border:
     1px solid
-    rgba(
-      139,
-      92,
-      246,
-      0.18
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 18%,
+      transparent
     );
 
   border-radius: 13px;
 
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.055
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 5.5%,
+      transparent
     );
 
   color:
@@ -1508,7 +1493,7 @@ and (
 
   border:
     1px solid
-    rgba(139, 92, 246, 0.25);
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 25%, transparent);
 
   border-radius: 13px;
 
@@ -1519,7 +1504,7 @@ and (
       #a78bfa
     );
 
-  color: #ffffff;
+  color: var(--on-primary, #ffffff);
 
   font-family:
     var(
@@ -1534,7 +1519,7 @@ and (
 
   box-shadow:
     0 7px 18px
-    rgba(139, 92, 246, 0.18);
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 18%, transparent);
 
   transition:
     transform 0.18s ease,
@@ -1547,7 +1532,7 @@ and (
 
   box-shadow:
     0 10px 24px
-    rgba(139, 92, 246, 0.26);
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 26%, transparent);
 
   filter: brightness(1.03);
 }
@@ -1559,7 +1544,7 @@ and (
 .emptyCreateButton:focus-visible {
   outline:
     3px solid
-    rgba(139, 92, 246, 0.22);
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 22%, transparent);
 
   outline-offset: 3px;
 }

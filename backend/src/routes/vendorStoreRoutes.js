@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { authRequired } from "../api/auth.js";
+import { authRequired, enforceTokenVersion } from "../api/auth.js";
+import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 import {
   applyPromotionsToProducts,
 } from "../services/productPromotionPrice.js";
@@ -118,27 +119,13 @@ function normalizeAvailabilityPayload(body, current = null) {
 
 const router = Router();
 
-async function vendorAccessRequired(req, res, next) {
-  try {
-    const role = req.user?.role || req.user?.roles?.[0];
-    if (role === "VENDOR" || role === "ADMIN") return next();
-
-    const v = await prisma.vendor.findUnique({
-      where: { userId: req.user.sub },
-    });
-
-    if (v) {
-      req.meVendor = v;
-      return next();
-    }
-
-    return res.status(403).json({ error: "forbidden" });
-  } catch {
-    return res.status(500).json({ error: "server_error" });
-  }
-}
-
-router.use(authRequired, vendorAccessRequired);
+/*
+ * Fostă implementare LOCALĂ a vendorAccessRequired, cu același bug
+ * (accepta orice JWT cu role=VENDOR fără verificare de isActive) -
+ * eliminată (audit 2026-09-16), reutilizează versiunea întărită din
+ * middleware/vendorAccessRequired.js, importată mai sus.
+ */
+router.use(authRequired, enforceTokenVersion, vendorAccessRequired);
 
 /** GET /api/vendors/store */
 router.get("/store", async (req, res) => {

@@ -15,12 +15,7 @@
   padding: 20px;
 
   background:
-    rgba(
-      25,
-      20,
-      30,
-      0.48
-    );
+    var(--overlay-bg, rgba(25, 20, 30, 0.48));
 
   backdrop-filter:
     blur(5px);
@@ -51,7 +46,7 @@
   border-radius: 22px;
 
   background:
-    #ffffff;
+    var(--surface, #ffffff);
 
   box-shadow:
     0 28px 80px
@@ -86,15 +81,10 @@
 
   border-bottom:
     1px solid
-    #ebe7ee;
+    var(--color-border, #ebe7ee);
 
   background:
-    rgba(
-      255,
-      255,
-      255,
-      0.97
-    );
+    color-mix(in srgb, var(--surface, #fff) 97%, transparent);
 
   backdrop-filter:
     blur(8px);
@@ -122,7 +112,7 @@
   margin: 0 0 5px;
 
   color:
-    #302b35;
+    var(--color-text, #302b35);
 
   font-size: 23px;
   line-height: 1.2;
@@ -136,7 +126,7 @@
   margin: 0;
 
   color:
-    #7a7480;
+    var(--color-muted, #7a7480);
 
   font-size: 11px;
   line-height: 1.45;
@@ -156,10 +146,10 @@
   border-radius: 50%;
 
   background:
-    #f4f2f5;
+    var(--surface-muted, #f4f2f5);
 
   color:
-    #5f5965;
+    var(--color-muted, #5f5965);
 
   font-size: 22px;
   line-height: 1;
@@ -173,7 +163,7 @@
 
 .closeButton:hover:not(:disabled) {
   background:
-    #ece8ef;
+    var(--hover-bg, #ece8ef);
 
   transform:
     scale(1.04);
@@ -207,22 +197,12 @@
 
   border:
     1px solid
-    rgba(
-      139,
-      92,
-      246,
-      0.16
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 16%, transparent);
 
   border-radius: 14px;
 
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.05
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 5%, transparent);
 }
 
 .requestLabel {
@@ -245,7 +225,7 @@
   width: 100%;
 
   color:
-    #37313d;
+    var(--color-text, #37313d);
 
   font-size: 13px;
   line-height: 1.4;
@@ -265,10 +245,10 @@
   border-radius: 999px;
 
   background:
-    #ffffff;
+    var(--surface, #ffffff);
 
   color:
-    #6c6571;
+    var(--color-muted, #6c6571);
 
   font-size: 9px;
   font-weight: 700;
@@ -299,7 +279,7 @@
 
 .label {
   color:
-    #403a46;
+    var(--color-text, #403a46);
 
   font-size: 10px;
   font-weight: 850;
@@ -313,7 +293,7 @@
   margin: 0;
 
   color:
-    #8a838f;
+    var(--color-muted, #8a838f);
 
   font-size: 9px;
   line-height: 1.45;
@@ -331,15 +311,15 @@
 
   border:
     1px solid
-    #ded9e2;
+    var(--input-border, #ded9e2);
 
   outline: none;
 
   background:
-    #ffffff;
+    var(--input-bg, #ffffff);
 
   color:
-    #342f39;
+    var(--color-text, #342f39);
 
   font-family: inherit;
 
@@ -381,21 +361,11 @@
 .moneyInput:focus-within,
 .daysInput:focus-within {
   border-color:
-    rgba(
-      139,
-      92,
-      246,
-      0.55
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 55%, transparent);
 
   box-shadow:
     0 0 0 3px
-    rgba(
-      139,
-      92,
-      246,
-      0.08
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 8%, transparent);
 }
 
 .input:disabled,
@@ -407,7 +377,7 @@
   cursor: not-allowed;
 
   background:
-    #f7f5f8;
+    var(--surface-muted, #f7f5f8);
 }
 
 /* =========================================================
@@ -425,12 +395,12 @@
 
   border:
     1px solid
-    #ded9e2;
+    var(--input-border, #ded9e2);
 
   border-radius: 11px;
 
   background:
-    #ffffff;
+    var(--input-bg, #ffffff);
 
   transition:
     border-color 0.18s ease,
@@ -466,13 +436,13 @@
 
   border-left:
     1px solid
-    #e9e5eb;
+    var(--color-border, #e9e5eb);
 
   background:
-    #faf9fb;
+    var(--surface-muted, #faf9fb);
 
   color:
-    #706977;
+    var(--color-muted, #706977);
 
   font-size: 10px;
   font-weight: 800;
@@ -495,12 +465,7 @@
 
   border:
     1px solid
-    rgba(
-      139,
-      92,
-      246,
-      0.18
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 18%, transparent);
 
   border-radius: 14px;
 
@@ -533,7 +498,7 @@
 
 .totalCard span {
   color:
-    #4a4350;
+    var(--color-text, #4a4350);
 
   font-size: 10px;
   font-weight: 800;
@@ -545,7 +510,7 @@
 
 .totalCard small {
   color:
-    #8a838f;
+    var(--color-muted, #8a838f);
 
   font-size: 9px;
   line-height: 1.4;
@@ -577,7 +542,7 @@
   gap: 12px;
 
   color:
-    #8a838f;
+    var(--color-muted, #8a838f);
 
   font-size: 8px;
   line-height: 1.4;
@@ -607,22 +572,12 @@
 
   border:
     1px solid
-    rgba(
-      139,
-      92,
-      246,
-      0.13
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 13%, transparent);
 
   border-radius: 12px;
 
   background:
-    rgba(
-      139,
-      92,
-      246,
-      0.045
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 4.5%, transparent);
 }
 
 .infoBox > span {
@@ -635,7 +590,7 @@
   margin: 0;
 
   color:
-    #6f6875;
+    var(--color-muted, #6f6875);
 
   font-size: 9px;
   line-height: 1.5;
@@ -652,25 +607,15 @@
 
   border:
     1px solid
-    rgba(
-      220,
-      38,
-      38,
-      0.18
-    );
+    color-mix(in srgb, var(--color-danger, #dc2626) 18%, transparent);
 
   border-radius: 11px;
 
   background:
-    rgba(
-      220,
-      38,
-      38,
-      0.05
-    );
+    color-mix(in srgb, var(--color-danger, #dc2626) 5%, transparent);
 
   color:
-    #b42318;
+    var(--color-danger, #b42318);
 
   font-size: 10px;
   line-height: 1.45;
@@ -704,15 +649,10 @@
 
   border-top:
     1px solid
-    #ebe7ee;
+    var(--color-border, #ebe7ee);
 
   background:
-    rgba(
-      255,
-      255,
-      255,
-      0.97
-    );
+    color-mix(in srgb, var(--surface, #fff) 97%, transparent);
 
   backdrop-filter:
     blur(8px);
@@ -758,16 +698,11 @@
     );
 
   color:
-    #ffffff;
+    var(--on-primary, #ffffff);
 
   box-shadow:
     0 10px 24px
-    rgba(
-      139,
-      92,
-      246,
-      0.22
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 22%, transparent);
 }
 
 .primaryButton:hover:not(:disabled) {
@@ -776,12 +711,7 @@
 
   box-shadow:
     0 13px 28px
-    rgba(
-      139,
-      92,
-      246,
-      0.28
-    );
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 28%, transparent);
 }
 
 .primaryButton:disabled {
@@ -795,21 +725,21 @@
 .secondaryButton {
   border:
     1px solid
-    #ded9e2;
+    var(--color-border, #ded9e2);
 
   background:
-    #ffffff;
+    var(--surface, #ffffff);
 
   color:
-    #5f5965;
+    var(--color-muted, #5f5965);
 }
 
 .secondaryButton:hover:not(:disabled) {
   background:
-    #f6f4f7;
+    var(--hover-bg, #f6f4f7);
 
   border-color:
-    #d2ccd7;
+    var(--border-strong, #d2ccd7);
 }
 
 .secondaryButton:disabled {
@@ -826,7 +756,7 @@
   scrollbar-width: thin;
 
   scrollbar-color:
-    #d7d1db
+    var(--border-strong, #d7d1db)
     transparent;
 }
 
@@ -843,7 +773,7 @@
   border-radius: 999px;
 
   background:
-    #d7d1db;
+    var(--border-strong, #d7d1db);
 }
 
 /* =========================================================
