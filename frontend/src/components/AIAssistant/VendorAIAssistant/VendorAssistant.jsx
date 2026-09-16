@@ -552,6 +552,30 @@ function getChoiceLabel(
   return "Continuă";
 }
 
+/*
+ * ACTIONABLE RECOMMENDATIONS - construiește butoanele "CTA" dintr-un
+ * array de insight-uri (insightsService.js), folosind STRICT
+ * `insight.navAction` (deja calculat/validat pe backend - niciun
+ * routing nou aici). Insight-urile fără navAction (ex. lipsă
+ * colecții - nu există încă un flow real de creare) sunt filtrate,
+ * deci rămân doar text în mesaj, exact cum cere cerința.
+ */
+function buildVendorInsightChoices(insights) {
+  if (!Array.isArray(insights)) {
+    return [];
+  }
+
+  return insights
+    .filter((insight) => insight?.navAction?.label)
+    .map((insight) => ({
+      id: insight.id,
+      label: insight.navAction.label,
+      navAction: insight.navAction,
+      insightType: insight.type,
+      insightDomain: insight.domain || null,
+    }));
+}
+
 function normalizeProductDraft(
   value
 ) {
@@ -4847,6 +4871,83 @@ async function handleAction(
 }
 
   /* =======================================================
+     ACTIONABLE RECOMMENDATIONS - navigare sigură pe o recomandare
+     (insightsService.js -> navAction). DOAR 3 tipuri, toate deja
+     existente în platformă:
+     - "route": navighează la o pagină REALĂ (assistantActionRegistry.js);
+     - "add-product": deschide wizardul de adăugare produs DEJA
+       existent în chat (openAddProductWizard) - vendorul completează
+       el însuși, nimic generat/publicat automat;
+     - "items": reia EXACT fluxul "arată-mi produsele" deja existent
+       (SHOW_DETAIL_RE -> getInsightItemsList în copilotRouter.js),
+       fără niciun endpoint/mecanism nou - trimitem activeInsight
+       direct (nu depindem de starea din React, care ar fi veche în
+       aceeași tură) ca să fim siguri că se cere lista PENTRU insight-ul
+       pe care s-a apăsat butonul, nu pentru cel mai sever din ecran.
+  ======================================================= */
+
+  async function handleVendorInsightNavAction(choice) {
+    const navAction = choice?.navAction;
+
+    if (!navAction) {
+      return;
+    }
+
+    if (navAction.kind === "route" && navAction.route) {
+      navigate(navAction.route);
+      return;
+    }
+
+    if (navAction.kind === "add-product") {
+      openAddProductWizard();
+      return;
+    }
+
+    if (navAction.kind === "items") {
+      setIsSubmitting(true);
+
+      try {
+        const result = await sendCopilotAsk({
+          message: "arată-mi produsele",
+          history: [],
+
+          currentPage: effectivePage,
+          currentEntity: resolvedCurrentEntity,
+
+          conversationContext: {
+            ...(toGenericConversationContext() || {}),
+
+            activeInsight: {
+              type: choice.insightType,
+              domain: choice.insightDomain,
+              title: choice.label,
+              scope: "all",
+              suggestedAction: null,
+              actionParams: null,
+            },
+          },
+        });
+
+        if (result?.handled) {
+          processCostingCommandResult(result);
+          return;
+        }
+      } catch {
+        // cade pe mesajul generic de mai jos
+      } finally {
+        setIsSubmitting(false);
+      }
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu am putut încărca lista chiar acum. Încearcă din nou."
+        )
+      );
+    }
+  }
+
+  /* =======================================================
      Alegeri din mesaje
   ======================================================= */
 
@@ -4865,6 +4966,20 @@ async function handleAction(
         label
       )
     );
+
+    /*
+     * ACTIONABLE RECOMMENDATIONS - CTA de pe o recomandare
+     * (vendor-insight-action) - STRICT navigare/reluare a fluxului
+     * existent "arată-mi produsele", NICIODATĂ o modificare de
+     * produs. Interceptat înaintea oricărei alte ramuri.
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep === "vendor-insight-action"
+    ) {
+      await handleVendorInsightNavAction(choice);
+      return;
+    }
 
     /*
      * Cardul "ce vrei să fac cu ea?" de după upload - marcat cu
