@@ -78,7 +78,7 @@ function buildReferralLink(referralCode) {
   const origin =
     typeof window !== "undefined" && window.location
       ? window.location.origin
-      : "https://artfest.ro";
+      : "https://www.artfest.ro";
 
   return `${origin}/?ref=${referralCode}`;
 }

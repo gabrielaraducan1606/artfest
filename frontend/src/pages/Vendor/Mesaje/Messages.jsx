@@ -33,6 +33,7 @@ import {
 import {
   createVendorQuoteOffer,
 } from "../../../components/AIAssistant/quotes/quoteApi.js";
+import QuoteOfferFormFields from "../../../features/quotes/components/QuoteOfferFormFields.jsx";
 import styles from "./Messages.module.css";
 import { useMessageThreads } from "../../../features/messages/hooks/useMessageThreads";
 import { useThreadMessages } from "../../../features/messages/hooks/useThreadMessages";
@@ -2113,28 +2114,6 @@ function QuoteOfferModal({
       ?.title ||
     "Produs personalizat";
 
-  const unitPrice =
-    Number(
-      String(
-        form.unitPrice || "0"
-      ).replace(",", ".")
-    ) || 0;
-
-  const shippingPrice =
-    Number(
-      String(
-        form.shippingPrice ||
-          "0"
-      ).replace(",", ".")
-    ) || 0;
-
-  const productsTotal =
-    unitPrice * quantity;
-
-  const finalTotal =
-    productsTotal +
-    shippingPrice;
-
   return (
     <div
       className={
@@ -2196,239 +2175,20 @@ function QuoteOfferModal({
           </button>
         </div>
 
-        <form
-          className={
-            styles.quoteOfferForm
+        <QuoteOfferFormFields
+          quoteRequest={
+            quoteRequest
           }
+          form={form}
+          setForm={setForm}
+          sending={sending}
+          error={error}
           onSubmit={onSubmit}
-        >
-          <div
-            className={
-              styles.quoteFormGrid
-            }
-          >
-            <label>
-              <span>
-                Preț unitar
-              </span>
-
-              <div
-                className={
-                  styles.quoteMoneyInput
-                }
-              >
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={
-                    form.unitPrice
-                  }
-                  autoFocus
-                  required
-                  onChange={(event) =>
-                    setForm(
-                      (current) => ({
-                        ...current,
-                        unitPrice:
-                          event.target
-                            .value,
-                      })
-                    )
-                  }
-                />
-
-                <span>RON</span>
-              </div>
-            </label>
-
-            <label>
-              <span>
-                Transport
-              </span>
-
-              <div
-                className={
-                  styles.quoteMoneyInput
-                }
-              >
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={
-                    form.shippingPrice
-                  }
-                  required
-                  onChange={(event) =>
-                    setForm(
-                      (current) => ({
-                        ...current,
-                        shippingPrice:
-                          event.target
-                            .value,
-                      })
-                    )
-                  }
-                />
-
-                <span>RON</span>
-              </div>
-            </label>
-
-            <label>
-              <span>
-                Termen producție
-              </span>
-
-              <div
-                className={
-                  styles.quoteDaysInput
-                }
-              >
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={
-                    form.productionDays
-                  }
-                  required
-                  onChange={(event) =>
-                    setForm(
-                      (current) => ({
-                        ...current,
-                        productionDays:
-                          event.target
-                            .value,
-                      })
-                    )
-                  }
-                />
-
-                <span>zile</span>
-              </div>
-            </label>
-          </div>
-
-          <label
-            className={
-              styles.quoteNotesLabel
-            }
-          >
-            <span>
-              Observații pentru client
-            </span>
-
-            <textarea
-              rows={4}
-              value={form.notes}
-              placeholder="Ex: prețul include personalizarea și ambalarea..."
-              onChange={(event) =>
-                setForm(
-                  (current) => ({
-                    ...current,
-                    notes:
-                      event.target
-                        .value,
-                  })
-                )
-              }
-            />
-          </label>
-
-          <div
-            className={
-              styles.quoteOfferSummary
-            }
-          >
-            <span>
-              Produse:
-              <strong>
-                {productsTotal.toFixed(
-                  2
-                )}{" "}
-                RON
-              </strong>
-            </span>
-
-            <span>
-              Transport:
-              <strong>
-                {shippingPrice.toFixed(
-                  2
-                )}{" "}
-                RON
-              </strong>
-            </span>
-
-            <span>
-              Total:
-              <strong>
-                {finalTotal.toFixed(
-                  2
-                )}{" "}
-                RON
-              </strong>
-            </span>
-          </div>
-
-          {error && (
-            <div
-              className={
-                styles.quoteOfferError
-              }
-            >
-              {error}
-            </div>
-          )}
-
-          <div
-            className={
-              styles.quoteOfferActions
-            }
-          >
-            <button
-              type="button"
-              className={
-                styles.quoteSecondaryBtn
-              }
-              disabled={sending}
-              onClick={() => {
-                setError("");
-                onClose();
-              }}
-            >
-              Renunță
-            </button>
-
-            <button
-              type="submit"
-              className={
-                styles.quotePrimaryBtn
-              }
-              disabled={sending}
-            >
-              {sending ? (
-                <>
-                  <Loader2
-                    size={16}
-                    className={
-                      styles.spin
-                    }
-                  />
-
-                  Se trimite…
-                </>
-              ) : (
-                <>
-                  <Send size={16} />
-                  Trimite oferta
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+          onCancel={() => {
+            setError("");
+            onClose();
+          }}
+        />
       </div>
     </div>
   );

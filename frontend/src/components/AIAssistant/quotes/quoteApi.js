@@ -1,5 +1,9 @@
 // src/components/AiAssistant/quotes/quoteApi.js
 
+import { getInfluencerAttributionForCheckout } from "../../../utils/influencerAttribution.js";
+import { getVendorReferralAttributionForCheckout } from "../../../utils/vendorReferralAttribution.js";
+import { getVendorCollectionAttributionForCheckout } from "../../../utils/vendorCollectionAttribution.js";
+
 /* =========================================================
    Configurare
 ========================================================= */
@@ -278,6 +282,18 @@ export async function createQuoteRequest({
             "object"
             ? quoteSchemaAnswers
             : {},
+
+        influencerAttribution:
+          getInfluencerAttributionForCheckout() ||
+          undefined,
+
+        vendorReferralAttribution:
+          getVendorReferralAttributionForCheckout() ||
+          undefined,
+
+        vendorCollectionAttribution:
+          getVendorCollectionAttributionForCheckout() ||
+          undefined,
       },
     }
   );
@@ -494,6 +510,54 @@ export async function fetchQuoteOffer(
 }
 
 /* =========================================================
+   CLIENT — validare cod de reducere (preview, nu consumă codul)
+========================================================= */
+
+export async function validateQuoteOfferDiscountCode(
+  quoteId,
+  offerId,
+  discountCode
+) {
+  const normalizedQuoteId =
+    requireId(
+      quoteId,
+      "ID-ul cererii"
+    );
+
+  const normalizedOfferId =
+    requireId(
+      offerId,
+      "ID-ul ofertei"
+    );
+
+  const normalizedCode =
+    String(
+      discountCode || ""
+    ).trim();
+
+  if (
+    !normalizedCode
+  ) {
+    throw new Error(
+      "Introdu un cod de reducere."
+    );
+  }
+
+  return apiRequest(
+    `/api/assistant/quotes/${normalizedQuoteId}/offers/${normalizedOfferId}/discount-code/validate`,
+    {
+      method:
+        "POST",
+
+      body: {
+        discountCode:
+          normalizedCode,
+      },
+    }
+  );
+}
+
+/* =========================================================
    CLIENT — acceptare ofertă
 ========================================================= */
 
@@ -507,6 +571,7 @@ export async function acceptQuoteOffer(
     customerType = "PF",
     paymentMethod = "COD",
     shipToDifferentAddress = false,
+    discountCode = null,
   } = {}
 ) {
   const normalizedQuoteId =
@@ -593,6 +658,13 @@ export async function acceptQuoteOffer(
                 shipToDifferentAddress
               )
             : false,
+
+        discountCode:
+          discountCode
+            ? String(
+                discountCode
+              ).trim()
+            : undefined,
       },
     }
   );

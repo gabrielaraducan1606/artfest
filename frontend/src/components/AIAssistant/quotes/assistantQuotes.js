@@ -13,6 +13,7 @@ import {
   createVendorQuoteOffer,
   acceptQuoteOffer,
   rejectQuoteOffer,
+  validateQuoteOfferDiscountCode,
   sendQuoteMessage,
   sendVendorQuoteMessage,
   sendQuoteAttachment,
@@ -1878,6 +1879,195 @@ export async function refreshQuoteThread({
 }
 
 /* =========================================================
+   Sumar comandă (înainte de confirmarea finală)
+
+   Formatează prețul ofertei + reducerea de cod + totalul final,
+   folosind STRICT valorile deja furnizate de backend
+   (draft.offerTotal = offer.total, draft.discountCodeApplied =
+   răspunsul validateQuoteOfferDiscountCode) - nicio recalculare de
+   preț aici, doar afișare.
+========================================================= */
+
+function formatQuoteMoney(
+  value,
+  currency
+) {
+  const numericValue =
+    Number(value);
+
+  if (
+    !Number.isFinite(
+      numericValue
+    )
+  ) {
+    return null;
+  }
+
+  return `${numericValue.toFixed(
+    2
+  )} ${currency || "RON"}`;
+}
+
+function buildQuoteOrderConfirmMessage(
+  draft,
+  createMessage
+) {
+  const customerLabel =
+    draft.customerType ===
+    "PJ"
+      ? "Persoană juridică"
+      : "Persoană fizică";
+
+  const paymentLabel =
+    draft.paymentMethod ===
+    "CARD"
+      ? "Card online"
+      : "Ramburs";
+
+  const currency =
+    draft.offerCurrency ||
+    "RON";
+
+  const hasDiscount =
+    Boolean(
+      draft.discountCode
+    ) &&
+    Boolean(
+      draft.discountCodeApplied
+        ?.valid
+    );
+
+  const offerTotal =
+    Number.isFinite(
+      Number(draft.offerTotal)
+    )
+      ? Number(draft.offerTotal)
+      : null;
+
+  const discountAmount =
+    hasDiscount
+      ? Number(
+          draft.discountCodeApplied
+            .estimatedDiscountAmountCents ||
+            0
+        ) / 100
+      : 0;
+
+  const finalTotal =
+    hasDiscount &&
+    offerTotal !== null
+      ? Math.max(
+          0,
+          offerTotal -
+            discountAmount
+        )
+      : offerTotal;
+
+  const priceLines = [
+    offerTotal !== null
+      ? `Preț ofertă: ${formatQuoteMoney(
+          offerTotal,
+          currency
+        )}`
+      : null,
+
+    hasDiscount
+      ? `Reducere cod (${draft.discountCode}): -${formatQuoteMoney(
+          discountAmount,
+          currency
+        )}`
+      : null,
+
+    finalTotal !== null
+      ? `Total: ${formatQuoteMoney(
+          finalTotal,
+          currency
+        )}`
+      : null,
+  ].filter(Boolean);
+
+  const summaryLines = [
+    "Verifică datele înainte să înregistrez comanda:",
+    "",
+
+    ...priceLines,
+
+    priceLines.length ? "" : null,
+
+    `Tip client: ${customerLabel}`,
+
+    draft.customerType ===
+    "PJ"
+      ? `Firmă: ${draft.companyName || "-"}`
+      : `Destinatar: ${draft.recipientName || "-"}`,
+
+    draft.customerType ===
+    "PJ"
+      ? `CUI: ${draft.companyCui || "-"}`
+      : null,
+
+    draft.customerType ===
+    "PJ"
+      ? `Persoană de contact: ${draft.contactName || "-"}`
+      : null,
+
+    `Livrare: ${[
+      draft.addressLine1,
+      draft.city,
+      draft.county,
+    ]
+      .filter(Boolean)
+      .join(", ")}`,
+
+    `Plată: ${paymentLabel}`,
+  ].filter((line) => line !== null);
+
+  return createMessage(
+    "assistant",
+    summaryLines.join("\n"),
+    {
+      type: "choices",
+
+      choiceStep:
+        "quote-order-confirm",
+
+      choices: [
+        {
+          id:
+            "quote-confirm-order",
+
+          action:
+            "quote-confirm-order",
+
+          title:
+            "Confirmă comanda",
+
+          description:
+            "Înregistrează comanda cu aceste date.",
+
+          checkoutDraft:
+            draft,
+        },
+
+        {
+          id:
+            "quote-restart-order",
+
+          action:
+            "quote-restart-order",
+
+          title:
+            "Modifică datele",
+
+          description:
+            "Reiau completarea datelor comenzii.",
+        },
+      ],
+    }
+  );
+}
+
+/* =========================================================
    Handle choices
 ========================================================= */
 
@@ -1983,6 +2173,7 @@ export async function handleQuoteChoice({
 
               quoteId,
               offerId,
+              offer: choice.offer || null,
             },
 
             {
@@ -2027,6 +2218,10 @@ export async function handleQuoteChoice({
       choice.offerId ||
       null;
 
+    const offer =
+      choice.offer ||
+      null;
+
     if (
       !quoteId ||
       !offerId
@@ -2056,6 +2251,29 @@ export async function handleQuoteChoice({
         checkoutDraft: {
           quoteId,
           offerId,
+
+          /*
+           * Prețul negociat, așa cum a venit deja de la backend
+           * (offer.total) - folosit STRICT pentru preview-ul
+           * "Preț ofertă / Reducere cod / Total" înainte de
+           * confirmare, niciodată recalculat.
+           */
+          offerTotal:
+            Number.isFinite(
+              Number(offer?.total)
+            )
+              ? Number(offer.total)
+              : null,
+
+          offerCurrency:
+            offer?.currency ||
+            "RON",
+
+          discountCode:
+            null,
+
+          discountCodeApplied:
+            null,
 
           step:
             "customerType",
@@ -2466,6 +2684,231 @@ export async function handleQuoteChoice({
       paymentMethod,
 
       step:
+        "askDiscountCode",
+    };
+
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        checkoutDraft:
+          draft,
+      })
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        "Ai un cod de reducere?",
+        {
+          type:
+            "choices",
+
+          choiceStep:
+            "quote-discount-code",
+
+          choices: [
+            {
+              id:
+                "quote-discount-yes",
+
+              action:
+                "quote-discount-yes",
+
+              title:
+                "Da, am un cod",
+
+              checkoutDraft:
+                draft,
+            },
+
+            {
+              id:
+                "quote-discount-no",
+
+              action:
+                "quote-discount-no",
+
+              title:
+                "Nu, continuă",
+
+              checkoutDraft:
+                draft,
+            },
+          ],
+        }
+      )
+    );
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * CLIENT — cod de reducere: alege "Da, am un cod"
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "quote-discount-yes"
+  ) {
+    const draft = {
+      ...(
+        choice.checkoutDraft ||
+        {}
+      ),
+
+      step:
+        "enterDiscountCode",
+    };
+
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        checkoutDraft:
+          draft,
+      })
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        "Scrie codul de reducere."
+      )
+    );
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * CLIENT — cod de reducere: "Încearcă alt cod"
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "quote-discount-retry"
+  ) {
+    const draft = {
+      ...(
+        choice.checkoutDraft ||
+        {}
+      ),
+
+      discountCode:
+        null,
+
+      discountCodeApplied:
+        null,
+
+      step:
+        "enterDiscountCode",
+    };
+
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        checkoutDraft:
+          draft,
+      })
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        "Scrie codul de reducere."
+      )
+    );
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * CLIENT — cod de reducere: "Schimbă codul"
+   *
+   * Elimină complet codul anterior (valid sau nu) - fără el
+   * rămas accidental în draft.
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "quote-discount-change"
+  ) {
+    const draft = {
+      ...(
+        choice.checkoutDraft ||
+        {}
+      ),
+
+      discountCode:
+        null,
+
+      discountCodeApplied:
+        null,
+
+      step:
+        "enterDiscountCode",
+    };
+
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        checkoutDraft:
+          draft,
+      })
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        "Scrie noul cod de reducere."
+      )
+    );
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * CLIENT — cod de reducere: "Nu, continuă" / renunță
+   *
+   * discountCode/discountCodeApplied rămân null - acceptQuoteOffer
+   * nu va primi niciun cod.
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "quote-discount-no"
+  ) {
+    const draft = {
+      ...(
+        choice.checkoutDraft ||
+        {}
+      ),
+
+      discountCode:
+        null,
+
+      discountCodeApplied:
+        null,
+
+      step:
         "confirmOrder",
     };
 
@@ -2480,108 +2923,51 @@ export async function handleQuoteChoice({
       })
     );
 
-    const customerLabel =
-      draft.customerType ===
-      "PJ"
-        ? "Persoană juridică"
-        : "Persoană fizică";
-
-    const paymentLabel =
-      paymentMethod ===
-      "CARD"
-        ? "Card online"
-        : "Ramburs";
-
-    const summaryLines = [
-      "Verifică datele înainte să înregistrez comanda:",
-      "",
-
-      `Tip client: ${customerLabel}`,
-
-      draft.customerType ===
-      "PJ"
-        ? `Firmă: ${draft.companyName || "-"}`
-        : `Destinatar: ${draft.recipientName || "-"}`,
-
-      draft.customerType ===
-      "PJ"
-        ? `CUI: ${draft.companyCui || "-"}`
-        : null,
-
-      draft.customerType ===
-      "PJ"
-        ? `Persoană de contact: ${draft.contactName || "-"}`
-        : null,
-
-      `Livrare: ${[
-        draft.addressLine1,
-        draft.city,
-        draft.county,
-      ]
-        .filter(
-          Boolean
-        )
-        .join(
-          ", "
-        )}`,
-
-      `Plată: ${paymentLabel}`,
-    ]
-      .filter(
-        (
-          line
-        ) =>
-          line !==
-          null
+    addMessage(
+      buildQuoteOrderConfirmMessage(
+        draft,
+        createMessage
       )
-      .join(
-        "\n"
-      );
+    );
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * CLIENT — cod de reducere: continuă cu reducerea validată
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "quote-discount-continue"
+  ) {
+    const draft = {
+      ...(
+        choice.checkoutDraft ||
+        {}
+      ),
+
+      step:
+        "confirmOrder",
+    };
+
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        checkoutDraft:
+          draft,
+      })
+    );
 
     addMessage(
-      createMessage(
-        "assistant",
-        summaryLines,
-        {
-          type:
-            "choices",
-
-          choiceStep:
-            "quote-order-confirm",
-
-          choices: [
-            {
-              id:
-                "quote-confirm-order",
-
-              action:
-                "quote-confirm-order",
-
-              title:
-                "Confirmă comanda",
-
-              description:
-                "Înregistrează comanda cu aceste date.",
-
-              checkoutDraft:
-                draft,
-            },
-
-            {
-              id:
-                "quote-restart-order",
-
-              action:
-                "quote-restart-order",
-
-              title:
-                "Modifică datele",
-
-              description:
-                "Reiau completarea datelor comenzii.",
-            },
-          ],
-        }
+      buildQuoteOrderConfirmMessage(
+        draft,
+        createMessage
       )
     );
 
@@ -2611,6 +2997,28 @@ export async function handleQuoteChoice({
 
           offerId:
             current.acceptedOfferId ||
+            null,
+
+          /*
+           * Prețul ofertei se păstrează (aceeași ofertă, doar
+           * datele de livrare/plată se reiau) - DAR codul de
+           * reducere se elimină complet, ca să nu rămână
+           * accidental unul stale/invalid după "Modifică datele".
+           */
+          offerTotal:
+            current.checkoutDraft
+              ?.offerTotal ??
+            null,
+
+          offerCurrency:
+            current.checkoutDraft
+              ?.offerCurrency ||
+            "RON",
+
+          discountCode:
+            null,
+
+          discountCodeApplied:
             null,
 
           step:
@@ -2875,6 +3283,18 @@ addMessage({
                     draft.shipToDifferentAddress
                   )
                 : false,
+
+            /*
+             * Trimis DOAR dacă backend-ul chiar l-a validat în
+             * acest draft (draft.discountCodeApplied.valid) - nu
+             * se trimite niciodată un cod neverificat sau stale.
+             */
+            discountCode:
+              draft.discountCode &&
+              draft.discountCodeApplied
+                ?.valid
+                ? draft.discountCode
+                : undefined,
           }
         );
 
@@ -3206,50 +3626,64 @@ addMessage({
 
         quoteRequestId:
           quoteId,
-
-        offerDraft: {
-          step:
-            "unitPrice",
-
-          quantity:
-            Number(
-              choice
-                ?.quote
-                ?.quantity
-            ) ||
-            null,
-
-          unitPrice:
-            null,
-
-          shippingPrice:
-            0,
-
-          productionDays:
-            null,
-
-          validUntil:
-            null,
-
-          notes:
-            null,
-        },
       })
     );
 
-    setActiveFlow(
-      QUOTE_FLOWS
-        .VENDOR_CREATE_OFFER
-    );
-
+    /*
+     * Formularul „Trimite ofertă" - EXACT componenta din Messages
+     * (QuoteOfferFormFields), afișată inline, compact, în chat.
+     * Nu mai pornim un flow conversațional separat (offerDraft) -
+     * un singur formular de ofertare, identic peste tot.
+     */
     addMessage(
       createMessage(
         "assistant",
-        "Perfect. Hai să pregătim oferta.\n\nCare este prețul unitar în RON?"
+        "",
+        {
+          type:
+            "quote-offer-form",
+
+          quoteId,
+
+          quote:
+            choice.quote ||
+            null,
+        }
       )
     );
 
     return true;
+  }
+
+  /*
+   * ============================================
+   * VENDOR — redeschide conversația (din cardul de ofertă)
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "reopen-vendor-quote-thread"
+  ) {
+    const quoteId =
+      choice.quoteId ||
+      null;
+
+    if (
+      !quoteId
+    ) {
+      return true;
+    }
+
+    return openVendorQuote({
+      quoteId,
+
+      addMessage,
+      createMessage,
+
+      setActiveFlow,
+      setQuoteContext,
+    });
   }
 
   /*
@@ -3468,6 +3902,182 @@ export async function submitQuoteMessage({
           "Te rog să completezi informația solicitată."
         )
       );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * COD DE REDUCERE — introducere text
+     *
+     * Validare EXCLUSIV prin endpoint-ul existent
+     * (validateQuoteOfferDiscountCode -> preview backend). Nicio
+     * validare locală, niciun recalcul de preț - doar afișăm ce
+     * întoarce backend-ul.
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "enterDiscountCode"
+    ) {
+      try {
+        const result =
+          await validateQuoteOfferDiscountCode(
+            checkoutDraft.quoteId,
+            checkoutDraft.offerId,
+            normalizedValue
+          );
+
+        const nextDraft = {
+          ...checkoutDraft,
+
+          discountCode:
+            normalizedValue,
+
+          discountCodeApplied:
+            result,
+
+          step:
+            "discountCodeValidated",
+        };
+
+        setQuoteContext(
+          (
+            current
+          ) => ({
+            ...current,
+
+            checkoutDraft:
+              nextDraft,
+          })
+        );
+
+        addMessage(
+          createMessage(
+            "assistant",
+            `Cod valid ✓\nPrimești ${Math.round(
+              Number(
+                result?.discountPercent
+              ) || 0
+            )}% reducere.`,
+            {
+              type:
+                "choices",
+
+              choiceStep:
+                "quote-discount-validated",
+
+              choices: [
+                {
+                  id:
+                    "quote-discount-continue",
+
+                  action:
+                    "quote-discount-continue",
+
+                  title:
+                    "Continuă",
+
+                  checkoutDraft:
+                    nextDraft,
+                },
+
+                {
+                  id:
+                    "quote-discount-change",
+
+                  action:
+                    "quote-discount-change",
+
+                  title:
+                    "Schimbă codul",
+
+                  checkoutDraft:
+                    nextDraft,
+                },
+              ],
+            }
+          )
+        );
+      } catch (
+        error
+      ) {
+        /*
+         * Cod invalid/eșuat - eliminăm complet orice cod anterior
+         * din draft, ca userul să poată reîncerca fără resturi.
+         */
+        const nextDraft = {
+          ...checkoutDraft,
+
+          discountCode:
+            null,
+
+          discountCodeApplied:
+            null,
+
+          step:
+            "enterDiscountCode",
+        };
+
+        setQuoteContext(
+          (
+            current
+          ) => ({
+            ...current,
+
+            checkoutDraft:
+              nextDraft,
+          })
+        );
+
+        addMessage(
+          createMessage(
+            "assistant",
+            humanizeAssistantErrorMessage(
+              error,
+              "Codul de reducere nu este valid."
+            ),
+            {
+              type:
+                "choices",
+
+              choiceStep:
+                "quote-discount-invalid",
+
+              choices: [
+                {
+                  id:
+                    "quote-discount-retry",
+
+                  action:
+                    "quote-discount-retry",
+
+                  title:
+                    "Încearcă alt cod",
+
+                  checkoutDraft:
+                    nextDraft,
+                },
+
+                {
+                  id:
+                    "quote-discount-no",
+
+                  action:
+                    "quote-discount-no",
+
+                  title:
+                    "Continuă fără cod",
+
+                  checkoutDraft:
+                    nextDraft,
+                },
+              ],
+            }
+          )
+        );
+      }
 
       return true;
     }

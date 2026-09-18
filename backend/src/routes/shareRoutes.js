@@ -3,7 +3,7 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 
 const router = Router();
-const APP_URL = process.env.APP_URL || "https://artfest.ro";
+const APP_URL = process.env.APP_URL || "https://www.artfest.ro";
 
 function esc(s=""){return String(s).replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]))}
 

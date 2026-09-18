@@ -21,6 +21,9 @@ import {
   createDepositPaymentForShipment,
 } from "../payments/orchestrator.js";
 import {
+  isVendorStripeReady,
+} from "../payments/vendorStripeStatus.js";
+import {
   computeGroupedCommissionBreakdown,
 } from "../services/commissionCalc.js";
 import {
@@ -3503,22 +3506,9 @@ if (!depositCanBeRequested) {
 }
 
       const stripeReady =
-        Boolean(
+        isVendorStripeReady(
           shipment.vendor
-            ?.stripeAccountId
-        ) &&
-        shipment.vendor
-          ?.stripeChargesEnabled ===
-          true &&
-        shipment.vendor
-          ?.stripePayoutsEnabled ===
-          true &&
-        shipment.vendor
-          ?.stripeDetailsSubmitted ===
-          true &&
-        shipment.vendor
-          ?.stripeConnectStatus ===
-          "enabled";
+        );
 console.log(
   "[REQUEST DEPOSIT STRIPE CHECK]",
   {

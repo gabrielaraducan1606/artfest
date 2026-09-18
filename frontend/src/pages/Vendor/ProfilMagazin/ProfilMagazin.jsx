@@ -712,9 +712,20 @@ function handleClosePublicCampaign() {
   const origin =
     typeof window !== "undefined" && window.location?.origin
       ? window.location.origin
-      : "https://artfest.ro";
+      : "https://www.artfest.ro";
 
-  const pageUrl = `${origin}/magazin/${sdSlug || ""}`;
+  /*
+   * BUGFIX (SEO/canonical) - canonicalul magazinului trebuie să fie
+   * determinist (mereu www.artfest.ro, mereu slug-ul din rută), NU
+   * derivat din window.location.origin (poate fi non-www) și NU din
+   * sdSlug (vine din sellerData, deci e undefined cât timp fetch-ul e
+   * în curs - vezi `storeSlug`, care deja are fallback corect pe
+   * slug-ul din rută).
+   */
+  const canonicalSlug = storeSlug || slug || "";
+  const pageUrl = `https://www.artfest.ro/magazin/${encodeURIComponent(
+    canonicalSlug
+  )}`;
   const shareImage =
     coverUrl || avatarUrl || `${origin}/img/share-fallback.jpg`;
 
@@ -1022,7 +1033,18 @@ quoteSchema: Array.isArray(full.quoteSchema)
   );
 
   if (loading && !hasData) {
-    return <ProfilMagazinSkeleton preview={storeSummary} />;
+    /*
+     * BUGFIX (SEO/canonical) - canonicalul trebuie să existe din
+     * primul render, nu doar după ce se termină fetch-ul de
+     * sellerData. slug-ul e deja disponibil din useParams(), deci
+     * pageUrl e corect chiar și aici (vezi calculul de mai sus).
+     */
+    return (
+      <>
+        <SEO canonical={pageUrl} url={pageUrl} />
+        <ProfilMagazinSkeleton preview={storeSummary} />
+      </>
+    );
   }
 
   if (owner.shouldShowOnboardingGate) {
@@ -1087,17 +1109,18 @@ quoteSchema: Array.isArray(full.quoteSchema)
             url: pageUrl,
             logo: shareImage,
           },
-          {
-            "@context": "https://schema.org",
-            "@type": "WebSite",
-            name: "Artfest",
-            url: origin,
-            potentialAction: {
-              "@type": "SearchAction",
-              target: `${origin}/cauta?q={search_term_string}`,
-              "query-input": "required name=search_term_string",
-            },
-          },
+          /*
+           * BUGFIX (SEO) - WebSite/SearchAction eliminat: ținta
+           * (/cauta?q={search_term_string}) nu corespunde vreunei
+           * rute reale din App.jsx, iar acest bloc se emitea
+           * identic (doar cu url:origin, nespecific magazinului) pe
+           * FIECARE pagină de magazin, ceea ce îl duplica inutil de
+           * N ori. Google descoperea și încerca să acceseze URL-ul
+           * literal cu acolade, apărând apoi în GSC ca
+           * "Crawled - currently not indexed". Se poate reintroduce,
+           * o singură dată la nivel de site (nu per magazin), doar
+           * după ce există o rută /cauta funcțională.
+           */
         ]}
       />
 

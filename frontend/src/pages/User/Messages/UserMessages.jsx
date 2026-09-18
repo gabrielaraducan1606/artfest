@@ -5,6 +5,7 @@ import { api } from "../../../lib/api";
 import {
   acceptQuoteOffer,
   rejectQuoteOffer,
+  validateQuoteOfferDiscountCode,
 } from "../../../components/AIAssistant/quotes/quoteApi.js";
 import {
   MessageSquare,
@@ -258,6 +259,12 @@ export default function UserMessagesPage() {
     postalCode: "",
   });
 
+  const [wantsDiscountCode, setWantsDiscountCode] = useState(false);
+  const [discountCodeInput, setDiscountCodeInput] = useState("");
+  const [discountCodeApplied, setDiscountCodeApplied] = useState(null);
+  const [discountCodeChecking, setDiscountCodeChecking] = useState(false);
+  const [discountCodeError, setDiscountCodeError] = useState("");
+
  useEffect(() => {
   setAcceptOfferOpen(false);
   setQuoteDetailsOpen(false);
@@ -391,6 +398,46 @@ export default function UserMessagesPage() {
     }
   }
 
+  function handleDiscountCodeInputChange(value) {
+    setDiscountCodeInput(value);
+    setDiscountCodeApplied(null);
+    setDiscountCodeError("");
+  }
+
+  async function handleValidateDiscountCode() {
+    if (!quoteRequest?.id || !latestQuoteOffer?.id) return;
+
+    const code = String(discountCodeInput || "").trim();
+
+    if (!code) {
+      setDiscountCodeApplied(null);
+      return setDiscountCodeError("Introdu un cod de reducere.");
+    }
+
+    setDiscountCodeChecking(true);
+    setDiscountCodeError("");
+    setDiscountCodeApplied(null);
+
+    try {
+      const result = await validateQuoteOfferDiscountCode(
+        quoteRequest.id,
+        latestQuoteOffer.id,
+        code
+      );
+
+      setDiscountCodeApplied(result);
+    } catch (error) {
+      setDiscountCodeApplied(null);
+      setDiscountCodeError(
+        error?.data?.message ||
+          error?.message ||
+          "Codul de reducere nu este valid."
+      );
+    } finally {
+      setDiscountCodeChecking(false);
+    }
+  }
+
   async function handleAcceptQuoteOffer(event) {
     event?.preventDefault?.();
 
@@ -409,6 +456,16 @@ export default function UserMessagesPage() {
     if (!city) return setQuoteActionError("Introdu localitatea.");
     if (!county) return setQuoteActionError("Introdu județul.");
 
+    if (
+      wantsDiscountCode &&
+      String(discountCodeInput || "").trim() &&
+      !discountCodeApplied?.valid
+    ) {
+      return setQuoteActionError(
+        "Verifică codul de reducere înainte să confirmi comanda, sau renunță la el."
+      );
+    }
+
     setQuoteActionLoading(true);
     setQuoteActionError("");
 
@@ -422,6 +479,10 @@ export default function UserMessagesPage() {
           county,
           postalCode,
         },
+        discountCode:
+          wantsDiscountCode && discountCodeApplied?.valid
+            ? String(discountCodeInput || "").trim()
+            : undefined,
       });
 
       setAcceptOfferOpen(false);
@@ -1060,6 +1121,30 @@ export default function UserMessagesPage() {
       setError={
         setQuoteActionError
       }
+      wantsDiscountCode={
+        wantsDiscountCode
+      }
+      setWantsDiscountCode={
+        setWantsDiscountCode
+      }
+      discountCodeInput={
+        discountCodeInput
+      }
+      setDiscountCodeInput={
+        handleDiscountCodeInputChange
+      }
+      discountCodeApplied={
+        discountCodeApplied
+      }
+      discountCodeChecking={
+        discountCodeChecking
+      }
+      discountCodeError={
+        discountCodeError
+      }
+      onValidateDiscountCode={
+        handleValidateDiscountCode
+      }
       onAccept={
         handleAcceptQuoteOffer
       }
@@ -1075,6 +1160,10 @@ export default function UserMessagesPage() {
 
         setQuoteActionError("");
         setAcceptOfferOpen(false);
+        setWantsDiscountCode(false);
+        setDiscountCodeInput("");
+        setDiscountCodeApplied(null);
+        setDiscountCodeError("");
         setQuoteDetailsOpen(false);
       }}
     />
@@ -1259,6 +1348,14 @@ function UserQuoteOfferModal({
   loading,
   error,
   setError,
+  wantsDiscountCode,
+  setWantsDiscountCode,
+  discountCodeInput,
+  setDiscountCodeInput,
+  discountCodeApplied,
+  discountCodeChecking,
+  discountCodeError,
+  onValidateDiscountCode,
   onAccept,
   onReject,
   onClose,
@@ -1712,6 +1809,152 @@ function UserQuoteOfferModal({
                   />
                 </label>
               </div>
+
+              <div
+                className={
+                  styles.quoteAcceptTitle
+                }
+              >
+                Ai un cod de reducere?
+              </div>
+
+              {!wantsDiscountCode ? (
+                <div
+                  className={
+                    styles.quoteOfferActions
+                  }
+                >
+                  <button
+                    type="button"
+                    className={
+                      styles.quoteSecondaryBtn
+                    }
+                    disabled={loading}
+                    onClick={() =>
+                      setWantsDiscountCode(true)
+                    }
+                  >
+                    Am un cod
+                  </button>
+
+                  <button
+                    type="button"
+                    className={
+                      styles.quotePrimaryBtn
+                    }
+                    disabled={loading}
+                    onClick={() =>
+                      setWantsDiscountCode(false)
+                    }
+                  >
+                    Nu, continuă
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className={
+                    styles.quoteAddressGrid
+                  }
+                >
+                  <label
+                    className={
+                      styles.quoteAddressFull
+                    }
+                  >
+                    <span>
+                      Cod de reducere
+                    </span>
+
+                    <input
+                      value={discountCodeInput}
+                      disabled={
+                        discountCodeChecking ||
+                        loading
+                      }
+                      onChange={(event) => {
+                        setDiscountCodeInput(
+                          event.target.value
+                        );
+                      }}
+                      placeholder="Ex: ARTFEST10"
+                    />
+                  </label>
+
+                  <div
+                    className={
+                      styles.quoteOfferActions
+                    }
+                  >
+                    <button
+                      type="button"
+                      className={
+                        styles.quoteSecondaryBtn
+                      }
+                      disabled={
+                        discountCodeChecking ||
+                        loading
+                      }
+                      onClick={() => {
+                        setWantsDiscountCode(
+                          false
+                        );
+                        setDiscountCodeInput("");
+                      }}
+                    >
+                      Renunță la cod
+                    </button>
+
+                    <button
+                      type="button"
+                      className={
+                        styles.quotePrimaryBtn
+                      }
+                      disabled={
+                        discountCodeChecking ||
+                        loading ||
+                        !discountCodeInput.trim()
+                      }
+                      onClick={onValidateDiscountCode}
+                    >
+                      {discountCodeChecking ? (
+                        <>
+                          <Loader2
+                            size={16}
+                            className={styles.spin}
+                          />
+                          Se verifică…
+                        </>
+                      ) : (
+                        "Verifică codul"
+                      )}
+                    </button>
+                  </div>
+
+                  {discountCodeError && (
+                    <div
+                      className={
+                        styles.quoteOfferError
+                      }
+                    >
+                      {discountCodeError}
+                    </div>
+                  )}
+
+                  {discountCodeApplied?.valid && (
+                    <div
+                      className={
+                        styles.quoteDeliveryInfo
+                      }
+                    >
+                      Cod aplicat: reducere de{" "}
+                      <strong>
+                        {discountCodeApplied.discountPercent}%
+                      </strong>{" "}
+                      pe prețul negociat.
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div
                 className={

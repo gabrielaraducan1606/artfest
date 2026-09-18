@@ -140,7 +140,7 @@ router.get("/me", authRequired, async (req, res) => {
       });
     }
 
-    const appOrigin = process.env.APP_ORIGIN || "https://artfest.ro";
+    const appOrigin = process.env.APP_ORIGIN || "https://www.artfest.ro";
 
     return res.json({
       referralCode: profile.referralCode,

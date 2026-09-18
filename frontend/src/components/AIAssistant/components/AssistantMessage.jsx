@@ -19,6 +19,12 @@ import {
 import SupportTicketList from "../Support/SupportTicketList.jsx";
 import SupportThread from "../Support/SupportThread.jsx";
 
+import {
+  fetchVendorQuoteOffers,
+} from "../quotes/quoteApi.js";
+import QuoteOfferFormFields from "../../../features/quotes/components/QuoteOfferFormFields.jsx";
+import { useVendorQuoteOfferSubmit } from "../../../features/quotes/hooks/useVendorQuoteOfferSubmit.js";
+
 /* =========================================================
    Configurare rute
 ========================================================= */
@@ -1527,6 +1533,259 @@ function InfluencerLiveDataMessage({ message, onChoice }) {
 }
 
 /* =========================================================
+   Card "Trimite ofertă" - Asistent Vendor
+
+   Reutilizează EXACT formularul din Messages.jsx
+   (QuoteOfferFormFields) - același API (createVendorQuoteOffer),
+   aceleași validări, același payload. Singura diferență e wrapper-ul
+   vizual: aici e un card compact, inline în chat, nu un modal
+   full-screen.
+
+   Sursa adevărului rămâne backend-ul: la montare, verificăm FRESH
+   dacă există deja o ofertă pentru această cerere (GET .../offers),
+   ca să nu arătăm un formular gol de parcă cererea n-ar avea deja
+   o ofertă trimisă (din Assistant SAU din Messages - nu contează
+   de unde).
+========================================================= */
+
+function VendorQuoteOfferFormCard({
+  quote,
+  quoteId,
+  handleChoice,
+}) {
+  const [
+    checkingExisting,
+    setCheckingExisting,
+  ] = useState(true);
+
+  const [
+    latestOffer,
+    setLatestOffer,
+  ] = useState(null);
+
+  const [
+    showForm,
+    setShowForm,
+  ] = useState(false);
+
+  const [
+    justSent,
+    setJustSent,
+  ] = useState(false);
+
+  const {
+    form,
+    setForm,
+    sending,
+    error,
+    setError,
+    submit,
+  } = useVendorQuoteOfferSubmit({
+    quoteId,
+    quantity: quote?.quantity,
+  });
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadLatestOffer() {
+      if (!quoteId) {
+        setCheckingExisting(false);
+        return;
+      }
+
+      try {
+        const result =
+          await fetchVendorQuoteOffers(
+            quoteId
+          );
+
+        const offers = Array.isArray(
+          result?.items
+        )
+          ? result.items
+          : Array.isArray(result)
+            ? result
+            : [];
+
+        if (!cancelled) {
+          setLatestOffer(
+            offers[0] || null
+          );
+        }
+      } catch {
+        /*
+         * Fail-open: dacă verificarea eșuează, lăsăm formularul
+         * disponibil (nu blocăm vendorul din cauza unei erori de
+         * rețea la o simplă verificare).
+         */
+      } finally {
+        if (!cancelled) {
+          setCheckingExisting(false);
+        }
+      }
+    }
+
+    loadLatestOffer();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [quoteId]);
+
+  const productTitle =
+    quote?.product?.title ||
+    "Produs personalizat";
+
+  const customerName =
+    [
+      quote?.user?.firstName,
+      quote?.user?.lastName,
+    ]
+      .filter(Boolean)
+      .join(" ") || "Client";
+
+  const quantity =
+    Number(quote?.quantity) || 0;
+
+  async function handleSubmit(
+    event
+  ) {
+    const ok = await submit(event);
+
+    if (ok) {
+      setJustSent(true);
+    }
+  }
+
+  if (justSent) {
+    return (
+      <div
+        className={`${styles["artfest-assistant-message"]} ${styles["artfest-assistant-message-bot"]}`}
+      >
+        <div>
+          <div
+            className={
+              styles.quoteSummaryCard
+            }
+          >
+            <strong>
+              Oferta a fost trimisă.
+            </strong>
+
+            <button
+              type="button"
+              className={
+                styles.quoteSecondaryButton
+              }
+              onClick={() =>
+                handleChoice({
+                  action:
+                    "reopen-vendor-quote-thread",
+
+                  quoteId,
+
+                  label:
+                    "Vezi conversația",
+                })
+              }
+            >
+              Vezi conversația
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`${styles["artfest-assistant-message"]} ${styles["artfest-assistant-message-bot"]}`}
+    >
+      <div>
+        <div
+          className={
+            styles.quoteSummaryCard
+          }
+        >
+          <div>
+            <strong>
+              Trimite ofertă
+            </strong>
+
+            <p>
+              {productTitle}
+              {quantity > 0
+                ? ` · ${quantity} buc.`
+                : ""}
+            </p>
+
+            <p>
+              Client: {customerName}
+            </p>
+          </div>
+
+          {checkingExisting ? (
+            <p>
+              Verific starea
+              cererii...
+            </p>
+          ) : latestOffer &&
+            !showForm ? (
+            <>
+              <p>
+                Ai trimis deja o
+                ofertă pentru
+                această cerere
+                (status:{" "}
+                {String(
+                  latestOffer.status ||
+                    ""
+                ).toLowerCase()}
+                ).
+              </p>
+
+              <button
+                type="button"
+                className={
+                  styles.quoteSecondaryButton
+                }
+                onClick={() =>
+                  setShowForm(true)
+                }
+              >
+                Trimite o ofertă
+                nouă
+              </button>
+            </>
+          ) : (
+            <QuoteOfferFormFields
+              quoteRequest={quote}
+              form={form}
+              setForm={setForm}
+              sending={sending}
+              error={error}
+              onSubmit={
+                handleSubmit
+              }
+              onCancel={() => {
+                setError("");
+
+                if (latestOffer) {
+                  setShowForm(
+                    false
+                  );
+                }
+              }}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
    Componentă principală
 ========================================================= */
 
@@ -2194,7 +2453,33 @@ export default function AssistantMessage({
   }
 
   /* =======================================================
-     Composer ofertă vendor
+     Card "Trimite ofertă" - Asistent Vendor
+
+     Adăugat de handleQuoteChoice (assistantQuotes.js) când
+     vendorul apasă "Trimite ofertă" pe quote-vendor-summary.
+     Formular EXACT ca în Messages.jsx (VendorQuoteOfferFormCard,
+     definit mai sus în acest fișier).
+  ======================================================= */
+
+  if (
+    message?.type ===
+    "quote-offer-form"
+  ) {
+    return (
+      <VendorQuoteOfferFormCard
+        quote={message?.quote || null}
+        quoteId={
+          message?.quoteId ||
+          message?.quote?.id ||
+          null
+        }
+        handleChoice={handleChoice}
+      />
+    );
+  }
+
+  /* =======================================================
+     Composer ofertă vendor (neutilizat - păstrat neatins)
 
      Acest tip va fi adăugat de AiAssistant.jsx
      când vendorul apasă "Trimite ofertă".

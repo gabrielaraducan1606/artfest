@@ -93,7 +93,7 @@ const SendNewsletterSchema = z.object({
 });
 // ========= helpers =========
 
-const APP_URL = process.env.APP_URL || "https://artfest.ro";
+const APP_URL = process.env.APP_URL || "https://www.artfest.ro";
 
 const API_URL = process.env.API_URL || "http://localhost:5000";
 

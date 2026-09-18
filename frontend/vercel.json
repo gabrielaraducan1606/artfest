@@ -62,6 +62,14 @@
       "destination": "https://artfest.onrender.com/anexa-produse"
     },
     {
+      "source": "/produs/:id",
+      "destination": "/api/seo-produs?id=:id"
+    },
+    {
+      "source": "/magazin/:slug",
+      "destination": "/api/seo-magazin?slug=:slug"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

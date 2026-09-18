@@ -1,6 +1,10 @@
 // src/payments/orchestrator.js
 import { prisma } from "../db.js";
 import { stripe } from "../lib/stripe.js";
+import {
+  assertOrderCardPaymentAllowed,
+  isVendorStripeReady,
+} from "./vendorStripeStatus.js";
 
 function getAppUrl() {
   return (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
@@ -9,6 +13,17 @@ function getAppUrl() {
 export async function createPaymentForOrder(
   order
 ) {
+  /*
+   * Protecție centrală, obligatorie pentru ORICE flux care
+   * inițiază o plată integrală CARD (creare comandă, retry
+   * payment, accept ofertă din assistant): nu presupunem că
+   * starea Stripe de la un moment anterior mai e valabilă -
+   * reverificăm vendorii comenzii chiar înainte de Stripe.
+   */
+  await assertOrderCardPaymentAllowed(
+    order.id
+  );
+
   const appUrl =
     getAppUrl();
 
@@ -306,25 +321,11 @@ export async function createDepositPaymentForShipment({
     );
   }
 
-  const stripeReady =
-    Boolean(
+  if (
+    !isVendorStripeReady(
       shipment.vendor
-        ?.stripeAccountId
-    ) &&
-    shipment.vendor
-      ?.stripeChargesEnabled ===
-      true &&
-    shipment.vendor
-      ?.stripePayoutsEnabled ===
-      true &&
-    shipment.vendor
-      ?.stripeDetailsSubmitted ===
-      true &&
-    shipment.vendor
-      ?.stripeConnectStatus ===
-      "enabled";
-
-  if (!stripeReady) {
+    )
+  ) {
     throw new Error(
       "stripe_not_active"
     );

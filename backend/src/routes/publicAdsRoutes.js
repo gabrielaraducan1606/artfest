@@ -18,10 +18,10 @@ router.get("/ads", async (req, res) => {
       id: "hero_top_1",
       title: "Promo ArtFest",
       image: {
-        desktop: "https://artfest.ro/banners/hero-desktop.jpg",
-        mobile: "https://artfest.ro/banners/hero-mobile.jpg",
+        desktop: "https://www.artfest.ro/banners/hero-desktop.jpg",
+        mobile: "https://www.artfest.ro/banners/hero-mobile.jpg",
       },
-      ctaUrl: "https://artfest.ro",
+      ctaUrl: "https://www.artfest.ro",
       ctaText: "Vezi →",
       weight: 1,
       startAt: null,

@@ -52,6 +52,27 @@ import {
   MagicIcon,
 } from "../../../components/AIAssistant/Personalization/PersonalizationIcons.jsx";
 
+const PRODUCT_CANONICAL_BASE_URL = "https://www.artfest.ro";
+
+/*
+ * Calcul unic al canonicalului pentru pagina de produs: ignoră orice
+ * query string/hash din URL-ul curent (tracking, variante, ref-uri de
+ * influencer etc.) și produce mereu aceeași adresă "curată" pentru un
+ * dat id de produs, indiferent pe ce variantă de URL a ajuns userul.
+ */
+function buildProductCanonicalUrl(rawProductId) {
+  // idCanonical = doar segmentul de path; taie orice ?querystring
+  // (tracking/ref/sort) sau #hash ajunse accidental în valoare -
+  // useParams() nu le include, dar tăierea explicită nu se bazează
+  // pe presupunerea asta.
+  const idCanonical =
+    rawProductId != null ? String(rawProductId).split(/[?#]/)[0].trim() : "";
+
+  return idCanonical
+    ? `${PRODUCT_CANONICAL_BASE_URL}/produs/${encodeURIComponent(idCanonical)}`
+    : `${PRODUCT_CANONICAL_BASE_URL}/produse`;
+}
+
 const ReviewsSection = lazy(() => import("./ReviewSection/ReviewSection"));
 const CommentsSection = lazy(() => import("./CommentSection/CommentSection"));
 const ProductModal = lazy(() =>
@@ -2657,9 +2678,17 @@ useEffect(() => {
   product?.vendor?.displayName ||
   "Artfest";
 
-const productUrl = product?.id
-  ? `https://www.artfest.ro/produs/${product.id}`
-  : "https://www.artfest.ro/produse";
+/*
+ * BUGFIX (SEO/canonical) - canonicalul trebuie calculat din id-ul de
+ * rută (disponibil instant din useParams), NU din `product?.id`.
+ * `product` e null cât timp fetch-ul e în curs, iar fallback-ul vechi
+ * ("/produse") făcea ca paginile de produs să emită temporar, la
+ * primul render, canonical către pagina de listare - exact semnalul
+ * inconsistent pe care Google îl ignoră și raportează ca "Duplicată
+ * fără pagină canonică selectată de utilizator". `id` din rută rămâne
+ * stabil indiferent de ce query params/variante ajung în URL.
+ */
+const productUrl = buildProductCanonicalUrl(id || product?.id);
 
 const seoTitle = useMemo(() => {
   if (!product?.title) {
@@ -3473,12 +3502,28 @@ const uploadCustomizationFile = useCallback(
   );
 
   if (loading) {
-    return <ProductDetailsSkeleton preview={productSummary} />;
+    /*
+     * BUGFIX (SEO/canonical) - canonicalul trebuie să existe din
+     * primul render, nu doar după ce se termină fetch-ul de produs.
+     * productUrl e deja corect aici (calculat din id-ul de rută).
+     * NU trimitem title/description aici: ar suprascrie cu valori
+     * generice (product încă null) titlul/descrierea corecte deja
+     * prezente în HTML dacă pagina a fost servită prin injecția
+     * server-side din api/seo-produs.js (SeoProvider nu mai
+     * suprascrie cu default-uri când title/description lipsesc).
+     */
+    return (
+      <>
+        <SEO canonical={productUrl} url={productUrl} />
+        <ProductDetailsSkeleton preview={productSummary} />
+      </>
+    );
   }
 
   if (error || !product) {
     return (
       <div className={styles.pageWrap}>
+        <SEO canonical={productUrl} url={productUrl} />
         <p>{error || "Produsul nu a fost găsit."}</p>
         <button
           className={styles.linkBtn}

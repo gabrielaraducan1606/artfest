@@ -27,6 +27,39 @@ import {
   createPaymentForOrder,
 } from "../../../payments/orchestrator.js";
 
+import {
+  isVendorStripeReady,
+  VENDOR_STRIPE_STATUS_SELECT,
+  CardPaymentUnavailableError,
+} from "../../../payments/vendorStripeStatus.js";
+
+import {
+  resolveInfluencerAttribution,
+  resolveInfluencerAttributionByInfluencerId,
+} from "../../../services/influencerAttribution.js";
+
+import {
+  resolveVendorReferralAttribution,
+  resolveVendorReferralAttributionByVendorId,
+  resolveVendorCollectionAttribution,
+} from "../../../services/vendorAttribution.js";
+
+import {
+  validateDiscountCode,
+  redeemDiscountCode,
+} from "../../../services/discountCodeValidation.js";
+
+import {
+  buildQuoteAttributionSnapshot,
+  resolvePassiveAttributionFromSnapshot,
+} from "../../../services/quoteAttribution.js";
+
+import {
+  resolveShipmentPromoter,
+  buildShipmentAttributionFields,
+  resolveEffectiveRefVendorAttribution,
+} from "../../chekoutRoutes.js";
+
 const router = Router();
 
 /*
@@ -225,6 +258,9 @@ router.post(
         deliveryDeadline,
         budgetMin,
         budgetMax,
+        influencerAttribution,
+        vendorReferralAttribution,
+        vendorCollectionAttribution,
       } = req.body || {};
 
       /* =====================================================
@@ -682,6 +718,71 @@ router.post(
       }
 
       /* =====================================================
+         ATTRIBUTION SNAPSHOT
+
+         Rezolvat o singură dată, ACUM, la crearea cererii -
+         înghețat în requestData.attributionSnapshot. Nu se mai
+         reevaluează niciodată mai târziu (nici la acceptare, nici
+         dacă produsul intră/iese ulterior dintr-o VendorCollection).
+
+         Reutilizează STRICT helperii din checkout - fără motor nou.
+      ===================================================== */
+
+      const [
+        influencerAttributionResolved,
+        vendorReferralAttributionResolved,
+        vendorCollectionAttributionResolved,
+      ] = await Promise.all([
+        resolveInfluencerAttribution({
+          token: influencerAttribution,
+        }),
+        resolveVendorReferralAttribution({
+          token: vendorReferralAttribution,
+        }),
+        resolveVendorCollectionAttribution({
+          token: vendorCollectionAttribution,
+        }),
+      ]);
+
+      let vendorCollectionProductWasMember = false;
+
+      if (
+        vendorCollectionAttributionResolved &&
+        resolvedProductId
+      ) {
+        const membership =
+          await prisma.vendorCollectionItem.findFirst({
+            where: {
+              collectionId:
+                vendorCollectionAttributionResolved.collectionId,
+
+              productId: resolvedProductId,
+            },
+
+            select: { productId: true },
+          });
+
+        vendorCollectionProductWasMember = Boolean(membership);
+      }
+
+      const effectiveVendorAttribution =
+        resolveEffectiveRefVendorAttribution({
+          refVendorAttribution: vendorReferralAttributionResolved,
+          refCollectionAttribution: vendorCollectionAttributionResolved,
+          shipmentVendorId: resolvedVendorId,
+          shipmentEligibleByCollectionMembership:
+            vendorCollectionProductWasMember,
+        });
+
+      const attributionSnapshot = buildQuoteAttributionSnapshot({
+        influencerAttribution: influencerAttributionResolved,
+        vendorReferralAttribution: vendorReferralAttributionResolved,
+        vendorCollectionAttribution: vendorCollectionAttributionResolved,
+        vendorCollectionProductWasMember,
+        effectiveVendorAttribution,
+      });
+
+      /* =====================================================
          UTILIZATOR
       ===================================================== */
 
@@ -778,8 +879,10 @@ router.post(
                     quantity:
                       normalizedQuantity,
 
-                    requestData:
-                      normalizedRequestData,
+                    requestData: {
+                      ...normalizedRequestData,
+                      attributionSnapshot,
+                    },
 
                     quoteSchemaAnswers:
                       normalizedQuoteAnswers,
@@ -1796,6 +1899,124 @@ router.patch(
     }
   }
 );
+
+/* =========================================================
+   POST /api/assistant/quotes/:id/offers/:offerId/discount-code/validate
+
+   Preview - NU consumă codul (usedCount neschimbat), doar verifică
+   valabilitatea/eligibilitatea și reducerea rezultată, peste prețul
+   NEGOCIAT din ofertă (offer.items[].unitPrice - deja fără nicio
+   promoție automată, vezi buildPromotionalOfferItem).
+
+   Motorul EXISTENT (discountCodeValidation.js) - fără duplicare.
+========================================================= */
+
+router.post(
+  "/:id/offers/:offerId/discount-code/validate",
+
+  async (req, res) => {
+    try {
+      const userId = req.user.sub;
+
+      const quoteId = String(req.params.id || "").trim();
+      const offerId = String(req.params.offerId || "").trim();
+      const code = String(req.body?.discountCode || "").trim();
+
+      if (!quoteId || !offerId) {
+        return res.status(400).json({
+          error: "missing_quote_or_offer_id",
+          message: "Cererea sau oferta nu a putut fi identificată.",
+        });
+      }
+
+      if (!code) {
+        return res.status(400).json({
+          error: "code_required",
+          message: "Introdu un cod de reducere.",
+        });
+      }
+
+      const quote = await prisma.quoteRequest.findFirst({
+        where: { id: quoteId, userId },
+        select: {
+          vendorId: true,
+          offers: {
+            where: { id: offerId },
+            select: {
+              id: true,
+              status: true,
+              items: true,
+              currency: true,
+            },
+            take: 1,
+          },
+        },
+      });
+
+      const offer = quote?.offers?.[0] || null;
+
+      if (!quote || !offer) {
+        return res.status(404).json({
+          error: "quote_offer_not_found",
+          message: "Oferta nu a fost găsită.",
+        });
+      }
+
+      if (offer.status !== "SENT") {
+        return res.status(409).json({
+          error: "offer_not_acceptable",
+          message: "Această ofertă nu mai poate fi acceptată.",
+        });
+      }
+
+      const rawItems = Array.isArray(offer.items) ? offer.items : [];
+
+      const cartItems = rawItems
+        .filter((it) => it?.productId)
+        .map((it) => ({
+          product: {
+            id: it.productId,
+            priceCents: Math.round(Number(it.unitPrice || 0) * 100),
+            service: { vendorId: quote.vendorId },
+          },
+          qty: Math.max(1, Number.parseInt(it.quantity ?? 1, 10) || 1),
+        }));
+
+      const validation = await validateDiscountCode({
+        code,
+        cartItems,
+        currency: String(offer.currency || "RON").trim().toUpperCase(),
+        userId,
+        customerEmail: null,
+      });
+
+      if (!validation.valid) {
+        return res.status(409).json({
+          valid: false,
+          error: validation.error,
+          message: validation.message,
+        });
+      }
+
+      return res.json({
+        valid: true,
+        discountPercent: Math.round(validation.effectiveDiscountPercent),
+        estimatedDiscountAmountCents: validation.estimatedDiscountAmountCents,
+      });
+    } catch (error) {
+      console.error(
+        "POST discount-code/validate (quote) failed:",
+        error
+      );
+
+      return res.status(500).json({
+        error: "discount_code_validate_failed",
+        message: "Nu am putut valida codul de reducere.",
+      });
+    }
+  }
+);
+
 /* =========================================================
    POST /api/assistant/quotes/:id/offers/:offerId/accept
 
@@ -2349,6 +2570,48 @@ router.post(
 
       /*
        * =====================================================
+       * CARD — VERIFICARE STRIPE VENDOR
+       * =====================================================
+       *
+       * Nu creăm comanda dacă vendorul ofertei nu (mai) este
+       * Stripe-ready - clientul primește un mesaj clar și poate
+       * relua acceptarea ofertei cu plata ramburs (COD).
+       */
+      if (
+        paymentMethod ===
+        "CARD"
+      ) {
+        const quoteVendor =
+          await prisma.vendor.findUnique({
+            where: {
+              id:
+                quote.vendorId,
+            },
+
+            select:
+              VENDOR_STRIPE_STATUS_SELECT,
+          });
+
+        if (
+          !quoteVendor ||
+          !isVendorStripeReady(
+            quoteVendor
+          )
+        ) {
+          return res
+            .status(400)
+            .json({
+              error:
+                "vendor_stripe_not_active",
+
+              message:
+                "Plata online nu este disponibilă momentan pentru acest magazin. Te rugăm să alegi plata ramburs.",
+            });
+        }
+      }
+
+      /*
+       * =====================================================
        * DATE OFERTĂ + SNAPSHOT PROMOȚIE
        * =====================================================
        */
@@ -2732,6 +2995,208 @@ router.post(
             ),
         });
       }
+
+      /*
+       * =====================================================
+       * COD DE REDUCERE EXPLICIT (opțional, introdus la acceptare)
+       *
+       * Motorul EXISTENT (discountCodeValidation.js) - fără
+       * validare paralelă. Reducerea se aplică STRICT peste prețul
+       * NEGOCIAT din ofertă (item.finalUnitPrice, deja fără nicio
+       * promoție automată - vezi buildPromotionalOfferItem din
+       * vendorQuotesRoutes.js). Fail-CLOSED, ca la checkout: un cod
+       * introdus explicit și devenit invalid oprește acceptarea cu
+       * eroare clară, nu e ignorat silențios.
+       * =====================================================
+       */
+
+      const rawDiscountCode =
+        String(
+          req.body?.discountCode || ""
+        ).trim();
+
+      let discountCodeValidationForAccept = null;
+      let discountCodeInfluencerAttribution = null;
+      let discountCodeVendorAttribution = null;
+      let discountCodeCollectionSlugForOffer = null;
+      let discountCodeTotalAmountCents = 0;
+
+      if (rawDiscountCode) {
+        const discountCartItems = offerItems.map((item) => ({
+          product: {
+            id: item.productId,
+            priceCents: Math.round(item.finalUnitPrice * 100),
+            service: { vendorId: quote.vendorId },
+          },
+          qty: item.quantity,
+        }));
+
+        discountCodeValidationForAccept = await validateDiscountCode({
+          code: rawDiscountCode,
+          cartItems: discountCartItems,
+          currency:
+            String(offer.currency || "RON").trim().toUpperCase(),
+          userId,
+          customerEmail: null,
+        });
+
+        if (!discountCodeValidationForAccept.valid) {
+          return res.status(409).json({
+            error: discountCodeValidationForAccept.error,
+            message: discountCodeValidationForAccept.message,
+            discountCodeInvalid: true,
+          });
+        }
+
+        const {
+          discountCode,
+          eligibleProductIds,
+          effectiveDiscountPercent,
+        } = discountCodeValidationForAccept;
+
+        const eligibleItems = offerItems.filter(
+          (item) =>
+            item.productId && eligibleProductIds.has(item.productId)
+        );
+
+        const eligibleSubtotalCents = eligibleItems.reduce(
+          (sum, item) =>
+            sum + Math.round(item.finalUnitPrice * 100) * item.quantity,
+          0
+        );
+
+        const totalDiscountCents = Math.round(
+          (eligibleSubtotalCents * effectiveDiscountPercent) / 100
+        );
+
+        let remainingDiscountCents = totalDiscountCents;
+
+        eligibleItems.forEach((item, index) => {
+          const itemLineCents =
+            Math.round(item.finalUnitPrice * 100) * item.quantity;
+
+          const isLast = index === eligibleItems.length - 1;
+
+          const itemDiscountCents = isLast
+            ? remainingDiscountCents
+            : Math.min(
+                remainingDiscountCents,
+                Math.round(
+                  (itemLineCents / eligibleSubtotalCents) *
+                    totalDiscountCents
+                )
+              );
+
+          remainingDiscountCents -= itemDiscountCents;
+
+          const newLineTotal = (itemLineCents - itemDiscountCents) / 100;
+
+          item.originalUnitPrice = item.finalUnitPrice;
+          item.originalLineTotal = item.finalLineTotal;
+
+          item.finalLineTotal =
+            Math.round(newLineTotal * 100) / 100;
+
+          item.finalUnitPrice =
+            Math.round((newLineTotal / item.quantity) * 100) / 100;
+
+          item.discountAmount =
+            Math.round(
+              (item.originalLineTotal - item.finalLineTotal) * 100
+            ) / 100;
+
+          item.discountSource = "DISCOUNT_CODE";
+          item.discountCodePercent = Math.round(effectiveDiscountPercent);
+          item.discountCodeId = discountCode.id;
+          item.discountCodeText = discountCode.code;
+          item.discountCodeFundingSource = discountCode.fundingSource;
+          item.discountCodeAmount = item.discountAmount;
+        });
+
+        discountCodeTotalAmountCents = totalDiscountCents;
+
+        if (discountCode.influencerId) {
+          discountCodeInfluencerAttribution =
+            await resolveInfluencerAttributionByInfluencerId({
+              influencerId: discountCode.influencerId,
+            });
+        }
+
+        if (discountCode.vendorId) {
+          discountCodeVendorAttribution =
+            await resolveVendorReferralAttributionByVendorId({
+              vendorId: discountCode.vendorId,
+            });
+        }
+
+        if (
+          discountCode.scope === "VENDOR_COLLECTION" &&
+          discountCode.vendorCollectionId
+        ) {
+          discountCodeCollectionSlugForOffer =
+            (
+              await prisma.vendorCollection.findUnique({
+                where: { id: discountCode.vendorCollectionId },
+                select: { slug: true },
+              })
+            )?.slug || null;
+        }
+      }
+
+      /*
+       * =====================================================
+       * ATTRIBUTION -> SHIPMENT
+
+         Traduce attributionSnapshot-ul înghețat la crearea cererii
+         (QuoteRequest.requestData.attributionSnapshot) în câmpurile
+         de Shipment, prin helperii CANONICI din checkout - fără
+         nicio revalidare de token (dacă attribution-ul era valid
+         la crearea cererii, rămâne valid la acceptare). Codul de
+         reducere explicit, dacă e legat de un influencer/vendor,
+         are prioritate - regulă structurală identică cu checkout,
+         garantată de resolveShipmentPromoter.
+       * =====================================================
+       */
+
+      const {
+        refInfluencerAttribution,
+        refVendorAttribution,
+      } = resolvePassiveAttributionFromSnapshot(
+        quote.requestData?.attributionSnapshot || null
+      );
+
+      const shipmentWonByDiscountCode = offerItems.some(
+        (item) => item.discountSource === "DISCOUNT_CODE"
+      );
+
+      const discountCodeEligibleProductIds =
+        discountCodeValidationForAccept?.eligibleProductIds || null;
+
+      const shipmentEligibleForVendorAttributionByDiscountCode =
+        Boolean(discountCodeVendorAttribution) &&
+        Boolean(discountCodeEligibleProductIds?.size);
+
+      const shipmentEligibleForInfluencerByDiscountCode =
+        Boolean(discountCodeInfluencerAttribution) &&
+        Boolean(discountCodeEligibleProductIds?.size);
+
+      const shipmentPromoter = resolveShipmentPromoter({
+        shipmentWonByDiscountCode,
+        shipmentEligibleForVendorAttributionByDiscountCode,
+        shipmentEligibleForInfluencerByDiscountCode,
+        discountCodeInfluencerAttribution,
+        discountCodeVendorAttribution,
+        refInfluencerAttribution,
+        refVendorAttribution,
+      });
+
+      const shipmentAttributionFields = buildShipmentAttributionFields({
+        promoter: shipmentPromoter,
+        shipmentVendorId: quote.vendorId,
+        discountCodeScope:
+          discountCodeValidationForAccept?.discountCode?.scope || null,
+        discountCodeCollectionSlug: discountCodeCollectionSlugForOffer,
+      });
 
       /*
        * =====================================================
@@ -3133,6 +3598,8 @@ router.post(
                   price:
                     normalizedShippingTotal,
 
+                  ...shipmentAttributionFields,
+
                   items: {
                     create:
                       offerItems.map(
@@ -3184,6 +3651,21 @@ router.post(
                           discountSource:
                             item.discountSource,
 
+                          discountCodeId:
+                            item.discountCodeId || null,
+
+                          discountCodeText:
+                            item.discountCodeText || null,
+
+                          discountCodePercent:
+                            item.discountCodePercent ?? null,
+
+                          discountCodeAmount:
+                            item.discountCodeAmount ?? null,
+
+                          discountCodeFundingSource:
+                            item.discountCodeFundingSource || null,
+
                           customAnswers:
                             item.customAnswers,
 
@@ -3202,6 +3684,37 @@ router.post(
                     true,
                 },
               });
+
+            /*
+             * =================================================
+             * CONSUMARE COD DE REDUCERE
+             *
+             * Un cod VALID care nu a câștigat totuși nicio reducere
+             * reală (0 produse eligibile ajunse să câștige) nu e
+             * considerat "folosit" - mirror exact al regulii din
+             * checkout (chekoutRoutes.js).
+             * =================================================
+             */
+
+            if (
+              discountCodeValidationForAccept?.valid &&
+              shipmentWonByDiscountCode
+            ) {
+              await redeemDiscountCode({
+                db: tx,
+                discountCodeId:
+                  discountCodeValidationForAccept.discountCode.id,
+                usageLimit:
+                  discountCodeValidationForAccept.discountCode.usageLimit,
+                usageLimitPerUser:
+                  discountCodeValidationForAccept.discountCode
+                    .usageLimitPerUser,
+                orderId: order.id,
+                userId,
+                customerEmail: null,
+                discountAmountCents: discountCodeTotalAmountCents,
+              });
+            }
 
             /*
              * =================================================
@@ -3754,6 +4267,30 @@ router.post(
             "Eroare la inițierea plății pentru comanda din ofertă:",
             paymentError
           );
+
+          if (
+            paymentError instanceof
+            CardPaymentUnavailableError
+          ) {
+            return res
+              .status(
+                paymentError.status ||
+                  400
+              )
+              .json({
+                error:
+                  paymentError.code,
+
+                message:
+                  paymentError.message,
+
+                orderId:
+                  result.orderId,
+
+                orderNumber:
+                  result.orderNumber,
+              });
+          }
 
           /*
            * Comanda există deja.

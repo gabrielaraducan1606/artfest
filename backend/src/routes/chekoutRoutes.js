@@ -8,6 +8,12 @@ import {
 } from "../lib/mailer.js";
 import { createPaymentForOrder } from "../payments/orchestrator.js";
 import {
+  isVendorStripeReady,
+  computeCardPaymentAvailability,
+  CardPaymentUnavailableError,
+  VENDOR_STRIPE_STATUS_SELECT,
+} from "../payments/vendorStripeStatus.js";
+import {
   createVendorNotification,
   notifyVendorOnProductSoldOut,
   notifyInfluencerPayoutProfileIncomplete,
@@ -1481,6 +1487,8 @@ router.get(
           groups: [],
           currency: "RON",
           subtotal: 0,
+          cardPaymentAvailable: true,
+          cardPaymentUnavailableReason: null,
         });
       }
 
@@ -1500,6 +1508,20 @@ router.get(
             .map(String)
         ),
       ];
+
+      /*
+       * Info NON-sensibilă pentru frontend: doar un boolean derivat,
+       * niciun detaliu intern despre contul Stripe al vendorului.
+       */
+      const summaryVendorsStripeStatus =
+        await prisma.vendor.findMany({
+          where: { id: { in: summaryVendorIds } },
+          select: VENDOR_STRIPE_STATUS_SELECT,
+        });
+
+      const summaryCardPaymentAvailable =
+        summaryVendorsStripeStatus.length === summaryVendorIds.length &&
+        computeCardPaymentAvailability(summaryVendorsStripeStatus);
 
       const summaryCampaignAttribution =
         parseCampaignAttributionQuery(
@@ -1911,6 +1933,10 @@ router.get(
               summaryDiscountCodeValidation
             )
           : null,
+        cardPaymentAvailable: summaryCardPaymentAvailable,
+        cardPaymentUnavailableReason: summaryCardPaymentAvailable
+          ? null
+          : "Plata cu cardul nu este disponibilă pentru unul dintre magazinele din comandă.",
       });
     } catch (error) {
       console.error(
@@ -1947,6 +1973,8 @@ router.post(
           groups: [],
           currency: "RON",
           subtotal: 0,
+          cardPaymentAvailable: true,
+          cardPaymentUnavailableReason: null,
         });
       }
 
@@ -1966,6 +1994,16 @@ router.post(
             .map(String)
         ),
       ];
+
+      const guestSummaryVendorsStripeStatus =
+        await prisma.vendor.findMany({
+          where: { id: { in: guestSummaryVendorIds } },
+          select: VENDOR_STRIPE_STATUS_SELECT,
+        });
+
+      const guestSummaryCardPaymentAvailable =
+        guestSummaryVendorsStripeStatus.length === guestSummaryVendorIds.length &&
+        computeCardPaymentAvailability(guestSummaryVendorsStripeStatus);
 
       const guestSummaryCampaignAttributionsByVendorId =
         await resolveVendorCampaignAttributions({
@@ -2407,6 +2445,10 @@ router.post(
               guestSummaryDiscountCodeValidation
             )
           : null,
+        cardPaymentAvailable: guestSummaryCardPaymentAvailable,
+        cardPaymentUnavailableReason: guestSummaryCardPaymentAvailable
+          ? null
+          : "Plata cu cardul nu este disponibilă pentru unul dintre magazinele din comandă.",
       });
     } catch (error) {
       console.error(
@@ -3073,22 +3115,9 @@ if (pm === "CARD") {
   }
 
   const unavailableVendor =
-    vendors.find((vendor) => {
-      const stripeReady =
-        Boolean(
-          vendor.stripeAccountId
-        ) &&
-        vendor.stripeChargesEnabled ===
-          true &&
-        vendor.stripePayoutsEnabled ===
-          true &&
-        vendor.stripeDetailsSubmitted ===
-          true &&
-        vendor.stripeConnectStatus ===
-          "enabled";
-
-      return !stripeReady;
-    });
+    vendors.find(
+      (vendor) => !isVendorStripeReady(vendor)
+    );
 
   if (unavailableVendor) {
     return res.status(400).json({
@@ -3694,6 +3723,15 @@ if (
     } catch (err) {
       console.error("Eroare la inițierea plății pentru comandă:", err);
 
+      if (err instanceof CardPaymentUnavailableError) {
+        return res.status(err.status || 400).json({
+          error: err.code,
+          message: err.message,
+          orderId: created.id,
+          orderNumber: created.orderNumber,
+        });
+      }
+
       return res.status(500).json({
         error: "payment_init_failed",
         message: "Comanda a fost creată, dar inițierea plății a eșuat.",
@@ -4119,16 +4157,7 @@ if (pm === "CARD") {
   }
 
   const unavailableVendor = vendors.find(
-    (vendor) => {
-      const stripeReady =
-        Boolean(vendor.stripeAccountId) &&
-        vendor.stripeChargesEnabled === true &&
-        vendor.stripePayoutsEnabled === true &&
-        vendor.stripeDetailsSubmitted === true &&
-        vendor.stripeConnectStatus === "enabled";
-
-      return !stripeReady;
-    }
+    (vendor) => !isVendorStripeReady(vendor)
   );
 
   if (unavailableVendor) {
@@ -4993,6 +5022,16 @@ try {
     "Eroare la inițierea plății guest:",
     paymentError
   );
+
+  if (paymentError instanceof CardPaymentUnavailableError) {
+    return res.status(paymentError.status || 400).json({
+      error: paymentError.code,
+      message: paymentError.message,
+      orderId: created.id,
+      orderNumber: created.orderNumber,
+      guestAccessToken: guestAccess.token,
+    });
+  }
 
   return res.status(500).json({
     error:

@@ -28,8 +28,8 @@ export async function notifyFollowersOnNewProduct(serviceId, product) {
 
   if (!followers.length) return;
 
-  const productUrl = `${process.env.APP_ORIGIN || "https://artfest.ro"}/produs/${product.id}`;
-  const shopUrl = `${process.env.APP_ORIGIN || "https://artfest.ro"}/magazin/${service.profile?.slug || service.id}`;
+  const productUrl = `${process.env.APP_ORIGIN || "https://www.artfest.ro"}/produs/${product.id}`;
+  const shopUrl = `${process.env.APP_ORIGIN || "https://www.artfest.ro"}/magazin/${service.profile?.slug || service.id}`;
 
   // 3) inserăm notificări în tabelul Notification
   const notificationsData = followers

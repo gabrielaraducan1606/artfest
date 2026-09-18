@@ -8,7 +8,7 @@ const router = Router();
 const FRONTEND_URL = (
   process.env.FRONTEND_URL ||
   process.env.APP_URL ||
-  "https://artfest.ro"
+  "https://www.artfest.ro"
 ).replace(/\/+$/, "");
 
 /**

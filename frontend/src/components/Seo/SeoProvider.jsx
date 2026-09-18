@@ -123,9 +123,31 @@ export function SEO({
 
     const inserted = [];
 
+    /*
+     * BUGFIX (SEO/SSR) - elimină JSON-LD injectat server-side de
+     * funcțiile Vercel /api/seo-produs și /api/seo-magazin (marcat
+     * cu data-seo-ssr-jsonld, vezi api/_lib/htmlHead.js), înainte să
+     * adăugăm eventualul JSON-LD al randării curente. Fără asta,
+     * pagina ar ajunge cu Product/Organization duplicat în <head>
+     * (unul din HTML-ul brut, unul adăugat de React).
+     */
+    document
+      .querySelectorAll("script[data-seo-ssr-jsonld]")
+      .forEach((el) => el.remove());
+
+    /*
+     * Dacă title/description nu sunt trimise explicit (ex. paginile
+     * de produs/magazin randează <SEO> și în starea de "loading",
+     * doar cu canonical - vezi ProductDetails.jsx/ProfilMagazin.jsx),
+     * NU mai suprascriem cu default-ul generic al site-ului: lăsăm
+     * neatins ce există deja, fie titlul/descrierea corecte injectate
+     * server-side pentru boți, fie cele ale paginii anterioare într-o
+     * navigare SPA. Niciun apel curent nu se baza pe fallback-ul vechi
+     * (toate paginile care randează <SEO> trimit deja title/description).
+     */
     const pageTitle = title
       ? (ctx.titleTemplate || "%s").replace("%s", title)
-      : ctx.defaultTitle || "Artfest";
+      : null;
 
     // <title>
     if (pageTitle) {
@@ -139,7 +161,7 @@ export function SEO({
     }
 
     // description
-    const metaDescription = description ?? ctx.defaultDescription ?? "";
+    const metaDescription = description ?? "";
     if (metaDescription) {
       inserted.push(upsertMeta("name", "description", metaDescription));
     }
@@ -150,7 +172,7 @@ export function SEO({
       upsertMeta("property", "og:site_name", ctx.siteName || "Artfest")
     );
     if (url) inserted.push(upsertMeta("property", "og:url", url));
-    inserted.push(upsertMeta("property", "og:title", pageTitle));
+    if (pageTitle) inserted.push(upsertMeta("property", "og:title", pageTitle));
     if (metaDescription)
       inserted.push(
         upsertMeta("property", "og:description", metaDescription)
@@ -166,7 +188,8 @@ export function SEO({
     if (ctx.twitterSite) {
       inserted.push(upsertMeta("name", "twitter:site", ctx.twitterSite));
     }
-    inserted.push(upsertMeta("name", "twitter:title", pageTitle));
+    if (pageTitle)
+      inserted.push(upsertMeta("name", "twitter:title", pageTitle));
     if (metaDescription)
       inserted.push(
         upsertMeta("name", "twitter:description", metaDescription)

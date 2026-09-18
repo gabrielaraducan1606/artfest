@@ -10,6 +10,9 @@ import { ChevronLeft, Send, Loader2 } from "lucide-react";
 import { useThreadMessages } from "../hooks/useThreadMessages";
 import { useMessageSend } from "../hooks/useMessageSend";
 import MessageBubble from "./MessageBubble";
+import QuoteRequestPanel from "../../quotes/components/QuoteRequestPanel.jsx";
+import QuoteOfferFormFields from "../../quotes/components/QuoteOfferFormFields.jsx";
+import { useVendorQuoteOfferSubmit } from "../../quotes/hooks/useVendorQuoteOfferSubmit.js";
 import styles from "./MiniMessages.module.css";
 
 // scrollTop per thread, la nivel de modul (nu React state) - supraviețuiește
@@ -30,12 +33,62 @@ export default function MiniThread({ threadId, isVendor, onBack, onOpenFull }) {
     setMsgs,
     reload,
     threadMeta,
+    quoteRequest,
   } = useThreadMessages(threadId, {
     buildEndpoint,
-    includeQuoteRequest: false,
+    // QuoteRequest există doar pe conversațiile client -> vendor
+    // (/api/inbox/threads/:id, exact ce citește și Messages.jsx în
+    // modul "customer") - la fel ca acolo, nu are sens pe threads
+    // vendor-to-vendor (/api/inbox/vendor-threads/...).
+    includeQuoteRequest: isVendor,
   });
 
   const [text, setText] = useState("");
+
+  const [offerOpen, setOfferOpen] = useState(false);
+
+  /*
+   * Regulă de eligibilitate IDENTICĂ cu canSendQuoteOffer din
+   * Messages.jsx (Vendor) - nicio regulă de business nouă, doar
+   * copiată 1:1, ca butonul "Trimite ofertă" să apară exact în
+   * aceleași condiții ca pe pagina completă.
+   */
+  const latestOffer = Array.isArray(quoteRequest?.offers)
+    ? quoteRequest.offers[0] || null
+    : null;
+
+  const canSendOffer =
+    isVendor &&
+    Boolean(quoteRequest?.id) &&
+    !quoteRequest?.orderId &&
+    !["ACCEPTED", "CANCELLED", "EXPIRED"].includes(
+      String(quoteRequest?.status || "").trim().toUpperCase()
+    );
+
+  const {
+    form: offerForm,
+    setForm: setOfferForm,
+    sending: offerSending,
+    error: offerError,
+    setError: setOfferError,
+    submit: submitOffer,
+  } = useVendorQuoteOfferSubmit({
+    quoteId: quoteRequest?.id,
+    quantity: quoteRequest?.quantity,
+  });
+
+  async function handleSubmitOffer(event) {
+    const ok = await submitOffer(event);
+
+    if (ok) {
+      setOfferOpen(false);
+      // Sursa adevărului rămâne backend-ul - reîncărcăm thread-ul
+      // (același cache/URL ca pagina completă Messages), ca
+      // quoteRequest.offers să reflecte imediat oferta nou trimisă,
+      // peste tot unde e deschis acest thread.
+      await reload();
+    }
+  }
 
   const { sending, send, retryMessage } = useMessageSend({
     threadId,
@@ -108,6 +161,33 @@ export default function MiniThread({ threadId, isVendor, onBack, onOpenFull }) {
       </div>
 
       <div className={styles.threadBody} ref={listRef}>
+        {quoteRequest && (
+          <QuoteRequestPanel
+            quoteRequest={quoteRequest}
+            latestOffer={latestOffer}
+            canSendOffer={canSendOffer && !offerOpen}
+            onOpenOffer={() => {
+              setOfferError("");
+              setOfferOpen(true);
+            }}
+          />
+        )}
+
+        {quoteRequest && offerOpen && (
+          <QuoteOfferFormFields
+            quoteRequest={quoteRequest}
+            form={offerForm}
+            setForm={setOfferForm}
+            sending={offerSending}
+            error={offerError}
+            onSubmit={handleSubmitOffer}
+            onCancel={() => {
+              setOfferError("");
+              setOfferOpen(false);
+            }}
+          />
+        )}
+
         {loading && !msgs.length && <div className={styles.empty}>Se încarcă…</div>}
 
         {msgs.map((m) => (

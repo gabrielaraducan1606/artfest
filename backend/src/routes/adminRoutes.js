@@ -468,7 +468,7 @@ router.get("/users", async (_req, res) => {
 
 router.get("/vendors", async (_req, res) => {
   try {
-    const basePublicUrl = APP_URL || "https://artfest.ro";
+    const basePublicUrl = APP_URL || "https://www.artfest.ro";
 
     const activePolicies = await prisma.vendorPolicy.findMany({
       where: { isActive: true, isRequired: true },

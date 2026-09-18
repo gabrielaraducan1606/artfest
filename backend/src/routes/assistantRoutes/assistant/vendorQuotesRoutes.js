@@ -285,8 +285,18 @@ function centsToMoney(
  * Construiește snapshot-ul financiar
  * al unui element din ofertă.
  *
- * offeredUnitPrice reprezintă prețul
- * introdus de vendor înainte de promoție.
+ * offeredUnitPrice reprezintă prețul NEGOCIAT
+ * final introdus de vendor - regulă de business
+ * explicită (flow QuoteOffer): Product of Day /
+ * Artisan of Week / VendorCollection discount /
+ * homepage promotion NU se mai aplică automat
+ * peste el, spre deosebire de checkout normal.
+ * unitPrice === originalUnitPrice ÎNTOTDEAUNA aici.
+ *
+ * `promotionInsight` e informativ (analytics/UI) -
+ * ce promoție ar fi fost disponibilă pentru produs,
+ * FĂRĂ să afecteze prețul ofertei sau vreun câmp
+ * financiar (discountAmount rămâne 0).
  */
 async function buildPromotionalOfferItem({
   product,
@@ -305,332 +315,134 @@ async function buildPromotionalOfferItem({
       originalUnitPrice
     );
 
-  /*
-   * În lipsa unui produs concret,
-   * oferta nu poate fi asociată unei
-   * promoții automate.
-   */
-  if (!product?.id) {
-    const lineTotal =
-      roundMoney(
-        originalUnitPrice *
-          quantity
+  const lineTotal =
+    roundMoney(
+      originalUnitPrice *
+        quantity
+    );
+
+  let promotionInsight = null;
+
+  if (product?.id) {
+    try {
+      const pricingProduct = {
+        ...product,
+
+        priceCents:
+          originalUnitPriceCents,
+
+        orderMode:
+          "DIRECT",
+      };
+
+      const pricing =
+        await getPromotionPricingForProduct(
+          pricingProduct
+        );
+
+      if (pricing?.hasDiscount) {
+        promotionInsight = {
+          source:
+            pricing?.discount
+              ?.source ||
+            null,
+
+          label:
+            pricing?.promoLabel ||
+            null,
+
+          collectionId:
+            pricing?.promoCollectionId ||
+            null,
+
+          homepageFeatureId:
+            pricing?.discount
+              ?.homepageFeatureId ||
+            null,
+        };
+      }
+    } catch (err) {
+      console.error(
+        "Nu am putut evalua promoția disponibilă pentru produs (doar informativ - nu afectează prețul ofertei):",
+        err
       );
-
-    return {
-      productId:
-        productId ||
-        null,
-
-      title:
-        String(
-          title ||
-            "Produs"
-        ).trim(),
-
-      quantity,
-
-      /*
-       * Prețul introdus de vendor.
-       */
-      originalUnitPrice,
-
-      originalUnitPriceCents,
-
-      /*
-       * Prețul final al clientului.
-       * Fără produs concret, este identic.
-       */
-      unitPrice:
-        originalUnitPrice,
-
-      unitPriceCents:
-        originalUnitPriceCents,
-
-      lineTotal,
-
-      originalLineTotal:
-        lineTotal,
-
-      discountAmount:
-        0,
-
-      platformDiscountAmount:
-        0,
-
-      vendorDiscountAmount:
-        0,
-
-      platformDiscountPercent:
-        0,
-
-      vendorDiscountPercent:
-        0,
-
-      totalDiscountPercent:
-        0,
-
-      promoCollectionId:
-        null,
-
-      homepageFeatureId:
-        null,
-
-      promoFundingSource:
-        null,
-
-      discountSource:
-        null,
-
-      promoLabel:
-        null,
-
-      hasDiscount:
-        false,
-    };
-  }
-
-  /*
-   * Produsul real rămâne QUOTE_ONLY în DB.
-   *
-   * Pentru acest calcul punctual folosim:
-   * - prețul introdus în ofertă;
-   * - orderMode DIRECT, doar în obiectul temporar.
-   *
-   * Astfel serviciul poate identifica promoția
-   * produsului și o aplică peste prețul ofertei.
-   */
-  const pricingProduct = {
-    ...product,
-
-    priceCents:
-      originalUnitPriceCents,
-
-    orderMode:
-      "DIRECT",
-  };
-
-  const pricing =
-    await getPromotionPricingForProduct(
-      pricingProduct
-    );
-
-  const finalUnitPriceCents =
-    Math.max(
-      0,
-      Number(
-        pricing?.finalPriceCents ??
-          originalUnitPriceCents
-      )
-    );
-
-  const finalUnitPrice =
-    centsToMoney(
-      finalUnitPriceCents
-    );
-
-  const totalDiscountUnitCents =
-    Math.max(
-      0,
-      originalUnitPriceCents -
-        finalUnitPriceCents
-    );
-
-  const platformDiscountPercent =
-    Math.max(
-      0,
-      Number(
-        pricing?.platformDiscountPercent ||
-          0
-      )
-    );
-
-  const vendorDiscountPercent =
-    Math.max(
-      0,
-      Number(
-        pricing?.vendorDiscountPercent ||
-          0
-      )
-    );
-
-  let platformDiscountUnitCents =
-    Math.max(
-      0,
-      Math.round(
-        originalUnitPriceCents *
-          platformDiscountPercent /
-          100
-      )
-    );
-
-  let vendorDiscountUnitCents =
-    Math.max(
-      0,
-      Math.round(
-        originalUnitPriceCents *
-          vendorDiscountPercent /
-          100
-      )
-    );
-
-  /*
-   * Reconciliem eventualele diferențe
-   * de un ban produse de rotunjire.
-   */
-  const calculatedDiscountCents =
-    platformDiscountUnitCents +
-    vendorDiscountUnitCents;
-
-  if (
-    calculatedDiscountCents !==
-    totalDiscountUnitCents
-  ) {
-    const difference =
-      totalDiscountUnitCents -
-      calculatedDiscountCents;
-
-    /*
-     * Diferența de rotunjire este pusă
-     * în partea platformei dacă există
-     * reducere Artfest, altfel la vendor.
-     */
-    if (
-      platformDiscountPercent >
-      0
-    ) {
-      platformDiscountUnitCents =
-        Math.max(
-          0,
-          platformDiscountUnitCents +
-            difference
-        );
-    } else {
-      vendorDiscountUnitCents =
-        Math.max(
-          0,
-          vendorDiscountUnitCents +
-            difference
-        );
     }
   }
 
-  const originalLineTotalCents =
-    originalUnitPriceCents *
-    quantity;
-
-  const finalLineTotalCents =
-    finalUnitPriceCents *
-    quantity;
-
-  const platformDiscountLineCents =
-    platformDiscountUnitCents *
-    quantity;
-
-  const vendorDiscountLineCents =
-    vendorDiscountUnitCents *
-    quantity;
-
-  const totalDiscountLineCents =
-    Math.max(
-      0,
-      originalLineTotalCents -
-        finalLineTotalCents
-    );
-
   return {
     productId:
-      product.id,
+      product?.id ||
+      productId ||
+      null,
 
     title:
       String(
         title ||
-          product.title ||
+          product?.title ||
           "Produs"
       ).trim(),
 
     quantity,
 
     /*
-     * Prețul introdus de vendor înainte
-     * de reducerile campaniei.
+     * Prețul negociat introdus de vendor.
      */
     originalUnitPrice,
 
     originalUnitPriceCents,
 
     /*
-     * Prețul final plătit de client.
+     * Prețul final plătit de client - IDENTIC cu
+     * prețul negociat, niciodată redus automat.
      */
     unitPrice:
-      centsToMoney(
-        finalUnitPriceCents
-      ),
+      originalUnitPrice,
 
     unitPriceCents:
-      finalUnitPriceCents,
+      originalUnitPriceCents,
 
-    lineTotal:
-      centsToMoney(
-        finalLineTotalCents
-      ),
+    lineTotal,
 
     originalLineTotal:
-      centsToMoney(
-        originalLineTotalCents
-      ),
+      lineTotal,
 
     discountAmount:
-      centsToMoney(
-        totalDiscountLineCents
-      ),
+      0,
 
     platformDiscountAmount:
-      centsToMoney(
-        platformDiscountLineCents
-      ),
+      0,
 
     vendorDiscountAmount:
-      centsToMoney(
-        vendorDiscountLineCents
-      ),
+      0,
 
-    platformDiscountPercent,
+    platformDiscountPercent:
+      0,
 
-    vendorDiscountPercent,
+    vendorDiscountPercent:
+      0,
 
     totalDiscountPercent:
-      Number(
-        pricing?.totalDiscountPercent ||
-          0
-      ),
+      0,
 
     promoCollectionId:
-      pricing?.promoCollectionId ||
       null,
 
     homepageFeatureId:
-      pricing?.discount
-        ?.homepageFeatureId ||
       null,
 
     promoFundingSource:
-      pricing?.promoFundingSource ||
       null,
 
     discountSource:
-      pricing?.discount
-        ?.source ||
       null,
 
     promoLabel:
-      pricing?.promoLabel ||
       null,
 
     hasDiscount:
-      Boolean(
-        pricing?.hasDiscount
-      ),
+      false,
+
+    promotionInsight,
   };
 }
 
@@ -2013,9 +1825,74 @@ router.post(
               },
             });
 
+            let offerThreadMessage =
+              null;
+
             if (
               quote.threadId
             ) {
+              /*
+               * Mesaj în thread pentru ofertă trimisă - EXACT
+               * mecanismul folosit de trimiterea normală de mesaj
+               * vendor->client (vezi POST /threads/:id/messages,
+               * vendorMessageRoutes.js): authorType "VENDOR" existent
+               * în schemă (nu există niciun tip "SYSTEM"), idempotent
+               * prin clientMessageId (constrângere unică
+               * [threadId, clientMessageId] deja existentă în schemă).
+               *
+               * Fără bumpChatUsage - mesajul e generat de platformă la
+               * trimiterea ofertei, nu scris de vendor, deci nu trebuie
+               * să consume din cota lui lunară de mesaje.
+               *
+               * Acest mesaj e ce face vizibilă oferta pentru
+               * badge-ul de unread / mini-fereastra de mesaje a
+               * clientului (care se bazează STRICT pe rândul Message,
+               * nu pe Notification) - fără el, clientul nu vede nimic
+               * nou în Mesaje/mini-mesaje la o ofertă nouă.
+               */
+              try {
+                offerThreadMessage =
+                  await tx.message.create({
+                    data: {
+                      threadId:
+                        quote.threadId,
+
+                      vendorId:
+                        vendor.id,
+
+                      authorType:
+                        "VENDOR",
+
+                      body:
+                        "Ai primit o ofertă nouă.",
+
+                      clientMessageId:
+                        `quote-offer-sent:${created.id}`,
+                    },
+
+                    select: {
+                      body:
+                        true,
+
+                      createdAt:
+                        true,
+                    },
+                  });
+              } catch (
+                messageError
+              ) {
+                /*
+                 * P2002 = mesajul există deja pentru această ofertă
+                 * (retry) - idempotent, nu blocăm oferta.
+                 */
+                if (
+                  messageError?.code !==
+                  "P2002"
+                ) {
+                  throw messageError;
+                }
+              }
+
               await tx.messageThread.updateMany({
                 where: {
                   id:
@@ -2025,6 +1902,16 @@ router.post(
                 data: {
                   leadStatus:
                     "OFFER_SENT",
+
+                  ...(offerThreadMessage
+                    ? {
+                        lastMsg:
+                          offerThreadMessage.body,
+
+                        lastAt:
+                          offerThreadMessage.createdAt,
+                      }
+                    : {}),
                 },
               });
             }
@@ -2037,6 +1924,15 @@ router.post(
         await createUserNotification(
           quote.userId,
           {
+            /*
+             * Idempotent per ofertă - dacă acest bloc ar rula de
+             * două ori pentru ACEEAȘI ofertă deja creată (retry),
+             * a doua încercare lovește P2002 și e ignorată de
+             * createUserNotification (deja gestionat acolo).
+             */
+            dedupeKey:
+              `quote-offer-notification:${offer.id}`,
+
             type:
               "message",
 

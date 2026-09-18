@@ -8,6 +8,7 @@ import {
   createDepositPaymentForShipment,
   createPaymentForOrder,
 } from "../payments/orchestrator.js";
+import { CardPaymentUnavailableError } from "../payments/vendorStripeStatus.js";
 import {
   restoreStockFromItems,
 } from "../services/stockRestore.js";
@@ -2035,6 +2036,18 @@ router.post(
         "POST /api/user/orders/:id/payment failed:",
         error
       );
+
+      if (
+        error instanceof
+        CardPaymentUnavailableError
+      ) {
+        return res
+          .status(error.status || 400)
+          .json({
+            error: error.code,
+            message: error.message,
+          });
+      }
 
       return res
         .status(500)

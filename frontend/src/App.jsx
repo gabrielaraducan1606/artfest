@@ -596,7 +596,7 @@ export default function App() {
 
           baseUrl:
             ORIGIN ||
-            "https://artfest.ro",
+            "https://www.artfest.ro",
 
           titleTemplate:
             "%s • Artfest",

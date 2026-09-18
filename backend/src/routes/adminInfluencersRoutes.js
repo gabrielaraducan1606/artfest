@@ -51,7 +51,7 @@ function keyFromPublicUrl(url) {
 const APP_URL = (
   process.env.APP_URL ||
   process.env.FRONTEND_URL ||
-  "https://artfest.ro"
+  "https://www.artfest.ro"
 ).replace(/\/+$/, "");
 
 /* =========================================================

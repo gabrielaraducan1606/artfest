@@ -673,6 +673,10 @@ const [me, setMe] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("COD");
   const [previewImage, setPreviewImage] = useState(null);
 
+  const [cardPaymentAvailable, setCardPaymentAvailable] = useState(true);
+  const [cardPaymentUnavailableReason, setCardPaymentUnavailableReason] =
+    useState("");
+
   const [counties, setCounties] = useState([]);
   const [countiesLoading, setCountiesLoading] = useState(true);
 
@@ -824,6 +828,16 @@ const checkoutTrackedRef =
 
     return Array.from(map.values());
   }, [groups, items]);
+
+  const uniqueVendorCount = useMemo(() => {
+    const ids = new Set(
+      serviceGroups
+        .map((group) => group?.vendorId)
+        .filter(Boolean)
+        .map(String)
+    );
+    return ids.size;
+  }, [serviceGroups]);
 
   const vatTotals = useMemo(() => {
     let totalNet = 0;
@@ -1578,6 +1592,14 @@ const offer =
         );
 
         /*
+         * Verificarea Stripe pentru oferte se face
+         * strict server-side la accept - aici nu
+         * dezactivăm proactiv CARD.
+         */
+        setCardPaymentAvailable(true);
+        setCardPaymentUnavailableReason("");
+
+        /*
          * Nu atingem coșul normal.
          * Oferta este independentă de coș.
          */
@@ -1726,6 +1748,14 @@ const offer =
         setCurrency(
           summary?.currency ||
           "RON"
+        );
+
+        setCardPaymentAvailable(
+          summary?.cardPaymentAvailable !== false
+        );
+
+        setCardPaymentUnavailableReason(
+          summary?.cardPaymentUnavailableReason || ""
         );
 
         if (summary?.discountCode?.valid) {
@@ -1990,6 +2020,18 @@ const removeDiscountCode = () => {
       setFieldErrors({});
     }
   }, [customerType]);
+
+  /*
+   * Dacă plata cu cardul devine indisponibilă (summary-ul s-a
+   * schimbat - de ex. vendorul și-a pierdut Stripe între timp) și
+   * utilizatorul avea CARD selectat, revenim automat pe ramburs,
+   * care e mereu disponibil.
+   */
+  useEffect(() => {
+    if (!cardPaymentAvailable && paymentMethod === "CARD") {
+      setPaymentMethod("COD");
+    }
+  }, [cardPaymentAvailable, paymentMethod]);
 
   function handleSelectShippingCounty(county) {
     setCountyInput(county.name);
@@ -4026,12 +4068,20 @@ if (me) {
     </span>
   </label>
 
-<label className={styles.radio}>
+<label
+  className={styles.radio}
+  style={
+    !cardPaymentAvailable
+      ? { opacity: 0.5, cursor: "not-allowed" }
+      : undefined
+  }
+>
   <input
     type="radio"
     name="paymentMethod"
     value="CARD"
     checked={paymentMethod === "CARD"}
+    disabled={!cardPaymentAvailable}
     onChange={() =>
       setPaymentMethod("CARD")
     }
@@ -4042,6 +4092,28 @@ if (me) {
   </span>
 </label>
 </div>
+
+{!cardPaymentAvailable && (
+  <div
+    style={{
+      marginTop: 12,
+      padding: "12px 14px",
+      borderRadius: 10,
+      background: "#fdecea",
+      border: "1px solid #f3b4ac",
+      fontSize: 13,
+      lineHeight: 1.5,
+      color: "#7a271a",
+    }}
+    role="alert"
+  >
+    {uniqueVendorCount <= 1
+      ? "Plata cu cardul nu este disponibilă pentru acest magazin."
+      : cardPaymentUnavailableReason ||
+        "Plata cu cardul nu este disponibilă pentru unul dintre magazinele din comandă."}{" "}
+    Poți continua cu plata ramburs.
+  </div>
+)}
 
 {paymentMethod === "COD" && (
   <div
