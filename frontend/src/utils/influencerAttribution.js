@@ -20,6 +20,8 @@
  * backend/src/services/influencerAttribution.js).
  */
 
+import { hasAttributionConsent } from "../lib/cookieConsent.js";
+
 const STORAGE_KEY = "artfest.influencerAttribution";
 
 function readEntry() {
@@ -64,6 +66,13 @@ export function storeInfluencerAttribution({
 }) {
   if (!token) return;
 
+  /*
+   * BUGFIX (Cookies v2 §11.2 / audit legal) - token-ul de
+   * atribuire NU se scrie în localStorage fără consimțământul
+   * categoriei "Atribuire recomandări".
+   */
+  if (!hasAttributionConsent()) return;
+
   const windowHours = Math.max(
     1,
     Number(attributionWindowHours) || 168
@@ -87,6 +96,11 @@ export function storeInfluencerAttribution({
  * body-ul de checkout - sau `null` dacă nu există/a expirat.
  */
 export function getInfluencerAttributionForCheckout() {
+  if (!hasAttributionConsent()) {
+    writeEntry(null);
+    return null;
+  }
+
   const entry = readEntry();
 
   if (!entry) return null;

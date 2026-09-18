@@ -16,6 +16,8 @@
  * backend/src/services/campaignAttribution.js).
  */
 
+import { hasAttributionConsent } from "../lib/cookieConsent.js";
+
 const STORAGE_KEY = "artfest.campaignAttribution";
 
 function readMap() {
@@ -56,6 +58,13 @@ export function storeCampaignAttribution({
 }) {
   if (!vendorId || !token) return;
 
+  /*
+   * BUGFIX (Cookies v2 §11.2 / audit legal) - token-ul de
+   * atribuire NU se scrie în localStorage fără consimțământul
+   * categoriei "Atribuire recomandări".
+   */
+  if (!hasAttributionConsent()) return;
+
   const windowHours = Math.max(1, Number(attributionWindowHours) || 168);
   const expiresAt = new Date(
     Date.now() + windowHours * 60 * 60 * 1000
@@ -80,6 +89,11 @@ export function storeCampaignAttribution({
  * intrările expirate.
  */
 export function getAttributionsForCheckout() {
+  if (!hasAttributionConsent()) {
+    writeMap({});
+    return {};
+  }
+
   const map = readMap();
   const now = Date.now();
   const result = {};

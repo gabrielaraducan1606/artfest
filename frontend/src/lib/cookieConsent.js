@@ -15,6 +15,7 @@ export const defaultConsent = {
   necessary: true,
   analytics: false,
   marketing: false,
+  attribution: false,
 };
 
 /* =========================================================
@@ -108,6 +109,9 @@ export function readConsent() {
       marketing:
         obj?.marketing === true,
 
+      attribution:
+        obj?.attribution === true,
+
       timestamp:
         obj?.timestamp ||
         Date.now(),
@@ -130,22 +134,68 @@ export function readConsent() {
 function inferAction({
   analytics,
   marketing,
+  attribution,
 }) {
   if (
     analytics === true &&
-    marketing === true
+    marketing === true &&
+    attribution === true
   ) {
     return "ACCEPT_ALL";
   }
 
   if (
     analytics === false &&
-    marketing === false
+    marketing === false &&
+    attribution === false
   ) {
     return "NECESSARY_ONLY";
   }
 
   return "CUSTOM";
+}
+
+/*
+ * BUGFIX (Cookies v2 §11.2-§11.3 / audit legal) - cheile
+ * mecanismelor persistente de atribuire, hardcodate aici (nu
+ * import din fișierele lor, ca să evităm o dependență circulară -
+ * cookieConsent.js e lib de bază, atribuirea e utilitar de nivel
+ * mai înalt). Dacă se adaugă un mecanism nou de atribuire
+ * persistentă, cheia lui trebuie adăugată și aici.
+ */
+const ATTRIBUTION_STORAGE_KEYS = [
+  "artfest.influencerAttribution",
+  "artfest.vendorReferralAttribution",
+  "artfest.campaignAttribution",
+  "artfest.vendorCollectionAttribution",
+];
+
+function clearAttributionStorage() {
+  if (typeof window === "undefined") return;
+
+  for (const key of ATTRIBUTION_STORAGE_KEYS) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/* =========================================================
+   HELPERS DE CONSIMȚĂMÂNT PE CATEGORIE
+========================================================= */
+
+export function hasAnalyticsConsent() {
+  return readConsent().analytics === true;
+}
+
+export function hasMarketingConsent() {
+  return readConsent().marketing === true;
+}
+
+export function hasAttributionConsent() {
+  return readConsent().attribution === true;
 }
 
 /* =========================================================
@@ -177,6 +227,10 @@ async function persistConsent({
 
           marketing:
             consent.marketing ===
+            true,
+
+          attribution:
+            consent.attribution ===
             true,
 
           consentVersion:
@@ -231,6 +285,16 @@ export function saveConsent(
       "[COOKIE CONSENT] localStorage failed:",
       error
     );
+  }
+
+  /*
+   * BUGFIX (Cookies v2 §16 - retragerea consimțământului) -
+   * dacă userul refuză/retrage categoria "Atribuire recomandări",
+   * ștergem imediat token-urile deja scrise, nu doar blocăm
+   * scrierile viitoare.
+   */
+  if (value.attribution !== true) {
+    clearAttributionStorage();
   }
 
   try {

@@ -636,6 +636,7 @@ function mapPublicBilling(billing) {
     tvaActive: billing.tvaActive,
     vatRate: billing.vatRate,
     vatStatus: billing.vatStatus,
+    traderStatus: billing.traderStatus || null,
   };
 }
 

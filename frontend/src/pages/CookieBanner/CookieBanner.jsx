@@ -68,6 +68,9 @@ export default function CookieBanner() {
 
                   marketing:
                     false,
+
+                  attribution:
+                    false,
                 },
                 {
                   action:
@@ -99,6 +102,9 @@ export default function CookieBanner() {
                     true,
 
                   marketing:
+                    true,
+
+                  attribution:
                     true,
                 },
                 {

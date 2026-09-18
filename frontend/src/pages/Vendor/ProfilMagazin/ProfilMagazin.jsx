@@ -1147,6 +1147,8 @@ quoteSchema: Array.isArray(full.quoteSchema)
   }
   sellerType={sellerData?.sellerType}
   sellerTypeLabel={sellerData?.sellerTypeLabel}
+  traderStatus={sellerData?.traderStatus}
+  traderStatusLabel={sellerData?.traderStatusLabel}
   serviceIsActive={owner.serviceIsActive}
   activationBusy={owner.activationBusy}
   ownerChecksLoading={owner.ownerChecksLoading}

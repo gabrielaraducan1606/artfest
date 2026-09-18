@@ -17,6 +17,9 @@ export default function CookiePreferences() {
   const [marketing, setMarketing] =
     useState(false);
 
+  const [attribution, setAttribution] =
+    useState(false);
+
   const [saved, setSaved] =
     useState(false);
 
@@ -31,19 +34,25 @@ export default function CookiePreferences() {
     setMarketing(
       consent?.marketing === true
     );
+
+    setAttribution(
+      consent?.attribution === true
+    );
   }, []);
 
   function getAction() {
     if (
       analytics === true &&
-      marketing === true
+      marketing === true &&
+      attribution === true
     ) {
       return "ACCEPT_ALL";
     }
 
     if (
       analytics === false &&
-      marketing === false
+      marketing === false &&
+      attribution === false
     ) {
       return "NECESSARY_ONLY";
     }
@@ -57,6 +66,7 @@ export default function CookiePreferences() {
         necessary: true,
         analytics,
         marketing,
+        attribution,
       },
       {
         action: getAction(),
@@ -167,6 +177,46 @@ export default function CookiePreferences() {
               instrumentelor de
               publicitate precum
               Meta Pixel și Google Ads.
+            </small>
+          </span>
+        </label>
+
+        <label
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            marginTop: 16,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={attribution}
+            onChange={(event) =>
+              setAttribution(
+                event.target.checked
+              )
+            }
+          />
+
+          <span>
+            <strong>
+              Atribuire recomandări
+            </strong>
+            <br />
+            <small>
+              Permite reținerea, pentru
+              o perioadă limitată, a
+              faptului că ai ajuns pe
+              Artfest printr-un link de
+              influencer, de vânzător
+              sau de campanie, pentru
+              calcularea comisionului
+              aferent. Refuzul nu
+              afectează navigarea,
+              coșul sau plasarea unei
+              Comenzi.
             </small>
           </span>
         </label>

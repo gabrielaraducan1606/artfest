@@ -36,6 +36,14 @@ model User {
   createdAt DateTime   @default(now())
   status    UserStatus @default(ACTIVE)
 
+  /**
+   * BUGFIX (audit legal, P2B / Reg. UE 2019/1150) - motivul unei
+   * restricționări/suspendări trebuie persistat, nu doar aplicat
+   * silențios ca schimbare de status.
+   */
+  statusReason    String?   @db.Text
+  statusChangedAt DateTime?
+
   lastLoginAt          DateTime?
   lastPasswordChangeAt DateTime?
   locked               Boolean   @default(false)
@@ -103,8 +111,9 @@ model User {
   proposedInfluencerCommissionAgreements InfluencerCommissionAgreement[] @relation("InfluencerCommissionAgreementProposedBy")
 
   orders              Order[]
-  handedOverShipments Shipment[]      @relation("ShipmentHandedOverBy")
+  handedOverShipments Shipment[]          @relation("ShipmentHandedOverBy")
   returnRequests      ReturnRequest[]
+  withdrawalRequests  WithdrawalRequest[]
 
   supportTicketsDeleted SupportTicket[] @relation("SupportTicketDeletedBy")
 
@@ -319,6 +328,21 @@ model Vendor {
 
   anonymizedAt DateTime?
 
+  /**
+   * BUGFIX (audit legal, P2B / Reg. UE 2019/1150 art. 4(2)) -
+   * încetarea INTEGRALĂ a serviciului față de un Vânzător
+   * profesionist necesită, de regulă, motivare pe suport durabil
+   * și preaviz de minimum 30 de zile (cu excepțiile legale). Sunt
+   * separate de statusReason/statusChangedAt de pe User, care
+   * acoperă restricționarea/suspendarea imediată (mai puțin
+   * severă), NU încetarea integrală a serviciului.
+   */
+  terminationReason          String?   @db.Text
+  terminationNoticeAt        DateTime?
+  terminationEffectiveAt     DateTime?
+  terminationExceptionReason String?   @db.Text
+  terminationFinalizedAt     DateTime?
+
   // ==================== Referral vendor ====================
   referralCode          String? @unique
   referralCommissionBps Int     @default(0)
@@ -409,6 +433,16 @@ model VendorBilling {
   vendorId String @unique
 
   sellerType String @default("verified_business") @db.VarChar(32)
+
+  /**
+   * BUGFIX (audit legal, TOS v2 §26.1e / Vendor Terms v2 §3.6) -
+   * declarație SEPARATĂ, obligatorie, a calității de
+   * profesionist/comerciant vs. neprofesionist. NU se derivă din
+   * sellerType (independent_creator/verified_business) - acelea
+   * sunt categorii tehnice interne, nu au legătură cu calitatea
+   * juridică față de Client.
+   */
+  traderStatus TraderStatus?
 
   legalType     String?
   vendorName    String
@@ -1415,6 +1449,13 @@ model CookieConsent {
   marketing Boolean @default(false)
 
   /**
+   * Atribuire recomandări:
+   * influencer/vendor referral/campanie/colecție de vendor
+   * (Cookies v2 §11.2).
+   */
+  attribution Boolean @default(false)
+
+  /**
    * Versiunea mecanismului /
    * politicii de cookies.
    * Dacă pe viitor modifici
@@ -1558,6 +1599,7 @@ model Order {
   vendorReferralEarningEntries VendorReferralEarningEntry[]
 
   returnRequests          ReturnRequest[]
+  withdrawalRequests      WithdrawalRequest[]
   quoteRequest            QuoteRequest?
   discountCodeRedemptions DiscountCodeRedemption[]
 
@@ -2687,6 +2729,63 @@ model VendorPayout {
   @@index([vendorId, periodFrom, periodTo])
 }
 
+/**
+ * BUGFIX (audit legal, Politica de retur v2 §4.3 - "funcția online
+ * de retragere"). Separată intenționat de ReturnRequest: retragerea
+ * legală e o situație juridică distinctă de retur/neconformitate
+ * (vezi Returns v2 §2) - nu trebuie amestecate în același model.
+ */
+enum WithdrawalRequestStatus {
+  SUBMITTED
+  FORWARDED_TO_VENDOR
+  CLOSED
+}
+
+model WithdrawalRequest {
+  id      String @id @default(cuid())
+  orderId String
+
+  /**
+   * Null = comandă autentificată dar solicitată de userul propriu;
+   * completat oricum și pentru comenzi guest (nu creează cont).
+   */
+  userId String?
+
+  /**
+   * Gol/absent = retragere pentru ÎNTREAGA Comandă. Altfel, doar
+   * pentru Componentele/Shipment-urile enumerate (retragere
+   * parțială, posibilă pe o Comandă multi-vendor - Returns v2 §15).
+   */
+  shipmentIds String[]
+
+  clientName   String
+  contactEmail String
+
+  // Conținutul EXACT al declarației trimise - dovadă, nu se
+  // recalculează ulterior din alte câmpuri.
+  declarationText String @db.Text
+
+  status WithdrawalRequestStatus @default(SUBMITTED)
+
+  submittedAt DateTime @default(now())
+  ip          String?
+  userAgent   String?  @db.VarChar(500)
+
+  // Confirmare electronică pe suport durabil (Returns v2 §4.3).
+  confirmationSentAt DateTime?
+
+  // Vânzătorii efectiv notificați (poate fi >1 pe o Comandă
+  // multi-vendor dacă retragerea nu specifică shipmentIds).
+  notifiedVendorIds   String[]
+  forwardedToVendorAt DateTime?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, submittedAt])
+  @@index([userId, submittedAt])
+}
+
 enum ReturnRequestStatus {
   NEW
   IN_REVIEW
@@ -2759,6 +2858,11 @@ enum StripeConnectStatus {
   pending
   enabled
   restricted
+}
+
+enum TraderStatus {
+  PROFESSIONAL
+  NON_PROFESSIONAL
 }
 
 model NewsletterSubscriber {
@@ -3578,7 +3682,7 @@ model InfluencerResource {
   title       String
   description String?
 
-  /*
+  /**
    * Text opțional afișat influencerului la apăsarea butonului
    * "?" de pe card - separat de `description` (care e caption-ul
    * de copiat în postare), nu se suprapune cu el.

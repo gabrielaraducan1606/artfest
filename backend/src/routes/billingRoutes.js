@@ -8,6 +8,7 @@ import { z } from "zod";
 const router = Router();
 
 const ALLOWED_SELLER_TYPES = ["independent_creator", "verified_business"];
+const ALLOWED_TRADER_STATUSES = ["PROFESSIONAL", "NON_PROFESSIONAL"];
 const ALLOWED_LEGAL_TYPES = ["SRL", "PFA", "II", "IF"];
 const ALLOWED_VAT_STATUS = ["payer", "non_payer"];
 
@@ -50,6 +51,12 @@ const emptyToNull = (v) => (v === "" ? null : v);
 const BillingSchema = z
   .object({
     sellerType: z.enum(ALLOWED_SELLER_TYPES),
+
+    /*
+     * BUGFIX (audit legal, TOS v2 §26.1e) - declarație separată,
+     * obligatorie, NU derivată din sellerType.
+     */
+    traderStatus: z.enum(ALLOWED_TRADER_STATUSES),
 
     legalType: z.preprocess(
       emptyToNull,
@@ -252,6 +259,7 @@ router.put(
     if (input.sellerType === "independent_creator") {
       payload = {
         sellerType: "independent_creator",
+        traderStatus: input.traderStatus,
 
         legalType: null,
         vendorName: input.vendorName,
@@ -297,6 +305,7 @@ router.put(
     if (input.sellerType === "verified_business") {
   payload = {
     sellerType: "verified_business",
+    traderStatus: input.traderStatus,
 
     legalType: input.legalType,
     vendorName: input.vendorName,

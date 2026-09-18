@@ -132,17 +132,20 @@ function hashIp(ip) {
 function inferAction({
   analytics,
   marketing,
+  attribution,
 }) {
   if (
     analytics === true &&
-    marketing === true
+    marketing === true &&
+    attribution === true
   ) {
     return "ACCEPT_ALL";
   }
 
   if (
     analytics === false &&
-    marketing === false
+    marketing === false &&
+    attribution === false
   ) {
     return "NECESSARY_ONLY";
   }
@@ -179,6 +182,9 @@ router.post(
       const marketing =
         body.marketing === true;
 
+      const attribution =
+        body.attribution === true;
+
       const anonymousId =
         cleanString(
           body.anonymousId,
@@ -200,6 +206,7 @@ router.post(
           : inferAction({
               analytics,
               marketing,
+              attribution,
             });
 
       const requestedSource =
@@ -284,6 +291,8 @@ router.post(
 
             marketing,
 
+            attribution,
+
             consentVersion,
 
             action,
@@ -314,6 +323,9 @@ router.post(
               true,
 
             marketing:
+              true,
+
+            attribution:
               true,
 
             consentVersion:

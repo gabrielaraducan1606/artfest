@@ -5,6 +5,7 @@ import styles from "./css/BillingTab.module.css";
 const DRAFT_PREFIX = "onboarding.billing.draft:";
 const LEGAL_TYPES = ["SRL", "PFA", "II", "IF"];
 const SELLER_TYPES = ["independent_creator", "verified_business"];
+const TRADER_STATUSES = ["PROFESSIONAL", "NON_PROFESSIONAL"];
 const PLATFORM_VAT_RATE = "21";
 const PRIVACY_POLICY_URL = "/confidentialitate";
 
@@ -16,6 +17,7 @@ const BILLING_RETENTION_NOTE =
 
 const EMPTY_BILLING = {
   sellerType: "",
+  traderStatus: "",
   legalType: "",
   vendorName: "",
   companyName: "",
@@ -34,6 +36,7 @@ const EMPTY_BILLING = {
 
 const DIRTY_KEYS = [
   "sellerType",
+  "traderStatus",
   "legalType",
   "vendorName",
   "companyName",
@@ -67,6 +70,7 @@ function pickBillingFromApi(b) {
   return {
     ...EMPTY_BILLING,
     sellerType,
+    traderStatus: b.traderStatus ?? "",
     legalType: b.legalType ?? "",
     vendorName: b.vendorName ?? "",
     companyName: b.companyName ?? "",
@@ -175,6 +179,7 @@ function validate(values) {
   const v = {
     ...values,
     sellerType: (values.sellerType || "").trim(),
+    traderStatus: (values.traderStatus || "").trim(),
     legalType: (values.legalType || "").toUpperCase().trim(),
     vendorName: (values.vendorName || "").trim(),
     companyName: (values.companyName || "").trim(),
@@ -198,6 +203,15 @@ function validate(values) {
 
   if (!v.sellerType || !SELLER_TYPES.includes(v.sellerType)) {
     errors.sellerType = "Alege cum vinzi pe platformă.";
+  }
+
+  /*
+   * BUGFIX (audit legal, TOS v2 §26.1e) - declarație separată,
+   * obligatorie, distinctă de sellerType.
+   */
+  if (!v.traderStatus || !TRADER_STATUSES.includes(v.traderStatus)) {
+    errors.traderStatus =
+      "Trebuie să declari dacă vinzi în calitate de profesionist/comerciant sau neprofesionist.";
   }
 
   if (!v.vendorName) errors.vendorName = "Completează numele vendorului.";
@@ -353,6 +367,87 @@ function SellerTypeSelector({ billing, errors, onSelect }) {
 
       {errors.sellerType && (
         <small className={styles.fieldError}>{errors.sellerType}</small>
+      )}
+    </div>
+  );
+}
+
+/*
+ * BUGFIX (audit legal, TOS v2 §26.1e / Vendor Terms v2 §3.6) -
+ * declarație separată de calitate juridică față de Client, distinctă
+ * de SellerTypeSelector (categorie internă Creator
+ * Independent/Business Verificat). Un Creator Independent poate fi
+ * profesionist (ex. o activitate constantă, organizată) și un
+ * Business Verificat poate, teoretic, vinde ocazional ca
+ * neprofesionist - de asta cele două alegeri nu se derivă una din
+ * cealaltă.
+ */
+function TraderStatusSelector({ billing, errors, onSelect }) {
+  return (
+    <div className={`${styles.fieldGroup} ${styles.fieldGroupFull}`}>
+      <label className={styles.label}>
+        Vinzi în calitate de profesionist/comerciant sau neprofesionist?
+      </label>
+
+      <div className={styles.sellerTypeCards}>
+        <label
+          className={`${styles.sellerTypeCard} ${
+            billing.traderStatus === "PROFESSIONAL"
+              ? styles.sellerTypeCardActive
+              : ""
+          }`}
+        >
+          <input
+            type="radio"
+            name="traderStatus"
+            value="PROFESSIONAL"
+            checked={billing.traderStatus === "PROFESSIONAL"}
+            onChange={() => onSelect("PROFESSIONAL")}
+          />
+          <span>
+            <strong>Profesionist/comerciant</strong>
+            <small>
+              Vând în legătură cu o activitate comercială, de producție,
+              artizanală sau profesională.
+            </small>
+          </span>
+        </label>
+
+        <label
+          className={`${styles.sellerTypeCard} ${
+            billing.traderStatus === "NON_PROFESSIONAL"
+              ? styles.sellerTypeCardActive
+              : ""
+          }`}
+        >
+          <input
+            type="radio"
+            name="traderStatus"
+            value="NON_PROFESSIONAL"
+            checked={billing.traderStatus === "NON_PROFESSIONAL"}
+            onChange={() => onSelect("NON_PROFESSIONAL")}
+          />
+          <span>
+            <strong>Neprofesionist</strong>
+            <small>
+              Vând ocazional, în afara unei activități comerciale,
+              industriale, de producție sau profesionale.
+            </small>
+          </span>
+        </label>
+      </div>
+
+      {billing.traderStatus === "NON_PROFESSIONAL" && (
+        <InfoNote>
+          Dacă declari că vinzi ca neprofesionist, Clienților li se va
+          afișa o informare că anumite drepturi specifice protecției
+          consumatorilor, aplicabile contractelor încheiate cu
+          profesioniști, pot să nu se aplice comenzilor tale.
+        </InfoNote>
+      )}
+
+      {errors.traderStatus && (
+        <small className={styles.fieldError}>{errors.traderStatus}</small>
       )}
     </div>
   );
@@ -518,6 +613,17 @@ useEffect(() => {
     });
   }
 
+  function onTraderStatusSelect(status) {
+    setHasInteracted(true);
+    setTouched((t) => ({ ...t, traderStatus: true }));
+
+    setBilling((prev) => {
+      const next = { ...prev, traderStatus: status };
+      setErrorsState(validate(next));
+      return next;
+    });
+  }
+
   function onFieldChange(name) {
     return (e) => {
       setHasInteracted(true);
@@ -565,6 +671,7 @@ useEffect(() => {
     setErrorsState(result);
     setTouched({
       sellerType: true,
+      traderStatus: true,
       legalType: true,
       vendorName: true,
       companyName: true,
@@ -765,6 +872,12 @@ useEffect(() => {
           billing={billing}
           errors={errors}
           onSelect={onSellerTypeSelect}
+        />
+
+        <TraderStatusSelector
+          billing={billing}
+          errors={errors}
+          onSelect={onTraderStatusSelect}
         />
 
         <div className={styles.fieldGroup}>

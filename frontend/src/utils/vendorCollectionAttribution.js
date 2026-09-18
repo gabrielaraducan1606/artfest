@@ -17,6 +17,8 @@
  * resolveVendorCollectionAttribution, vendorAttribution.js).
  */
 
+import { hasAttributionConsent } from "../lib/cookieConsent.js";
+
 const STORAGE_KEY = "artfest.vendorCollectionAttribution";
 
 function readEntry() {
@@ -66,6 +68,13 @@ export function storeVendorCollectionAttribution({
 }) {
   if (!token) return;
 
+  /*
+   * BUGFIX (Cookies v2 §11.2 / audit legal) - token-ul de
+   * atribuire NU se scrie în localStorage fără consimțământul
+   * categoriei "Atribuire recomandări".
+   */
+  if (!hasAttributionConsent()) return;
+
   const windowHours = Math.max(1, Number(attributionWindowHours) || 168);
 
   const expiresAt = new Date(
@@ -86,6 +95,11 @@ export function storeVendorCollectionAttribution({
  * body-ul de checkout - sau `null` dacă nu există/a expirat.
  */
 export function getVendorCollectionAttributionForCheckout() {
+  if (!hasAttributionConsent()) {
+    writeEntry(null);
+    return null;
+  }
+
   const entry = readEntry();
 
   if (!entry) return null;

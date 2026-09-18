@@ -28,11 +28,30 @@ function absoluteUrl(url) {
   return `${BASE_URL}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
+// Disponibilitățile care necesită o dată reală de disponibilitate
+// (g:availability_date), conform cerințelor Google Merchant Center
+// pentru preorder/backorder.
+const AVAILABILITY_NEEDS_DATE = new Set(["PREORDER", "MADE_TO_ORDER"]);
+
 function availabilityToGoogle(value) {
   if (value === "SOLD_OUT") return "out of stock";
   if (value === "PREORDER") return "preorder";
+  if (value === "MADE_TO_ORDER") return "backorder";
 
   return "in stock";
+}
+
+// Returnează data ISO 8601 doar dacă produsul chiar are nevoie de ea
+// (preorder/backorder) și `nextShipDate` e o dată reală din DB - nu
+// inventăm niciodată o dată de completare.
+function availabilityDateIso(product) {
+  if (!AVAILABILITY_NEEDS_DATE.has(product.availability)) return null;
+  if (!product.nextShipDate) return null;
+
+  const date = new Date(product.nextShipDate);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toISOString();
 }
 
 router.get("/google-shopping-feed.xml", async (req, res, next) => {
@@ -45,14 +64,37 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
         priceCents: {
           gt: 0,
         },
+        // QUOTE_ONLY nu are un preț real de cumpărare - excludere
+        // explicită, ca să nu depindem de efectul secundar că
+        // priceCents e 0 pentru aceste produse.
+        orderMode: {
+          not: "QUOTE_ONLY",
+        },
         images: {
           isEmpty: false,
         },
+        // preorder/backorder fără o dată reală de disponibilitate nu
+        // pot fi trimise complet către Google - le excludem temporar
+        // din feed în loc să le mapăm artificial ca "in stock" sau să
+        // trimitem availability_date inventat.
+        OR: [
+          { availability: { in: ["READY", "SOLD_OUT"] } },
+          {
+            availability: { in: ["PREORDER", "MADE_TO_ORDER"] },
+            nextShipDate: { not: null },
+          },
+        ],
         service: {
           isActive: true,
           status: "ACTIVE",
           vendor: {
             isActive: true,
+          },
+          // aceeași definiție de "produs public" ca endpointul public
+          // /api/public/products/:id - un serviciu care nu e de tip
+          // "products" nu are pagină publică de produs.
+          type: {
+            code: "products",
           },
         },
       },
@@ -61,6 +103,7 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
           include: {
             vendor: true,
             profile: true,
+            type: true,
           },
         },
       },
@@ -71,6 +114,13 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
     });
 
     const items = products
+      // Plasă de siguranță redundantă cu filtrul din `where`: dacă un
+      // produs preorder/backorder ajunge totuși aici fără dată validă,
+      // nu îl trimitem incomplet.
+      .filter((p) => {
+        if (!AVAILABILITY_NEEDS_DATE.has(p.availability)) return true;
+        return Boolean(availabilityDateIso(p));
+      })
       .map((p) => {
         const image = absoluteUrl(p.images?.[0]);
 
@@ -94,6 +144,7 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
         }`;
 
         const availability = availabilityToGoogle(p.availability);
+        const availabilityDate = availabilityDateIso(p);
 
         return `    <item>
       <g:id>${escapeXml(p.id)}</g:id>
@@ -107,7 +158,7 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
       <g:image_link>${escapeXml(image)}</g:image_link>
 
       <g:availability>${escapeXml(availability)}</g:availability>
-
+${availabilityDate ? `\n      <g:availability_date>${escapeXml(availabilityDate)}</g:availability_date>\n` : ""}
       <g:price>${escapeXml(price)}</g:price>
 
       <g:condition>new</g:condition>

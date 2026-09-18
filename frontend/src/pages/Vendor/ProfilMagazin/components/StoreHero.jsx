@@ -29,6 +29,8 @@ export default function StoreHero({
 
   sellerType,
   sellerTypeLabel,
+  traderStatus,
+  traderStatusLabel,
 
   serviceIsActive = false,
   activationBusy = false,
@@ -421,6 +423,45 @@ Hai să ajungem împreună la 1000 de creatori!
                     : "✓"}{" "}
                   {sellerTypeLabel}
                 </span>
+              </div>
+            )}
+
+            {/*
+             * BUGFIX (audit legal, TOS v2 §26.1e / §5.5) - declarație
+             * profesionist/comerciant vs. neprofesionist, afișată
+             * Clientului pe pagina magazinului, ÎNAINTE de plasarea
+             * unei Comenzi. Distinctă de badge-ul sellerType de mai
+             * sus (categorie internă, nu calitate juridică).
+             */}
+            {traderStatusLabel && (
+              <div
+                style={{
+                  marginTop: 4,
+                  marginBottom: 6,
+                }}
+              >
+                <span
+                  className={styles.sellerTypeBadge}
+                >
+                  {traderStatusLabel}
+                </span>
+
+                {traderStatus === "NON_PROFESSIONAL" && (
+                  <p
+                    style={{
+                      fontSize: 13,
+                      opacity: 0.85,
+                      marginTop: 4,
+                      maxWidth: 480,
+                    }}
+                  >
+                    Acest Vânzător este declarat neprofesionist. Este
+                    posibil ca anumite drepturi specifice protecției
+                    consumatorilor, aplicabile contractelor încheiate
+                    cu profesioniști, să nu se aplice comenzilor
+                    plasate la acest magazin.
+                  </p>
+                )}
               </div>
             )}
 

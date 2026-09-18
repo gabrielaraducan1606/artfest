@@ -121,6 +121,7 @@ function mapPublicBilling(billing) {
     tvaActive: billing.tvaActive,
     vatRate: billing.vatRate,
     vatStatus: billing.vatStatus,
+    traderStatus: billing.traderStatus || null,
   };
 }
 
@@ -2283,6 +2284,7 @@ router.get(
                         tvaActive: true,
                         vatRate: true,
                         vatStatus: true,
+                        traderStatus: true,
                       },
                     },
                   },
@@ -2582,7 +2584,17 @@ router.get("/store/:slug/initial", async (req, res, next) => {
       // join: doar relații 1:1 - testat A/B cu date reale din DEV,
       // rezultat identic, 4->1 query-uri.
       relationLoadStrategy: "join",
-      include: { service: { include: { type: true, vendor: true } } },
+      include: {
+        service: {
+          include: {
+            type: true,
+            // BUGFIX (audit legal) - billing e nevoie pentru
+            // traderStatus (profesionist/neprofesionist), afișat
+            // Clientului pe pagina magazinului.
+            vendor: { include: { billing: true } },
+          },
+        },
+      },
     });
 
     if (!profile || profile?.service?.type?.code !== "products") {
@@ -2619,6 +2631,17 @@ router.get("/store/:slug/initial", async (req, res, next) => {
       onboardingStep: isActive ? 3 : 1,
       updatedAt: profile.updatedAt,
       delivery: Array.isArray(profile.delivery) ? profile.delivery : [],
+
+      // BUGFIX (audit legal, TOS v2 §26.1e / Vendor Terms v2 §3.6) -
+      // declarație profesionist/comerciant vs. neprofesionist,
+      // afișată Clientului înainte de plasarea Comenzii.
+      traderStatus: vendor.billing?.traderStatus || null,
+      traderStatusLabel:
+        vendor.billing?.traderStatus === "NON_PROFESSIONAL"
+          ? "Neprofesionist (persoană fizică, în afara unei activități comerciale)"
+          : vendor.billing?.traderStatus === "PROFESSIONAL"
+          ? "Profesionist/comerciant"
+          : null,
     };
 
     const productsRaw = await prisma.product.findMany({
