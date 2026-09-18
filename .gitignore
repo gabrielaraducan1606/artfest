@@ -23,6 +23,7 @@ Thumbs.db
 .env.*
 .env.development
 .env.production
+backend/env.yaml
 
 
 frontend/public/unlock.html
