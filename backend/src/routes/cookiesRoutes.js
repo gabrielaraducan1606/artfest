@@ -12,7 +12,7 @@ const router = Router();
    CONFIG
 ========================================================= */
 
-const CONSENT_VERSION = "1.0";
+const CONSENT_VERSION = "2.0";
 
 const ALLOWED_ACTIONS = new Set([
   "ACCEPT_ALL",

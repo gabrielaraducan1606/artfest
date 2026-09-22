@@ -30,6 +30,7 @@ import {
 import googleAuthRoutes from "./authGoogleRoutes.js";
 import forgotPassword from "./forgot-passwordRoutes.js";
 import resetPassword from "./resetPassword.js";
+import { resolveRegistrationConsent } from "../services/legalPublishedService.js";
 
 const router = Router();
 
@@ -667,6 +668,13 @@ router.post(
                 continue;
               }
 
+              // TOS/Privacy: versiunea publicată o decide serverul
+              const resolved =
+                await resolveRegistrationConsent(
+                  document,
+                  consent
+                );
+
               await tx.userConsent.create({
                 data: {
                   userId:
@@ -675,12 +683,10 @@ router.post(
                   document,
 
                   version:
-                    consent.version ||
-                    "1.0.0",
+                    resolved.version,
 
                   checksum:
-                    consent.checksum ||
-                    null,
+                    resolved.checksum,
 
                   ip:
                     reqIp,

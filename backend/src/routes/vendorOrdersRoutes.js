@@ -3,6 +3,9 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
+import {
+  expirePendingDepositsForOrder,
+} from "../services/depositInvalidation.js";
 import { sendOrderCancelledMessage } from "../services/orderMessaging.js";
 import {
   createVendorNotification,
@@ -33,6 +36,9 @@ import {
 import {
   restoreStockFromItems,
 } from "../services/stockRestore.js";
+import {
+  evaluateVendorDocument,
+} from "../services/reacceptanceService.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -715,10 +721,56 @@ export async function ensureSaleLedgerEntry({
   });
 }
 
-export async function ensureRefundLedgerEntry({ vendorId, shipmentId, db = prisma }) {
-  const sale = await db.vendorEarningEntry.findUnique({
+/*
+ * includePaymentTimeSale (implicit false = comportament neschimbat pentru
+ * toți apelanții existenți).
+ *
+ * La plata CARD, webhook-ul Stripe creează un SALE per vendor cu
+ * stripeTransferId dar FĂRĂ shipmentId (meta.kind =
+ * "online_order_vendor_transfer"); SALE-ul legat de shipment apare abia
+ * la DELIVERED/IN_TRANSIT (ensureSaleLedgerEntry). La refund/cancel
+ * ÎNAINTE de livrare nu există SALE legat de shipment, deci fără acest
+ * fallback nu s-ar crea niciun REFUND și comisionul plății ar rămâne
+ * nereversat. Cu opțiunea activă (o pasează doar serviciul de refund
+ * CARD), dacă shipment-ul NU are SALE propriu, reversăm SALE-ul de la
+ * plată al aceluiași vendor/comandă. Dacă shipment-ul are SALE propriu,
+ * comportamentul rămâne cel existent (se reversează doar acela).
+ * Reversăm strict SALE-ul singur pe comandă: rezultatul net e zero
+ * indiferent cum e agregat ulterior ledger-ul.
+ */
+export async function ensureRefundLedgerEntry({
+  vendorId,
+  shipmentId,
+  db = prisma,
+  includePaymentTimeSale = false,
+}) {
+  let sale = await db.vendorEarningEntry.findUnique({
     where: { shipmentId },
   });
+
+  let reversedPaymentTimeSale = false;
+
+  if (!sale && includePaymentTimeSale) {
+    const shipment = await db.shipment.findUnique({
+      where: { id: shipmentId },
+      select: { orderId: true },
+    });
+
+    if (shipment?.orderId) {
+      sale = await db.vendorEarningEntry.findFirst({
+        where: {
+          vendorId,
+          orderId: shipment.orderId,
+          type: "SALE",
+          shipmentId: null,
+          stripeTransferId: { not: null },
+        },
+      });
+
+      reversedPaymentTimeSale = Boolean(sale);
+    }
+  }
+
   if (!sale) return null;
 
   let existingRefund = null;
@@ -760,7 +812,10 @@ export async function ensureRefundLedgerEntry({ vendorId, shipmentId, db = prism
       vendorNet: sale.vendorNet?.mul ? sale.vendorNet.mul(-1) : -Number(sale.vendorNet || 0),
       meta: {
         refShipmentId: shipmentId,
-        source: "shipment_status_returned",
+        source: reversedPaymentTimeSale
+          ? "card_payment_sale_reversed"
+          : "shipment_status_returned",
+        refSaleEntryId: reversedPaymentTimeSale ? sale.id : null,
         /*
          * Reversăm STRICT totalurile agregate ale vânzării originale
          * (sale.itemsNet/commissionNet/vendorNet) - deja corect
@@ -4568,6 +4623,35 @@ if (
     }
 
     /*
+     * Anulare de către vendor a livrării: avansul COD încă PENDING (link /
+     * sesiune Stripe deja create) nu mai trebuie să poată fi plătit -
+     * expirăm avansul în DB și sesiunea Stripe. Non-blocant (plata târzie
+     * rămâne acoperită de webhook).
+     */
+    if (
+      nextUi ===
+      "cancelled"
+    ) {
+      try {
+        await expirePendingDepositsForOrder({
+          orderId:
+            updatedShipment.orderId,
+          shipmentId:
+            updatedShipment.id,
+          reason:
+            "shipment_cancelled",
+          prisma,
+        });
+      } catch (depositError) {
+        console.error(
+          "vendor cancel: expire pending deposit failed:",
+          updatedShipment.id,
+          depositError
+        );
+      }
+    }
+
+    /*
      * =====================================================
      * LEDGER
      * =====================================================
@@ -4920,18 +5004,25 @@ const policy =
   });
 
   if (policy) {
-    const ok = await prisma.vendorAcceptance.findFirst({
-      where: {
-        vendorId,
-        document: "SHIPPING_ADDENDUM",
-        version: policy.version,
-      },
+    // publicarea unei versiuni noi NU blochează vendorii care au acceptat
+    // deja o versiune; blochează doar cererea explicită de reacceptare
+    // (după termen) sau lipsa oricărei acceptări
+    const shippingCheck = await evaluateVendorDocument({
+      vendorId,
+      key: "SHIPPING_ADDENDUM",
+      policyVersion: policy.version,
+      prisma,
     });
 
-    if (!ok) {
+    if (!shippingCheck.satisfied) {
       return res.status(412).json({
         error: "policy_not_accepted",
-        policy: { version: policy.version, url: policy.url },
+        document: "SHIPPING_ADDENDUM",
+        reason: shippingCheck.reason,
+        policy: {
+          version: shippingCheck.requiredVersion || policy.version,
+          url: policy.url,
+        },
       });
     }
   }

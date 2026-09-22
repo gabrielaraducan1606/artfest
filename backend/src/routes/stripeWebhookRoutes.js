@@ -13,8 +13,37 @@ import {
 } from "../services/notifications.js";
 
 import {
+  getDepositBlockReason,
+} from "../payments/depositGuards.js";
+
+import {
+  refundDepositForBlockedOrder,
+} from "../services/depositInvalidation.js";
+
+import {
+  claimStripeEvent,
+  markStripeEventCompleted,
+  markStripeEventFailed,
+} from "../services/stripeEventClaim.js";
+
+import {
+  getOrderPaymentBlockReason,
+  refundBlockedOrderPayment,
+} from "../services/orderPaymentGuards.js";
+
+import {
   sendVendorDepositPaidEmail,
 } from "../lib/mailer.js";
+
+import {
+  planCardSaleEntries,
+  upsertCardSaleEntries,
+  buildCardSaleEntryMeta,
+} from "../services/cardSaleLedger.js";
+
+import {
+  computeVendorEarningForShipment,
+} from "./vendorOrdersRoutes.js";
 
 const router = Router();
 
@@ -477,6 +506,38 @@ async function handleDepositPaymentIntentSucceeded(
     shipment.depositStatus ===
     "PAID"
   ) {
+    return;
+  }
+
+  /*
+   * Avans plătit efectiv pe o comandă/livrare ANULATĂ (sesiune Stripe
+   * deschisă înainte de anulare, cursă între plată și anulare): nu
+   * transferăm banii vendorului și nu marcăm PAID - refundăm integral
+   * PaymentIntent-ul (încă nu există transfer de reversat).
+   */
+  const depositBlockReason =
+    getDepositBlockReason({
+      order:
+        shipment.order,
+      shipment,
+    });
+
+  if (depositBlockReason) {
+    await refundDepositForBlockedOrder({
+      shipment,
+      paymentIntent,
+      reason:
+        depositBlockReason,
+      prisma,
+      stripe,
+    });
+
+    console.warn(
+      "[deposit] plată avans pe comandă anulată -> refund automat:",
+      shipment.id,
+      depositBlockReason
+    );
+
     return;
   }
 
@@ -1106,6 +1167,16 @@ async function handleOrderPaymentIntentSucceeded(
         id:
           orderId,
       },
+
+      include: {
+        shipments: {
+          select: {
+            id: true,
+            status: true,
+            direction: true,
+          },
+        },
+      },
     });
 
   if (!order) {
@@ -1115,32 +1186,98 @@ async function handleOrderPaymentIntentSucceeded(
   }
 
   /*
-   * Confirmăm plata în DB.
+   * PLATĂ PE COMANDĂ ANULATĂ (sesiune Stripe deschisă înainte de
+   * anulare): o comandă CANCELLED sau cu o livrare REFUSED/RETURNED NU
+   * devine PAID, NU transferă bani vendorilor, NU creează SALE/comision.
+   * Plata încasată se rambursează integral Clientului; Order/Shipment
+   * rămân în statusul anulat. Idempotent (starea charge-ului în Stripe +
+   * cheie de idempotență) și reluabil (eșec -> eveniment FAILED).
+   */
+  const blockedAtRead =
+    getOrderPaymentBlockReason({
+      order,
+    });
+
+  if (blockedAtRead) {
+    await refundBlockedOrderPayment({
+      order,
+      paymentIntent: pi,
+      chargeId,
+      reason: blockedAtRead,
+      prisma,
+      stripe,
+    });
+
+    console.warn(
+      "[order payment] plată pe comandă anulată -> refund automat:",
+      orderId,
+      blockedAtRead
+    );
+
+    return;
+  }
+
+  /*
+   * Confirmăm plata în DB - CONDIȚIONAT: dacă între citire și scriere
+   * comanda a fost anulată, update-ul nu se potrivește (P2025) și plata
+   * se rambursează în loc să transforme o comandă anulată în PAID.
    */
   if (
     order.status !== "PAID" ||
     !order.stripeChargeId
   ) {
-    await prisma.order.update({
-      where: {
-        id:
-          orderId,
-      },
+    let markedPaid = true;
 
-      data: {
-        status:
-          "PAID",
+    try {
+      await prisma.order.update({
+        where: {
+          id:
+            orderId,
 
-        paidAt:
-          order.paidAt ||
-          new Date(),
+          status: {
+            not: "CANCELLED",
+          },
+        },
 
-        stripeChargeId:
-          String(
-            chargeId
-          ),
-      },
-    });
+        data: {
+          status:
+            "PAID",
+
+          paidAt:
+            order.paidAt ||
+            new Date(),
+
+          stripeChargeId:
+            String(
+              chargeId
+            ),
+        },
+      });
+    } catch (updateError) {
+      if (updateError?.code !== "P2025") {
+        throw updateError;
+      }
+
+      markedPaid = false;
+    }
+
+    if (!markedPaid) {
+      await refundBlockedOrderPayment({
+        order,
+        paymentIntent: pi,
+        chargeId,
+        reason: "order_cancelled",
+        prisma,
+        stripe,
+      });
+
+      console.warn(
+        "[order payment] comandă anulată concurent -> refund automat:",
+        orderId
+      );
+
+      return;
+    }
   }
 
   /*
@@ -1407,6 +1544,57 @@ async function handleOrderPaymentIntentSucceeded(
     }
 
     /*
+     * REVENIRE / RETRIMITERE: dacă acest vendor a fost deja procesat pentru
+     * ACEST PaymentIntent, nu creăm alt transfer (cheia de idempotență
+     * Stripe expiră după ~24h, ledger-ul nu):
+     *  - SALE cu shipmentId + stripeTransferId -> refolosim transferul
+     *    (ledger-ul se upsert-ează idempotent mai jos);
+     *  - SALE legacy (fără shipmentId, creat de codul vechi) -> vendor deja
+     *    procesat, îl sărim (altfel s-ar dubla SALE-ul).
+     */
+    const alreadyBooked = (
+      await prisma.vendorEarningEntry.findMany({
+        where: {
+          orderId: String(orderId),
+          vendorId,
+          type: "SALE",
+          stripeTransferId: { not: null },
+        },
+      })
+    ).filter(
+      (row) =>
+        !row.meta?.paymentIntentId ||
+        String(row.meta.paymentIntentId) === String(pi.id)
+    );
+
+    if (alreadyBooked.some((row) => row.shipmentId == null)) {
+      console.warn(
+        "[order payment] vendor procesat deja de codul vechi (SALE fără shipmentId) - sărit:",
+        { orderId, vendorId }
+      );
+
+      continue;
+    }
+
+    const existingTransferId =
+      alreadyBooked[0]?.stripeTransferId || null;
+
+    /*
+     * Planul de ledger (doar citiri) se calculează ÎNAINTE de transfer:
+     * un vendor fără shipment OUTBOUND oprește handler-ul înainte să se
+     * miște bani. Shipment-urile RETURN sunt excluse.
+     */
+    const ledgerAllocation =
+      await planCardSaleEntries({
+        db: prisma,
+        orderId,
+        vendorId,
+        payout,
+        computeEarning:
+          computeVendorEarningForShipment,
+      });
+
+    /*
      * Stripe Connect transfer.
      *
      * source_transaction leagă
@@ -1417,7 +1605,9 @@ async function handleOrderPaymentIntentSucceeded(
      * retrimite webhook-ul.
      */
     const transfer =
-      await stripe.transfers.create(
+      existingTransferId
+        ? { id: String(existingTransferId) }
+        : await stripe.transfers.create(
         {
           amount:
             amountCents,
@@ -1467,224 +1657,42 @@ async function handleOrderPaymentIntentSucceeded(
 
     /*
      * ==========================================
-     * LEDGER ARTFEST
+     * LEDGER ARTFEST - UN SALE PER SHIPMENT OUTBOUND
      * ==========================================
      *
-     * Nu vrem duplicate în
-     * VendorEarningEntry.
+     * Idempotența principală e shipmentId (unic în schemă), NU
+     * stripeTransferId: același transfer (unul per vendor) corespunde
+     * acum mai multor rânduri când vendorul are mai multe shipment-uri
+     * OUTBOUND (mai multe magazine). Dacă SALE-ul shipment-ului există
+     * deja (creat de ensureSaleLedgerEntry sau de un apel anterior),
+     * e ACTUALIZAT cu datele Stripe - nu se creează un al doilea.
+     * Totalul commissionNet al rândurilor = commissionNet din
+     * computeOrderSplits pentru vendor (vezi cardSaleLedger.js).
      */
-    const existingEntry =
-      await prisma.vendorEarningEntry.findFirst({
-        where: {
-          stripeTransferId:
-            String(
-              transfer.id
-            ),
-        },
-
-        select: {
-          id:
-            true,
-        },
+    const ledgerResults =
+      await upsertCardSaleEntries({
+        db: prisma,
+        orderId,
+        vendorId,
+        allocation: ledgerAllocation,
+        transferId: transfer.id,
+        currency:
+          String(
+            splits?.order
+              ?.currency ||
+              order.currency ||
+              "RON"
+          ).toUpperCase(),
+        buildMeta: (row) =>
+          buildCardSaleEntryMeta({
+            payout,
+            row,
+            orderId,
+            paymentIntentId: pi.id,
+            chargeId,
+            feeTotal: feeNet,
+          }),
       });
-
-    if (!existingEntry) {
-      await prisma.vendorEarningEntry.create({
-        data: {
-          vendorId,
-
-          orderId:
-            String(
-              orderId
-            ),
-
-          type:
-            "SALE",
-
-          currency:
-            String(
-              splits?.order
-                ?.currency ||
-                order.currency ||
-                "RON"
-            ).toUpperCase(),
-
-          /*
-           * Net produse fără TVA.
-           */
-          itemsNet:
-            Number(
-              payout
-                .itemsNetExVat ||
-                0
-            ),
-
-          commissionNet:
-            Number(
-              payout
-                .commissionNet ||
-                0
-            ),
-
-          vendorNet:
-            Number(
-              payout
-                .vendorPayoutNet ||
-                0
-            ),
-
-          stripeTransferId:
-            String(
-              transfer.id
-            ),
-
-          meta: {
-            kind:
-              "online_order_vendor_transfer",
-
-            commissionSource:
-              payout
-                .commissionSource ||
-              "plan",
-
-            campaignId:
-              payout.campaignId ||
-              null,
-
-            paymentIntentId:
-              String(
-                pi.id
-              ),
-
-            chargeId:
-              String(
-                chargeId
-              ),
-
-            transferGroup:
-              `order_${orderId}`,
-
-            gross:
-              Number(
-                payout.gross ||
-                  0
-              ),
-
-            itemsGross:
-              Number(
-                payout
-                  .itemsGross ||
-                  0
-              ),
-
-            itemsNetExVat:
-              Number(
-                payout
-                  .itemsNetExVat ||
-                  0
-              ),
-
-            itemsVat:
-              Number(
-                payout
-                  .itemsVat ||
-                  0
-              ),
-
-            shippingGross:
-              Number(
-                payout
-                  .shippingGross ||
-                  0
-              ),
-
-            shippingNetExVat:
-              Number(
-                payout
-                  .shippingNetExVat ||
-                  0
-              ),
-
-            shippingVat:
-              Number(
-                payout
-                  .shippingVat ||
-                  0
-              ),
-
-            stripeFeeAllocated:
-              Number(
-                payout
-                  .stripeFeeAllocated ||
-                  0
-              ),
-
-            commissionBps:
-              Number(
-                payout
-                  .commissionBps ||
-                  0
-              ),
-
-            planCode:
-              payout
-                .planCode ||
-                null,
-
-            planName:
-              payout
-                .planName ||
-                null,
-
-            commissionBase:
-              Number(
-                payout
-                  .commissionBase ||
-                  0
-              ),
-
-            commissionAmount:
-              Number(
-                payout
-                  .commissionAmount ||
-                  0
-              ),
-
-            platformSubsidyAmount:
-              Number(
-                payout
-                  .platformSubsidyAmount ||
-                  0
-              ),
-
-            platformNet:
-              Number(
-                payout
-                  .platformNet ||
-                  0
-              ),
-
-            /*
-             * Comision MIXT (audit 2026-09-14, lifecycle
-             * VendorCampaign) - identic ca formă cu ledger-ul COD
-             * (ensureSaleLedgerEntry din vendorOrdersRoutes.js), ca
-             * Admin/Vendor Order Details să citească exact aceeași
-             * structură indiferent de metoda de plată.
-             */
-            isMixedCommission:
-              Boolean(
-                payout
-                  .isMixedCommission
-              ),
-
-            commissionGroups:
-              payout
-                .commissionGroups ||
-              null,
-          },
-        },
-      });
-    }
 
     console.log(
       "[order payment] vendor transfer processed",
@@ -1695,6 +1703,9 @@ async function handleOrderPaymentIntentSucceeded(
 
         transferId:
           transfer.id,
+
+        ledgerEntries:
+          ledgerResults,
 
         vendorPayoutNet:
           Number(
@@ -2012,17 +2023,29 @@ router.post("/", async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+  /*
+   * Dedupe + retry pe StripeEvent (vezi services/stripeEventClaim.js):
+   * COMPLETED -> duplicat real; FAILED -> se reia; PROCESSING recent -> 409;
+   * o eroare DB (alta decât conflictul de unicitate) NU mai e înghițită ca
+   * "duplicat" - 500, Stripe reîncearcă.
+   */
+  let claim;
+
   try {
-    await prisma.stripeEvent.create({
-      data: {
-        eventId: event.id,
-        type: event.type,
-        livemode: !!event.livemode,
-        payload: event.data?.object ?? {},
-      },
-    });
-  } catch {
+    claim = await claimStripeEvent({ prisma, event });
+  } catch (claimError) {
+    console.error("[stripe webhook] event claim failed:", claimError);
+    return res.status(500).json({ error: "webhook_event_claim_failed" });
+  }
+
+  if (claim.action === "duplicate") {
     return res.json({ received: true, duplicate: true });
+  }
+
+  if (claim.action === "in_progress") {
+    return res
+      .status(409)
+      .json({ received: false, in_progress: true, reason: claim.reason });
   }
 
   try {
@@ -2143,22 +2166,19 @@ router.post("/", async (req, res) => {
       await handleConnectAccountDeauthorized(event.data.object);
     }
 
-    await prisma.stripeEvent.updateMany({
-      where: { eventId: event.id },
-      data: { processedAt: new Date() },
-    });
+    // COMPLETED doar după ce toate operațiunile critice au reușit.
+    await markStripeEventCompleted({ prisma, eventId: event.id });
 
     return res.json({ received: true });
   } catch (e) {
     console.error("[stripe webhook] handler error:", e);
 
-    await prisma.stripeEvent.updateMany({
-      where: { eventId: event.id },
-      data: {
-        error: String(e?.message || e),
-        processedAt: new Date(),
-      },
-    });
+    // FAILED: processedAt rămâne null; retrimiterea evenimentului îl reia.
+    try {
+      await markStripeEventFailed({ prisma, eventId: event.id, error: e });
+    } catch (markError) {
+      console.error("[stripe webhook] mark failed error:", markError);
+    }
 
     return res.status(500).json({ error: "webhook_handler_failed" });
   }

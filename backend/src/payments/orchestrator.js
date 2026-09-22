@@ -2,6 +2,10 @@
 import { prisma } from "../db.js";
 import { stripe } from "../lib/stripe.js";
 import {
+  DepositPaymentBlockedError,
+  getDepositBlockReason,
+} from "./depositGuards.js";
+import {
   assertOrderCardPaymentAllowed,
   isVendorStripeReady,
 } from "./vendorStripeStatus.js";
@@ -300,6 +304,23 @@ export async function createDepositPaymentForShipment({
   if (!shipment) {
     throw new Error(
       "shipment_not_found"
+    );
+  }
+
+  /*
+   * Comandă/livrare anulată -> nu mai creăm sesiune de plată pentru
+   * avans, indiferent de depositStatus (rămâne PENDING după anulare).
+   * Verificare pe statusul CURENT din DB, la fiecare încercare.
+   */
+  const depositBlockReason =
+    getDepositBlockReason({
+      order: shipment.order,
+      shipment,
+    });
+
+  if (depositBlockReason) {
+    throw new DepositPaymentBlockedError(
+      depositBlockReason
     );
   }
 

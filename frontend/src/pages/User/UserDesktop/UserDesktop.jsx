@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../lib/api";
 import styles from "./UserDesktop.module.css";
 import PolicyGate from "../../Admin/AdminDesktop/PolicyGate/PolicyGate.jsx";
+import usePolicyGateController from "../../Admin/AdminDesktop/PolicyGate/usePolicyGateController.js";
 
 import {
   LayoutDashboard,
@@ -170,13 +171,6 @@ const queryPolicyScope = params.get("scope") || null;
 
   const [onboarding, setOnboarding] = useState(null);
 
-const [policyGateOpen, setPolicyGateOpen] = useState(
-  shouldOpenPolicyGate
-);
-
-const [policyBlocked, setPolicyBlocked] = useState(false);
-
-const [policyScope, setPolicyScope] = useState("USERS");
 
 const isVendor = me?.role === "VENDOR";
 const isAdmin = me?.role === "ADMIN";
@@ -204,95 +198,22 @@ const requestedPolicyScope = useMemo(() => {
   return null;
 }, [queryPolicyScope]);
 
-useEffect(() => {
-  if (!me) return;
-
-  let alive = true;
-
-  function hasPendingRequiredDocuments(data) {
-    return (
-      data?.requiresAction === true &&
-      Array.isArray(data?.documents) &&
-      data.documents.some(
-        (document) =>
-          document?.required === true &&
-          document?.alreadyAccepted !== true
-      )
-    );
-  }
-
-  async function checkPolicyGates() {
-    /*
-     * Dacă linkul notificării conține un scope explicit,
-     * deschidem exact poarta cerută.
-     */
-    if (requestedPolicyScope) {
-      const requestedGate = await api(
-        `/api/policy-gate?scope=${encodeURIComponent(
-          requestedPolicyScope
-        )}`
-      ).catch(() => null);
-
-      if (!alive) return;
-
-      if (
-        hasPendingRequiredDocuments(requestedGate) ||
-        shouldOpenPolicyGate
-      ) {
-        setPolicyScope(requestedPolicyScope);
-        setPolicyGateOpen(true);
-      }
-
-      return;
-    }
-
-    /*
-     * Orice cont verifică mai întâi politicile generale:
-     * TOS, Privacy, Cookies, Retur.
-     */
-    const userGate = await api(
-      "/api/policy-gate?scope=USERS"
-    ).catch(() => null);
-
-    if (!alive) return;
-
-    if (hasPendingRequiredDocuments(userGate)) {
-      setPolicyScope("USERS");
-      setPolicyGateOpen(true);
-      return;
-    }
-
-    /*
-     * Vendorul verifică apoi politicile specifice:
-     * Vendor Terms, Shipping, Products etc.
-     */
-    if (me.role === "VENDOR") {
-      const vendorGate = await api(
-        "/api/policy-gate?scope=VENDORS"
-      ).catch(() => null);
-
-      if (!alive) return;
-
-      if (hasPendingRequiredDocuments(vendorGate)) {
-        setPolicyScope("VENDORS");
-        setPolicyGateOpen(true);
-        return;
-      }
-    }
-
-    setPolicyGateOpen(false);
-  }
-
-  checkPolicyGates();
-
-  return () => {
-    alive = false;
-  };
-}, [
+/*
+ * Gate-ul de documente: toate documentele cerute (TOS, Privacy, Returns,
+ * acorduri vendor...) se verifică pe scope-uri, iar după acceptarea unui
+ * scope se deschide imediat următorul; reacționează și la 428/412.
+ */
+const {
+  open: policyGateOpen,
+  scope: policyScope,
+  blocked: policyBlocked,
+  setBlocked: setPolicyBlocked,
+  onClose: closePolicyGate,
+} = usePolicyGateController({
   me,
-  requestedPolicyScope,
-  shouldOpenPolicyGate,
-]);
+  requestedScope: requestedPolicyScope,
+  forceOpen: shouldOpenPolicyGate,
+});
   const docsBase = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
   useEffect(() => {
@@ -680,9 +601,7 @@ useEffect(() => {
 <PolicyGate
   scope={policyScope}
   isOpen={policyGateOpen}
-  onClose={() => {
-    setPolicyGateOpen(false);
-  }}
+  onClose={closePolicyGate}
   onStatusChange={setPolicyBlocked}
   closeOnOverlay={false}
   closeOnEsc={false}

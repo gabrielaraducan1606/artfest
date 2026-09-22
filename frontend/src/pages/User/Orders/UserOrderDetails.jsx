@@ -6,6 +6,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { api } from "../../../lib/api";
+import WithdrawalButton from "../../../components/Withdrawal/WithdrawalButton.jsx";
 import { humanizeOptionValue } from "../../../utils/optionLabels";
 import {
   ArrowLeft,
@@ -992,13 +993,26 @@ export default function MyOrderDetailsPage() {
     );
 
     try {
-      await api(
-        `/api/user/orders/${order.id}/cancel`,
-        {
-          method:
-            "POST",
-        }
-      );
+      const cancelResponse =
+        await api(
+          `/api/user/orders/${order.id}/cancel`,
+          {
+            method:
+              "POST",
+          }
+        );
+
+      /*
+       * Anulare comandă CARD deja plătită: spunem explicit ce s-a
+       * întâmplat cu rambursarea (automată sau în procesare manuală).
+       */
+      if (
+        cancelResponse?.message
+      ) {
+        alert(
+          cancelResponse.message
+        );
+      }
 
       await load();
     } catch (
@@ -1588,6 +1602,15 @@ export default function MyOrderDetailsPage() {
                 )}
               </button>
             )}
+
+            {order &&
+              order.status !== "CANCELED" && (
+                <WithdrawalButton
+                  orderRef={order.id}
+                  mode="user"
+                  className={styles.btnGhost}
+                />
+              )}
           </div>
         </div>
       </div>

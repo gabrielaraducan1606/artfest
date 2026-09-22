@@ -37,6 +37,7 @@ import CookiePreferences from "./pages/CookieBanner/CookiePreferences";
 import CookieBanner from "./pages/CookieBanner/CookieBanner";
 
 import PublicCollectionPage from "./pages/Collections/PublicCollections.jsx";
+import CollectionsIndexPage from "./pages/Collections/CollectionsIndex.jsx";
 import PublicCampaignPage from "./pages/Campaigns/PublicCampaignPage.jsx";
 import PublicInfluencerCollectionPage
   from "./pages/Influencer/PublicInfluencerCollectionPage/PublicInfluencerCollectionPage.jsx";
@@ -688,6 +689,13 @@ export default function App() {
               path="/preferinte-cookie"
               element={
                 <CookiePreferences />
+              }
+            />
+
+            <Route
+              path="/colectii"
+              element={
+                <CollectionsIndexPage />
               }
             />
 

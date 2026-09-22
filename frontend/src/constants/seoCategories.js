@@ -66,7 +66,10 @@ function makeDefaultCategory(key, label) {
 }
 
 export const SEO_CATEGORY_OVERRIDES = {
-  invitatii_nunta: {
+  // Cheia trebuie să fie cheia REALĂ din CATEGORY_LABELS (înainte:
+  // "invitatii_nunta"/"invitatii_botez" - chei inexistente, deci textul
+  // SEO scris de mână de mai jos nu se aplica niciodată).
+  "papetarie_invitatii-nunta": {
     slug: "invitatii-nunta",
     title: "Invitații nuntă personalizate handmade",
     description:
@@ -93,7 +96,7 @@ export const SEO_CATEGORY_OVERRIDES = {
     ],
   },
 
-  invitatii_botez: {
+  "papetarie_invitatii-botez": {
     slug: "invitatii-botez",
     title: "Invitații botez personalizate handmade",
     description:

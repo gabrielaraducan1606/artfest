@@ -25,6 +25,11 @@ import {
   getSignedDownloadUrl,
 } from "../services/r2Storage.js";
 
+import {
+  computeCollaborationState,
+  validateCollaborationExtension,
+} from "../services/influencerCollaboration.js";
+
 const router = Router();
 
 const {
@@ -854,6 +859,32 @@ router.get(
                 activeCommissionBps
               );
 
+            /*
+             * Perioada de colaborare (Admin -> Influenceri): AICI se
+             * calculează, o singură dată, cu EXACT helperul comun
+             * (services/influencerCollaboration.js) folosit și de
+             * dashboardul influencerului (GET /api/influencer/me) -
+             * frontendul Admin doar afișează, nu recalculează. Vezi
+             * audit-ul din acel fișier: collaborationStart =
+             * InfluencerProfile.createdAt (momentul activării, câmp
+             * sigur), fără date inventate. profile.status (real,
+             * ex. DISABLED) NU este suprascris de calculul de
+             * perioadă.
+             */
+            const collaboration =
+              computeCollaborationState(
+                {
+                  activatedAt:
+                    profile.createdAt,
+                  status:
+                    profile.status,
+                  commissionBps:
+                    activeCommissionBps,
+                  collaborationEndOverride:
+                    profile.collaborationEndOverride,
+                }
+              );
+
             return {
               id:
                 profile.id,
@@ -1018,6 +1049,13 @@ router.get(
 
               updatedAt:
                 profile.updatedAt,
+
+              /*
+               * Aditiv - vezi comentariul de mai sus. Shape identic
+               * cu `collaboration` din GET /api/influencer/me
+               * (services/influencerCollaboration.js).
+               */
+              collaboration,
             };
           }
         );
@@ -1075,6 +1113,14 @@ router.get(
 
             commissionConfigured:
               false,
+
+            /*
+             * Invitațiile nu au încă un InfluencerProfile (nu s-au
+             * activat) - nu există dată de activare, deci nu inventăm
+             * o perioadă de colaborare pentru ele.
+             */
+            collaboration:
+              null,
 
             pendingCommissionAgreement:
               null,
@@ -2502,6 +2548,150 @@ router.get(
       commissionAgreements:
         true,
     });
+  }
+);
+
+/* =========================================================
+   PATCH /api/admin/influencers/:id/collaboration
+
+   "Prelungește colaborarea" - setează InfluencerProfile.
+   collaborationEndOverride (migrare
+   20260922120000_add_influencer_collaboration_end_override).
+
+   NU atinge status sau commissionBps - vezi
+   services/influencerCollaboration.js (sursă unică de calcul):
+     - dacă profile.status === DISABLED, statusul de colaborare
+       rămâne DISABLED indiferent de noua dată (nu se reactivează
+       automat);
+     - dacă profile.status === ACTIVE și noua dată e în viitor,
+       statusul de colaborare revine ACTIVE (chiar dacă era
+       EXPIRED) - nu e un status stocat separat, e derivat.
+
+   Body: { collaborationEnd: "<ISO date>" }.
+   Regula secțiunii 5: noua dată trebuie să fie ulterioară
+   collaborationEnd-ului CURENT (implicit sau dintr-un override
+   anterior), nu doar ulterioară datei de start - acțiunea este
+   explicit o PRELUNGIRE, nu o scurtare.
+========================================================= */
+
+const CollaborationExtensionSchema = z.object({
+  collaborationEnd: z
+    .string()
+    .trim()
+    .min(1),
+});
+
+router.patch(
+  "/:id/collaboration",
+  authRequired,
+  adminOnly,
+  async (req, res) => {
+    try {
+      const profileId = String(req.params.id || "").trim();
+
+      if (!profileId) {
+        return res.status(400).json({ ok: false, error: "profile_id_required" });
+      }
+
+      const parsed = CollaborationExtensionSchema.safeParse(req.body);
+
+      if (!parsed.success) {
+        return res.status(400).json({
+          ok: false,
+          error: "invalid_payload",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const profile = await prisma.influencerProfile.findUnique({
+        where: { id: profileId },
+        select: {
+          id: true,
+          createdAt: true,
+          status: true,
+          commissionBps: true,
+          collaborationEndOverride: true,
+        },
+      });
+
+      if (!profile) {
+        return res.status(404).json({ ok: false, error: "influencer_not_found" });
+      }
+
+      /*
+       * Starea CURENTĂ (înainte de prelungire) - de aici citim
+       * collaborationEnd-ul față de care se validează noua dată
+       * (secțiunea 5: de la end-ul curent, nu de la createdAt).
+       */
+      const currentState = computeCollaborationState({
+        activatedAt: profile.createdAt,
+        status: profile.status,
+        commissionBps: profile.commissionBps,
+        collaborationEndOverride: profile.collaborationEndOverride,
+      });
+
+      const validation = validateCollaborationExtension({
+        collaborationEnd: parsed.data.collaborationEnd,
+        collaborationStart: currentState.collaborationStart,
+        currentCollaborationEnd: currentState.collaborationEnd,
+      });
+
+      if (!validation.valid) {
+        return res.status(400).json({
+          ok: false,
+          error: validation.code,
+        });
+      }
+
+      const updated = await prisma.influencerProfile.update({
+        where: { id: profileId },
+        data: { collaborationEndOverride: validation.date },
+        select: {
+          id: true,
+          createdAt: true,
+          status: true,
+          commissionBps: true,
+          collaborationEndOverride: true,
+        },
+      });
+
+      const collaboration = computeCollaborationState({
+        activatedAt: updated.createdAt,
+        status: updated.status,
+        commissionBps: updated.commissionBps,
+        collaborationEndOverride: updated.collaborationEndOverride,
+      });
+
+      /*
+       * Nu există niciun mecanism generic de audit/activity log în
+       * acest backend (verificat: niciun model Prisma de tip
+       * AuditLog/ActivityLog și nicio rută care scrie așa ceva) -
+       * per cerință, NU s-a creat unul acum. Rămâne doar acest log
+       * de proces (nu e persistat în DB).
+       */
+      console.log(
+        "[adminInfluencers] collaboration extended",
+        {
+          influencerId: profileId,
+          adminId: req.adminUser?.id || null,
+          previousCollaborationEnd: currentState.collaborationEnd,
+          newCollaborationEnd: collaboration.collaborationEnd,
+          at: new Date(),
+        }
+      );
+
+      return res.json({
+        ok: true,
+        collaboration,
+      });
+    } catch (error) {
+      console.error(
+        "[adminInfluencers] PATCH /:id/collaboration error:",
+        error
+      );
+
+      return res.status(500).json({ ok: false, error: "collaboration_update_failed" });
+    }
   }
 );
 

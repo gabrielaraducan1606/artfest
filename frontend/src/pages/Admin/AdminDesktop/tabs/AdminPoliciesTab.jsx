@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import styles from "../AdminDesktop.module.css";
+import LegalDocumentsPanel from "./legal/LegalDocumentsPanel.jsx";
 
 function formatDate(dateString) {
   if (!dateString) return "—";
@@ -39,61 +40,19 @@ function createDefaultInfluencerFilters() {
 }
 
 const TABS = {
+  DOCUMENTS: "DOCUMENTS",
   USERS: "USERS",
   VENDORS: "VENDORS",
   INFLUENCERS: "INFLUENCERS",
-  NOTIFY: "NOTIFY",
 };
 
 const INFLUENCER_TERMS_STATUS_LABELS = {
   UPDATED: "Actualizat",
   OUTDATED: "Necesită reacceptare",
+  OLDER_VERSION: "Versiune anterioară (fără cerere)",
   NEVER_ACCEPTED: "Nu a acceptat",
 };
 
-const DOC_LABELS = {
-  TOS: "Termeni și condiții",
-  PRIVACY: "Politica de confidențialitate",
-  COOKIES: "Politica de Cookie-uri",
-  RETURNS_POLICY_ACK: "Politica de retur",
-  MARKETING: "Preferințe marketing",
-
-  VENDOR_TERMS: "Acord master vânzători",
-  SHIPPING_ADDENDUM: "Politica de livrare",
-  PRODUCTS_ADDENDUM: "Anexa produse",
-  PRODUCT_DECLARATION: "Declarație produse",
-};
-
-const DOC_URLS = {
-  TOS: "/termenii-si-conditiile",
-  PRIVACY: "/confidentialitate",
-  COOKIES: "/cookies",
-  RETURNS_POLICY_ACK: "/politica-retur",
-
-  VENDOR_TERMS: "/acord-vanzatori",
-  SHIPPING_ADDENDUM: "/anexa-expediere",
-  PRODUCTS_ADDENDUM: "/anexa-produse",
-  PRODUCT_DECLARATION: "/vendor/legal/product-declaration",
-};
-
-
-
- const DOCS_BY_SCOPE = {
-  VENDORS: {
-    VENDOR_TERMS: true,
-    RETURNS_POLICY_ACK: true,
-    SHIPPING_ADDENDUM: false,
-    PRODUCTS_ADDENDUM: false,
-    PRODUCT_DECLARATION: false,
-  },
-
-  USERS: {
-    TOS: true,
-    PRIVACY: true,
-    COOKIES: false,
-    RETURNS_POLICY_ACK: true,
-  },
-};
 function normalizeUserConsents(userConsents = []) {
   if (!Array.isArray(userConsents)) {
     return [];
@@ -351,7 +310,7 @@ export default function AdminPoliciesTab({
   vendorAgreements = [],
   influencerTerms = {},
 }) {
-  const [activeTab, setActiveTab] = useState(TABS.USERS);
+  const [activeTab, setActiveTab] = useState(TABS.DOCUMENTS);
 
   const [userFilters, setUserFilters] = useState(createDefaultUserFilters);
   const [userPage, setUserPage] = useState(1);
@@ -648,6 +607,16 @@ if (userFilters.hasMarketing === "YES") {
           <button
             type="button"
             className={`${styles.paginationBtn} ${
+              activeTab === TABS.DOCUMENTS ? styles.paginationBtnActive : ""
+            }`}
+            onClick={() => setActiveTab(TABS.DOCUMENTS)}
+          >
+            Documente juridice
+          </button>
+
+          <button
+            type="button"
+            className={`${styles.paginationBtn} ${
               activeTab === TABS.USERS ? styles.paginationBtnActive : ""
             }`}
             onClick={() => setActiveTab(TABS.USERS)}
@@ -675,15 +644,6 @@ if (userFilters.hasMarketing === "YES") {
             Influenceri
           </button>
 
-          <button
-            type="button"
-            className={`${styles.paginationBtn} ${
-              activeTab === TABS.NOTIFY ? styles.paginationBtnActive : ""
-            }`}
-            onClick={() => setActiveTab(TABS.NOTIFY)}
-          >
-            Informare versiuni
-          </button>
         </div>
       </div>
 
@@ -916,7 +876,7 @@ if (userFilters.hasMarketing === "YES") {
             Acord Program Influenceri
             {influencerCurrentVersion && (
               <span className={styles.subtle} style={{ marginLeft: 10 }}>
-                Versiune curentă: v{influencerCurrentVersion}
+                Versiune publicată: v{influencerCurrentVersion}
                 {influencerDocumentUrl && (
                   <>
                     {" · "}
@@ -932,6 +892,24 @@ if (userFilters.hasMarketing === "YES") {
               </span>
             )}
           </h3>
+
+          <p className={styles.subtle} style={{ marginTop: -6 }}>
+            {influencerTerms?.reacceptance ? (
+              <>
+                Reacceptare cerută pentru v{influencerTerms.reacceptance.version}
+                {influencerTerms.reacceptance.deadlineAt && (
+                  <> (termen {formatDate(influencerTerms.reacceptance.deadlineAt)})</>
+                )}
+                . Influencerii care nu au acceptat această versiune văd fereastra de acceptare.
+              </>
+            ) : (
+              <>
+                Nicio cerere de reacceptare deschisă: o versiune nouă publicată nu blochează
+                influencerii. Cererea se face din „Documente juridice” → Acordul Programului de
+                Influenceri → „Cere reacceptarea”.
+              </>
+            )}
+          </p>
 
           <div className={styles.filtersRow}>
             <label>
@@ -963,6 +941,7 @@ if (userFilters.hasMarketing === "YES") {
                 <option value="ALL">Toți</option>
                 <option value="UPDATED">Actualizați</option>
                 <option value="OUTDATED">Necesită reacceptare</option>
+                <option value="OLDER_VERSION">Versiune anterioară</option>
                 <option value="NEVER_ACCEPTED">Nu au acceptat</option>
               </select>
             </label>
@@ -1006,535 +985,11 @@ if (userFilters.hasMarketing === "YES") {
         </section>
       )}
 
-      {activeTab === TABS.NOTIFY && (
-        <section>
-          <h3 className={styles.sectionTitle}>Informare versiuni</h3>
-          <p className={styles.subtle} style={{ marginTop: -6 }}>
-            Creează o informare in-app (și opțional email) când schimbi versiuni
-            pentru documentele legale.
-          </p>
-          <PolicyNotificationsTab />
-        </section>
-      )}
+      {activeTab === TABS.DOCUMENTS && <LegalDocumentsPanel />}
     </>
   );
 }
 
-function PolicyNotificationsTab() {
-  const [scope, setScope] = useState("VENDORS");
-
-
-  const [documents, setDocuments] = useState(DOCS_BY_SCOPE.VENDORS);
-  const [previewOpen, setPreviewOpen] = useState(false);
-
-  const handleScopeChange = (nextScope) => {
-    setScope(nextScope);
-    setDocuments(DOCS_BY_SCOPE[nextScope] || {});
-  };
-
-  const [requiresAction, setRequiresAction] = useState(true);
-  const [sendEmail, setSendEmail] = useState(false);
-
-  const [title, setTitle] = useState("Au fost actualizate documentele legale");
-  const [message, setMessage] = useState(
-    "Am actualizat versiunea unuia sau mai multor documente. Te rugăm să le consulți și să le accepți pentru a continua."
-  );
-
-  const [emailSubject, setEmailSubject] = useState(
-    "Actualizare documente legale"
-  );
-  const [emailBody, setEmailBody] = useState(`
-<h2>Actualizare documente legale</h2>
-
-<p>
-Am actualizat unul sau mai multe documente legale asociate contului tău.
-</p>
-
-<p>
-Te rugăm să intri în platformă pentru a consulta și accepta noile versiuni.
-</p>
-
-<p>
-Mulțumim,<br />
-Echipa Marketplace
-</p>
-`);
-
-  const [loading, setLoading] = useState(false);
-  const [okMsg, setOkMsg] = useState("");
-  const [errMsg, setErrMsg] = useState("");
-
-  const selectedDocs = Object.entries(documents)
-    .filter(([, v]) => v)
-    .map(([k]) => k);
-
-  const toggleDoc = (k) => {
-    setDocuments((prev) => ({ ...prev, [k]: !prev[k] }));
-  };
-
-  const previewPayload = useMemo(() => {
-    const docs = selectedDocs.map((k) => ({
-      key: k,
-      title: DOC_LABELS[k] || k,
-      version: "X.Y.Z",
-      url: DOC_URLS[k] || null,
-   required: [
-  "TOS",
-  "PRIVACY",
-  "RETURNS_POLICY_ACK",
-  "VENDOR_TERMS",
-  "SHIPPING_ADDENDUM",
-  "PRODUCTS_ADDENDUM",
-  "PRODUCT_DECLARATION",
-].includes(k),
-    }));
-
-    return {
-      scope,
-      requiresAction,
-      title,
-      message,
-      documents: docs,
-    };
-  }, [scope, requiresAction, title, message, selectedDocs]);
-
- const handleSubmit = async () => {
-  setOkMsg("");
-  setErrMsg("");
-
-  if (!title.trim() || !message.trim()) {
-    setErrMsg("Completează titlul și mesajul pentru notificare.");
-    return;
-  }
-
-  if (!selectedDocs.length) {
-    setErrMsg("Selectează cel puțin un document.");
-    return;
-  }
-
-  if (sendEmail && (!emailSubject.trim() || !emailBody.trim())) {
-    setErrMsg("Completează subiectul și corpul emailului.");
-    return;
-  }
-
-  setLoading(true);
-
-  try {
-    const res = await fetch(
-      "/api/admin/policy-notifications/send",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          scope,
-          documents: selectedDocs,
-          requiresAction,
-          inApp: {
-            title: title.trim(),
-            message: message.trim(),
-          },
-          email: sendEmail
-            ? {
-                subject: emailSubject.trim(),
-                body: emailBody,
-              }
-            : null,
-        }),
-      }
-    );
-
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      console.error("POLICY NOTIFY ERROR DATA:", data);
-
-      const missing = Array.isArray(data?.missingDocuments)
-        ? ` Documente lipsă: ${data.missingDocuments.join(", ")}.`
-        : "";
-
-      const invalid = Array.isArray(data?.invalidDocuments)
-        ? ` Documente invalide: ${data.invalidDocuments.join(", ")}.`
-        : "";
-
-      throw new Error(
-        `${data?.error || "server_error"}.${missing}${invalid}`
-      );
-    }
-
-    const publishedCount =
-      data?.publication?.publishedCount ?? 0;
-
-    setOkMsg(
-      `Publicare reușită. Politici publicate: ${publishedCount} · ` +
-        `Target: ${data?.targetCount ?? "?"} · ` +
-        `Notificări create: ${data?.createdCount ?? "?"}`
-    );
-  } catch (error) {
-    console.error("policy publish and notify error:", error);
-
-    setErrMsg(
-      error?.message ||
-        "Publicarea și trimiterea informării au eșuat."
-    );
-  } finally {
-    setLoading(false);
-  }
-};
-  const docKeys = Object.keys(documents);
-
-  return (
-    <div className={styles.card} style={{ padding: 14 }}>
-      <div className={styles.filtersRow}>
-        <label>
-          <span>Audiență</span>
-          <select
-            value={scope}
-            onChange={(e) => handleScopeChange(e.target.value)}
-          >
-            <option value="VENDORS">Vendori</option>
-            <option value="USERS">
-  Toate conturile — clienți și vendori
-</option>
-          </select>
-        </label>
-
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input
-            type="checkbox"
-            checked={requiresAction}
-            onChange={(e) => setRequiresAction(e.target.checked)}
-          />
-          <span style={{ margin: 0 }}>Necesită acțiune (gate)</span>
-        </label>
-
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input
-            type="checkbox"
-            checked={sendEmail}
-            onChange={(e) => setSendEmail(e.target.checked)}
-          />
-          <span style={{ margin: 0 }}>Trimite și email</span>
-        </label>
-      </div>
-
-      <div style={{ marginTop: 10 }}>
-        <div style={{ fontWeight: 600, marginBottom: 6 }}>
-          Documente vizate
-        </div>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          {docKeys.map((k) => (
-            <label
-              key={k}
-              style={{ display: "flex", alignItems: "center", gap: 8 }}
-            >
-              <input
-                type="checkbox"
-                checked={!!documents[k]}
-                onChange={() => toggleDoc(k)}
-              />
-              <span style={{ margin: 0 }}>{DOC_LABELS[k] || k}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className={styles.filtersRow} style={{ marginTop: 14 }}>
-        <label style={{ flex: 1, minWidth: 260 }}>
-          <span>Titlu (in-app)</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
-
-        <label style={{ flex: 1, minWidth: 260 }}>
-          <span>Mesaj (in-app)</span>
-          <input value={message} onChange={(e) => setMessage(e.target.value)} />
-        </label>
-      </div>
-
-      {sendEmail && (
-        <div className={styles.filtersRow} style={{ marginTop: 14 }}>
-          <label style={{ flex: 1, minWidth: 260 }}>
-            <span>Subiect email</span>
-            <input
-              value={emailSubject}
-              onChange={(e) => setEmailSubject(e.target.value)}
-            />
-          </label>
-
-          <label style={{ flex: 1, minWidth: 260 }}>
-            <span>Corp email</span>
-            <textarea
-              value={emailBody}
-              onChange={(e) => setEmailBody(e.target.value)}
-              rows={4}
-              style={{ width: "100%" }}
-            />
-          </label>
-        </div>
-      )}
-
-      {errMsg && (
-        <div className={styles.error} style={{ marginTop: 10 }}>
-          {errMsg}
-        </div>
-      )}
-      {okMsg && <div style={{ marginTop: 10, opacity: 0.9 }}>{okMsg}</div>}
-
-      <div
-        style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}
-      >
-        <button
-          type="button"
-          className={styles.primaryBtn}
-          onClick={handleSubmit}
-          disabled={loading}
-        >
-          {loading
-  ? "Se publică și se trimite…"
-  : "Publică și trimite informarea"}
-        </button>
-
-        <button
-          type="button"
-          className={styles.paginationBtn}
-          onClick={() => setPreviewOpen(true)}
-          disabled={!title.trim() || !message.trim()}
-        >
-          Preview gate
-        </button>
-      </div>
-
-      <p className={styles.subtle} style={{ marginTop: 10 }}>
-        * Necesită backend: <code>POST /api/admin/policy-notifications/send</code>
-      </p>
-
-      <PolicyGatePreviewModal
-        open={previewOpen}
-        onClose={() => setPreviewOpen(false)}
-        preview={previewPayload}
-      />
-    </div>
-  );
-}
-
-function PolicyGatePreviewModal({ open, onClose, preview }) {
-  if (!open) return null;
-  if (typeof document === "undefined") return null;
-
-  const { scope, requiresAction, title, message, documents = [] } =
-    preview || {};
-
-  const blocked =
-    !!requiresAction && documents.some((d) => d.required && !d.alreadyAccepted);
-
-  const node = (
-    <div
-      className={styles.drawerOverlay}
-      onClick={onClose}
-      style={{ zIndex: 9999 }}
-    >
-      <aside
-        className={styles.drawer}
-        onClick={(e) => e.stopPropagation()}
-        aria-label="Preview gate"
-        style={{ maxWidth: 760, width: "min(760px, 100%)" }}
-      >
-        <header className={styles.drawerHeader}>
-          <div>
-            <h3 className={styles.drawerTitle}>Preview gate (modal)</h3>
-            <p className={styles.drawerSub}>
-              Scope: <code>{scope}</code> ·{" "}
-              {blocked ? "Blochează acțiunile" : "Nu blochează"}
-            </p>
-          </div>
-          <button
-            type="button"
-            className={styles.drawerClose}
-            onClick={onClose}
-            aria-label="Închide"
-          >
-            ×
-          </button>
-        </header>
-
-        <div className={styles.drawerBody}>
-          <div className={styles.card} style={{ padding: 14 }}>
-            <div
-              style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
-            >
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 16 }}>
-                  {title || "—"}
-                </div>
-                <div className={styles.subtle} style={{ marginTop: 6 }}>
-                  {message || "—"}
-                </div>
-              </div>
-
-              {blocked && (
-                <span
-                  style={{
-                    fontSize: 12,
-                    padding: "6px 10px",
-                    borderRadius: 999,
-                    border: "1px solid var(--color-border)",
-                    background:
-                      "color-mix(in srgb, var(--color-warning) 18%, transparent)",
-                    whiteSpace: "nowrap",
-                    height: "fit-content",
-                  }}
-                >
-                  Necesită acceptare
-                </span>
-              )}
-            </div>
-
-            <div style={{ marginTop: 12, fontWeight: 700 }}>
-              Documente vizate
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-                marginTop: 10,
-              }}
-            >
-              {documents.length ? (
-                documents.map((d) => (
-                  <div
-                    key={d.key}
-                    style={{
-                      border: "1px solid var(--color-border)",
-                      borderRadius: 12,
-                      padding: 12,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <div style={{ flex: 1 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          flexWrap: "wrap",
-                          alignItems: "center",
-                        }}
-                      >
-                        <span style={{ fontWeight: 800 }}>
-                          {d.title || d.key}
-                        </span>
-                        <span className={styles.subtle}>v{d.version || "?"}</span>
-
-                        {d.required ? (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              padding: "2px 8px",
-                              borderRadius: 999,
-                              border: "1px solid var(--color-border)",
-                            }}
-                          >
-                            Obligatoriu
-                          </span>
-                        ) : null}
-
-                        {d.alreadyAccepted ? (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              padding: "2px 8px",
-                              borderRadius: 999,
-                              border:
-                                "1px solid color-mix(in srgb, var(--color-success) 30%, transparent)",
-                              background:
-                                "color-mix(in srgb, var(--color-success) 12%, transparent)",
-                            }}
-                          >
-                            Acceptat
-                          </span>
-                        ) : null}
-                      </div>
-
-                      {d.url ? (
-                        <div className={styles.subtle} style={{ marginTop: 6 }}>
-                          Link: <code>{d.url}</code>
-                        </div>
-                      ) : (
-                        <div className={styles.subtle} style={{ marginTop: 6 }}>
-                          Link lipsă
-                        </div>
-                      )}
-                    </div>
-
-                    {!d.alreadyAccepted && d.required ? (
-                      <span
-                        style={{
-                          fontSize: 12,
-                          padding: "4px 10px",
-                          borderRadius: 999,
-                          border:
-                            "1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)",
-                          background:
-                            "color-mix(in srgb, var(--color-danger) 10%, transparent)",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        În așteptare
-                      </span>
-                    ) : null}
-                  </div>
-                ))
-              ) : (
-                <p className={styles.subtle} style={{ margin: 0 }}>
-                  Selectează cel puțin un document ca să vezi preview.
-                </p>
-              )}
-            </div>
-
-            <div
-              style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}
-            >
-              <button
-                type="button"
-                className={styles.primaryBtn}
-                disabled={!blocked}
-              >
-                Acceptă și continuă
-              </button>
-              <button type="button" className={styles.resetBtn}>
-                Reîncarcă
-              </button>
-            </div>
-
-            {blocked ? (
-              <p className={styles.subtle} style={{ marginTop: 10 }}>
-                * În preview, butoanele sunt mock. În gate-ul real, acceptarea va
-                face POST și va debloca.
-              </p>
-            ) : null}
-          </div>
-        </div>
-
-        <footer className={styles.drawerFooter}>
-          <button
-            type="button"
-            className={styles.drawerBtnSecondary}
-            onClick={onClose}
-          >
-            Închide preview
-          </button>
-        </footer>
-      </aside>
-    </div>
-  );
-
-  return createPortal(node, document.body);
-}
 function renderConsent(history = [], accepted, version, givenAt) {
   if (!accepted) {
     return "Nu";
@@ -1769,6 +1224,7 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
             <th>Acord Master</th>
             <th>Politică retur</th>
             <th>Declarație produse</th>
+            <th>Anexa produse</th>
             <th>Politică livrare</th>
             <th>Notă GDPR</th>
             <th>Detalii</th>
@@ -1806,6 +1262,16 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
                   ? `Da (v${r.productDeclarationVersion || "?"}, ${formatDate(
                       r.productDeclarationAcceptedAt
                     )})`
+                  : "Nu"}
+              </td>
+
+              <td>
+                {r.productsAddendumAccepted
+                  ? `Da (v${r.productsAddendumVersion || "?"}, ${formatDate(
+                      r.productsAddendumAcceptedAt
+                    )})`
+                  : r.productsAddendumPublishedVersion
+                  ? `Nu (publicată v${r.productsAddendumPublishedVersion})`
                   : "Nu"}
               </td>
 
@@ -1921,6 +1387,15 @@ function VendorDetailsDrawer({ vendor, onClose }) {
     returnsAccepted,
     returnsVersion,
     returnsAcceptedAt,
+
+    productsAddendumAccepted,
+    productsAddendumVersion,
+    productsAddendumAcceptedAt,
+    productsAddendumPublishedVersion,
+
+    shippingAddendumAccepted,
+    shippingAddendumAcceptedVersion,
+    shippingAddendumAcceptedAt,
 
     shippingPolicyTitle,
     shippingPolicyUrl,
@@ -2069,6 +1544,34 @@ function VendorDetailsDrawer({ vendor, onClose }) {
                   : "Nu"}
               </span>
             </div>
+
+            <div className={styles.drawerField}>
+              <span>Anexa produse</span>
+              <span>
+                {productsAddendumAccepted
+                  ? `Da (v${productsAddendumVersion || "?"}, ${formatDate(
+                      productsAddendumAcceptedAt
+                    )})`
+                  : "Nu"}
+                {productsAddendumPublishedVersion && (
+                  <>
+                    <br />
+                    Versiune publicată: {productsAddendumPublishedVersion}
+                  </>
+                )}
+              </span>
+            </div>
+
+            <div className={styles.drawerField}>
+              <span>Anexa de expediere (acceptare)</span>
+              <span>
+                {shippingAddendumAccepted
+                  ? `Da (v${shippingAddendumAcceptedVersion || "?"}, ${formatDate(
+                      shippingAddendumAcceptedAt
+                    )})`
+                  : "Nu"}
+              </span>
+            </div>
           </section>
 
           <section className={styles.drawerSection}>
@@ -2158,6 +1661,8 @@ function InfluencerTermsStatusBadge({ status }) {
       ? styles.termsBadgeUpdated
       : status === "OUTDATED"
       ? styles.termsBadgeOutdated
+      : status === "OLDER_VERSION"
+      ? styles.termsBadgeUpdated
       : styles.termsBadgeMissing;
 
   return (

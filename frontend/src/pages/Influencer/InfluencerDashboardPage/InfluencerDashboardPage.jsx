@@ -13,6 +13,9 @@ import {
 import { toast } from "react-toastify";
 
 import { api, buildApiUrl } from "../../../lib/api.js";
+import { POLICY_REQUIRED_EVENT } from "../../../lib/policyRequired.js";
+import PolicyGate from "../../Admin/AdminDesktop/PolicyGate/PolicyGate.jsx";
+import usePolicyGateController from "../../Admin/AdminDesktop/PolicyGate/usePolicyGateController.js";
 
 import InfluencerCollectionsModal
   from "../components/InfluencerCollectionsModal.jsx";
@@ -383,6 +386,49 @@ export default function InfluencerDashboardPage() {
         setData,
       ]
     );
+
+  /*
+   * O cerere de reacceptare cu termen-limită încă neatins NU blochează
+   * (data.terms.blocking === false): modalul poate fi amânat. Când
+   * termenul trece sau nu există termen, modalul rămâne blocant.
+   */
+  const [termsDismissed, setTermsDismissed] = useState(false);
+
+  const handleTermsDismiss = useCallback(() => {
+    setTermsDismissed(true);
+  }, []);
+
+  /*
+   * TOS / Privacy pe audiența INFLUENCER: același gate multi-document ca
+   * la clienți și vendori (Acordul influencerilor rămâne pe modalul lui).
+   */
+  const {
+    open: policyGateOpen,
+    scope: policyGateScope,
+    setBlocked: setPolicyGateBlocked,
+    onClose: closePolicyGate,
+  } = usePolicyGateController({
+    me: data ? { role: "INFLUENCER" } : null,
+  });
+
+  // 428 influencer_terms_acceptance_required din orice cerere: deschidem modalul
+  useEffect(() => {
+    const onRequired = (event) => {
+      const detail = event?.detail;
+
+      if (detail?.kind !== "influencer_terms" || !detail.terms) return;
+
+      setTermsDismissed(false);
+      setData((current) =>
+        current ? { ...current, terms: detail.terms } : current
+      );
+    };
+
+    window.addEventListener(POLICY_REQUIRED_EVENT, onRequired);
+
+    return () =>
+      window.removeEventListener(POLICY_REQUIRED_EVENT, onRequired);
+  }, []);
 
   /* =========================================================
      LOAD AGREEMENT
@@ -1104,6 +1150,7 @@ export default function InfluencerDashboardPage() {
     user,
     profile,
     payoutProfile,
+    collaboration,
   } = data;
 
   /* =========================================================
@@ -1421,6 +1468,16 @@ export default function InfluencerDashboardPage() {
                 </div>
               </div>
             )}
+
+            {/* =================================================
+                COLABORARE ARTFEST
+            ================================================= */}
+
+            <CollaborationCard
+              collaboration={
+                collaboration
+              }
+            />
 
             {/* =================================================
                 STATS
@@ -2472,13 +2529,123 @@ export default function InfluencerDashboardPage() {
           pe fiecare acțiune comercială.
       ===================================================== */}
 
-      {data?.terms?.outdated && (
-        <InfluencerTermsGateModal
-          terms={data.terms}
-          onAccepted={handleTermsAccepted}
-        />
-      )}
+      <PolicyGate
+        scope={policyGateScope}
+        isOpen={policyGateOpen}
+        onClose={closePolicyGate}
+        onStatusChange={setPolicyGateBlocked}
+        closeOnOverlay={false}
+        closeOnEsc={false}
+      />
+
+      {data?.terms?.outdated &&
+        !(termsDismissed && data.terms.blocking === false) && (
+          <InfluencerTermsGateModal
+            terms={data.terms}
+            onAccepted={handleTermsAccepted}
+            onDismiss={
+              data.terms.blocking === false
+                ? handleTermsDismiss
+                : undefined
+            }
+          />
+        )}
     </main>
+  );
+}
+
+/* =========================================================
+   COLABORARE ARTFEST
+
+   Sursa datelor este STRICT backend-ul (GET /api/influencer/me ->
+   collaboration, vezi services/influencerCollaboration.js).
+   Frontendul doar afiseaza - nu recalculeaza perioada sau statusul.
+========================================================= */
+
+const COLLABORATION_STATUS_LABEL = {
+  ACTIVE: "Activă",
+  EXPIRED: "Expirată",
+  DISABLED: "Dezactivată",
+};
+
+function formatCollaborationDate(value) {
+  if (!value) {
+    return "—";
+  }
+
+  try {
+    return new Date(value).toLocaleDateString("ro-RO", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function CollaborationCard({ collaboration }) {
+  if (!collaboration) {
+    return null;
+  }
+
+  const {
+    collaborationStatus,
+    collaborationStart,
+    collaborationEnd,
+    commissionPercent,
+    notice,
+    expiringSoon,
+    expiringSoonNotice,
+  } = collaboration;
+
+  const statusLabel =
+    COLLABORATION_STATUS_LABEL[collaborationStatus] ||
+    collaborationStatus ||
+    "—";
+
+  const statusClassName =
+    collaborationStatus === "ACTIVE"
+      ? styles.orderStatusPositive
+      : collaborationStatus === "EXPIRED"
+        ? styles.orderStatusNegative
+        : styles.orderStatusPending;
+
+  const badgeClassName = [styles.orderStatus, statusClassName].join(" ");
+
+  return (
+    <section className={styles.card}>
+      <div className={styles.cardHeader}>
+        <div>
+          <h2 className={styles.cardTitle}>Colaborare Artfest</h2>
+
+          <p className={styles.cardSubtitle}>
+            {formatCollaborationDate(collaborationStart)} –{" "}
+            {formatCollaborationDate(collaborationEnd)}
+          </p>
+        </div>
+
+        <span className={badgeClassName}>
+          {statusLabel}
+        </span>
+      </div>
+
+      <div className={styles.commissionRow}>
+        <span>Remunerație actuală</span>
+
+        <strong>
+          {Number(commissionPercent || 0).toLocaleString("ro-RO")}%
+        </strong>
+      </div>
+
+      {notice && <div className={styles.infoBox}>{notice}</div>}
+
+      {expiringSoon && expiringSoonNotice && (
+        <div className={styles.collaborationExpiringNotice}>
+          {expiringSoonNotice}
+        </div>
+      )}
+    </section>
   );
 }
 

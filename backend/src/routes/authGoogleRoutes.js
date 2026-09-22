@@ -15,6 +15,7 @@ import {
 import {
   ensureBasicSubscriptionForVendor,
 } from "./subscriptionRoutes.js";
+import { resolveRegistrationConsent } from "../services/legalPublishedService.js";
 
 const router = Router();
 
@@ -952,9 +953,15 @@ if (
                   continue;
                 }
 
+                // TOS/Privacy: versiunea publicată o decide serverul
+                const resolved =
+                  await resolveRegistrationConsent(
+                    document,
+                    consent
+                  );
+
                 const version =
-                  consent.version ||
-                  "1.0.0";
+                  resolved.version;
 
                 await tx.userConsent.upsert({
                   where: {
@@ -970,8 +977,7 @@ if (
 
                   update: {
                     checksum:
-                      consent.checksum ||
-                      null,
+                      resolved.checksum,
 
                     ip:
                       reqIp,
@@ -988,8 +994,7 @@ if (
                     version,
 
                     checksum:
-                      consent.checksum ||
-                      null,
+                      resolved.checksum,
 
                     ip:
                       reqIp,

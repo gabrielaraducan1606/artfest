@@ -36,6 +36,16 @@ import { ProductGallery } from "./components/ProductGallery.jsx";
 import DetailsContent from "./components/DetailsContent.jsx";
 import { getHasStructuredDetails } from "./hooks/detailsUtils.js";
 import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
+/*
+ * Helper comun cu feed-ul Google Shopping (backend/src/routes/
+ * googleShoppingFeed.js): același color/material/categorie/imagini în
+ * JSON-LD și în Merchant Center. Același pattern de import cross-folder
+ * ca utils/optionLabels.js.
+ */
+import {
+  availabilityToSchemaOrg,
+  buildProductMerchantAttributes,
+} from "../../../../../backend/src/constants/productMerchantAttributes.js";
 import { addToGuestCart } from "../../../utils/guestCart";
 import { getAttributionsForCheckout } from "../../../utils/campaignAttribution.js";
 import {
@@ -2638,25 +2648,38 @@ useEffect(() => {
     typeof product?.description === "string" &&
     product.description.trim().length > 0;
 
-  const imagesForLd = useMemo(
-    () => images.map((u) => resolveFileUrl(u)),
-    [images]
+  /*
+   * Atribute canonice pentru JSON-LD (image[] curat, category, color,
+   * material). Pornește din product.images (nu din `images`, care poate
+   * conține placeholder-ul data: când produsul nu are poze) și rezolvă URL
+   * relativ la absolut - JSON-LD trebuie să aibă URL-uri publice absolute.
+   */
+  const merchantAttrs = useMemo(
+    () =>
+      buildProductMerchantAttributes(product, {
+        resolveUrl: (u) => {
+          const resolved = resolveFileUrl(u);
+          return resolved.startsWith("/") &&
+            typeof window !== "undefined"
+            ? `${window.location.origin}${resolved}`
+            : resolved;
+        },
+      }),
+    [product]
   );
 
-  const schemaAvailability = useMemo(() => {
-    switch (product?.availability) {
-      case "READY":
-        return "https://schema.org/InStock";
-      case "MADE_TO_ORDER":
-        return "https://schema.org/PreOrder";
-      case "PREORDER":
-        return "https://schema.org/PreOrder";
-      case "SOLD_OUT":
-        return "https://schema.org/OutOfStock";
-      default:
-        return "https://schema.org/InStock";
-    }
-  }, [product?.availability]);
+  const imagesForLd = merchantAttrs.images;
+
+  /*
+   * Aceeași mapare ca g:availability din feed-ul Google Shopping
+   * (productMerchantAttributes.js): READY/MADE_TO_ORDER -> InStock,
+   * PREORDER -> PreOrder, SOLD_OUT -> OutOfStock. MADE_TO_ORDER se poate
+   * comanda acum (timpul de execuție e doar informație afișată clientului).
+   */
+  const schemaAvailability = useMemo(
+    () => availabilityToSchemaOrg(product?.availability),
+    [product?.availability]
+  );
 
   /*
    * BUGFIX (audit) - QUOTE_ONLY cu priceCents<=0 nu trebuie să emită
@@ -2741,6 +2764,14 @@ const seoImage =
 
     sku: product?.id,
 
+    ...(merchantAttrs.productType
+      ? { category: merchantAttrs.productType }
+      : {}),
+    ...(merchantAttrs.color ? { color: merchantAttrs.color } : {}),
+    ...(merchantAttrs.material
+      ? { material: merchantAttrs.material }
+      : {}),
+
     brand: {
       "@type": "Brand",
       name: storeName,
@@ -2788,6 +2819,7 @@ const seoImage =
   product,
   productUrl,
   imagesForLd,
+  merchantAttrs,
   displayPriceForLd,
   schemaAvailability,
   storeName,

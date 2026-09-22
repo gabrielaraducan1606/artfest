@@ -7,7 +7,8 @@ import { z } from "zod";
 
 import { prisma } from "../db.js";
 import { sendVerificationEmail } from "../lib/mailer.js";
-import { loadLegalDoc } from "../lib/legal.js";
+import { resolveRegistrationConsent } from "../services/legalPublishedService.js";
+import { computeCollaborationState } from "../services/influencerCollaboration.js";
 import {
   authRequired,
   enforceTokenVersion,
@@ -22,8 +23,8 @@ import {
 } from "../services/influencerEarnings.js";
 
 import {
+  acceptInfluencerTerms,
   getInfluencerTermsStatus,
-  INFLUENCER_TERMS_CONSENT_DOCUMENT,
 } from "../services/influencerTermsStatus.js";
 
 import {
@@ -1026,6 +1027,19 @@ router.post(
               const consent of
               consents
             ) {
+              const consentDocument =
+                mapConsentDocument(
+                  consent.type
+                );
+
+              // TOS/Privacy/Acord influencer: versiunea publicată
+              // o decide serverul, nu clientul
+              const resolvedConsent =
+                await resolveRegistrationConsent(
+                  consentDocument,
+                  consent
+                );
+
               await tx.userConsent.create(
                 {
                   data: {
@@ -1033,17 +1047,13 @@ router.post(
                       user.id,
 
                     document:
-                      mapConsentDocument(
-                        consent.type
-                      ),
+                      consentDocument,
 
                     version:
-                      consent.version ||
-                      "1.0.0",
+                      resolvedConsent.version,
 
                     checksum:
-                      consent.checksum ||
-                      null,
+                      resolvedConsent.checksum,
 
                     ip:
                       reqIp ||
@@ -1697,8 +1707,9 @@ router.post(
              * indiferent de versiunea reală curentă a documentului.
              */
             const influencerTermsDoc =
-              loadLegalDoc(
-                "influencer_terms"
+              await resolveRegistrationConsent(
+                "INFLUENCER_TERMS",
+                {}
               );
 
             await tx.userConsent.create(
@@ -1711,7 +1722,7 @@ router.post(
                     "INFLUENCER_TERMS",
 
                   version:
-                    influencerTermsDoc.policyVersion,
+                    influencerTermsDoc.version,
 
                   checksum:
                     influencerTermsDoc.checksum,
@@ -2035,6 +2046,9 @@ router.get(
                 updatedAt:
                   true,
 
+                collaborationEndOverride:
+                  true,
+
                 _count: {
                   select: {
                     clicks:
@@ -2129,6 +2143,19 @@ router.get(
         }),
       ]);
 
+      /*
+       * Perioada de colaborare (3 luni de la activarea contului de
+       * influencer = InfluencerProfile.createdAt, sursă unică - vezi
+       * audit în services/influencerCollaboration.js). Aditiv, nu
+       * schimbă nimic din shape-ul existent.
+       */
+      const collaboration = computeCollaborationState({
+        activatedAt: profile.createdAt,
+        status: profile.status,
+        commissionBps: profile.commissionBps,
+        collaborationEndOverride: profile.collaborationEndOverride,
+      });
+
       return res.json({
         ok: true,
 
@@ -2139,6 +2166,14 @@ router.get(
          * POST /terms/accept).
          */
         terms: termsStatus,
+
+        /*
+         * Aditiv - perioada activă de colaborare (vezi
+         * services/influencerCollaboration.js). Statusul contului
+         * (profile.status, ex. DISABLED) rămâne sursa reală și nu
+         * este suprascris de collaboration.collaborationStatus.
+         */
+        collaboration,
 
         /*
          * Aditiv - shape MINIM, fără IBAN/taxId/adresă (vezi
@@ -2326,49 +2361,15 @@ router.post(
         });
       }
 
-      const currentDoc = loadLegalDoc(
-        "influencer_terms"
-      );
-
-      await prisma.userConsent.upsert({
-        where: {
-          userId_document_version: {
-            userId,
-            document:
-              INFLUENCER_TERMS_CONSENT_DOCUMENT,
-            version: currentDoc.policyVersion,
-          },
-        },
-
-        /*
-         * Reaccept pe EXACT aceeași versiune: nu duplicăm
-         * (unique userId+document+version), dar înregistrăm
-         * corect acest reaccept - altfel `givenAt` rămânea
-         * blocat pe prima acceptare a acestei versiuni, iar
-         * orice logică ce se uita la "cea mai recentă
-         * acceptare" putea alege greșit o acceptare mai veche
-         * a altei versiuni.
-         */
-        update: {
-          givenAt: new Date(),
-          checksum: currentDoc.checksum,
+      /*
+       * Versiunea acceptată o decide SERVERUL: cea din cererea deschisă
+       * de reacceptare (dacă există), altfel cea publicată.
+       */
+      const { status: termsStatus } =
+        await acceptInfluencerTerms(userId, {
           ip: getReqIp(req) || "",
           ua: getReqUa(req) || "",
-        },
-
-        create: {
-          userId,
-          document:
-            INFLUENCER_TERMS_CONSENT_DOCUMENT,
-          version: currentDoc.policyVersion,
-          checksum: currentDoc.checksum,
-          ip: getReqIp(req) || "",
-          ua: getReqUa(req) || "",
-        },
-      });
-
-      const termsStatus =
-        await getInfluencerTermsStatus(userId);
+        });
 
       return res.json({
         ok: true,

@@ -12,6 +12,20 @@ import { CardPaymentUnavailableError } from "../payments/vendorStripeStatus.js";
 import {
   restoreStockFromItems,
 } from "../services/stockRestore.js";
+import {
+  refundCardOrderFully,
+} from "../services/orderRefundService.js";
+import {
+  DEPOSIT_BLOCK_MESSAGES,
+  DepositPaymentBlockedError,
+  getDepositBlockReason,
+} from "../payments/depositGuards.js";
+import {
+  expirePendingDepositsForOrder,
+} from "../services/depositInvalidation.js";
+import {
+  expireOrderCheckoutSession,
+} from "../services/orderPaymentGuards.js";
 
 const router = Router();
 
@@ -2121,6 +2135,16 @@ router.post(
 
             stripeDepositSessionId:
               true,
+
+            status:
+              true,
+
+            order: {
+              select: {
+                status:
+                  true,
+              },
+            },
           },
         });
 
@@ -2144,6 +2168,30 @@ router.post(
 
           message:
             "Avansul a fost deja achitat.",
+        });
+      }
+
+      /*
+       * Comandă/livrare anulată: avansul nu mai poate fi plătit (verificat
+       * pe statusul curent din DB; depositStatus rămâne PENDING după
+       * anulare).
+       */
+      const depositBlockReason =
+        getDepositBlockReason({
+          order:
+            shipment.order,
+          shipment,
+        });
+
+      if (depositBlockReason) {
+        return res.status(409).json({
+          error:
+            `deposit_${depositBlockReason}`,
+
+          message:
+            DEPOSIT_BLOCK_MESSAGES[
+              depositBlockReason
+            ],
         });
       }
 
@@ -2243,6 +2291,19 @@ return res.json({
     payment.url,
 });
     } catch (error) {
+      if (
+        error instanceof
+        DepositPaymentBlockedError
+      ) {
+        return res.status(409).json({
+          error:
+            `deposit_${error.code}`,
+
+          message:
+            error.message,
+        });
+      }
+
       console.error(
         "POST user pay deposit failed:",
         error
@@ -2269,6 +2330,109 @@ return res.json({
  * existe două implementări care pot diverge. Nu face nimic diferit
  * de ce făcea ruta înainte de extragere - doar mutat, neschimbat.
  */
+/*
+ * Refund automat după anularea de către client a unei comenzi CARD deja
+ * plătite (audit legal: până acum banii rămâneau încasați, fără niciun
+ * refund, până la o acțiune manuală de admin).
+ *
+ * Reutilizează EXACT logica financiară a rutei admin
+ * (services/orderRefundService.js): transfer reversal către vendori +
+ * refund client + reversal ledger. Idempotent - chei de idempotență
+ * dedicate anulării de client; dacă adminul reia ulterior POST
+ * /api/admin/orders/:id/refund, suma deja rambursată/reversată e citită
+ * din Stripe, deci nu se poate rambursa de două ori.
+ *
+ * Rulează DUPĂ anularea în DB (shipment-urile sunt deja REFUSED, stocul
+ * restaurat): dacă Stripe eșuează, comanda rămâne corect anulată, iar
+ * refund-ul rămâne "PENDING" cu urmă în adminNotes pentru procesare
+ * manuală. Ordinea inversă ar putea lăsa o comandă activă (posibil
+ * expediată) deja rambursată.
+ */
+async function refundPaidCardOrderAfterUserCancel({
+  orderId,
+  userId,
+}) {
+  const appendAdminNote = async (text) => {
+    try {
+      const current = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: { adminNotes: true },
+      });
+
+      const line = `[${new Date().toISOString()} | client:${userId}] ${text}`;
+      const old = String(current?.adminNotes || "").trim();
+
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          adminNotes: old ? `${old}
+${line}` : line,
+        },
+      });
+    } catch (noteError) {
+      console.error(
+        "user cancel refund: adminNotes update failed:",
+        noteError
+      );
+    }
+  };
+
+  try {
+    const fresh = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { shipments: true },
+    });
+
+    if (!fresh) {
+      return { status: "PENDING", reason: "order_not_found" };
+    }
+
+    const result = await refundCardOrderFully({
+      order: fresh,
+      actor: `client:${userId}`,
+      metaKind: "user_cancel_refund",
+      keyPrefix: "user-cancel-refund",
+      prisma,
+    });
+
+    if (result.status === 200) {
+      if (result.body?.dbReversalNeedsAttention) {
+        await appendAdminNote(
+          "Anulare client: plata a fost rambursată în Stripe, dar reversal-ul ledger-ului financiar a eșuat pentru cel puțin un shipment. Reapelați POST /api/admin/orders/:id/refund (idempotent)."
+        );
+      }
+
+      return { status: "REFUNDED" };
+    }
+
+    await appendAdminNote(
+      `Anulare client: refund automat OPRIT (${result.body?.error || "unknown"}). Necesită refund manual: POST /api/admin/orders/:id/refund.`
+    );
+
+    return {
+      status: "PENDING",
+      reason: result.body?.error || "refund_not_completed",
+    };
+  } catch (error) {
+    console.error(
+      "user cancel refund failed:",
+      orderId,
+      error
+    );
+
+    const reason =
+      error?.code === "balance_insufficient"
+        ? "stripe_reversal_failed"
+        : "refund_failed";
+
+    await appendAdminNote(
+      `Anulare client: refund automat EȘUAT (${reason}: ${error?.message || "eroare necunoscută"}). Necesită refund manual: POST /api/admin/orders/:id/refund.`
+    );
+
+    return { status: "PENDING", reason };
+  }
+}
+
 export async function cancelOwnOrder({
   userId,
   orderId,
@@ -2331,6 +2495,40 @@ export async function cancelOwnOrder({
     };
   }
 
+  const isCardOrder =
+    String(o.paymentMethod || "").toUpperCase() === "CARD";
+
+  /*
+   * CARD deja plătit -> după anulare facem refund automat.
+   */
+  const needsCardRefund =
+    isCardOrder &&
+    (o.status === "PAID" ||
+      Boolean(o.paidAt) ||
+      Boolean(o.stripeChargeId));
+
+  /*
+   * Avans Stripe deja încasat pe o comandă ramburs: rambursarea
+   * avansului rămâne acțiune de admin (POST /api/admin/orders/:id/refund,
+   * CAZ 2). La fel ca ruta admin de anulare
+   * ("deposit_refund_required_before_cancel"), NU anulăm comanda lăsând
+   * avansul încasat fără refund.
+   */
+  const hasPaidDeposit = o.shipments.some(
+    (shipment) =>
+      shipment.depositStatus === "PAID"
+  );
+
+  if (!isCardOrder && hasPaidDeposit) {
+    return {
+      ok: false,
+      status: 409,
+      error: "deposit_refund_required_before_cancel",
+      message:
+        "Această comandă are un avans plătit online. Pentru anulare și rambursarea avansului, te rugăm să contactezi suportul Artfest.",
+    };
+  }
+
   try {
     await prisma.$transaction(
       async (tx) => {
@@ -2383,9 +2581,18 @@ export async function cancelOwnOrder({
           allItems
         );
 
+        /*
+         * Update CONDIȚIONAT de statusul citit la început: dacă webhook-ul
+         * Stripe a marcat între timp comanda ca PAID, update-ul nu se
+         * potrivește (P2025), tranzacția se derulează înapoi, iar Clientul
+         * reîncearcă (acum comanda plătită va fi și rambursată). Altfel,
+         * anularea ar fi scris CANCELLED peste o plată deja încasată, fără
+         * refund.
+         */
         await tx.order.update({
           where: {
             id: o.id,
+            status: o.status,
           },
 
           data: {
@@ -2402,7 +2609,8 @@ export async function cancelOwnOrder({
 
     if (
       error?.message ===
-      "order_already_changed"
+        "order_already_changed" ||
+      error?.code === "P2025"
     ) {
       return {
         ok: false,
@@ -2420,6 +2628,45 @@ export async function cancelOwnOrder({
       message:
         "Comanda nu a putut fi anulată.",
     };
+  }
+
+  /*
+   * Avans COD încă PENDING (link/sesiune Stripe deja create): după
+   * anulare nu mai trebuie să poată fi plătit.
+   */
+  try {
+    await expirePendingDepositsForOrder({
+      orderId: o.id,
+      reason: "order_cancelled",
+      prisma,
+    });
+  } catch (error) {
+    console.error(
+      "user cancel: expire pending deposits failed:",
+      o.id,
+      error
+    );
+  }
+
+  /*
+   * Comandă CARD încă neplătită: expirăm sesiunea Stripe Checkout deschisă,
+   * ca plata să nu mai fie posibilă după anulare. Plata târzie rămâne
+   * acoperită de webhook (refund automat).
+   */
+  if (isCardOrder && !needsCardRefund && o.stripeCheckoutSessionId) {
+    await expireOrderCheckoutSession({
+      sessionId: o.stripeCheckoutSessionId,
+    });
+  }
+
+  let refund = { status: "NOT_REQUIRED" };
+
+  if (needsCardRefund) {
+    refund =
+      await refundPaidCardOrderAfterUserCancel({
+        orderId: o.id,
+        userId,
+      });
   }
 
   try {
@@ -2453,7 +2700,19 @@ export async function cancelOwnOrder({
     );
   }
 
-  return { ok: true, orderId: o.id };
+  const message =
+    refund.status === "REFUNDED"
+      ? "Comanda a fost anulată, iar plata cu cardul a fost rambursată. Suma ajunge în cont în funcție de banca emitentă."
+      : refund.status === "PENDING"
+      ? "Comanda a fost anulată. Rambursarea plății cu cardul nu a putut fi finalizată automat; echipa Artfest o va procesa manual."
+      : null;
+
+  return {
+    ok: true,
+    orderId: o.id,
+    refund,
+    message,
+  };
 }
 
 router.post("/:id/cancel", async (req, res) => {
@@ -2469,7 +2728,11 @@ router.post("/:id/cancel", async (req, res) => {
     });
   }
 
-  return res.json({ ok: true });
+  return res.json({
+    ok: true,
+    refund: result.refund,
+    message: result.message,
+  });
 });
 
 /* ----------------------------------------------------

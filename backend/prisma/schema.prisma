@@ -3498,6 +3498,14 @@ model InfluencerProfile {
 
   anonymizedAt DateTime?
 
+  /// Prelungire individuală a perioadei de colaborare (Admin -> Influenceri
+  /// -> "Prelungește colaborarea"). Când e setat, are prioritate față de
+  /// regula implicită (createdAt + 3 luni) - vezi
+  /// services/influencerCollaboration.js (computeCollaborationState),
+  /// sursa unică de calcul, folosită și de GET /api/influencer/me și de
+  /// Admin. NU schimbă status/commissionBps.
+  collaborationEndOverride DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

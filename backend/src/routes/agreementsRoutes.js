@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired, enforceTokenVersion } from "../api/auth.js";
 import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
+import { evaluateVendorDocument } from "../services/reacceptanceService.js";
 
 const router = Router();
 
@@ -265,6 +266,15 @@ router.get(
         const key = p.document;
         const isAccepted = acceptedSet.has(`${key}::${p.version}`);
 
+        // publicarea unei versiuni noi nu invalidează onboarding-ul vendorilor
+        // care au acceptat deja o versiune; doar o cerere de reacceptare o face
+        const check = await evaluateVendorDocument({
+          vendorId,
+          key,
+          policyVersion: p.version,
+          prisma,
+        });
+
         docs.push({
           doc_key: key,
           title: p.title,
@@ -273,6 +283,7 @@ router.get(
           checksum: p.checksum || null,
           is_required: p.isRequired,
           accepted: isAccepted,
+          satisfied: check.satisfied,
         });
       }
 
@@ -280,7 +291,7 @@ router.get(
       const allOK =
         docs.length > 0 &&
         requiredDocs.length > 0 &&
-        requiredDocs.every((d) => d.accepted === true);
+        requiredDocs.every((d) => d.satisfied === true);
 
       console.log("[agreements.status] accepts:", accepts);
       console.log("[agreements.status] acceptedSet:", Array.from(acceptedSet));

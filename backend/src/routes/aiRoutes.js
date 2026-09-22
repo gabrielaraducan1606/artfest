@@ -20,6 +20,15 @@ import {
 } from "../constants/colors.js";
 
 import {
+  MATERIALS,
+  MATERIAL_LABELS,
+} from "../constants/materials.js";
+
+import {
+  resolveCanonicalMaterial,
+} from "../constants/productMerchantAttributes.js";
+
+import {
   MAX_BATCH_CLUSTER_IMAGES,
 } from "../constants/aiLimits.js";
 
@@ -618,6 +627,13 @@ router.post(
           }`
       ).join("\n");
 
+      const materialsText = MATERIALS.map(
+        (key) =>
+          `${key} = ${
+            MATERIAL_LABELS[key] || key
+          }`
+      ).join("\n");
+
       const response =
         await openai.responses.create({
           model: "gpt-4.1",
@@ -681,8 +697,40 @@ Reguli importante:
 - Alege category DOAR din lista permisă.
 - Alege color DOAR din lista permisă.
 - Dacă sunt mai multe culori, folosește "multicolor".
-- Titlul trebuie să aibă maximum 80 de caractere.
-- Descrierea trebuie să aibă 2-4 paragrafe scurte.
+- materialMain: alege DOAR o cheie din lista de materiale permise,
+  și doar dacă poți identifica materialul principal cu siguranță
+  din imagini. Dacă nu ești sigur, returnează "" (șir gol).
+  Nu inventa materiale și nu scrie text liber în acest câmp.
+
+Reguli pentru titlu:
+
+- Maximum 80 de caractere.
+- Trebuie să sune natural pentru un client, dar să fie clar și
+  pentru un motor de căutare, în această ordine de idei:
+  1. tipul produsului, cât mai aproape de început;
+  2. materialul principal, doar dacă îl poți determina sigur;
+  3. caracteristica importantă sau personalizarea, dacă există;
+  4. ocazia, doar dacă este relevantă și evidentă.
+- Fără repetarea acelorași cuvinte și fără liste de cuvinte cheie.
+- Fără numele magazinului sau al vânzătorului.
+- Fără texte promoționale sau superlative
+  (ex. "cel mai bun", "super ofertă", "reducere").
+- Fără MAJUSCULE excesive, emoji sau semne de exclamare.
+- Exemple bune:
+  "Lumânare parfumată din ceară de soia, handmade"
+  "Set mărturii botez personalizate cu nume"
+  "Brățară handmade din argint cu inimioară"
+
+Reguli pentru descriere:
+
+- 2-4 paragrafe scurte, în română.
+- Prima propoziție spune natural ce este produsul, din ce material
+  este (doar dacă e sigur), pentru ce se folosește sau ce se poate
+  personaliza, și ocazia dacă există.
+- Fără text scris artificial pentru SEO: fără liste de cuvinte cheie,
+  fără repetiții forțate, fără superlative, fără emoji sau HTML.
+- Nu inventa dimensiuni, preț, stoc, termen de realizare sau
+  detalii care nu se văd în imagini.
 
 Categorii permise:
 
@@ -691,6 +739,10 @@ ${categoriesText}
 Culori permise:
 
 ${colorsText}
+
+Materiale permise (alege cheia din stânga):
+
+${materialsText}
 
 Schema exactă a răspunsului:
 
@@ -767,6 +819,18 @@ Schema exactă a răspunsului:
           parsed.likelyOrderMode
         );
 
+      /*
+       * materialMain doar din catalogul canonic (MATERIALS/
+       * MATERIAL_LABELS). Valoare necunoscută sau goală -> "" (nu
+       * inventăm). În formular păstrăm label-ul canonic (formularul
+       * are un input text și arată vendorului ce salvează), iar cheia
+       * rămâne în materialMainKey / aiVisionAnalysis.
+       */
+      const canonicalMaterial =
+        resolveCanonicalMaterial(
+          parsed.materialMain
+        );
+
       return res.json({
         title: String(
           parsed.title || ""
@@ -785,9 +849,13 @@ Schema exactă a răspunsului:
             ? parsed.category
             : "alte",
 
-        materialMain: String(
-          parsed.materialMain || ""
-        ).trim(),
+        materialMain:
+          canonicalMaterial?.label ||
+          "",
+
+        materialMainKey:
+          canonicalMaterial?.key ||
+          "",
 
         technique: String(
           parsed.technique || ""

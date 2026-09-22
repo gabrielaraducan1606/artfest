@@ -1,10 +1,11 @@
-import { loadLegalDoc, loadMany, defaultPublicUrlForType } from "../lib/legal.js";
+import { loadLegalDoc, defaultPublicUrlForType } from "../lib/legal.js";
 import { prisma } from "../db.js";
+import { loadPublishedLegalDoc } from "../services/legalPublishedService.js";
 
 /**
  * GET /api/legal?types=tos,privacy,...
  */
-export function getLegalMeta(req, res) {
+export async function getLegalMeta(req, res) {
   try {
     const q = String(req.query.types || "");
     const types = q
@@ -14,7 +15,10 @@ export function getLegalMeta(req, res) {
           .filter(Boolean)
       : ["tos", "privacy"];
 
-    const out = loadMany(types).map((d) => ({
+    // versiunea PUBLICATĂ (rândul activ din DB) are prioritate față de manifest
+    const docs = await Promise.all(types.map((type) => loadPublishedLegalDoc(type)));
+
+    const out = docs.map((d) => ({
       type: d.type,
       title: d.title,
       version: d.semver || d.version,
@@ -34,12 +38,15 @@ export function getLegalMeta(req, res) {
  * GET /legal/:type.html (latest)
  * GET /legal/:type/v/:version.html (specific)
  */
-export function getLegalHtml(req, res) {
+export async function getLegalHtml(req, res) {
   try {
     const type = req.params.type;
     const version = req.params.version ? Number(req.params.version) : undefined;
 
-    const d = loadLegalDoc(type, { version });
+    // fără versiune explicită se servește versiunea publicată
+    const d = version === undefined
+      ? await loadPublishedLegalDoc(type)
+      : loadLegalDoc(type, { version });
     const shownVersion = d.semver || d.version;
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");

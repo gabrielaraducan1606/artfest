@@ -1,4 +1,5 @@
 // src/lib/api.js
+import { reportPolicyRequired } from "./policyRequired.js";
 
 // ================================
 // Wrapper pentru requesturi către API (rezistent la /api dublat/lipsă)
@@ -114,6 +115,10 @@ export async function api(path, opts = {}) {
     `Request failed (${res.status})`;
 
   const err = new Error(message);
+
+  // 428/412 de acceptare de documente => `policy:required` (gate-urile din
+  // UI afișează imediat documentele de acceptat; cererea tot eșuează)
+  reportPolicyRequired(res.status, data);
 
   err.status = res.status;
   err.code =

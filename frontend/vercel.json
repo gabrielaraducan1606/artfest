@@ -12,6 +12,14 @@
       "permanent": true
     }
   ],
+  "functions": {
+    "api/seo-colectie.js": {
+      "includeFiles": "src/utils/seo/**"
+    },
+    "api/seo-categorie.js": {
+      "includeFiles": "{src/utils/seo/**,src/constants/**}"
+    }
+  },
   "rewrites": [
     {
       "source": "/sitemap.xml",
@@ -68,6 +76,18 @@
     {
       "source": "/magazin/:slug",
       "destination": "/api/seo-magazin?slug=:slug"
+    },
+    {
+      "source": "/colectii",
+      "destination": "/api/seo-colectie"
+    },
+    {
+      "source": "/colectii/:slug",
+      "destination": "/api/seo-colectie?slug=:slug"
+    },
+    {
+      "source": "/categorii/:slug",
+      "destination": "/api/seo-categorie?slug=:slug"
     },
     {
       "source": "/(.*)",

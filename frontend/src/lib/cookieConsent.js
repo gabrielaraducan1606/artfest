@@ -8,8 +8,37 @@ const CONSENT_KEY =
 const ANONYMOUS_ID_KEY =
   "cookie:anonymous-id:v1";
 
+/*
+ * 2.0 = introducerea categoriei "Atribuire recomandări" (Cookies v2
+ * §11.2). Utilizatorii care au decis sub 1.0 NU au avut de unde să
+ * consimtă pentru această categorie, deci hasAnyDecision() e false
+ * pentru ei și bannerul reapare o dată; alegerile anterioare pentru
+ * Statistici/Marketing sunt păstrate ca valori inițiale, iar
+ * Atribuirea rămâne dezactivată până la o alegere explicită.
+ */
 export const COOKIE_CONSENT_VERSION =
-  "1.0";
+  "2.0";
+
+/*
+ * Eveniment global: cere deschiderea panoului „Preferințe cookie” oricând
+ * (footer, bannerul inițial, orice alt link), chiar dacă utilizatorul a
+ * decis deja. Ascultat de CookieBanner.
+ */
+export const OPEN_COOKIE_PREFERENCES_EVENT =
+  "cookie:open-preferences";
+
+export function openCookiePreferences() {
+  if (typeof window === "undefined") return false;
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent(OPEN_COOKIE_PREFERENCES_EVENT)
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export const defaultConsent = {
   necessary: true,
@@ -168,6 +197,8 @@ const ATTRIBUTION_STORAGE_KEYS = [
   "artfest.vendorReferralAttribution",
   "artfest.campaignAttribution",
   "artfest.vendorCollectionAttribution",
+  // Cod de recomandare persistat la înregistrare (Register.jsx, din ?ref=).
+  "artfest.referralCode",
 ];
 
 function clearAttributionStorage() {
@@ -339,10 +370,25 @@ export function hasAnyDecision() {
   }
 
   try {
-    return Boolean(
+    const raw =
       localStorage.getItem(
         CONSENT_KEY
-      )
+      );
+
+    if (!raw) {
+      return false;
+    }
+
+    /*
+     * O decizie luată sub o versiune mai veche a mecanismului nu
+     * acoperă categoriile introduse ulterior - cerem din nou.
+     */
+    const obj =
+      JSON.parse(raw);
+
+    return (
+      obj?.consentVersion ===
+      COOKIE_CONSENT_VERSION
     );
   } catch {
     return false;

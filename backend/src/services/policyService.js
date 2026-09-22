@@ -13,11 +13,16 @@ import {
  * Mapări manifest -> Prisma
  * ========================================================= */
 
+/*
+ * COOKIES eliminat din mapările contractuale: consimțământul pentru cookies
+ * se gestionează exclusiv prin CookieConsent (fără gate / reacceptare).
+ * COOKIES_ACK rămâne în enum-ul Prisma doar ca istoric.
+ */
 const LEGAL_TYPE_TO_USER_DOCUMENT = {
   tos: "TOS",
   privacy: "PRIVACY_ACK",
-  cookies: "COOKIES_ACK",
   returns_policy_ack: "RETURNS_POLICY_ACK",
+  influencer_terms: "INFLUENCER_TERMS",
 };
 
 const LEGAL_TYPE_TO_VENDOR_DOCUMENT = {
@@ -30,7 +35,6 @@ const LEGAL_TYPE_TO_VENDOR_DOCUMENT = {
 const GATE_KEY_TO_USER_DOCUMENT = {
   TOS: "TOS",
   PRIVACY: "PRIVACY_ACK",
-  COOKIES: "COOKIES_ACK",
   RETURNS_POLICY_ACK: "RETURNS_POLICY_ACK",
   MARKETING: "MARKETING_EMAIL_OPTIN",
 };
@@ -38,7 +42,6 @@ const GATE_KEY_TO_USER_DOCUMENT = {
 const USER_DOCUMENT_TO_GATE_KEY = {
   TOS: "TOS",
   PRIVACY_ACK: "PRIVACY",
-  COOKIES_ACK: "COOKIES",
   RETURNS_POLICY_ACK: "RETURNS_POLICY_ACK",
   MARKETING_EMAIL_OPTIN: "MARKETING",
 };
@@ -229,8 +232,14 @@ export async function publishPoliciesFromManifest({
   types,
   publishedAt = new Date(),
   deactivatePrevious = true,
+  // "USER" | "VENDOR": publică doar în tabelul respectiv, chiar dacă
+  // manifestul declară scope BOTH (ex. returns_policy_ack). Fără el se
+  // păstrează comportamentul vechi (BOTH scrie în ambele tabele).
+  storage = null,
 } = {}) {
-  const availableTypes = listLegalTypes();
+  // cookies nu e document contractual (vezi comentariul de la mapări)
+  const availableTypes = listLegalTypes().filter((type) => type !== "cookies");
+  const onlyStorage = storage ? normalizeScope(storage) : null;
 
   const requestedTypes =
     Array.isArray(types) && types.length
@@ -324,9 +333,10 @@ export async function publishPoliciesFromManifest({
        * USER sau BOTH -> UserPolicy
        */
       if (
-        manifestScope === "USER" ||
-        manifestScope === "USERS" ||
-        manifestScope === "BOTH"
+        onlyStorage !== "VENDOR" &&
+        (manifestScope === "USER" ||
+          manifestScope === "USERS" ||
+          manifestScope === "BOTH")
       ) {
         const userDocument =
           LEGAL_TYPE_TO_USER_DOCUMENT[type];
@@ -381,7 +391,6 @@ export async function publishPoliciesFromManifest({
             checksum,
             isRequired,
             isActive: true,
-            publishedAt,
           },
         });
 
@@ -403,9 +412,10 @@ export async function publishPoliciesFromManifest({
        * VENDOR sau BOTH -> VendorPolicy
        */
       if (
-        manifestScope === "VENDOR" ||
-        manifestScope === "VENDORS" ||
-        manifestScope === "BOTH"
+        onlyStorage !== "USER" &&
+        (manifestScope === "VENDOR" ||
+          manifestScope === "VENDORS" ||
+          manifestScope === "BOTH")
       ) {
         const vendorDocument =
           LEGAL_TYPE_TO_VENDOR_DOCUMENT[type];
@@ -460,7 +470,6 @@ export async function publishPoliciesFromManifest({
             checksum,
             isRequired,
             isActive: true,
-            publishedAt,
           },
         });
 
@@ -1268,7 +1277,6 @@ export async function publishSelectedGateDocuments({
     const keyToType = {
       TOS: "tos",
       PRIVACY: "privacy",
-      COOKIES: "cookies",
       RETURNS_POLICY_ACK:
         "returns_policy_ack",
     };
@@ -1348,6 +1356,8 @@ export async function publishSelectedGateDocuments({
     types: uniqueTypes,
     publishedAt,
     deactivatePrevious: true,
+    // returns_policy_ack (BOTH) nu se mai publică încrucișat
+    storage: normalizedScope === "USERS" ? "USER" : "VENDOR",
   });
 }
 

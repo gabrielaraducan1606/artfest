@@ -17,6 +17,7 @@ import {
   buildCampaignPromotionsByProductId,
 } from "../services/campaignAttribution.js";
 import { buildPublicGpsrInfo } from "../lib/gpsrCompliance.js";
+import { buildCollectionWhereFromRules } from "../services/collectionProducts.js";
 const router = Router();
 
 /*
@@ -1724,55 +1725,6 @@ res.set("Expires", "0");
   }
 });
 
-function buildCollectionWhereFromRules(rules = {}, excludedIds = []) {
-  const where = {
-  isActive: true,
-  isHidden: false,
-  moderationStatus: "APPROVED",
-  service: {
-    is: {
-      isActive: true,
-      status: "ACTIVE",
-      vendor: { is: { isActive: true } },
-      type: { is: { code: "products" } },
-    },
-  },
-  ...(excludedIds.length ? { id: { notIn: excludedIds } } : {}),
-};
-
-  if (Array.isArray(rules.categories) && rules.categories.length) {
-    where.category = {
-      in: rules.categories.map((x) => String(x || "").trim()).filter(Boolean),
-    };
-  }
-
-  if (rules.acceptsCustom === true) {
-    where.acceptsCustom = true;
-  }
-
-  const minPriceCents = Number(rules.minPriceCents);
-  const maxPriceCents = Number(rules.maxPriceCents);
-
-  if (Number.isFinite(minPriceCents) || Number.isFinite(maxPriceCents)) {
-    where.priceCents = {};
-    if (Number.isFinite(minPriceCents)) where.priceCents.gte = minPriceCents;
-    if (Number.isFinite(maxPriceCents)) where.priceCents.lte = maxPriceCents;
-  }
-
-  if (Array.isArray(rules.occasionTags) && rules.occasionTags.length) {
-    where.occasionTags = {
-      hasSome: rules.occasionTags.map(String),
-    };
-  }
-
-  if (Array.isArray(rules.styleTags) && rules.styleTags.length) {
-    where.styleTags = {
-      hasSome: rules.styleTags.map(String),
-    };
-  }
-
-  return where;
-}
 router.get("/collections/:slug", async (req, res, next) => {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();

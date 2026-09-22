@@ -11,7 +11,8 @@
     "test:guest-intents": "node scripts/testGuestIntentRouter.mjs",
     "test:guest-intents:hard": "node scripts/testGuestIntentHardSet.mjs",
     "test:guest-intents:all": "npm run test:guest-intents && npm run test:guest-intents:hard",
-    "test:product-config-validator": "node --test src/utils/productConfigurationValidator.test.js src/components/AIAssistant/Personalization/productPersonalizationFlow.test.js"
+    "test:product-config-validator": "node --test src/utils/productConfigurationValidator.test.js src/components/AIAssistant/Personalization/productPersonalizationFlow.test.js",
+    "test:collections-seo": "node --test api/seo-colectie.test.js api/seo-categorie.test.js api/seo-pagination.test.js src/utils/seo/structuredData.test.js src/utils/seo/importBoundary.test.js src/pages/Home/CollectionsSection/collectionCards.test.js src/pages/Collections/collectionContent.test.js src/utils/sanitizeHtml.test.js"
   },
   "dependencies": {
     "axios": "^1.11.0",

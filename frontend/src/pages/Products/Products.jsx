@@ -15,6 +15,21 @@ import { addToGuestCart } from "../../utils/guestCart";
 import ProductCard from "../Vendor/ProfilMagazin/components/ProductCard";
 import { SEO } from "../../components/Seo/SeoProvider";
 import { SEO_CATEGORIES } from "../../constants/seoCategories";
+import Breadcrumbs from "../../components/Breadcrumbs/Breadcrumbs.jsx";
+/*
+ * Sursă unică cu funcția Vercel /api/seo-categorie (HTML brut pentru boți):
+ * canonical/title/JSON-LD identice în HTML-ul brut și în DOM. SeoProvider
+ * elimină JSON-LD-ul injectat server-side la mount, deci pagina îl re-emite.
+ */
+import {
+  CATEGORY_PAGE_SIZE,
+  buildCategoryStructuredData,
+  categoryBreadcrumbs,
+  categoryCanonicalUrl,
+  categorySeoTitle,
+} from "../../utils/seo/categorySeo.js";
+import { paginationLinks } from "../../utils/seo/pagination.js";
+import PageLinks from "../../components/Pagination/PageLinks.jsx";
 import {
   FaFilter,
   FaUndoAlt,
@@ -37,7 +52,10 @@ const SORTS = [
 
 // Batch mic - primul rând apare cât mai repede, apoi paginile
 // următoare se încarcă progresiv (prima automat, restul la scroll).
-const LIMIT = 8;
+// Dimensiunea unui lot = dimensiunea unei pagini crawlabile (?page=N) pe
+// /categorii/:slug: aceeași valoare o folosește funcția Vercel
+// /api/seo-categorie, ca ?page=N să fie aceeași felie în HTML-ul brut și aici.
+const LIMIT = CATEGORY_PAGE_SIZE;
 
 /*
  * Instrumentare minimă de timing, doar în dev, doar în consolă -
@@ -238,6 +256,13 @@ export default function ProductsPage({
   embedded = false,
   forcedCategory = "",
   forcedSeoCategory = null,
+  /*
+   * Pagina de START pentru /categorii/:slug?page=N (paginare crawlabilă;
+   * valoarea o calculează CategoryPage și remontează componenta cu `key`
+   * când se schimbă). 1 = comportamentul de dinainte, neschimbat. Infinite
+   * scroll-ul continuă de la această pagină în sus.
+   */
+  startPage = 1,
 }) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -278,6 +303,8 @@ const goToProductsParams = useCallback(
 if (forcedCategory) {
   p.delete("categorie");
   p.delete("category");
+  // orice schimbare de filtre/sortare pornește de la prima pagină
+  p.delete("page");
 }
     const query =
       p.toString();
@@ -363,6 +390,45 @@ const currentSeoCategory =
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(null);
 
+  /*
+   * Structured data al paginii de categorie: CollectionPage (+ ItemList) +
+   * BreadcrumbList + FAQPage. ItemList doar pe pagina "curată" (fără
+   * filtre/căutare în URL), ca lista din JSON-LD să fie aceeași cu cea din
+   * HTML-ul brut (prima pagină a categoriei, sortată după noutate).
+   */
+  // Vizualizare "curată" a categoriei: în URL nu sunt filtre/căutare (doar,
+  // eventual, ?page=N). Doar ea are paginare crawlabilă și ItemList.
+  const isCleanCategoryView = useMemo(
+    () => [...params.keys()].every((key) => key === "page"),
+    [params]
+  );
+
+  // Produsele PAGINII de start (primele LIMIT din listă; cele aduse de
+  // infinite scroll vin după și nu intră în ItemList).
+  const pageItems = useMemo(() => items.slice(0, LIMIT), [items]);
+
+  const categoryJsonLd = useMemo(() => {
+    if (embedded || !currentSeoCategory) return [];
+
+    return buildCategoryStructuredData({
+      category: currentSeoCategory,
+      items: isCleanCategoryView ? pageItems : [],
+      page: isCleanCategoryView ? startPage : 1,
+    });
+  }, [embedded, currentSeoCategory, isCleanCategoryView, pageItems, startPage]);
+
+
+  const categoryCrumbs = useMemo(
+    () =>
+      currentSeoCategory
+        ? categoryBreadcrumbs(currentSeoCategory).map(({ name, to }) => ({
+            name,
+            to,
+          }))
+        : [],
+    [currentSeoCategory]
+  );
+
   useEffect(() => {
     if (firstItemsMarkedRef.current) return;
     if (items.length === 0) return;
@@ -375,9 +441,32 @@ const currentSeoCategory =
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(startPage);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // Linkuri reale Pagina anterioară / următoare (doar pe /categorii/:slug,
+  // vizualizare curată). "Următoarea" există dacă backend-ul mai are produse
+  // SAU pagina următoare a fost deja încărcată de infinite scroll.
+  const categoryPager = useMemo(() => {
+    if (embedded || !forcedCategory || !currentSeoCategory?.slug) return null;
+    if (!isCleanCategoryView || visualSearchId) return null;
+
+    return paginationLinks({
+      basePath: `/categorii/${currentSeoCategory.slug}`,
+      page: startPage,
+      hasNext: items.length > LIMIT || hasMore,
+    });
+  }, [
+    embedded,
+    forcedCategory,
+    currentSeoCategory?.slug,
+    isCleanCategoryView,
+    visualSearchId,
+    startPage,
+    items.length,
+    hasMore,
+  ]);
 
   const [smartInfo, setSmartInfo] = useState(null);
   const [appliedFiltersInfo, setAppliedFiltersInfo] = useState(null);
@@ -491,9 +580,10 @@ const saveProductsScrollState = useCallback(() => {
     async (pageToLoad = 1, append = false) => {
       const requestId = ++productsRequestIdRef.current;
 
-      const firstLoad = pageToLoad === 1 && !append && !initialLoadDoneRef.current;
+      const firstLoad =
+        pageToLoad === startPage && !append && !initialLoadDoneRef.current;
       const refetchLoad =
-        pageToLoad === 1 && !append && initialLoadDoneRef.current;
+        pageToLoad === startPage && !append && initialLoadDoneRef.current;
 
       if (firstLoad) setLoading(true);
       else if (refetchLoad) setRefreshing(true);
@@ -698,7 +788,7 @@ const normalizedItems =
 const serverHasMore =
   !!res?.hasMore;
 
-if (!append && pageToLoad === 1) {
+if (!append && pageToLoad === startPage) {
   try {
     sessionStorage.removeItem(
       PRODUCTS_SCROLL_KEY
@@ -779,11 +869,12 @@ setItems((prev) => {
   availabilityParam,
   leadTimeMaxParam,
   acceptsCustomParam,
+  startPage,
 ]
   );
 
   useEffect(() => {
-    
+
     setLocalFilters({
       q: qParam,
       category: categoryParam,
@@ -801,10 +892,11 @@ setItems((prev) => {
       leadTimeMax: leadTimeMaxParam,
     });
 
-    setPage(1);
+    setPage(startPage);
     setHasMore(true);
     setTotal((prev) => prev);
   }, [
+    startPage,
     qParam,
     categoryParam,
     cityParam,
@@ -931,7 +1023,7 @@ useEffect(() => {
       );
 
       if (!raw) {
-        await loadProducts(1, false);
+        await loadProducts(startPage, false);
         return;
       }
 
@@ -952,7 +1044,7 @@ useEffect(() => {
           PRODUCTS_SCROLL_KEY
         );
 
-        await loadProducts(1, false);
+        await loadProducts(startPage, false);
         return;
       }
 
@@ -1019,7 +1111,7 @@ setPage(
 const refresh = () => {
   if (!active) return;
 
-  loadProducts(1, false).catch(() => {});
+  loadProducts(startPage, false).catch(() => {});
 };
 
 if ("requestIdleCallback" in window) {
@@ -1040,7 +1132,7 @@ if ("requestIdleCallback" in window) {
       );
 
       if (active) {
-        await loadProducts(1, false);
+        await loadProducts(startPage, false);
       }
     }
   };
@@ -1053,12 +1145,13 @@ if ("requestIdleCallback" in window) {
 }, [
   productsQueryKey,
   loadProducts,
+  startPage,
 ]);
 
   useEffect(() => {
-    if (page === 1) return;
+    if (page === startPage) return;
     loadProducts(page, true);
-  }, [page, loadProducts]);
+  }, [page, startPage, loadProducts]);
 
   /*
    * Randare progresivă: imediat ce primul batch mic (LIMIT=8) e pe
@@ -1071,15 +1164,16 @@ if ("requestIdleCallback" in window) {
    * re-render.
    */
   useEffect(() => {
-    if (page !== 1) return;
+    if (page !== startPage) return;
     if (loading || refreshing) return;
     if (!hasMore) return;
     if (items.length === 0) return;
     if (autoAdvancedQueryKeyRef.current === productsQueryKey) return;
 
     autoAdvancedQueryKeyRef.current = productsQueryKey;
-    setPage(2);
+    setPage(startPage + 1);
   }, [
+    startPage,
     page,
     loading,
     refreshing,
@@ -1837,7 +1931,10 @@ const clearImageSearch =
   <SEO
     title={
       currentSeoCategory
-        ? `${currentSeoCategory.title} | Produse`
+        ? categorySeoTitle(
+            currentSeoCategory,
+            isCleanCategoryView ? startPage : 1
+          )
         : "Produse handmade"
     }
     description={
@@ -1847,17 +1944,27 @@ const clearImageSearch =
     }
     canonical={
       currentSeoCategory
-        ? `https://www.artfest.ro/categorii/${currentSeoCategory.slug}`
+        ? categoryCanonicalUrl(
+            currentSeoCategory.slug,
+            isCleanCategoryView ? startPage : 1
+          )
         : "https://www.artfest.ro/produse"
     }
     url={
       currentSeoCategory
-        ? `https://www.artfest.ro/categorii/${currentSeoCategory.slug}`
+        ? categoryCanonicalUrl(
+            currentSeoCategory.slug,
+            isCleanCategoryView ? startPage : 1
+          )
         : "https://www.artfest.ro/produse"
     }
+    jsonLd={categoryJsonLd}
   />
 )}
       <header className={styles.head}>
+    {!embedded && currentSeoCategory && !visualSearchId && (
+      <Breadcrumbs items={categoryCrumbs} />
+    )}
     {!embedded && (
   <div className={styles.headTop}>
     <div className={styles.categoryHeroText}>
@@ -2530,7 +2637,22 @@ const clearImageSearch =
           )}
 
           {items.length === 0 ? (
-            <EmptyState />
+            forcedCategory && startPage > 1 && isCleanCategoryView ? (
+              // ?page=N dincolo de ultima pagină: mesaj + cale înapoi
+              <div className={styles.empty}>
+                <div className={styles.emptyTitle}>
+                  Nu există produse pe această pagină.
+                </div>
+                <a
+                  className={styles.btnPrimary}
+                  href={`/categorii/${currentSeoCategory?.slug || ""}`}
+                >
+                  Înapoi la prima pagină
+                </a>
+              </div>
+            ) : (
+              <EmptyState />
+            )
           ) : (
             <div
   className={styles.grid}
@@ -2541,15 +2663,22 @@ const clearImageSearch =
   {productCards}
 </div>
           )}
+{/*
+  Linkuri REALE Pagina anterioară / următoare (crawlabile), în paralel cu
+  infinite scroll-ul.
+*/}
+{categoryPager && items.length > 0 && (
+  <PageLinks
+    prev={categoryPager.prev}
+    next={categoryPager.next}
+    currentPage={startPage}
+  />
+)}
+{/* Textul SEO + FAQ doar pe pagina 1 (nu se repetă pe ?page=N>1). */}
 {!embedded &&
-  currentSeoCategory && (
+  currentSeoCategory &&
+  startPage === 1 && (
     <>
-      <CategoryJsonLd
-        category={
-          currentSeoCategory
-        }
-      />
-
       <section
         className={
           styles.seoSection
@@ -2624,39 +2753,6 @@ const clearImageSearch =
         </>
       )}
     </section>
-  );
-}
-function CategoryJsonLd({ category }) {
-  if (!category) return null;
-
-  const url = `https://www.artfest.ro/categorii/${category.slug}`;
-
-  const schema = {
-    "@context": "https://schema.org",
-    "@type": "CollectionPage",
-    name: category.h1 || category.title,
-    description: category.description,
-    url,
-    mainEntity:
-      Array.isArray(category.faq) && category.faq.length
-        ? category.faq.map((item) => ({
-            "@type": "Question",
-            name: item.q,
-            acceptedAnswer: {
-              "@type": "Answer",
-              text: item.a,
-            },
-          }))
-        : undefined,
-  };
-
-  return (
-    <script
-      type="application/ld+json"
-      dangerouslySetInnerHTML={{
-        __html: JSON.stringify(schema),
-      }}
-    />
   );
 }
 function EmptyState() {

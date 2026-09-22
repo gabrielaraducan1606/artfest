@@ -1729,6 +1729,300 @@ export async function sendOrderCancelledByUserEmail({ to, order, userId = null }
 }
 
 /* ============================================================
+   RETRAGERE DIN CONTRACT (Returns v2 §4.3) - funcția online
+   Confirmare pe suport durabil către Client + notificare Vânzător.
+============================================================ */
+
+function formatWithdrawalDateTime(value) {
+  try {
+    return new Intl.DateTimeFormat("ro-RO", {
+      dateStyle: "long",
+      timeStyle: "medium",
+      timeZone: "Europe/Bucharest",
+    }).format(new Date(value));
+  } catch {
+    return String(value || "");
+  }
+}
+
+export async function sendWithdrawalConfirmationEmail({
+  to,
+  clientName,
+  orderNumber,
+  declarationText,
+  submittedAt,
+  userId = null,
+  orderId = null,
+}) {
+  if (!to) return;
+
+  const when = formatWithdrawalDateTime(submittedAt);
+  const subject = `Confirmare primire retragere din contract - comanda #${orderNumber} - ${BRAND_NAME}`;
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+
+  <h2 style="color:#111827;margin:0 0 8px;">Am primit declarația ta de retragere</h2>
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Bună, <strong>${escapeEmailHtml(clientName)}</strong>,
+  </p>
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Confirmăm primirea declarației de retragere din contract pentru comanda
+    <strong>#${escapeEmailHtml(orderNumber)}</strong>.
+    Data și ora transmiterii: <strong>${escapeEmailHtml(when)}</strong>.
+  </p>
+
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin:0 0 16px;">
+    <p style="color:#6b7280;font-size:13px;margin:0 0 6px;">Conținutul declarației:</p>
+    <p style="color:#111827;margin:0;line-height:1.5;white-space:pre-line;">${escapeEmailHtml(declarationText)}</p>
+  </div>
+
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Declarația a fost transmisă Vânzătorului. Pașii următori (returnarea produselor și rambursarea)
+    se desfășoară conform Politicii de retur ${BRAND_NAME}. Păstrează acest email ca dovadă a transmiterii.
+  </p>
+
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
+  </p>
+</div>`.trim();
+
+  const text = [
+    `Bună, ${clientName},`,
+    "",
+    `Confirmăm primirea declarației de retragere din contract pentru comanda #${orderNumber}.`,
+    `Data și ora transmiterii: ${when}`,
+    "",
+    "Conținutul declarației:",
+    declarationText,
+    "",
+    `Declarația a fost transmisă Vânzătorului. Pașii următori se desfășoară conform Politicii de retur ${BRAND_NAME}. Păstrează acest email ca dovadă a transmiterii.`,
+  ].join("\n");
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "withdrawal_confirmation",
+    userId,
+    orderId,
+    toName: clientName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
+export async function sendWithdrawalForwardedToVendorEmail({
+  to,
+  vendorName,
+  clientName,
+  contactEmail,
+  orderNumber,
+  declarationText,
+  submittedAt,
+  orderId = null,
+}) {
+  if (!to) return;
+
+  const when = formatWithdrawalDateTime(submittedAt);
+  const subject = `Declarație de retragere din contract - comanda #${orderNumber} - ${BRAND_NAME}`;
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <h2 style="color:#111827;margin:0 0 8px;">Declarație de retragere din contract</h2>
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Bună, <strong>${escapeEmailHtml(vendorName || "vânzător")}</strong>,
+  </p>
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Clientul <strong>${escapeEmailHtml(clientName)}</strong> (${escapeEmailHtml(contactEmail)}) a transmis, prin funcția online
+    de retragere ${BRAND_NAME}, o declarație de retragere din contract pentru comanda
+    <strong>#${escapeEmailHtml(orderNumber)}</strong>, la data de <strong>${escapeEmailHtml(when)}</strong>.
+  </p>
+
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin:0 0 16px;">
+    <p style="color:#111827;margin:0;line-height:1.5;white-space:pre-line;">${escapeEmailHtml(declarationText)}</p>
+  </div>
+
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Te rugăm să procesezi retragerea conform obligațiilor tale legale de Vânzător și Politicii de retur ${BRAND_NAME}
+    (inclusiv, atunci când este cazul, evaluarea excepțiilor legale de la dreptul de retragere).
+  </p>
+
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>`.trim();
+
+  const text = [
+    `Bună, ${vendorName || "vânzător"},`,
+    "",
+    `Clientul ${clientName} (${contactEmail}) a transmis o declarație de retragere din contract pentru comanda #${orderNumber}, la data de ${when}.`,
+    "",
+    declarationText,
+    "",
+    "Te rugăm să procesezi retragerea conform obligațiilor tale legale și Politicii de retur.",
+  ].join("\n");
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "withdrawal_forwarded_vendor",
+    orderId,
+    toName: vendorName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
+/* ============================================================
+   ACTUALIZARE DOCUMENTE JURIDICE - cerere de reacceptare
+   Email TRANZACȚIONAL / LEGAL (nu marketing): nu depinde de opt-in-ul de
+   marketing și nu conține link de dezabonare de marketing.
+============================================================ */
+
+function absolutePolicyUrl(url) {
+  const value = String(url || "").trim();
+
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+
+  return APP_URL ? `${APP_URL}${value.startsWith("/") ? "" : "/"}${value}` : value;
+}
+
+export async function sendPolicyUpdateEmail({
+  to,
+  name = "",
+  subject,
+  body = "",
+  documents = [],
+  link = "",
+  campaignKey,
+  userId = null,
+}) {
+  if (!to) return;
+
+  const safeSubject = String(subject || "Actualizare documente legale").trim();
+  const greetingName = String(name || "").trim();
+  const ctaLink = absolutePolicyUrl(link);
+
+  const docLines = documents.map((doc) => {
+    const url = absolutePolicyUrl(doc.url);
+    const version = doc.version ? ` (versiunea ${doc.version})` : "";
+    const deadline = doc.deadlineAt
+      ? ` - de acceptat până la ${new Date(doc.deadlineAt).toLocaleDateString("ro-RO")}`
+      : "";
+
+    return { title: String(doc.title || ""), version, deadline, url };
+  });
+
+  const paragraphs = String(body || "")
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+
+  <h2 style="color:#111827;margin:0 0 8px;">${escapeEmailHtml(safeSubject)}</h2>
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Bună${greetingName ? `, <strong>${escapeEmailHtml(greetingName)}</strong>` : ""},
+  </p>
+
+  ${paragraphs
+    .map(
+      (p) =>
+        `<p style="color:#374151;margin:0 0 12px;line-height:1.5;">${escapeEmailHtml(p).replace(/\n/g, "<br>")}</p>`
+    )
+    .join("\n  ")}
+
+  ${
+    docLines.length
+      ? `<div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin:0 0 16px;">
+    <p style="color:#6b7280;font-size:13px;margin:0 0 6px;">Documente actualizate:</p>
+    <ul style="margin:0;padding-left:18px;color:#111827;line-height:1.6;">
+      ${docLines
+        .map(
+          (d) =>
+            `<li>${
+              d.url
+                ? `<a href="${escapeEmailHtml(d.url)}" style="color:#4b5563;">${escapeEmailHtml(d.title)}</a>`
+                : escapeEmailHtml(d.title)
+            }${escapeEmailHtml(d.version)}${escapeEmailHtml(d.deadline)}</li>`
+        )
+        .join("")}
+    </ul>
+  </div>`
+      : ""
+  }
+
+  ${
+    ctaLink
+      ? `<p style="text-align:center;margin:24px 0 12px;">
+    <a href="${escapeEmailHtml(ctaLink)}" style="background:#4b5563;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+      Consultă și acceptă documentele
+    </a>
+  </p>`
+      : ""
+  }
+
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acesta este un mesaj tranzacțional legat de contul tău ${BRAND_NAME} (informare privind documente juridice), nu un email de marketing.
+  </p>
+</div>`.trim();
+
+  const text = [
+    greetingName ? `Bună, ${greetingName},` : "Bună,",
+    "",
+    ...paragraphs.flatMap((p) => [p, ""]),
+    ...(docLines.length ? ["Documente actualizate:"] : []),
+    ...docLines.map((d) => `- ${d.title}${d.version}${d.deadline}${d.url ? ` - ${d.url}` : ""}`),
+    ...(ctaLink ? ["", `Consultă și acceptă documentele: ${ctaLink}`] : []),
+  ].join("\n");
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject: safeSubject,
+    template: `policy_update:${campaignKey}`,
+    userId,
+    toName: greetingName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject: safeSubject,
+      html,
+      text,
+      // tranzacțional: fără "Precedence: bulk" și fără List-Unsubscribe de marketing
+      headers: { "Auto-Submitted": "auto-generated" },
+    },
+  });
+}
+
+/* ============================================================
    SECURITY (sender: no-reply@)
 ============================================================ */
 export async function sendPasswordStaleReminderEmail({ to, passwordAgeDays, maxPasswordAgeDays, userId = null }) {

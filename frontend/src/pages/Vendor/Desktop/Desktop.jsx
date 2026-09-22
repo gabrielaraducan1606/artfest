@@ -4,6 +4,7 @@ import { api } from "../../../lib/api";
 import { useAuth } from "../../../pages/Auth/Context/context.js";
 import styles from "./Desktop.module.css";
 import PolicyGate from "../../Admin/AdminDesktop/PolicyGate/PolicyGate.jsx";
+import usePolicyGateController from "../../Admin/AdminDesktop/PolicyGate/usePolicyGateController.js";
 
 import {
   LayoutDashboard,
@@ -377,79 +378,23 @@ const [payouts, setPayouts] = useState(() => cached?.payouts ?? null);
     () => cached?.counts?.supportUnread ?? 0
   );
   const [ambassador, setAmbassador] = useState(null);
-const [policyGateOpen, setPolicyGateOpen] = useState(
-  shouldOpenPolicyGate
-);
-const [policyBlocked, setPolicyBlocked] = useState(false);
-const [policyScope, setPolicyScope] = useState("VENDORS");
-useEffect(() => {
-  if (!me) return;
-
-  let alive = true;
-
-  async function checkPolicyGate() {
-    try {
-      const userGate = await api(
-        "/api/policy-gate?scope=USERS"
-      ).catch(() => null);
-
-      if (!alive) return;
-
-      const hasUserGate =
-        !!userGate?.requiresAction &&
-        Array.isArray(userGate?.documents) &&
-        userGate.documents.some(
-          (d) => d.required && !d.alreadyAccepted
-        );
-
-      if (hasUserGate) {
-        setPolicyScope("USERS");
-        setPolicyGateOpen(true);
-        return;
-      }
-
-      const vendorGate = await api(
-        "/api/policy-gate?scope=VENDORS"
-      ).catch(() => null);
-
-      if (!alive) return;
-
-      const hasVendorGate =
-        !!vendorGate?.requiresAction &&
-        Array.isArray(vendorGate?.documents) &&
-        vendorGate.documents.some(
-          (d) => d.required && !d.alreadyAccepted
-        );
-
-      if (hasVendorGate) {
-        setPolicyScope("VENDORS");
-        setPolicyGateOpen(true);
-        return;
-      }
-
-      if (shouldOpenPolicyGate) {
-        const scope =
-          (params.get("scope") || "VENDORS").toUpperCase();
-
-        setPolicyScope(
-          scope === "USERS"
-            ? "USERS"
-            : "VENDORS"
-        );
-
-        setPolicyGateOpen(true);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  checkPolicyGate();
-
-  return () => {
-    alive = false;
-  };
-}, [me, shouldOpenPolicyGate, params]);
+/*
+ * Gate-ul de documente (vezi usePolicyGateController): scope USERS
+ * (TOS/Privacy/Returns pe audiența vendor) apoi VENDORS (acorduri vendor),
+ * cu redeschidere pe scope-ul următor și reacție la 428/412.
+ */
+const {
+  open: policyGateOpen,
+  scope: policyScope,
+  blocked: policyBlocked,
+  setBlocked: setPolicyBlocked,
+  onClose: closePolicyGate,
+} = usePolicyGateController({
+  me,
+  requestedScope: (params.get("scope") || "").toUpperCase() || null,
+  forceOpen: shouldOpenPolicyGate,
+  defaultScope: "VENDORS",
+});
   const cacheTimerRef = useRef(null);
 
   useEffect(() => {
@@ -1002,9 +947,7 @@ const completeness = dashboardHealth.percent;
   <PolicyGate
   scope={policyScope}
   isOpen={policyGateOpen}
-  onClose={() => {
-    setPolicyGateOpen(false);
-  }}
+  onClose={closePolicyGate}
   onStatusChange={setPolicyBlocked}
   closeOnOverlay={false}
   closeOnEsc={false}

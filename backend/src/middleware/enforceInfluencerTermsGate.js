@@ -55,7 +55,13 @@ export async function enforceInfluencerTermsGate(req, res, next) {
 
     const status = await getInfluencerTermsStatus(userId);
 
-    if (status.outdated) {
+    /*
+     * Blocăm DOAR când există o cerere deschisă de reacceptare (sau contul
+     * nu a acceptat niciodată acordul) și termenul-limită a trecut / nu
+     * există. O simplă schimbare de versiune în manifest sau o publicare
+     * NU mai blochează influencerii.
+     */
+    if (status.blocking) {
       return res.status(428).json({
         error: "influencer_terms_acceptance_required",
 

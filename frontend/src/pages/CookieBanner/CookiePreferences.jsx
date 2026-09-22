@@ -10,7 +10,14 @@ import {
   saveConsent,
 } from "../../lib/cookieConsent.js";
 
-export default function CookiePreferences() {
+/*
+ * Formularul de preferințe (Necesare / Statistici / Marketing / Atribuire
+ * recomandări), refolosit de pagina /preferinte-cookie și de panoul deschis
+ * din CookieBanner. Valorile curente se citesc la montare din consimțământul
+ * salvat; salvarea persistă alegerile (saveConsent) și retragerea unei
+ * categorii șterge storage-ul relevant.
+ */
+export function CookiePreferencesForm({ onSaved, onClose }) {
   const [analytics, setAnalytics] =
     useState(false);
 
@@ -76,6 +83,11 @@ export default function CookiePreferences() {
     );
 
     setSaved(true);
+
+    if (onSaved) {
+      onSaved();
+      return;
+    }
 
     window.setTimeout(() => {
       setSaved(false);
@@ -235,6 +247,22 @@ export default function CookiePreferences() {
         Salvează preferințele
       </button>
 
+      {onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            marginTop: 20,
+            marginLeft: 10,
+            padding:
+              "11px 18px",
+            cursor: "pointer",
+          }}
+        >
+          Închide
+        </button>
+      )}
+
       {saved && (
         <div
           style={{
@@ -247,4 +275,8 @@ export default function CookiePreferences() {
       )}
     </div>
   );
+}
+
+export default function CookiePreferences() {
+  return <CookiePreferencesForm />;
 }

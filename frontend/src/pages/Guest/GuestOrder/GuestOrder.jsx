@@ -28,6 +28,8 @@ import {
 import {
   api,
 } from "../../../lib/api.js";
+
+import WithdrawalButton from "../../../components/Withdrawal/WithdrawalButton.jsx";
 import { humanizeOptionValue } from "../../../utils/optionLabels.js";
 
 /* =========================================================
@@ -1676,6 +1678,29 @@ const canRetryPayment =
             </strong>
           </div>
         </section>
+
+{/* =================================================
+    RETRAGERE DIN CONTRACT (Returns v2 §4.3)
+    Necesită tokenul normal al comenzii guest.
+================================================= */}
+
+{guestToken &&
+  order.status !== "CANCELED" && (
+    <section style={cardStyle}>
+      <div style={subtleStyle}>
+        Ai dreptul să te retragi din contract, fără a invoca un motiv,
+        în termenul legal.
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <WithdrawalButton
+          orderRef={id}
+          mode="guest"
+          token={guestToken}
+        />
+      </div>
+    </section>
+  )}
 
 {/* =================================================
     PLATĂ INTEGRALĂ CARD

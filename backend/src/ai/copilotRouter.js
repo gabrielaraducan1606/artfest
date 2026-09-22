@@ -1263,7 +1263,11 @@ async function handleUserOrderCancelFlow({
         resultType: "answer",
 
         message:
-          "Am anulat comanda. Vei primi un email de confirmare.",
+          result.refund?.status === "REFUNDED"
+            ? "Am anulat comanda, iar plata cu cardul a fost rambursată. Vei primi un email de confirmare."
+            : result.refund?.status === "PENDING"
+            ? "Am anulat comanda. Rambursarea plății cu cardul nu s-a putut finaliza automat; echipa Artfest o va procesa manual. Vei primi un email de confirmare."
+            : "Am anulat comanda. Vei primi un email de confirmare.",
       };
     }
 

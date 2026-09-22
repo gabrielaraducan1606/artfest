@@ -8,6 +8,7 @@ import {
   Headset,
 } from "lucide-react";
 import { FaTiktok } from "react-icons/fa";
+import { openCookiePreferences } from "../../lib/cookieConsent.js";
 import styles from "./Footer.module.css";
 
 function absLegalUrl(pathname) {
@@ -324,6 +325,20 @@ const vendorTermsUrl = absLegalUrl("/acord-vanzatori");
           >
             Cookie-uri
           </a>
+          <button
+            type="button"
+            className={styles.link}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              font: "inherit",
+              cursor: "pointer",
+            }}
+            onClick={openCookiePreferences}
+          >
+            Preferințe cookie
+          </button>
           <a
   href={returnsUrl}
   className={styles.link}

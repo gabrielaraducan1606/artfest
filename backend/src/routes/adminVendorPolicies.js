@@ -7,6 +7,8 @@ const router = Router();
 const ACCEPTED_VENDOR_DOCS = [
   "VENDOR_TERMS",
   "RETURNS_POLICY_ACK",
+  "SHIPPING_ADDENDUM",
+  "PRODUCTS_ADDENDUM",
 ];
 
 const INFO_VENDOR_DOCS = [
@@ -61,7 +63,7 @@ router.get(
         availableVendorDocs
       );
 
-      const allPolicyDocsSafe = [...acceptedDocsSafe, ...infoDocsSafe];
+      const allPolicyDocsSafe = [...new Set([...acceptedDocsSafe, ...infoDocsSafe])];
 
       console.log("[admin/vendor-acceptances] availableVendorDocs:", availableVendorDocs);
       console.log("[admin/vendor-acceptances] acceptedDocsSafe:", acceptedDocsSafe);
@@ -151,6 +153,9 @@ router.get(
 
         const vendorTerms = getLastAcceptance("VENDOR_TERMS");
         const returns = getLastAcceptance("RETURNS_POLICY_ACK");
+        const shippingAddendum = getLastAcceptance("SHIPPING_ADDENDUM");
+        const productsAddendum = getLastAcceptance("PRODUCTS_ADDENDUM");
+        const productsPolicy = latestPolicyByDoc.get("PRODUCTS_ADDENDUM") || null;
 
         const shippingPolicy = latestPolicyByDoc.get("SHIPPING_ADDENDUM") || null;
         const privacyPolicy =
@@ -202,6 +207,18 @@ router.get(
             latestPolicyByDoc.get("RETURNS_POLICY_ACK")?.version ??
             null,
           returnsAcceptedAt: returns?.acceptedAt ?? null,
+
+          // istoricul acceptărilor Anexei Produse / Anexei de expediere
+          // (VendorAcceptance); politica curentă = rândul activ din VendorPolicy
+          productsAddendumAccepted: !!productsAddendum,
+          productsAddendumVersion:
+            productsAddendum?.version ?? productsPolicy?.version ?? null,
+          productsAddendumAcceptedAt: productsAddendum?.acceptedAt ?? null,
+          productsAddendumPublishedVersion: productsPolicy?.version ?? null,
+
+          shippingAddendumAccepted: !!shippingAddendum,
+          shippingAddendumAcceptedVersion: shippingAddendum?.version ?? null,
+          shippingAddendumAcceptedAt: shippingAddendum?.acceptedAt ?? null,
 
           shippingPolicyAvailable: availableVendorDocs.includes("SHIPPING_ADDENDUM"),
           shippingPolicyTitle: shippingPolicy?.title ?? "Politica de livrare",

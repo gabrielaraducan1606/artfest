@@ -1,6 +1,7 @@
 import express from "express";
 import { prisma } from "../db.js";
-import { CATEGORIES_DETAILED } from "../constants/categories.js";
+import { getCategoryPageSlugs } from "../constants/categorySlugs.js";
+import { collectionsWithPublicProducts } from "../services/collectionProducts.js";
 
 const router = express.Router();
 
@@ -13,10 +14,6 @@ function escapeXml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
-}
-
-function categoryKeyToSlug(key) {
-  return key.split("_").slice(1).join("_");
 }
 
 function formatDate(value) {
@@ -48,6 +45,7 @@ router.get("/sitemap.xml", async (req, res) => {
       { loc: "/produse" },
       { loc: "/magazine" },
       { loc: "/categorii" },
+      { loc: "/colectii" },
       { loc: "/termenii-si-conditiile" },
       { loc: "/confidentialitate" },
       { loc: "/politica-cookie" },
@@ -55,37 +53,44 @@ router.get("/sitemap.xml", async (req, res) => {
       { loc: "/preferinte-cookie" },
     ];
 
-    const seenCategorySlugs = new Set();
+    // Slug-urile REALE ale paginilor /categorii/:slug (același algoritm ca
+    // frontend/src/constants/seoCategories.js) - vezi categorySlugs.js.
+    // Înainte: cheia categoriei fără prefix -> 52 din 125 de URL-uri nu
+    // existau ca pagini (redirect la /produse), iar 52 de pagini reale
+    // lipseau din sitemap.
+    const categoryUrls = getCategoryPageSlugs().map((slug) => ({
+      loc: `/categorii/${slug}`,
+    }));
 
-    const categoryUrls = CATEGORIES_DETAILED
-      .filter((c) => c.key !== "alte")
-      .map((c) => ({
-        slug: categoryKeyToSlug(c.key),
-      }))
-      .filter((c) => {
-        if (!c.slug || seenCategorySlugs.has(c.slug)) {
-          return false;
-        }
-
-        seenCategorySlugs.add(c.slug);
-        return true;
-      })
-      .map((c) => ({
-        loc: `/categorii/${c.slug}`,
-      }));
-
-    const collections = await prisma.collection.findMany({
+    // Colecții ACTIVE. `rules` și `items` se aduc doar ca să decidem, în lot,
+    // dacă au produse publice (mai jos) - nu ies în sitemap.
+    const activeCollections = await prisma.collection.findMany({
       where: {
         isActive: true,
       },
       select: {
         slug: true,
         updatedAt: true,
+        rules: true,
+        items: {
+          select: { productId: true, pinned: true, excluded: true },
+        },
       },
       orderBy: {
         updatedAt: "desc",
       },
     });
+
+    // O colecție intră în sitemap DOAR dacă are cel puțin un produs public
+    // (aceeași definiție ca pagina colecției - services/collectionProducts.js).
+    // Interogări în LOT: număr constant (max. 2) indiferent de câte
+    // colecții sunt, nu una per colecție.
+    const namedCollections = activeCollections.filter((c) => c.slug);
+    const hasProducts = await collectionsWithPublicProducts(
+      prisma,
+      namedCollections
+    );
+    const collections = namedCollections.filter((_, index) => hasProducts[index]);
 
     const collectionUrls = collections
       .filter((c) => c.slug)

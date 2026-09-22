@@ -23,6 +23,8 @@ import {
 } from "../../utils/discountCode.js";
 import { humanizeOptionValue } from "../../utils/optionLabels.js";
 import styles from "./Checkout.module.css";
+import TraderStatusNotice from "./TraderStatusNotice.jsx";
+import { getGroupTraderStatus } from "../../utils/traderStatus.js";
 
 const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
@@ -3755,6 +3757,14 @@ if (me) {
     const groupItemCount =
       group.items?.length || 0;
 
+    /*
+     * TOS v2 §26.1e / §5.5: statutul Vânzătorului înainte de plasarea
+     * Comenzii. group.items (din backend) nu au vendorBilling, deci îl
+     * căutăm și în `items` (summary.items), după vendorId/serviceId.
+     */
+    const groupTraderStatus =
+      getGroupTraderStatus(group, items);
+
     return (
       <div
         key={key}
@@ -3770,6 +3780,8 @@ if (me) {
               : "produse"}
           </span>
         </div>
+
+        <TraderStatusNotice status={groupTraderStatus} />
 
         <div className={styles.summaryRow}>
           <span>Subtotal magazin</span>

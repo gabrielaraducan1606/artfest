@@ -471,6 +471,27 @@
   font-size: 13px;
 }
 
+/* ================== Statut Vânzător (profesionist / neprofesionist) ================== */
+.traderInfo {
+  margin: 0 0 10px;
+}
+
+.traderBadge {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.15));
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.traderNote {
+  margin: 6px 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 /* ================== Payment / radio ================== */
 .radioRow {
   display: flex;

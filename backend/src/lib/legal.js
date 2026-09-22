@@ -644,6 +644,76 @@ export function loadMany(types = []) {
  * Public URLs
  * ========================================================= */
 
+/* =========================================================
+ * Versiuni disponibile (catalog) - doar citire
+ * ========================================================= */
+
+/**
+ * Versiunile numerice listate în manifest pentru un tip (ex. [1, 2]).
+ * Manifestul e CATALOGUL versiunilor disponibile; versiunea PUBLICATĂ
+ * (activă pentru înregistrări noi și pentru pagina publică) e cea din
+ * UserPolicy/VendorPolicy - vezi services/legalPublishedService.js.
+ */
+export function listManifestVersions(type) {
+  const definition = getLegalDefinition(type);
+
+  return Object.keys(definition.files || {})
+    .map((key) => Number(key))
+    .filter((value) => Number.isInteger(value) && value >= 1)
+    .sort((a, b) => a - b);
+}
+
+/**
+ * Încarcă versiunea din manifest al cărei policyVersion (semver sau
+ * versiune numerică din front matter, ex. "2.0.0") e cea căutată.
+ * Întoarce null dacă nu există în manifest sau fișierul lipsește.
+ */
+export function loadLegalDocByPolicyVersion(type, policyVersion) {
+  const wanted = String(policyVersion ?? "").trim();
+
+  if (!wanted) return null;
+
+  const versions = [...listManifestVersions(type)].reverse();
+
+  for (const manifestVersion of versions) {
+    try {
+      const doc = loadLegalDoc(type, { version: manifestVersion });
+
+      if (String(doc.policyVersion) === wanted) {
+        return doc;
+      }
+    } catch {
+      // fișier lipsă / invalid: sărim
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Numerele de versiune ale fișierelor legal/docs/<type>/vN.md găsite pe
+ * disc (indiferent dacă sunt sau nu în manifest). Doar informativ: un
+ * fișier neînregistrat în manifest NU poate fi publicat.
+ */
+export function listLegalDocumentFiles(type) {
+  const normalizedType = normalizeLegalKey(type);
+
+  if (!/^[a-z0-9_]+$/.test(normalizedType)) return [];
+
+  const directory = ensurePathInsideLegalDirectory(
+    path.join(LEGAL_DIR, "docs", normalizedType)
+  );
+
+  if (!fs.existsSync(directory)) return [];
+
+  return fs
+    .readdirSync(directory)
+    .map((name) => /^v(\d+)\.md$/.exec(name))
+    .filter(Boolean)
+    .map((match) => Number(match[1]))
+    .sort((a, b) => a - b);
+}
+
 export function defaultPublicUrlForType(type) {
   const normalizedType = normalizeLegalKey(type);
 

@@ -22,6 +22,7 @@ import subscriptionRoutes from "./src/routes/subscriptionRoutes.js";
 import publicStoreRoutes from "./src/routes/publicStoreRoutes.js";
 import vendorProductRoutes from "./src/routes/vendorProductRoutes.js";
 import publicProductRoutes from "./src/routes/publicProductRoutes.js";
+import publicCollectionsRoutes from "./src/routes/publicCollectionsRoutes.js";
 import favoritesRoutes, { mountWishlistCountAlias } from "./src/routes/favoritesRoutes.js";
 import cartRoutes from "./src/routes/cartRoutes.js";
 import productCommentsRouter from "./src/routes/commentProductRoutes.js";
@@ -42,6 +43,11 @@ import publicContactRoutes from "./src/routes/publicMessagesRoutes.js";
 import changePassword from "./src/routes/changePasswordRoutes.js";
 import accountDeleteRoutes from "./src/routes/accountDeleteRoutes.js";
 import userOrdersRoutes from "./src/routes/userOrdersRoutes.js";
+import userReturnsRoutes from "./src/routes/userReturnsRoutes.js";
+import {
+  userWithdrawalRouter,
+  guestWithdrawalRouter,
+} from "./src/routes/withdrawalRoutes.js";
 import PublicSupportRoutes from "./src/routes/publicSupportRoutes.js";
 import UserSupportRoutes from "./src/routes/userSupportRoutes.js";
 import checkoutNetopiaRoutes from "./src/routes/checkoutNetopiaRoutes.js";
@@ -85,6 +91,7 @@ import platformBillingRouter from "./src/routes/platformBillingRoutes.js";
 import adminInvoicesRoutes from "./src/routes/adminInvoicesRoutes.js";
 import adminInfluencersRoutes from "./src/routes/adminInfluencersRoutes.js";
 import adminInfluencerTermsRoutes from "./src/routes/adminInfluencerTermsRoutes.js";
+import adminLegalRoutes from "./src/routes/adminLegalRoutes.js";
 import adminInfluencerPayoutRoutes from "./src/routes/adminInfluencerPayoutRoutes.js";
 import adminInfluencerPayoutActionsRoutes from "./src/routes/adminInfluencerPayoutActionsRoutes.js";
 import adminInfluencerResourcesRoutes from "./src/routes/adminInfluencerResourcesRoutes.js";
@@ -518,6 +525,7 @@ app.use(
   adminInfluencerPayoutActionsRoutes
 );
 app.use("/api/admin/legal", adminInfluencerTermsRoutes);
+app.use("/api/admin/legal", adminLegalRoutes);
 app.use(
   "/api/admin/influencer-resources",
   adminInfluencerResourcesRoutes
@@ -596,10 +604,17 @@ app.use("/api/newsletter", newsletterRoutes);
 /* ---------------- RUTE USER ---------------- */
 app.use("/api/support", UserSupportRoutes);
 app.post("/api/account/change-password", authRequired, changePassword);
+// Retragere online (user) - rute /:id/withdrawal, înainte de userOrdersRoutes.
+app.use("/api/user/orders", userWithdrawalRouter);
 app.use("/api/user/orders", userOrdersRoutes);
+// Înainte de /api/user (userRoutes cere rol USER pe toate rutele).
+app.use("/api/user/returns", userReturnsRoutes);
 app.use("/api/notifications", userNotificationsRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/account", accountRoutes);
+// Lista publică de colecții (linkuri interne Home/meniu) - GET /collections;
+// GET /collections/:slug rămâne în publicProductRoutes.
+app.use("/api/public", publicCollectionsRoutes);
 app.use("/api/public", publicProductRoutes);
 app.use("/api", productReviewsRouter);
 app.use("/api", storeReviewsRouter);
@@ -615,6 +630,11 @@ app.use("/api", unsubscribeRouter);
 app.use("/api/vendors/me/visitors", vendorVisitorsRoutes);
 app.use("/api/visitors", vendorVisitorsPublicRoutes);
 app.use("/api", productCommentsRouter);
+// Retragere online (guest, prin token) - /:id/withdrawal.
+app.use(
+  "/api/guest/orders",
+  guestWithdrawalRouter
+);
 app.use(
   "/api/guest/orders",
   guestOrdersRoutes

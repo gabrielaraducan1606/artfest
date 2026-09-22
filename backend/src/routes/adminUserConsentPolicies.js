@@ -55,10 +55,18 @@ router.get(
         });
       }
 
+      // filtru opțional pe rol (USER / VENDOR / INFLUENCER) pentru istoricul individual
+      const roleFilter = String(req.query?.role || "").toUpperCase();
+      const where = ["USER", "VENDOR", "INFLUENCER"].includes(roleFilter)
+        ? { role: roleFilter }
+        : undefined;
+
       const users = await prisma.user.findMany({
+        ...(where ? { where } : {}),
         select: {
           id: true,
           email: true,
+          role: true,
           createdAt: true,
 
           UserConsent: {
@@ -106,6 +114,11 @@ router.get(
           ["RETURNS_POLICY_ACK"]
         );
 
+        const influencerTermsHistory = buildConsentHistory(
+          user.UserConsent,
+          ["INFLUENCER_TERMS"]
+        );
+
         const marketingHistory = buildConsentHistory(
           user.UserConsent,
           ["MARKETING_EMAIL_OPTIN", "MARKETING"]
@@ -126,9 +139,13 @@ router.get(
         const latestMarketing =
           marketingHistory[0] || null;
 
+        const latestInfluencerTerms =
+          influencerTermsHistory[0] || null;
+
         return {
           userId: user.id,
           email: user.email,
+          role: user.role,
           createdAt: user.createdAt,
 
           tosAccepted: !!latestTos,
@@ -161,6 +178,14 @@ router.get(
           returnsGivenAt:
             latestReturns?.givenAt || null,
           returnsHistory,
+
+          influencerTermsAccepted:
+            !!latestInfluencerTerms,
+          influencerTermsVersion:
+            latestInfluencerTerms?.version || null,
+          influencerTermsGivenAt:
+            latestInfluencerTerms?.givenAt || null,
+          influencerTermsHistory,
 
           marketingOptIn:
             !!latestMarketing,

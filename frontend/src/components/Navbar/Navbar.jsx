@@ -66,6 +66,8 @@ import {
   INFLUENCER_NAV_SECTIONS,
 } from "../../config/influencerNavigation.js";
 import { GUEST_NAV_SECTIONS } from "../../config/guestNavigation.js";
+import { usePublicCollections } from "../../hooks/usePublicCollections";
+import { toCollectionCards } from "../../pages/Home/CollectionsSection/collectionCards.js";
 import {
   ADMIN_DASHBOARD_LINK,
   ADMIN_NAV_SECTIONS,
@@ -508,6 +510,17 @@ export default function Navbar() {
   } = useImageSearch();
 
   const STORE_PAGE_PREFIX = "/magazin";
+
+  /*
+   * Colecții Artfest marcate showInMenu (doar active - filtrate de
+   * backend). Linkuri interne reale către /colectii/:slug în meniul
+   * principal; dropdown-ul nu apare dacă nu există nicio colecție.
+   */
+  const menuCollectionItems = usePublicCollections("menu");
+  const menuCollections = useMemo(
+    () => toCollectionCards(menuCollectionItems, { max: 20 }),
+    [menuCollectionItems]
+  );
 
   const [burgerOpen, setBurgerOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -1762,6 +1775,34 @@ const isAdminRoute = location.pathname.startsWith("/admin");
               <NavLink className={styles.navLink} to="/magazine">
                 Magazine
               </NavLink>
+
+              {menuCollections.length > 0 && (
+                <div className={styles.dropdown} tabIndex={0}>
+                  <button
+                    type="button"
+                    className={styles.navLink}
+                    aria-haspopup="menu"
+                  >
+                    Colecții
+                    <ChevronDown className={styles.dropdownIcon} size={14} />
+                  </button>
+
+                  <div className={styles.dropdownContent} role="menu">
+                    {menuCollections.map((collection) => (
+                      <NavLink
+                        key={collection.slug}
+                        to={collection.to}
+                        role="menuitem"
+                      >
+                        {collection.title}
+                      </NavLink>
+                    ))}
+                    <NavLink to="/colectii" role="menuitem">
+                      Toate colecțiile
+                    </NavLink>
+                  </div>
+                </div>
+              )}
             </>
           )}
 

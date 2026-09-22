@@ -1,5 +1,12 @@
 import express from "express";
 import { prisma } from "../db.js";
+import {
+  AVAILABILITY_NEEDS_DATE,
+  availabilityToGoogle,
+  buildMerchantPrice,
+  buildProductMerchantAttributes,
+} from "../constants/productMerchantAttributes.js";
+import { getPromotionPricingForProducts } from "../services/productPromotionPrice.js";
 
 const router = express.Router();
 
@@ -25,25 +32,23 @@ function absoluteUrl(url) {
   if (!url) return "";
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
 
+  // Orice altă schemă (data:, blob:, ftp: ...) nu e o cale relativă:
+  // o lăsăm neatinsă ca validarea de imagini să o respingă, în loc să
+  // fabricăm un URL fals de tip https://www.artfest.ro/data:image/...
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
+
   return `${BASE_URL}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
-// Disponibilitățile care necesită o dată reală de disponibilitate
-// (g:availability_date), conform cerințelor Google Merchant Center
-// pentru preorder/backorder.
-const AVAILABILITY_NEEDS_DATE = new Set(["PREORDER", "MADE_TO_ORDER"]);
+// Maparea availability (și disponibilitățile care cer g:availability_date)
+// vin din helperul comun cu JSON-LD-ul din ProductDetails, ca feed-ul și
+// pagina să spună același lucru. Doar PREORDER cere dată; MADE_TO_ORDER
+// e "in stock" (se poate comanda acum, se execută după comandă) și
+// leadTimeDays NU e convertit niciodată într-o dată Google.
 
-function availabilityToGoogle(value) {
-  if (value === "SOLD_OUT") return "out of stock";
-  if (value === "PREORDER") return "preorder";
-  if (value === "MADE_TO_ORDER") return "backorder";
-
-  return "in stock";
-}
-
-// Returnează data ISO 8601 doar dacă produsul chiar are nevoie de ea
-// (preorder/backorder) și `nextShipDate` e o dată reală din DB - nu
-// inventăm niciodată o dată de completare.
+// Returnează data ISO 8601 doar pentru PREORDER și doar dacă
+// `nextShipDate` e o dată reală din DB - nu inventăm niciodată o dată de
+// completare.
 function availabilityDateIso(product) {
   if (!AVAILABILITY_NEEDS_DATE.has(product.availability)) return null;
   if (!product.nextShipDate) return null;
@@ -73,14 +78,14 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
         images: {
           isEmpty: false,
         },
-        // preorder/backorder fără o dată reală de disponibilitate nu
-        // pot fi trimise complet către Google - le excludem temporar
-        // din feed în loc să le mapăm artificial ca "in stock" sau să
-        // trimitem availability_date inventat.
+        // PREORDER fără o dată reală de disponibilitate nu poate fi
+        // trimis complet către Google - îl excludem în loc să trimitem
+        // availability_date inventat. MADE_TO_ORDER se poate comanda acum
+        // (in stock), deci nu cere dată.
         OR: [
-          { availability: { in: ["READY", "SOLD_OUT"] } },
+          { availability: { in: ["READY", "SOLD_OUT", "MADE_TO_ORDER"] } },
           {
-            availability: { in: ["PREORDER", "MADE_TO_ORDER"] },
+            availability: "PREORDER",
             nextShipDate: { not: null },
           },
         ],
@@ -113,16 +118,39 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
       take: 5000,
     });
 
-    const items = products
+    const eligible = products
       // Plasă de siguranță redundantă cu filtrul din `where`: dacă un
-      // produs preorder/backorder ajunge totuși aici fără dată validă,
-      // nu îl trimitem incomplet.
+      // produs preorder ajunge totuși aici fără dată validă, nu îl
+      // trimitem incomplet.
       .filter((p) => {
         if (!AVAILABILITY_NEEDS_DATE.has(p.availability)) return true;
         return Boolean(availabilityDateIso(p));
       })
-      .map((p) => {
-        const image = absoluteUrl(p.images?.[0]);
+      // Atributele derivate (imagini curate, color/material/categorie
+      // umane) vin din helperul comun cu JSON-LD-ul din ProductDetails.
+      .map((p) => ({
+        p,
+        attrs: buildProductMerchantAttributes(p, { resolveUrl: absoluteUrl }),
+      }))
+      // image_link e obligatoriu: un produs fără nicio imagine validă
+      // (`images` non-gol, dar doar valori invalide) nu e acceptat de
+      // Google, deci nu îl trimitem.
+      .filter(({ attrs }) => Boolean(attrs.image));
+
+    // Promoțiile PUBLICE active (colecție + homepage feature) - exact ce
+    // calculează endpointul public /api/public/products/:id și deci ce vede
+    // Googlebot pe landing page. Fără opțiuni: NU includem campanii
+    // (atribuire prin query param) și NU includem coduri de reducere
+    // (checkout) - nu sunt vizibile crawlerului. `db: prisma` explicit, ca
+    // serviciul să folosească aceeași conexiune ca restul rutei.
+    const pricingByProductId = await getPromotionPricingForProducts(
+      eligible.map(({ p }) => p),
+      { db: prisma }
+    );
+
+    const items = eligible
+      .map(({ p, attrs }) => {
+        const image = attrs.image;
 
         const link = `${BASE_URL}/produs/${encodeURIComponent(p.id)}`;
 
@@ -131,7 +159,10 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
           p.service?.vendor?.displayName ||
           "Artfest";
 
-        const productType = p.category || "handmade";
+        // Eticheta umană a categoriei, niciodată slug-ul intern
+        // (ex. "home_lumanari-parfumate"). Categorie necunoscută/lipsă
+        // -> "handmade" (fallback-ul existent).
+        const productType = attrs.productType || "handmade";
 
         const title = p.title || "Produs Artfest";
 
@@ -139,9 +170,14 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
           stripHtml(p.description) ||
           `${title} disponibil pe Artfest, marketplace cu produse handmade și personalizate create de artizani români.`;
 
-        const price = `${(p.priceCents / 100).toFixed(2)} ${
-          p.currency || "RON"
-        }`;
+        // g:price = prețul normal (DB). sale_price + interval doar când
+        // există o promoție publică activă (vezi buildMerchantPrice).
+        const { price, salePrice, salePriceEffectiveDate } =
+          buildMerchantPrice({
+            priceCents: p.priceCents,
+            currency: p.currency,
+            pricing: pricingByProductId.get(p.id),
+          });
 
         const availability = availabilityToGoogle(p.availability);
         const availabilityDate = availabilityDateIso(p);
@@ -156,17 +192,22 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
       <link>${escapeXml(link)}</link>
 
       <g:image_link>${escapeXml(image)}</g:image_link>
-
+${attrs.additionalImages
+  .map(
+    (url) =>
+      `      <g:additional_image_link>${escapeXml(url)}</g:additional_image_link>\n`
+  )
+  .join("")}
       <g:availability>${escapeXml(availability)}</g:availability>
 ${availabilityDate ? `\n      <g:availability_date>${escapeXml(availabilityDate)}</g:availability_date>\n` : ""}
       <g:price>${escapeXml(price)}</g:price>
-
+${salePrice ? `\n      <g:sale_price>${escapeXml(salePrice)}</g:sale_price>\n` : ""}${salePrice && salePriceEffectiveDate ? `\n      <g:sale_price_effective_date>${escapeXml(salePriceEffectiveDate)}</g:sale_price_effective_date>\n` : ""}
       <g:condition>new</g:condition>
 
       <g:brand>${escapeXml(storeName)}</g:brand>
 
       <g:product_type>${escapeXml(productType)}</g:product_type>
-
+${attrs.googleProductCategory ? `\n      <g:google_product_category>${attrs.googleProductCategory}</g:google_product_category>\n` : ""}${attrs.color ? `\n      <g:color>${escapeXml(attrs.color)}</g:color>\n` : ""}${attrs.material ? `\n      <g:material>${escapeXml(attrs.material)}</g:material>\n` : ""}
       <g:mpn>${escapeXml(p.id)}</g:mpn>
 
       <g:identifier_exists>no</g:identifier_exists>

@@ -567,6 +567,22 @@ export default function PolicyGate({
                           Link lipsă
                         </div>
                       )}
+
+                      {documentItem.deadlineAt &&
+                      !documentItem.alreadyAccepted ? (
+                        <div
+                          className={
+                            styles.muted
+                          }
+                        >
+                          Termen de acceptare:{" "}
+                          {new Date(
+                            documentItem.deadlineAt
+                          ).toLocaleDateString(
+                            "ro-RO"
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 )

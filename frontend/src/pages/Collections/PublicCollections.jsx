@@ -1,18 +1,49 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api.js";
 import ProductCard from "../Vendor/ProfilMagazin/components/ProductCard";
 import { SEO } from "../../components/Seo/SeoProvider";
 import styles from "../Products/Products.module.css";
+import { resolveFileUrl } from "../Vendor/Produse/hooks/urlUtils.js";
+/*
+ * Sursă unică cu funcția Vercel /api/seo-colectie (HTML brut pentru boți):
+ * canonical/title/description/JSON-LD identice în HTML-ul brut și în DOM.
+ * SeoProvider elimină JSON-LD-ul injectat server-side la mount, deci
+ * pagina îl re-emite cu exact aceleași date.
+ */
+import {
+  COLLECTION_PAGE_SIZE,
+  buildCollectionStructuredData,
+  collectionBreadcrumbs,
+  collectionCanonicalUrl,
+  collectionSeoDescription,
+  collectionSeoTitle,
+} from "../../utils/seo/collectionSeo.js";
+import { paginationLinks, parsePage } from "../../utils/seo/pagination.js";
+import Breadcrumbs from "../../components/Breadcrumbs/Breadcrumbs.jsx";
+import PageLinks from "../../components/Pagination/PageLinks.jsx";
+import { sanitizeHtml } from "../../utils/sanitizeHtml.js";
+import { buildCollectionIntro } from "./collectionContent.js";
 
-const LIMIT = 24;
+// Produse pe o pagină = aceeași valoare ca în funcția Vercel
+// /api/seo-colectie, ca ?page=N să fie aceeași felie în HTML-ul brut și aici.
+const LIMIT = COLLECTION_PAGE_SIZE;
 
 export default function PublicCollectionPage() {
   const { slug } = useParams();
 
+  /*
+   * Paginare crawlabilă: ?page=N. Infinite scroll-ul rămâne (produsele
+   * următoare se adaugă sub cele curente), dar pagina de START vine din URL:
+   * ?page=3 afișează produsele paginii 3, nu începe mereu de la 1. Valori
+   * invalide (0, negative, NaN...) => pagina 1.
+   */
+  const [searchParams] = useSearchParams();
+  const startPage = parsePage(searchParams.get("page")).page;
+
   const [collection, setCollection] = useState(null);
   const [items, setItems] = useState([]);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(startPage);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -25,7 +56,7 @@ export default function PublicCollectionPage() {
     async (pageToLoad = 1, append = false) => {
       if (!slug || loadingMoreRef.current) return;
 
-      if (pageToLoad === 1) {
+      if (!append) {
         setLoading(true);
       } else {
         setLoadingMore(true);
@@ -58,14 +89,16 @@ export default function PublicCollectionPage() {
     [slug]
   );
 
+  // (re)încarcă de la pagina de START din URL când se schimbă colecția sau
+  // ?page= (linkurile Pagina anterioară/următoare).
   useEffect(() => {
     setItems([]);
-    setPage(1);
+    setPage(startPage);
     setHasMore(false);
     setCollection(null);
     loadingMoreRef.current = false;
-    loadCollection(1, false);
-  }, [slug, loadCollection]);
+    loadCollection(startPage, false);
+  }, [slug, startPage, loadCollection]);
 
   useEffect(() => {
     if (!hasMore || loading || loadingMore) return;
@@ -87,14 +120,61 @@ export default function PublicCollectionPage() {
     };
   }, [hasMore, loading, loadingMore, page, loadCollection]);
 
-  const title = collection?.seoTitle || collection?.title || "Colecție Artfest";
+  // Pagina 1: "Titlu"; pagina N>1: "Titlu - Pagina N".
+  const title = collectionSeoTitle(collection, startPage) || "Colecție Artfest";
 
-  const description =
-    collection?.seoDescription ||
-    collection?.subtitle ||
-    "Descoperă produse handmade și cadouri personalizate pe Artfest.";
+  const description = collectionSeoDescription(collection);
 
-  const canonical = `https://www.artfest.ro/colectii/${slug || ""}`;
+  // Slug-ul real al colecției (API-ul caută case-insensitive), nu cel din
+  // URL: /colectii/Nunta și /colectii/nunta au același canonical. Pagina 1 =>
+  // fără query; pagina N>1 => ?page=N (propriu, NU spre pagina 1).
+  const canonical = collectionCanonicalUrl(collection?.slug || slug, startPage);
+
+  // Produsele PAGINII de start (primele LIMIT din listă; cele adăugate de
+  // infinite scroll vin după și nu intră în ItemList).
+  const pageItems = useMemo(() => items.slice(0, LIMIT), [items]);
+
+  // CollectionPage (+ ItemList al paginii) + BreadcrumbList - aceeași sursă
+  // ca HTML-ul brut din /api/seo-colectie.
+  const jsonLd = useMemo(
+    () =>
+      buildCollectionStructuredData({
+        collection,
+        items: pageItems,
+        page: startPage,
+        resolveImage: resolveFileUrl,
+      }),
+    [collection, pageItems, startPage]
+  );
+
+  // Linkuri reale Pagina anterioară / Pagina următoare. "Următoarea" există
+  // dacă backend-ul mai are produse SAU pagina următoare a fost deja
+  // încărcată de infinite scroll.
+  const pager = useMemo(
+    () =>
+      paginationLinks({
+        basePath: `/colectii/${encodeURIComponent(collection?.slug || slug || "")}`,
+        page: startPage,
+        hasNext: items.length > LIMIT || hasMore,
+      }),
+    [collection?.slug, slug, startPage, items.length, hasMore]
+  );
+
+  const breadcrumbs = useMemo(
+    () => (collection ? collectionBreadcrumbs(collection) : []),
+    [collection]
+  );
+
+  // Text scurt sus (fără duplicări) + descrierea lungă, sanitizată, jos.
+  const intro = useMemo(
+    () => buildCollectionIntro(collection || {}),
+    [collection]
+  );
+
+  const safeBodyHtml = useMemo(
+    () => sanitizeHtml(intro.bodyHtml),
+    [intro.bodyHtml]
+  );
 
   const productCards = useMemo(() => {
     return items.map((p) => (
@@ -144,15 +224,24 @@ export default function PublicCollectionPage() {
         canonical={canonical}
         url={canonical}
         image={collection.heroImage || undefined}
+        jsonLd={jsonLd}
       />
 
       <header className={styles.head}>
+        <Breadcrumbs
+          items={breadcrumbs.map(({ name, to }) => ({ name, to }))}
+        />
+
         <div className={styles.categoryHeroText}>
           <span className={styles.categoryEyebrow}>Artfest Marketplace</span>
           <h1 className={styles.h1}>{collection.title}</h1>
 
-          {collection.subtitle ? (
-            <p className={styles.categoryIntro}>{collection.subtitle}</p>
+          {intro.lead ? (
+            <p className={styles.categoryIntro}>{intro.lead}</p>
+          ) : null}
+
+          {intro.detail ? (
+            <p className={styles.categoryIntro}>{intro.detail}</p>
           ) : null}
         </div>
 
@@ -173,6 +262,14 @@ export default function PublicCollectionPage() {
 
       {items.length ? (
         <div className={styles.grid}>{productCards}</div>
+      ) : startPage > 1 ? (
+        // ?page=N dincolo de ultima pagină: mesaj + cale înapoi (pagina 1)
+        <p className={styles.emptyState}>
+          Nu există produse pe această pagină.{" "}
+          <Link to={`/colectii/${encodeURIComponent(collection.slug)}`}>
+            Înapoi la prima pagină
+          </Link>
+        </p>
       ) : (
         <p className={styles.emptyState}>
           Momentan nu există produse în această colecție.
@@ -187,12 +284,22 @@ export default function PublicCollectionPage() {
         </p>
       ) : null}
 
-      {collection.description ? (
+      <PageLinks
+        prev={pager.prev}
+        next={pager.next}
+        currentPage={startPage}
+      />
+
+      {safeBodyHtml ? (
         <section
           className={styles.categorySeoText}
           style={{ marginTop: 48 }}
-          dangerouslySetInnerHTML={{ __html: collection.description }}
-        />
+          aria-label={`Despre ${collection.title}`}
+        >
+          <h2>Despre această colecție</h2>
+          {/* HTML reconstruit din tokeni pe listă albă (utils/sanitizeHtml.js) */}
+          <div dangerouslySetInnerHTML={{ __html: safeBodyHtml }} />
+        </section>
       ) : null}
 
       <div

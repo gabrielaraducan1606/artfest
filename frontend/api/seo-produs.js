@@ -37,15 +37,17 @@ function truncate(text, max) {
   return clean.length > max ? `${clean.slice(0, max - 3).trim()}...` : clean;
 }
 
-// Oglindește exact schemaAvailability din ProductDetails.jsx, ca
-// JSON-LD-ul injectat server-side să nu contrazică niciodată ce randează
-// React după ce se încarcă (aceleași date publice, aceeași mapare).
+// Oglindește exact schemaAvailability din ProductDetails.jsx (care
+// folosește availabilityToSchemaOrg din backend/src/constants/
+// productMerchantAttributes.js, aceeași mapare ca g:availability din feed):
+// ca JSON-LD-ul injectat server-side să nu contrazică niciodată ce randează
+// React după ce se încarcă. MADE_TO_ORDER se poate comanda acum -> InStock.
 function schemaAvailabilityFor(availability) {
   switch (availability) {
     case "READY":
       return "https://schema.org/InStock";
     case "MADE_TO_ORDER":
-      return "https://schema.org/PreOrder";
+      return "https://schema.org/InStock";
     case "PREORDER":
       return "https://schema.org/PreOrder";
     case "SOLD_OUT":

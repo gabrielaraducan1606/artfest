@@ -10,6 +10,7 @@ import { api } from "../../../lib/api";
 import styles from "./AdminInfluencersTab.module.css";
 import AdminInfluencerResourcesTab from "./AdminInfluencerResourcesTab.jsx";
 import AdminInfluencerPayoutsTab from "./AdminInfluencerPayoutsTab.jsx";
+import ExtendCollaborationModal from "./ExtendCollaborationModal.jsx";
 
 const SUB_TABS = [
   { id: "overview", label: "Overview" },
@@ -131,6 +132,57 @@ function getStatusLabel(status) {
 
     default:
       return status || "—";
+  }
+}
+
+/* =========================================================
+   COLABORARE (Status colaborare / Început / Expiră la)
+
+   Sursa datelor: STRICT item.collaboration, calculat o singură
+   dată în backend (services/influencerCollaboration.js), la
+   fel ca in dashboardul influencerului (GET /api/influencer/me).
+   Nu se recalculează nimic aici.
+========================================================= */
+
+const COLLABORATION_STATUS_LABEL = {
+  ACTIVE: "Activă",
+  EXPIRED: "Expirată",
+  DISABLED: "Dezactivată",
+};
+
+function getCollaborationStatusLabel(collaborationStatus) {
+  return (
+    COLLABORATION_STATUS_LABEL[collaborationStatus] ||
+    collaborationStatus ||
+    "—"
+  );
+}
+
+function getCollaborationStatusClass(collaborationStatus) {
+  if (collaborationStatus === "ACTIVE") {
+    return styles.statusActive;
+  }
+
+  if (collaborationStatus === "EXPIRED") {
+    return styles.statusExpired;
+  }
+
+  return styles.statusDisabled;
+}
+
+function formatCollaborationDate(value) {
+  if (!value) {
+    return "—";
+  }
+
+  try {
+    return new Date(value).toLocaleDateString("ro-RO", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    return "—";
   }
 }
 
@@ -530,6 +582,15 @@ export default function AdminInfluencersTab() {
     withdrawingAgreement,
     setWithdrawingAgreement,
   ] = useState(false);
+
+  /* =========================================================
+     EXTEND COLLABORATION MODAL
+  ========================================================= */
+
+  const [
+    extendTarget,
+    setExtendTarget,
+  ] = useState(null);
 
   /* =========================================================
      LOAD
@@ -1984,6 +2045,9 @@ export default function AdminInfluencersTab() {
                   <th>Nume</th>
                   <th>Email</th>
                   <th>Status</th>
+                  <th>Status colaborare</th>
+                  <th>Început</th>
+                  <th>Expiră la</th>
                   <th>Remunerație</th>
                   <th>Stare remunerație</th>
                   <th>Clickuri</th>
@@ -2054,6 +2118,55 @@ export default function AdminInfluencersTab() {
                               item.status
                             )}
                           </span>
+                        </td>
+
+                        <td>
+                          {item.collaboration ? (
+                            <>
+                              <span
+                                className={`${styles.status} ${getCollaborationStatusClass(
+                                  item.collaboration
+                                    .collaborationStatus
+                                )}`}
+                              >
+                                {getCollaborationStatusLabel(
+                                  item.collaboration
+                                    .collaborationStatus
+                                )}
+                              </span>
+
+                              {item.collaboration
+                                .expiringSoon && (
+                                <span
+                                  className={
+                                    styles.collaborationExpiringSoon
+                                  }
+                                >
+                                  Expiră în curând
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+
+                        <td>
+                          {item.collaboration
+                            ? formatCollaborationDate(
+                                item.collaboration
+                                  .collaborationStart
+                              )
+                            : "—"}
+                        </td>
+
+                        <td>
+                          {item.collaboration
+                            ? formatCollaborationDate(
+                                item.collaboration
+                                  .collaborationEnd
+                              )
+                            : "—"}
                         </td>
 
                         <td>
@@ -2877,6 +2990,54 @@ export default function AdminInfluencersTab() {
               item
             );
           }}
+          onExtendCollaboration={(item) => {
+            setSelectedInfluencer(
+              null
+            );
+
+            setExtendTarget(
+              item
+            );
+          }}
+        />
+      )}
+
+      {/* =====================================================
+          EXTEND COLLABORATION MODAL
+      ===================================================== */}
+
+      {extendTarget && (
+        <ExtendCollaborationModal
+          item={extendTarget}
+          onClose={() =>
+            setExtendTarget(null)
+          }
+          onExtended={async () => {
+            const extendedId =
+              extendTarget.id;
+
+            setExtendTarget(null);
+
+            const refreshed =
+              await loadInfluencers();
+
+            const updated = (
+              refreshed?.items ||
+              []
+            ).find(
+              (item) =>
+                item.type ===
+                  "PROFILE" &&
+                item.id ===
+                  extendedId
+            );
+
+            if (updated) {
+              setSelectedInfluencer(
+                updated
+              );
+            }
+          }}
         />
       )}
     </div>
@@ -2894,6 +3055,7 @@ function InfluencerDetailsDrawer({
   onEditInvite,
   onDeleteInvite,
   onCommission,
+  onExtendCollaboration,
 }) {
   if (!item) {
     return null;
@@ -3202,6 +3364,86 @@ function InfluencerDetailsDrawer({
                   />
                 )}
               </section>
+
+              {item.collaboration && (
+                <section
+                  className={
+                    styles.drawerSection
+                  }
+                >
+                  <h4>
+                    Colaborare Artfest
+                  </h4>
+
+                  <DrawerField
+                    label="Status colaborare"
+                  >
+                    <span
+                      className={`${styles.status} ${getCollaborationStatusClass(
+                        item.collaboration
+                          .collaborationStatus
+                      )}`}
+                    >
+                      {getCollaborationStatusLabel(
+                        item.collaboration
+                          .collaborationStatus
+                      )}
+                    </span>
+
+                    {item.collaboration
+                      .expiringSoon && (
+                      <span
+                        className={
+                          styles.collaborationExpiringSoon
+                        }
+                      >
+                        Expiră în curând
+                      </span>
+                    )}
+                  </DrawerField>
+
+                  <DrawerField
+                    label="Început colaborare"
+                    value={formatCollaborationDate(
+                      item.collaboration
+                        .collaborationStart
+                    )}
+                  />
+
+                  <DrawerField
+                    label="Colaborare valabilă până la"
+                    value={formatCollaborationDate(
+                      item.collaboration
+                        .collaborationEnd
+                    )}
+                  />
+
+                  <DrawerField
+                    label="Remunerație"
+                    value={`${formatPercent(
+                      item.collaboration
+                        .commissionPercent
+                    )} din comisionul Artfest`}
+                  />
+
+                  <button
+                    type="button"
+                    className={
+                      styles.secondaryButton
+                    }
+                    style={{
+                      marginTop: 4,
+                    }}
+                    onClick={() =>
+                      onExtendCollaboration?.(
+                        item
+                      )
+                    }
+                  >
+                    Prelungește colaborarea
+                  </button>
+                </section>
+              )}
             </>
           )}
         </div>

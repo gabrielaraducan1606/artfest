@@ -41,8 +41,8 @@ import { prisma } from "../db.js";
 import { authRequired, requireRole } from "../api/auth.js";
 
 import {
-  getCurrentInfluencerTermsDoc,
-  isInfluencerTermsOutdated,
+  computeInfluencerTermsState,
+  getInfluencerTermsTarget,
   INFLUENCER_TERMS_CONSENT_DOCUMENT,
 } from "../services/influencerTermsStatus.js";
 
@@ -68,7 +68,9 @@ function sortNewestFirst(items = []) {
  */
 router.get("/influencers", async (_req, res) => {
   try {
-    const currentDoc = getCurrentInfluencerTermsDoc();
+    // versiunea PUBLICATĂ + cererea deschisă de reacceptare (dacă există);
+    // schimbarea manifestului nu mai face pe nimeni "outdated"
+    const { published, requirement } = await getInfluencerTermsTarget();
 
     const profiles = await prisma.influencerProfile.findMany({
       orderBy: { createdAt: "desc" },
@@ -133,10 +135,14 @@ router.get("/influencers", async (_req, res) => {
       const latest = history[0] || null;
 
       const acceptedVersion = latest?.version || null;
-      const outdated = isInfluencerTermsOutdated(
-        acceptedVersion,
-        currentDoc.policyVersion
-      );
+
+      const state = computeInfluencerTermsState({
+        published,
+        requirement,
+        consentVersions: history.map((item) => item.version),
+      });
+
+      const outdated = state.outdated;
 
       const fallbackName = [
         profile.user?.firstName,
@@ -146,11 +152,17 @@ router.get("/influencers", async (_req, res) => {
         .join(" ")
         .trim();
 
+      // NEVER_ACCEPTED: niciun acord; OUTDATED: cerere de reacceptare
+      // deschisă și neonorată; UPDATED: acceptă versiunea publicată;
+      // OLDER_VERSION: a acceptat o versiune anterioară, fără cerere
+      // deschisă (informativ, nu blochează)
       const termsStatus = !latest
         ? "NEVER_ACCEPTED"
         : outdated
         ? "OUTDATED"
-        : "UPDATED";
+        : state.acceptedPublished
+        ? "UPDATED"
+        : "OLDER_VERSION";
 
       return {
         influencerId: profile.id,
@@ -173,6 +185,7 @@ router.get("/influencers", async (_req, res) => {
         acceptedVersion,
         acceptedAt: latest?.givenAt || null,
         outdated,
+        blocking: state.blocking,
         termsStatus,
 
         history: history.map((item) => ({
@@ -190,8 +203,18 @@ router.get("/influencers", async (_req, res) => {
     return res.json({
       ok: true,
 
-      currentVersion: currentDoc.policyVersion,
-      documentUrl: currentDoc.publicUrl,
+      currentVersion: published ? String(published.version) : null,
+      publishedVersion: published ? String(published.version) : null,
+      requiredVersion: requirement ? requirement.version : null,
+      reacceptance: requirement
+        ? {
+            version: requirement.version,
+            campaignId: requirement.campaignId,
+            requestedAt: requirement.createdAt,
+            deadlineAt: requirement.deadlineAt,
+          }
+        : null,
+      documentUrl: published?.url || null,
 
       influencers,
     });

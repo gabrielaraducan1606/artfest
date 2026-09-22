@@ -265,7 +265,15 @@ export default function OrdersPage() {
       setBusyId(id);
 
       try {
-        await api(`/api/user/orders/${id}/cancel`, { method: "POST" });
+        const cancelResponse = await api(`/api/user/orders/${id}/cancel`, {
+          method: "POST",
+        });
+
+        // Comandă CARD plătită: spunem explicit statusul rambursării.
+        if (cancelResponse?.message) {
+          alert(cancelResponse.message);
+        }
+
         setPage(1);
         await load({ reset: true, pageOverride: 1, silent: false });
       } catch (e) {

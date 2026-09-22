@@ -11,6 +11,11 @@ import {
   createPaymentForOrder,
 } from "../payments/orchestrator.js";
 import { CardPaymentUnavailableError } from "../payments/vendorStripeStatus.js";
+import {
+  DEPOSIT_BLOCK_MESSAGES,
+  DepositPaymentBlockedError,
+  getDepositBlockReason,
+} from "../payments/depositGuards.js";
 
 const router = Router();
 
@@ -1642,6 +1647,34 @@ router.post(
           });
       }
 
+      /*
+       * Comandă/livrare anulată (de vendor/admin): avansul nu mai poate
+       * fi plătit, indiferent de depositStatus.
+       */
+      const depositBlockReason =
+        getDepositBlockReason({
+          order,
+          shipment,
+        });
+
+      if (
+        depositBlockReason &&
+        shipment.depositStatus !==
+          "PAID"
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              `deposit_${depositBlockReason}`,
+
+            message:
+              DEPOSIT_BLOCK_MESSAGES[
+                depositBlockReason
+              ],
+          });
+      }
+
       if (
         shipment
           .depositStatus !==
@@ -1732,6 +1765,21 @@ router.post(
           payment.url,
       });
     } catch (error) {
+      if (
+        error instanceof
+        DepositPaymentBlockedError
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              `deposit_${error.code}`,
+
+            message:
+              error.message,
+          });
+      }
+
       console.error(
         "Guest pay deposit failed:",
         error

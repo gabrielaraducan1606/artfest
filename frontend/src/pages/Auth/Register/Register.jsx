@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { api } from "../../../lib/api";
+import { hasAttributionConsent } from "../../../lib/cookieConsent.js";
 import { trackSignup } from "../../../../services/analytics.js";
 
 import styles from "./Register.module.css";
@@ -595,20 +596,47 @@ export default function Register({
   /* ---------------- Referral ---------------- */
 
   useEffect(() => {
-    const params =
-      new URLSearchParams(
-        window.location.search
-      );
+    /*
+     * BUGFIX (Cookies v2 §11.2-§11.3 / audit legal) - codul de
+     * recomandare din ?ref= se PERSISTĂ în localStorage doar cu
+     * consimțământul pentru categoria "Atribuire recomandări".
+     * Fără consimțământ, codul rămâne doar în URL-ul paginii curente
+     * (citit direct din query în getReferralCode) - nu scriem nimic
+     * pe dispozitiv. Dacă userul acceptă categoria mai târziu, în
+     * aceeași pagină, îl persistăm atunci (eveniment "cookie:consent").
+     */
+    const persistReferralIfAllowed = () => {
+      const referral =
+        new URLSearchParams(
+          window.location.search
+        ).get("ref");
 
-    const referral =
-      params.get("ref");
+      if (!referral) return;
+      if (!hasAttributionConsent()) return;
 
-    if (referral) {
-      localStorage.setItem(
-        REFERRAL_STORAGE_KEY,
-        referral
+      try {
+        localStorage.setItem(
+          REFERRAL_STORAGE_KEY,
+          referral
+        );
+      } catch {
+        // localStorage indisponibil - degradăm silențios.
+      }
+    };
+
+    persistReferralIfAllowed();
+
+    window.addEventListener(
+      "cookie:consent",
+      persistReferralIfAllowed
+    );
+
+    return () => {
+      window.removeEventListener(
+        "cookie:consent",
+        persistReferralIfAllowed
       );
-    }
+    };
   }, []);
 
   /* ---------------- Form fields ---------------- */
@@ -925,11 +953,27 @@ export default function Register({
         window.location.search
       );
 
+    /*
+     * ?ref= din URL-ul curent e mereu citit (nu e stocare pe
+     * dispozitiv). Valoarea persistată în localStorage e citită
+     * doar cu consimțământ de atribuire (Cookies v2 §11.2).
+     */
+    let stored = null;
+
+    if (hasAttributionConsent()) {
+      try {
+        stored =
+          localStorage.getItem(
+            REFERRAL_STORAGE_KEY
+          );
+      } catch {
+        stored = null;
+      }
+    }
+
     return (
       params.get("ref") ||
-      localStorage.getItem(
-        REFERRAL_STORAGE_KEY
-      ) ||
+      stored ||
       null
     );
   }
