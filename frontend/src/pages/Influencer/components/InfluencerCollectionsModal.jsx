@@ -832,8 +832,16 @@ export default function InfluencerCollectionsModal({
               "search"
             );
 
-            const response =
-              await fetch(
+            /*
+             * BUGFIX (audit /api): folosea fetch() brut, cu path
+             * relativ hardcodat - ocolea helperul central (nu
+             * respecta VITE_API_URL/VITE_API_BASE_URL, nu trecea
+             * prin gestionarea uniformă a erorilor/politicilor).
+             * api() întoarce direct JSON-ul parsat și aruncă pe
+             * răspuns non-2xx (prins mai jos, la fel ca înainte).
+             */
+            const data =
+              await api(
                 `/api/public/products/suggest?q=${encodeURIComponent(
                   term
                 )}`,
@@ -842,17 +850,6 @@ export default function InfluencerCollectionsModal({
                     controller.signal,
                 }
               );
-
-            if (
-              !response.ok
-            ) {
-              throw new Error(
-                "product_search_failed"
-              );
-            }
-
-            const data =
-              await response.json();
 
             const products =
               Array.isArray(

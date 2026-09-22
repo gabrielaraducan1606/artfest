@@ -32,6 +32,9 @@ import InfluencerFilesModal
 import InfluencerResourcesSection
   from "./InfluencerResourcesSection.jsx";
 
+import CommunityFeaturesSection
+  from "./CommunityFeaturesSection.jsx";
+
 import styles from "./InfluencerDashboardPage.module.css";
 
 /* =========================================================
@@ -62,6 +65,10 @@ const DASHBOARD_TABS = [
   {
     id: "home",
     label: "Acasă",
+  },
+  {
+    id: "community",
+    label: "Ce poți promova",
   },
   {
     id: "promotion",
@@ -2155,6 +2162,11 @@ export default function InfluencerDashboardPage() {
         {/* =====================================================
             ORDERS
         ===================================================== */}
+
+        {activeTab ===
+          "community" && (
+          <CommunityFeaturesSection />
+        )}
 
         {activeTab ===
           "orders" && (

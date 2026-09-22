@@ -500,6 +500,38 @@
 }
 
 /* =========================================================
+   GOOGLE (cont nou prin invitație)
+========================================================= */
+
+.googleSection {
+  margin-top: 18px;
+}
+
+.googleDivider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 4px 0 12px;
+  color: var(--color-muted, #6b7280);
+  font-size: 13px;
+}
+
+.googleDivider::before,
+.googleDivider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-border, #e5e7eb);
+}
+
+.googleButton {
+  display: flex;
+  justify-content: center;
+  min-height: 44px;
+}
+
+/* =========================================================
    BUTTONS
 ========================================================= */
 

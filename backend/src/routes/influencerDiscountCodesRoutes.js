@@ -11,6 +11,10 @@ import {
 } from "../api/auth.js";
 
 import { enforceInfluencerTermsGate } from "../middleware/enforceInfluencerTermsGate.js";
+import {
+  collaborationGateErrorBody,
+  resolveCollaborationGate,
+} from "../services/influencerCollaborationGate.js";
 
 const router = Router();
 
@@ -241,6 +245,9 @@ async function getInfluencerByUserId(
         referralCode:
           true,
         status: true,
+        createdAt: true,
+        commissionBps: true,
+        collaborationEndOverride: true,
       },
     }
   );
@@ -886,6 +893,20 @@ router.post(
 
       if (!influencer) {
         return;
+      }
+
+      /*
+       * Matricea ACTIVE/EXPIRED/DISABLED: un cont EXPIRED nu mai
+       * poate crea un instrument comercial nou (ar genera atribuiri
+       * noi). requireInfluencer() de mai sus acoperă deja DISABLED.
+       */
+      const { canStartNewCommercialActivity, collaboration } =
+        resolveCollaborationGate(influencer);
+
+      if (!canStartNewCommercialActivity) {
+        return res
+          .status(403)
+          .json(collaborationGateErrorBody(collaboration));
       }
 
       const parsed =
@@ -1850,6 +1871,22 @@ router.patch(
 
       const nextActive =
         !current.isActive;
+
+      /*
+       * Doar REACTIVAREA (false -> true) creează din nou capacitate
+       * de atribuire - dezactivarea rămâne mereu permisă (e o
+       * acțiune protectivă, nu generează atribuiri noi).
+       */
+      if (nextActive) {
+        const { canStartNewCommercialActivity, collaboration } =
+          resolveCollaborationGate(influencer);
+
+        if (!canStartNewCommercialActivity) {
+          return res
+            .status(403)
+            .json(collaborationGateErrorBody(collaboration));
+        }
+      }
 
       const updated =
         await prisma.discountCode.update(

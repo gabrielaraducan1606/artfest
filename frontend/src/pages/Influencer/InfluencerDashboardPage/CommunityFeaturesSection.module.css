@@ -1,0 +1,214 @@
+/* =========================================================
+   ACORDEON
+========================================================= */
+
+.accordion {
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.accordion:last-of-type {
+  margin-bottom: 18px;
+}
+
+.accordionHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  background: var(--surface, #fff);
+  cursor: pointer;
+  text-align: left;
+}
+
+.accordionHeader:hover {
+  background: color-mix(in srgb, var(--color-primary, #4b5563) 4%, transparent);
+}
+
+.accordionIcon {
+  flex: 0 0 auto;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.accordionHeaderText {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.accordionTitle {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--color-text, #111827);
+}
+
+.accordionSubtitle {
+  font-size: 12.5px;
+  color: var(--color-muted, #6b7280);
+}
+
+.accordionChevron {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary, #4b5563) 8%, transparent);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-primary, #4b5563);
+}
+
+.accordionBody {
+  padding: 4px 16px 16px;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+/* =========================================================
+   GRUPURI + CARDURI
+========================================================= */
+
+.group {
+  margin-top: 14px;
+}
+
+.groupTitle {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-muted, #6b7280);
+  margin-bottom: 8px;
+}
+
+.itemsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .itemsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.item {
+  padding: 12px 14px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-primary, #4b5563) 2.5%, transparent);
+}
+
+.itemHeader {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.itemIcon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.itemTitle {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--color-text, #111827);
+}
+
+.itemText {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-muted, #6b7280);
+}
+
+.badgeGuest,
+.badgeAccount {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badgeGuest {
+  background: rgba(22, 163, 74, 0.1);
+  color: #15803d;
+}
+
+.badgeAccount {
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+}
+
+/* =========================================================
+   IDEI DE CONȚINUT
+========================================================= */
+
+.ideasBox {
+  padding: 12px 14px;
+  border: 1px solid rgba(111, 78, 67, 0.15);
+  border-radius: 12px;
+  background: rgba(111, 78, 67, 0.045);
+  margin-bottom: 14px;
+}
+
+.ideasTitle {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--color-text, #111827);
+  margin-bottom: 6px;
+}
+
+.ideasList {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-muted, #6b7280);
+}
+
+/* =========================================================
+   CTA
+========================================================= */
+
+.ctaLabel {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-muted, #6b7280);
+  margin-bottom: 6px;
+}
+
+.ctaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .ctaRow {
+    flex-direction: column;
+  }
+
+  .ctaRow a {
+    text-align: center;
+  }
+}

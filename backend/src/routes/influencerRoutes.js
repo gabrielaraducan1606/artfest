@@ -10,6 +10,10 @@ import { sendVerificationEmail } from "../lib/mailer.js";
 import { resolveRegistrationConsent } from "../services/legalPublishedService.js";
 import { computeCollaborationState } from "../services/influencerCollaboration.js";
 import {
+  collaborationGateErrorBody,
+  resolveCollaborationGate,
+} from "../services/influencerCollaborationGate.js";
+import {
   authRequired,
   enforceTokenVersion,
   signToken,
@@ -3686,7 +3690,11 @@ router.post(
               influencerProfile: {
                 select: {
                   id: true,
+                  status: true,
                   commissionBps:
+                    true,
+                  createdAt: true,
+                  collaborationEndOverride:
                     true,
                 },
               },
@@ -3716,6 +3724,24 @@ router.post(
             error:
               "influencer_required",
           });
+      }
+
+      /*
+       * Matricea ACTIVE/EXPIRED/DISABLED: acceptarea unei propuneri
+       * NOI de remunerație e o acțiune comercială nouă - blocată
+       * dacă colaborarea nu e activă (expirată sau cont dezactivat).
+       * Refuzul (POST .../decline) rămâne mereu permis - a refuza nu
+       * creează niciun angajament nou.
+       */
+      {
+        const { canStartNewCommercialActivity, collaboration } =
+          resolveCollaborationGate(user.influencerProfile);
+
+        if (!canStartNewCommercialActivity) {
+          return res
+            .status(403)
+            .json(collaborationGateErrorBody(collaboration));
+        }
       }
 
       const result =

@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -11,6 +12,108 @@ import {
 
 import { api } from "../../lib/api";
 import styles from "./InfluencerRegisterPage.module.css";
+
+/* =========================================================
+   GOOGLE IDENTITY SERVICES
+
+   Cont NOU (invitație validă, niciun cont existent) prin
+   Google - mirror STRUCTURAL al Register.jsx (același script,
+   același buton oficial Google), dar SEPARAT / independent:
+   NU importă nimic din Register.jsx/Login.jsx și NU modifică
+   POST /api/auth/google - risc zero de regresie pentru
+   login-ul Google de USER/VENDOR.
+
+   Pentru un cont Google EXISTENT (acest email are deja un cont
+   Artfest), pagina arată deja butonul "Conectează-te" ->
+   /autentificare?influencerInvite=<token> - Login.jsx are DEJA
+   Google + acceptarea invitației complet funcțională acolo
+   (finishLogin -> POST /api/influencer/accept-existing), nu
+   duplicăm acel flux aici.
+========================================================= */
+
+const GOOGLE_SCRIPT_ID =
+  "google-identity-services-script";
+
+const GOOGLE_SCRIPT_SRC =
+  "https://accounts.google.com/gsi/client";
+
+const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+
+function loadGoogleIdentityScript() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.accounts?.id) {
+      resolve(window.google);
+      return;
+    }
+
+    const existingScript =
+      document.getElementById(GOOGLE_SCRIPT_ID);
+
+    if (existingScript) {
+      const handleLoad = () => {
+        cleanup();
+
+        if (window.google?.accounts?.id) {
+          resolve(window.google);
+        } else {
+          reject(
+            new Error(
+              "Google Identity Services nu s-a încărcat corect."
+            )
+          );
+        }
+      };
+
+      const handleError = () => {
+        cleanup();
+
+        reject(
+          new Error(
+            "Scriptul Google nu a putut fi încărcat."
+          )
+        );
+      };
+
+      const cleanup = () => {
+        existingScript.removeEventListener("load", handleLoad);
+        existingScript.removeEventListener("error", handleError);
+      };
+
+      existingScript.addEventListener("load", handleLoad);
+      existingScript.addEventListener("error", handleError);
+
+      return;
+    }
+
+    const script = document.createElement("script");
+
+    script.id = GOOGLE_SCRIPT_ID;
+    script.src = GOOGLE_SCRIPT_SRC;
+    script.async = true;
+    script.defer = true;
+
+    script.onload = () => {
+      if (window.google?.accounts?.id) {
+        resolve(window.google);
+      } else {
+        reject(
+          new Error(
+            "Google Identity Services nu s-a încărcat corect."
+          )
+        );
+      }
+    };
+
+    script.onerror = () => {
+      reject(
+        new Error("Scriptul Google nu a putut fi încărcat.")
+      );
+    };
+
+    document.head.appendChild(script);
+  });
+}
 
 /* =========================================================
    HELPERS
@@ -85,6 +188,47 @@ export default function InfluencerRegisterPage() {
     setInvite,
   ] =
     useState(null);
+
+  /*
+   * Calculate DEVREME (nu doar în JSX, la finalul componentei) -
+   * setupGoogle() (mai jos) are nevoie de `accountExists` în lista
+   * de dependențe, ca să re-randeze butonul Google în ramura corectă
+   * (cont nou vs. cont existent) imediat ce invitația se încarcă.
+   */
+  const accountExists =
+    !!invite?.accountExists;
+
+  const alreadyInfluencer =
+    !!invite?.alreadyInfluencer;
+
+  const existingRole =
+    String(
+      invite?.existingRole ||
+        ""
+    ).toUpperCase();
+
+  const incompatibleRole =
+    accountExists &&
+    existingRole &&
+    existingRole !==
+      "USER" &&
+    existingRole !==
+      "INFLUENCER";
+
+  /*
+   * Ramura care arată efectiv un buton Google pe această pagină:
+   * "register" pentru cont nou, "login" pentru cont existent
+   * compatibil (rol USER). Pentru alreadyInfluencer/incompatibleRole
+   * nu arătăm niciun buton Google aici - utilizatorul e îndrumat
+   * direct spre /autentificare.
+   */
+  const googleMode =
+    alreadyInfluencer ||
+    incompatibleRole
+      ? null
+      : accountExists
+      ? "login"
+      : "register";
 
   /* ---------------------------------------------------------
      PRENUME / NUME
@@ -228,6 +372,34 @@ export default function InfluencerRegisterPage() {
     setSuccess,
   ] =
     useState(false);
+
+  /* ---------------------------------------------------------
+     GOOGLE (cont nou prin invitație)
+  --------------------------------------------------------- */
+
+  const [
+    googleReady,
+    setGoogleReady,
+  ] =
+    useState(false);
+
+  const [
+    googleLoading,
+    setGoogleLoading,
+  ] =
+    useState(false);
+
+  const [
+    googleError,
+    setGoogleError,
+  ] =
+    useState("");
+
+  const googleButtonRef =
+    useRef(null);
+
+  const googleCallbackRef =
+    useRef(null);
 
   /* =========================================================
      LOAD INVITE
@@ -481,6 +653,20 @@ export default function InfluencerRegisterPage() {
     privacyAccepted &&
     influencerTermsAccepted;
 
+  /*
+   * Google nu cere firstName/lastName/parolă (Google le furnizează
+   * pe primele; parola nu există în acest flux) - dar cere ACELEAȘI
+   * consimțăminte obligatorii ca formularul cu parolă.
+   */
+  const canUseGoogle =
+    googleReady &&
+    !googleLoading &&
+    !submitting &&
+    !success &&
+    tosAccepted &&
+    privacyAccepted &&
+    influencerTermsAccepted;
+
   /* =========================================================
      CONSENTS
   ========================================================= */
@@ -571,6 +757,318 @@ export default function InfluencerRegisterPage() {
 
     return consents;
   }
+
+  /* =========================================================
+     GOOGLE - CONT NOU PRIN INVITAȚIE
+
+     mode: "register" fără asVendor creează un cont USER simplu
+     (identic cu Register.jsx, pe partea non-vendor). NU trimitem
+     "influencer_terms" în consents - authGoogleRoutes.js nu-l
+     acceptă (schema lui e comună cu USER/VENDOR) - acceptarea lui
+     e scrisă de /api/influencer/accept-existing, exact ca la
+     fluxul cu parolă (POST /register, mai jos) și la fluxul
+     existent din Login.jsx (finishLogin).
+
+     Dacă emailul Google corespunde unui cont deja existent,
+     backend-ul refuză crearea (google_email_already_registered) -
+     arătăm îndrumarea către "Conectează-te" (Login.jsx are deja
+     Google + acceptarea invitației complet funcțională).
+  ========================================================= */
+
+  async function handleGoogleCredential(
+    googleResponse
+  ) {
+    const credential =
+      googleResponse?.credential;
+
+    if (!credential) {
+      setGoogleError(
+        "Google nu a returnat datele necesare autentificării."
+      );
+
+      return;
+    }
+
+    if (
+      !tosAccepted ||
+      !privacyAccepted ||
+      !influencerTermsAccepted
+    ) {
+      setGoogleError(
+        "Acceptă Termenii, Politica de confidențialitate și Acordul Programului de Influenceri înainte să continui cu Google."
+      );
+
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setGoogleError(
+        "Ești offline. Verifică conexiunea la internet."
+      );
+
+      return;
+    }
+
+    setSubmitError("");
+    setGoogleError("");
+    setGoogleLoading(true);
+
+    try {
+      const consents =
+        [];
+
+      if (tosAccepted) {
+        consents.push({
+          type: "tos",
+          version: String(
+            legal?.tos
+              ?.version ||
+              "1.0.0"
+          ),
+          checksum:
+            legal?.tos
+              ?.checksum ??
+            null,
+        });
+      }
+
+      if (privacyAccepted) {
+        consents.push({
+          type: "privacy_ack",
+          version: String(
+            legal?.privacy
+              ?.version ||
+              "1.0.0"
+          ),
+          checksum:
+            legal?.privacy
+              ?.checksum ??
+            null,
+        });
+      }
+
+      if (marketingAccepted) {
+        consents.push({
+          type: "marketing_email_optin",
+          version: "1.0.0",
+          checksum: null,
+        });
+      }
+
+      const registerResponse =
+        await api(
+          "/api/auth/google",
+          {
+            method: "POST",
+
+            body: {
+              credential,
+              remember: true,
+              mode: "register",
+              asVendor: false,
+              consents,
+            },
+          }
+        );
+
+      if (
+        registerResponse?.ok ===
+        false
+      ) {
+        throw Object.assign(
+          new Error(
+            registerResponse?.message ||
+              "Înregistrarea cu Google a eșuat."
+          ),
+          { data: registerResponse }
+        );
+      }
+
+      /*
+       * Acum suntem autentificați ca USER (cookie setat de
+       * /api/auth/google). Acceptăm invitația - exact rutina
+       * folosită deja de Login.jsx (finishLogin) pentru un cont
+       * EXISTENT; aici rulează imediat după crearea contului nou.
+       */
+      const accepted =
+        await api(
+          "/api/influencer/accept-existing",
+          {
+            method: "POST",
+            body: { token },
+          }
+        );
+
+      if (accepted?.ok === false) {
+        throw Object.assign(
+          new Error(
+            accepted?.message ||
+              "Contul Google a fost creat, dar invitația nu a putut fi acceptată."
+          ),
+          { data: accepted }
+        );
+      }
+
+      window.location.assign(
+        accepted?.next ||
+          "/influencer"
+      );
+    } catch (error) {
+      const errorCode =
+        error?.data?.error ||
+        error?.error ||
+        "";
+
+      if (
+        errorCode ===
+        "google_email_already_registered"
+      ) {
+        setGoogleError(
+          "Există deja un cont Artfest cu acest email Google. Conectează-te cu contul existent pentru a accepta invitația."
+        );
+
+        return;
+      }
+
+      if (
+        errorCode ===
+        "already_influencer"
+      ) {
+        window.location.assign(
+          "/influencer"
+        );
+
+        return;
+      }
+
+      if (
+        errorCode ===
+          "invitation_email_mismatch"
+      ) {
+        setGoogleError(
+          "Contul Google folosit nu corespunde emailului invitat. Folosește contul Google al adresei invitate sau conectează-te separat."
+        );
+
+        return;
+      }
+
+      if (
+        errorCode === "invitation_expired" ||
+        errorCode === "invitation_unavailable" ||
+        errorCode === "invitation_already_used"
+      ) {
+        setGoogleError(
+          "Invitația de influencer nu mai este disponibilă. Cere administratorului un link nou."
+        );
+
+        return;
+      }
+
+      if (
+        errorCode ===
+        "role_incompatible"
+      ) {
+        setGoogleError(
+          "Contul Google creat are deja un alt tip de profil Artfest și nu poate fi transformat automat în cont de influencer."
+        );
+
+        return;
+      }
+
+      console.error(
+        "Influencer Google register error:",
+        error
+      );
+
+      setGoogleError(
+        error?.data?.message ||
+          error?.message ||
+          "Înregistrarea cu Google a eșuat. Încearcă din nou."
+      );
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
+  googleCallbackRef.current =
+    handleGoogleCredential;
+
+  /* =========================================================
+     GOOGLE - încărcare script + randare buton
+  ========================================================= */
+
+  useEffect(() => {
+    let active = true;
+
+    async function setupGoogle() {
+      if (!GOOGLE_CLIENT_ID) {
+        if (active) {
+          setGoogleReady(false);
+        }
+
+        return;
+      }
+
+      try {
+        await loadGoogleIdentityScript();
+
+        if (!active) {
+          return;
+        }
+
+        window.google.accounts.id.initialize(
+          {
+            client_id:
+              GOOGLE_CLIENT_ID,
+
+            callback: (
+              response
+            ) =>
+              googleCallbackRef.current?.(
+                response
+              ),
+          }
+        );
+
+        if (googleButtonRef.current) {
+          googleButtonRef.current.innerHTML =
+            "";
+
+          window.google.accounts.id.renderButton(
+            googleButtonRef.current,
+            {
+              type: "standard",
+              theme: "outline",
+              size: "large",
+              text: "signup_with",
+              shape: "rectangular",
+              logo_alignment:
+                "left",
+            }
+          );
+        }
+
+        if (active) {
+          setGoogleReady(true);
+        }
+      } catch (error) {
+        console.error(
+          "Google Identity Services setup error:",
+          error
+        );
+
+        if (active) {
+          setGoogleReady(false);
+        }
+      }
+    }
+
+    setupGoogle();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   /* =========================================================
      SUBMIT
@@ -789,28 +1287,11 @@ export default function InfluencerRegisterPage() {
     );
   }
 
-  const accountExists =
-    !!invite.accountExists;
-
-  const alreadyInfluencer =
-    !!invite.alreadyInfluencer;
-
-  const existingRole =
-    String(
-      invite.existingRole ||
-        ""
-    ).toUpperCase();
-
-  const incompatibleRole =
-    accountExists &&
-    existingRole &&
-    existingRole !==
-      "USER" &&
-    existingRole !==
-      "INFLUENCER";
-
   /* =========================================================
      PAGE
+
+     (accountExists/alreadyInfluencer/existingRole/incompatibleRole/
+     googleMode sunt calculate mai sus, imediat după `invite`.)
   ========================================================= */
 
   return (
@@ -1476,6 +1957,99 @@ export default function InfluencerRegisterPage() {
                 ? "Se creează contul…"
                 : "Creează contul"}
             </button>
+
+            {/* =====================================================
+                GOOGLE - cont nou prin invitație
+            ===================================================== */}
+
+            {!!GOOGLE_CLIENT_ID && (
+              <div
+                className={
+                  styles.googleSection
+                }
+              >
+                <div
+                  className={
+                    styles.googleDivider
+                  }
+                >
+                  sau
+                </div>
+
+                <div
+                  ref={
+                    googleButtonRef
+                  }
+                  className={
+                    styles.googleButton
+                  }
+                  style={
+                    !canUseGoogle
+                      ? {
+                          opacity: 0.5,
+                          pointerEvents:
+                            "none",
+                        }
+                      : undefined
+                  }
+                />
+
+                {!canUseGoogle &&
+                  googleReady && (
+                    <div
+                      className={
+                        styles.hint
+                      }
+                    >
+                      Acceptă Termenii, Politica de confidențialitate și Acordul Programului de Influenceri pentru a continua cu Google.
+                    </div>
+                  )}
+
+                {googleLoading && (
+                  <div
+                    className={
+                      styles.hint
+                    }
+                  >
+                    Se continuă cu Google…
+                  </div>
+                )}
+
+                {googleError && (
+                  <div
+                    className={
+                      styles.errorBox
+                    }
+                  >
+                    {googleError}
+
+                    {googleError.includes(
+                      "cont Artfest"
+                    ) && (
+                      <>
+                        <br />
+
+                        <button
+                          type="button"
+                          className={
+                            styles.secondaryButton
+                          }
+                          onClick={() =>
+                            navigate(
+                              buildAuthUrl(
+                                token
+                              )
+                            )
+                          }
+                        >
+                          Conectează-te
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </form>
         )}
       </section>

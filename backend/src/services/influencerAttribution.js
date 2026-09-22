@@ -22,6 +22,7 @@
 
 import { prisma } from "../db.js";
 import { verifyInfluencerAttributionToken } from "./influencerAttributionToken.js";
+import { resolveCollaborationGate } from "./influencerCollaborationGate.js";
 
 /*
  * Regulă comună de eligibilitate PENTRU ATRIBUIRE (nu pentru
@@ -36,6 +37,19 @@ import { verifyInfluencerAttributionToken } from "./influencerAttributionToken.j
 function buildAttributionFromInfluencer(influencer) {
   if (!influencer) return null;
   if (influencer.status !== "ACTIVE") return null;
+
+  /*
+   * Colaborarea trebuie să fie ACTIVĂ (nu expirată) pentru ca
+   * influencerul să poată fi candidat pentru o atribuire NOUĂ -
+   * vezi services/influencerCollaborationGate.js (sursă unică,
+   * derivată din computeCollaborationState). Atribuirile deja
+   * existente (Shipment/InfluencerEarningEntry deja scrise) NU
+   * sunt afectate - această funcție rulează STRICT la o atribuire
+   * nouă (link ?ref=/cod de reducere), niciodată retroactiv.
+   */
+  const { canStartNewCommercialActivity } = resolveCollaborationGate(influencer);
+
+  if (!canStartNewCommercialActivity) return null;
 
   /*
    * O propunere de remunerație în așteptare NU e activă încă -
@@ -95,6 +109,8 @@ export async function resolveInfluencerAttribution({
       referralCode: true,
       commissionBps: true,
       status: true,
+      createdAt: true,
+      collaborationEndOverride: true,
     },
   });
 
@@ -131,6 +147,8 @@ export async function resolveInfluencerAttributionByInfluencerId({
       referralCode: true,
       commissionBps: true,
       status: true,
+      createdAt: true,
+      collaborationEndOverride: true,
     },
   });
 
