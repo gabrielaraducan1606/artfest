@@ -384,14 +384,56 @@ marketingPrefs: {
 
 router.get("/stats", async (_req, res) => {
   try {
-    const [usersCount, vendorsCount, ordersCount, productsCount] = await Promise.all([
-      prisma.user.count(),
-      prisma.vendor.count(),
-      prisma.order.count(),
-      prisma.product.count(),
-    ]);
+    const [usersCount, vendorsCount, ordersCount, productsCount, storesTotal, storesActive] =
+      await Promise.all([
+        prisma.user.count(),
+        prisma.vendor.count(),
+        prisma.order.count(),
+        prisma.product.count(),
 
-    res.json({ usersCount, vendorsCount, ordersCount, productsCount });
+        // "Magazin" = ServiceProfile al unui service de tip "products"
+        // (aceeași definiție ca în publicStoreRoutes.js - fără filtrul
+        // de activ, ca să numere toate magazinele, nu doar cele publice).
+        prisma.serviceProfile.count({
+          where: {
+            service: {
+              is: {
+                type: {
+                  is: { code: "products" },
+                },
+              },
+            },
+          },
+        }),
+
+        // "Magazin activ" = EXACT criteriul folosit de GET /api/public/stores
+        // (service.isActive, service.status ACTIVE, vendor.isActive, tip "products").
+        prisma.serviceProfile.count({
+          where: {
+            service: {
+              is: {
+                isActive: true,
+                status: "ACTIVE",
+                vendor: {
+                  is: { isActive: true },
+                },
+                type: {
+                  is: { code: "products" },
+                },
+              },
+            },
+          },
+        }),
+      ]);
+
+    res.json({
+      usersCount,
+      vendorsCount,
+      ordersCount,
+      productsCount,
+      storesTotal,
+      storesActive,
+    });
   } catch (e) {
     console.error("ADMIN /stats error", e);
     res.status(500).json({ error: "admin_stats_failed" });

@@ -1189,26 +1189,6 @@ export default function StoresPage({
       </header>
 
       {/* =================================================
-          TOTAL
-      ================================================= */}
-
-      {!loading &&
-        !error &&
-        typeof total ===
-          "number" &&
-        total > 0 && (
-          <div
-            className={
-              styles.resultsInfo
-            }
-          >
-            {total === 1
-              ? "1 magazin găsit."
-              : `${total} magazine găsite.`}
-          </div>
-        )}
-
-      {/* =================================================
           FILTER MODAL
       ================================================= */}
 

@@ -65,6 +65,8 @@ export default function AdminDesktop() {
     vendors: 0,
     orders: 0,
     products: 0,
+    storesTotal: 0,
+    storesActive: 0,
   });
 
   const [ordersFilter, setOrdersFilter] = useState({
@@ -84,6 +86,8 @@ export default function AdminDesktop() {
         vendors: d.vendorsCount ?? 0,
         orders: d.ordersCount ?? 0,
         products: d.productsCount ?? 0,
+        storesTotal: d.storesTotal ?? 0,
+        storesActive: d.storesActive ?? 0,
       });
     } catch {
       // nu blocăm pagina dacă pică stats
@@ -355,6 +359,12 @@ export default function AdminDesktop() {
         <KPI label="Vendori" value={stats.vendors} />
         <KPI label="Comenzi" value={stats.orders} />
         <KPI label="Produse" value={stats.products} />
+        <KPI label="Total magazine" value={stats.storesTotal} />
+        <KPI label="Magazine active" value={stats.storesActive} />
+        <KPI
+          label="Magazine inactive"
+          value={Math.max(0, stats.storesTotal - stats.storesActive)}
+        />
       </div>
 
       <div className={styles.tabs}>
