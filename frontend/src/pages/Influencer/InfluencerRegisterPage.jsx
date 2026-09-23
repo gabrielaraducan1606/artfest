@@ -395,6 +395,28 @@ export default function InfluencerRegisterPage() {
   ] =
     useState("");
 
+  /* ---------------------------------------------------------
+     GOOGLE (cont existent, compatibil - rol USER)
+
+     Buton separat, aceeași convenție "mirror structural, separat" -
+     reutilizează POST /api/auth/google (mode: "login") + POST
+     /api/influencer/accept-existing, exact ca Login.jsx (finishLogin),
+     dar direct pe pagina de invitație, fără pasul intermediar
+     "Conectează-te". NU modifică Login.jsx.
+  --------------------------------------------------------- */
+
+  const [
+    googleExistingLoading,
+    setGoogleExistingLoading,
+  ] =
+    useState(false);
+
+  const [
+    googleExistingError,
+    setGoogleExistingError,
+  ] =
+    useState("");
+
   const googleButtonRef =
     useRef(null);
 
@@ -666,6 +688,16 @@ export default function InfluencerRegisterPage() {
     tosAccepted &&
     privacyAccepted &&
     influencerTermsAccepted;
+
+  /*
+   * Cont existent: accept-existing scrie consimțământul
+   * influencer_terms automat, server-side (identic cu fluxul din
+   * Login.jsx) - nu cerem checkbox-uri aici, la fel ca butonul
+   * Google din Login.jsx.
+   */
+  const canUseGoogleExisting =
+    googleReady &&
+    !googleExistingLoading;
 
   /* =========================================================
      CONSENTS
@@ -990,8 +1022,206 @@ export default function InfluencerRegisterPage() {
     }
   }
 
+  /* =========================================================
+     GOOGLE - CONT EXISTENT (rol USER, compatibil)
+
+     mode: "login" - identică cu finishLogin() din Login.jsx:
+     POST /api/auth/google (mode: "login") asociază automat contul
+     Google la contul Artfest existent DOAR când emailul Google
+     verificat e identic cu emailul contului (authGoogleRoutes.js),
+     apoi acceptăm invitația exact ca la Login.jsx.
+  ========================================================= */
+
+  async function handleGoogleExistingCredential(
+    googleResponse
+  ) {
+    const credential =
+      googleResponse?.credential;
+
+    if (!credential) {
+      setGoogleExistingError(
+        "Google nu a returnat datele necesare autentificării."
+      );
+
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setGoogleExistingError(
+        "Ești offline. Verifică conexiunea la internet."
+      );
+
+      return;
+    }
+
+    setGoogleExistingError("");
+    setGoogleExistingLoading(true);
+
+    try {
+      const loginResponse =
+        await api(
+          "/api/auth/google",
+          {
+            method: "POST",
+
+            body: {
+              credential,
+              remember: true,
+              mode: "login",
+            },
+          }
+        );
+
+      if (
+        loginResponse?.ok ===
+        false
+      ) {
+        throw Object.assign(
+          new Error(
+            loginResponse?.message ||
+              "Autentificarea cu Google a eșuat."
+          ),
+          { data: loginResponse }
+        );
+      }
+
+      const accepted =
+        await api(
+          "/api/influencer/accept-existing",
+          {
+            method: "POST",
+            body: { token },
+          }
+        );
+
+      if (accepted?.ok === false) {
+        throw Object.assign(
+          new Error(
+            accepted?.message ||
+              "Autentificarea a reușit, dar invitația nu a putut fi acceptată."
+          ),
+          { data: accepted }
+        );
+      }
+
+      window.location.assign(
+        accepted?.next ||
+          "/influencer"
+      );
+    } catch (error) {
+      const errorCode =
+        error?.data?.error ||
+        error?.error ||
+        "";
+
+      if (
+        errorCode ===
+        "google_account_not_registered"
+      ) {
+        setGoogleExistingError(
+          "Nu am găsit un cont Artfest asociat acestui cont Google. Folosește „Conectează-te cu parola” sau creează un cont nou."
+        );
+
+        return;
+      }
+
+      if (
+        errorCode ===
+        "account_locked"
+      ) {
+        setGoogleExistingError(
+          "Contul este blocat. Te rugăm să contactezi echipa de suport."
+        );
+
+        return;
+      }
+
+      if (
+        errorCode ===
+        "google_account_conflict"
+      ) {
+        setGoogleExistingError(
+          "Acest cont Artfest este deja asociat unui alt cont Google. Conectează-te cu parola."
+        );
+
+        return;
+      }
+
+      if (
+        errorCode ===
+        "google_account_unverified"
+      ) {
+        setGoogleExistingError(
+          "Contul Google folosit nu are emailul verificat. Încearcă alt cont Google sau conectează-te cu parola."
+        );
+
+        return;
+      }
+
+      if (
+        errorCode ===
+          "invitation_email_mismatch"
+      ) {
+        setGoogleExistingError(
+          "Contul Google folosit nu corespunde emailului invitat."
+        );
+
+        return;
+      }
+
+      if (
+        errorCode === "invitation_expired" ||
+        errorCode === "invitation_unavailable" ||
+        errorCode === "invitation_already_used"
+      ) {
+        setGoogleExistingError(
+          "Invitația de influencer nu mai este disponibilă. Cere administratorului un link nou."
+        );
+
+        return;
+      }
+
+      if (
+        errorCode ===
+        "role_incompatible"
+      ) {
+        setGoogleExistingError(
+          "Acest cont are deja un alt tip de profil Artfest și nu poate fi transformat automat în cont de influencer."
+        );
+
+        return;
+      }
+
+      if (
+        errorCode ===
+        "already_influencer"
+      ) {
+        window.location.assign(
+          "/influencer"
+        );
+
+        return;
+      }
+
+      console.error(
+        "Influencer Google login error:",
+        error
+      );
+
+      setGoogleExistingError(
+        error?.data?.message ||
+          error?.message ||
+          "Autentificarea cu Google a eșuat. Încearcă din nou."
+      );
+    } finally {
+      setGoogleExistingLoading(false);
+    }
+  }
+
   googleCallbackRef.current =
-    handleGoogleCredential;
+    googleMode === "login"
+      ? handleGoogleExistingCredential
+      : handleGoogleCredential;
 
   /* =========================================================
      GOOGLE - încărcare script + randare buton
@@ -1009,10 +1239,29 @@ export default function InfluencerRegisterPage() {
         return;
       }
 
+      /*
+       * Cât timp invitația încă se verifică, nicio ramură (cont nou /
+       * cont existent) nu e montată, deci `googleButtonRef.current`
+       * e null - ieșim fără să marcăm `googleReady`, iar efectul
+       * REVINE automat (vezi deps mai jos) imediat ce `loadingInvite`
+       * devine false, când ref-ul chiar există în DOM. Fără asta,
+       * dacă scriptul Google se încarcă mai repede decât invitația,
+       * butonul putea rămâne nerandat definitiv (rasă de timing).
+       */
+      if (
+        loadingInvite ||
+        !googleMode
+      ) {
+        return;
+      }
+
       try {
         await loadGoogleIdentityScript();
 
-        if (!active) {
+        if (
+          !active ||
+          !googleButtonRef.current
+        ) {
           return;
         }
 
@@ -1030,23 +1279,25 @@ export default function InfluencerRegisterPage() {
           }
         );
 
-        if (googleButtonRef.current) {
-          googleButtonRef.current.innerHTML =
-            "";
+        googleButtonRef.current.innerHTML =
+          "";
 
-          window.google.accounts.id.renderButton(
-            googleButtonRef.current,
-            {
-              type: "standard",
-              theme: "outline",
-              size: "large",
-              text: "signup_with",
-              shape: "rectangular",
-              logo_alignment:
-                "left",
-            }
-          );
-        }
+        window.google.accounts.id.renderButton(
+          googleButtonRef.current,
+          {
+            type: "standard",
+            theme: "outline",
+            size: "large",
+            text:
+              googleMode ===
+              "login"
+                ? "continue_with"
+                : "signup_with",
+            shape: "rectangular",
+            logo_alignment:
+              "left",
+          }
+        );
 
         if (active) {
           setGoogleReady(true);
@@ -1068,7 +1319,10 @@ export default function InfluencerRegisterPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [
+    loadingInvite,
+    googleMode,
+  ]);
 
   /* =========================================================
      SUBMIT
@@ -1436,13 +1690,67 @@ export default function InfluencerRegisterPage() {
                 styles.existingAccountText
               }
             >
-              Pentru acest email există deja un cont. Conectează-te în contul existent pentru a accepta invitația de influencer.
+              Continuă cu Google sau conectează-te cu parola pentru a accepta invitația de influencer.
+            </div>
+
+            {!!GOOGLE_CLIENT_ID && (
+              <div
+                className={
+                  styles.googleSection
+                }
+              >
+                <div
+                  ref={
+                    googleButtonRef
+                  }
+                  className={
+                    styles.googleButton
+                  }
+                  style={
+                    !canUseGoogleExisting
+                      ? {
+                          opacity: 0.6,
+                          pointerEvents:
+                            "none",
+                        }
+                      : undefined
+                  }
+                />
+
+                {googleExistingLoading && (
+                  <div
+                    className={
+                      styles.hint
+                    }
+                  >
+                    Se continuă cu Google…
+                  </div>
+                )}
+
+                {googleExistingError && (
+                  <div
+                    className={
+                      styles.errorBox
+                    }
+                  >
+                    {googleExistingError}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div
+              className={
+                styles.googleDivider
+              }
+            >
+              sau
             </div>
 
             <button
               type="button"
               className={
-                styles.primaryButton
+                styles.secondaryButton
               }
               onClick={() =>
                 navigate(
@@ -1452,7 +1760,7 @@ export default function InfluencerRegisterPage() {
                 )
               }
             >
-              Conectează-te
+              Conectează-te cu parola
             </button>
           </div>
         ) : (
@@ -1469,6 +1777,99 @@ export default function InfluencerRegisterPage() {
             }
             noValidate
           >
+            {/* =====================================================
+                GOOGLE - cont nou prin invitație (CTA principal, sus)
+            ===================================================== */}
+
+            {!!GOOGLE_CLIENT_ID && (
+              <div
+                className={
+                  styles.googleSection
+                }
+              >
+                <div
+                  ref={
+                    googleButtonRef
+                  }
+                  className={
+                    styles.googleButton
+                  }
+                  style={
+                    !canUseGoogle
+                      ? {
+                          opacity: 0.5,
+                          pointerEvents:
+                            "none",
+                        }
+                      : undefined
+                  }
+                />
+
+                {!canUseGoogle &&
+                  googleReady && (
+                    <div
+                      className={
+                        styles.hint
+                      }
+                    >
+                      Completează formularul de mai jos și acceptă Termenii, Politica de confidențialitate și Acordul Programului de Influenceri pentru a continua cu Google.
+                    </div>
+                  )}
+
+                {googleLoading && (
+                  <div
+                    className={
+                      styles.hint
+                    }
+                  >
+                    Se continuă cu Google…
+                  </div>
+                )}
+
+                {googleError && (
+                  <div
+                    className={
+                      styles.errorBox
+                    }
+                  >
+                    {googleError}
+
+                    {googleError.includes(
+                      "cont Artfest"
+                    ) && (
+                      <>
+                        <br />
+
+                        <button
+                          type="button"
+                          className={
+                            styles.secondaryButton
+                          }
+                          onClick={() =>
+                            navigate(
+                              buildAuthUrl(
+                                token
+                              )
+                            )
+                          }
+                        >
+                          Conectează-te
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div
+              className={
+                styles.googleDivider
+              }
+            >
+              sau
+            </div>
+
             <div
               className={
                 styles.field
@@ -1957,99 +2358,6 @@ export default function InfluencerRegisterPage() {
                 ? "Se creează contul…"
                 : "Creează contul"}
             </button>
-
-            {/* =====================================================
-                GOOGLE - cont nou prin invitație
-            ===================================================== */}
-
-            {!!GOOGLE_CLIENT_ID && (
-              <div
-                className={
-                  styles.googleSection
-                }
-              >
-                <div
-                  className={
-                    styles.googleDivider
-                  }
-                >
-                  sau
-                </div>
-
-                <div
-                  ref={
-                    googleButtonRef
-                  }
-                  className={
-                    styles.googleButton
-                  }
-                  style={
-                    !canUseGoogle
-                      ? {
-                          opacity: 0.5,
-                          pointerEvents:
-                            "none",
-                        }
-                      : undefined
-                  }
-                />
-
-                {!canUseGoogle &&
-                  googleReady && (
-                    <div
-                      className={
-                        styles.hint
-                      }
-                    >
-                      Acceptă Termenii, Politica de confidențialitate și Acordul Programului de Influenceri pentru a continua cu Google.
-                    </div>
-                  )}
-
-                {googleLoading && (
-                  <div
-                    className={
-                      styles.hint
-                    }
-                  >
-                    Se continuă cu Google…
-                  </div>
-                )}
-
-                {googleError && (
-                  <div
-                    className={
-                      styles.errorBox
-                    }
-                  >
-                    {googleError}
-
-                    {googleError.includes(
-                      "cont Artfest"
-                    ) && (
-                      <>
-                        <br />
-
-                        <button
-                          type="button"
-                          className={
-                            styles.secondaryButton
-                          }
-                          onClick={() =>
-                            navigate(
-                              buildAuthUrl(
-                                token
-                              )
-                            )
-                          }
-                        >
-                          Conectează-te
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </form>
         )}
       </section>
