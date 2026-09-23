@@ -288,30 +288,14 @@ export async function handleVendorChoice({
   }
 
   /*
-   * BUGFIX: "Vezi produsele mele" e interceptat ÎNAINTE de acest
-   * handler, direct în VendorAssistant.jsx (vezi openEditProductSelector) -
-   * niciun placeholder aici, ca să nu mai existe două căi divergente
-   * pentru aceeași alegere.
+   * BUGFIX (audit 2026-09-23): "Vezi produsele mele" (EDIT_PRODUCT)
+   * ȘI "Alege un produs" (PRICE_STOCK) sunt interceptate ÎNAINTE de
+   * acest handler, direct în VendorAssistant.jsx (vezi
+   * openEditProductSelector) - niciun placeholder aici pentru ele,
+   * ca să nu mai existe două căi divergente pentru aceeași alegere.
+   * PRICE_STOCK deschide selectorul în mod "narrow" (meniu restrâns
+   * Preț/Stoc/Ambele, nu cele 10 acțiuni de la EDIT_PRODUCT).
    */
-
-  if (
-    activeFlow ===
-      VENDOR_PRODUCT_FLOWS.PRICE_STOCK &&
-    choice ===
-      "Alege un produs"
-  ) {
-    addMessage(
-      createMessage(
-        "assistant",
-        "Selectorul de produse va fi conectat în etapa următoare."
-      )
-    );
-
-    return {
-      handled: true,
-      shouldOpenUpload: false,
-    };
-  }
 
   return {
     handled: false,

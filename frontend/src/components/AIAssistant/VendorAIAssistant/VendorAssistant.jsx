@@ -84,6 +84,7 @@ import PhotoCostingDraftEditor from "../../../pages/Vendor/CostsProfit/component
 import PendingActionCard from "../../../pages/Vendor/CostsProfit/components/PendingActionCard.jsx";
 import { searchVendorProducts } from "../../../pages/Vendor/CostsProfit/productSearchApi.js";
 import { formatRonFromCents } from "../../../pages/Vendor/CostsProfit/formatMoney.js";
+import { describeAvailability } from "./vendorPriceStockHelpers.js";
 import {
   updateCostItem,
   createCostItem,
@@ -239,6 +240,26 @@ const EMPTY_CONVERSATION_CONTEXT = {
    * processCostingCommandResult).
    */
   productUpdateDraft: null,
+
+  /*
+   * PRICE_STOCK (audit 2026-09-23) - true cât timp vendorul e în
+   * fluxul restrâns "Preț și stoc" (nu în EDIT_PRODUCT general) -
+   * controlează ce meniu se arată (PRICE_STOCK_QUICK_ACTIONS vs
+   * PRODUCT_QUICK_ACTIONS), ce mesaj de succes/follow-up apare și
+   * spre ce selector duce "Alege alt produs".
+   */
+  priceStockNarrow: false,
+
+  /*
+   * PRICE_STOCK "Ambele" - pas curent al colectării secvențiale
+   * (preț ÎNTÂI, apoi stoc), NU un nou mecanism de extragere - fiecare
+   * pas folosește EXACT orchestratorul deja existent (awaitingField
+   * "price" / compus pentru stoc); doar rezultatul primului pas e
+   * ținut aici ca să fie combinat cu al doilea într-un SINGUR
+   * PendingActionCard (vezi comboPriceResult, mai jos, și
+   * handleCostingAssistantCommand).
+   */
+  comboStep: null,
 
   /*
    * FAZA 8-10: triaj de suport activ (clarificare sau confirmare
@@ -459,6 +480,35 @@ const PRODUCT_UPDATE_FOLLOWUP_CHOICES = [
   "Mai modific ceva la acest produs",
   "Alege alt produs",
   "Deschide editorul complet",
+  "Înapoi la Produse",
+];
+
+/* =========================================================
+   PRICE_STOCK (audit 2026-09-23) - meniu RESTRÂNS, specific
+   fluxului "Preț și stoc" (Produsele mele -> Preț și stoc -> Alege
+   un produs). Reutilizează STRICT aceeași infrastructură ca
+   EDIT_PRODUCT (awaitingField "price", mecanismul compus pentru
+   stoc, PendingActionCard, handleConfirmPendingCostingAction,
+   PUT /api/vendors/products/:id) - doar meniul afișat e mai mic
+   (4 opțiuni, nu 10) și textele sunt adaptate contextului.
+========================================================= */
+
+const PRICE_STOCK_QUICK_ACTIONS = [
+  { id: "price", label: "Preț" },
+  { id: "stock", label: "Stoc / disponibilitate" },
+  { id: "both", label: "Ambele" },
+  { id: "change-product", label: "Alege alt produs" },
+];
+
+/*
+ * Identic PRODUCT_UPDATE_FOLLOWUP_CHOICES, dar FĂRĂ "Deschide
+ * editorul complet" - fluxul restrâns nu propune wizard-ul greu ca
+ * pas următor implicit (rămâne accesibil prin "Alege alt produs" ->
+ * meniul general, dacă vendorul chiar are nevoie de el).
+ */
+const PRICE_STOCK_UPDATE_FOLLOWUP_CHOICES = [
+  "Mai modific ceva la acest produs",
+  "Alege alt produs",
   "Înapoi la Produse",
 ];
 
@@ -1348,6 +1398,19 @@ const [
   setResolvedProductPreview,
 ] = useState(null);
 
+/*
+ * PRICE_STOCK "Ambele" (audit 2026-09-23) - patch/changes din
+ * primul pas (prețul), ținute STRICT cât timp așteptăm și
+ * răspunsul pentru stoc (conversationContext.comboStep ===
+ * "awaiting-stock"), ca să construim un SINGUR PendingActionCard
+ * combinat. Golit imediat ce cardul combinat e arătat sau dacă
+ * vendorul renunță/schimbă produsul.
+ */
+const [
+  comboPriceResult,
+  setComboPriceResult,
+] = useState(null);
+
   const panelSize =
     getPanelSize();
 
@@ -1872,7 +1935,8 @@ const [
   }
 
   async function openEditProductSelector(
-    productNameHint = null
+    productNameHint = null,
+    { narrow = false } = {}
   ) {
     setShowMenu(false);
 
@@ -1911,7 +1975,11 @@ const [
        * confirmarea din listă.
        */
       if (hint && matches.length === 1) {
-        presentProductQuickActions(matches[0]);
+        if (narrow) {
+          presentPriceStockQuickActions(matches[0]);
+        } else {
+          presentProductQuickActions(matches[0]);
+        }
 
         return;
       }
@@ -1933,7 +2001,11 @@ const [
 
           {
             type: "choices",
-            choiceStep: "edit-product-select",
+
+            choiceStep: narrow
+              ? "price-stock-product-select"
+              : "edit-product-select",
+
             choices:
               buildEditProductChoices(
                 candidates
@@ -2051,6 +2123,8 @@ const [
       productId,
       awaitingField: null,
       productUpdateDraft: null,
+      priceStockNarrow: false,
+      comboStep: null,
     }));
 
     addMessage(
@@ -2064,6 +2138,85 @@ const [
           type: "choices",
           choiceStep: "product-quick-action",
           choices: PRODUCT_QUICK_ACTIONS,
+        }
+      )
+    );
+  }
+
+  /* =======================================================
+     PRICE_STOCK din chat (audit 2026-09-23) - mirror ÎNGUST al
+     presentProductQuickActions() de mai sus: ACEEAȘI stare
+     (resolvedProductPreview, conversationContext.mode/productId),
+     dar meniul arătat e PRICE_STOCK_QUICK_ACTIONS (4 opțiuni), nu
+     PRODUCT_QUICK_ACTIONS (10). Păstrează și availability/stock din
+     produsul lean, pentru textul "Disponibilitate actuală: ...".
+  ======================================================= */
+
+  function presentPriceStockQuickActions(
+    product,
+    { intro } = {}
+  ) {
+    const productId =
+      product?.id ||
+      product?._id ||
+      conversationContext.productId;
+
+    if (!productId) {
+      return;
+    }
+
+    const title =
+      product?.title ||
+      product?.label ||
+      resolvedProductPreview?.title ||
+      "produsul selectat";
+
+    setResolvedProductPreview({
+      title,
+
+      image:
+        toProductPreviewImage(product) ??
+        resolvedProductPreview?.image ??
+        null,
+
+      priceCents:
+        toPriceCentsFromProduct(product) ??
+        resolvedProductPreview?.priceCents ??
+        null,
+
+      availability:
+        product?.availability ??
+        resolvedProductPreview?.availability ??
+        null,
+
+      stock:
+        product?.stock ??
+        resolvedProductPreview?.stock ??
+        null,
+    });
+
+    setConversationContext((current) => ({
+      ...current,
+      mode: "PRODUCT_UPDATE",
+      productId,
+      awaitingField: null,
+      productUpdateDraft: null,
+      priceStockNarrow: true,
+      comboStep: null,
+    }));
+
+    setComboPriceResult(null);
+
+    addMessage(
+      createMessage(
+        "assistant",
+
+        intro || `Ai ales: „${title}”. Ce vrei să modifici?`,
+
+        {
+          type: "choices",
+          choiceStep: "price-stock-quick-action",
+          choices: PRICE_STOCK_QUICK_ACTIONS,
         }
       )
     );
@@ -2137,6 +2290,132 @@ const [
   }
 
   /*
+   * PRICE_STOCK din chat (audit 2026-09-23) - click pe una din cele
+   * 4 opțiuni ale meniului restrâns (PRICE_STOCK_QUICK_ACTIONS).
+   * "Preț" și "Stoc" refolosesc STRICT același mecanism ca la
+   * EDIT_PRODUCT (awaitingField "price" / compus pentru stoc) - doar
+   * textul întrebării arată explicit valoarea ACTUALĂ înainte de a
+   * cere valoarea nouă. "Ambele" pornește o colectare secvențială
+   * (preț, apoi stoc) - vezi interceptarea din
+   * handleCostingAssistantCommand pentru cum se combină cele două
+   * răspunsuri într-un SINGUR PendingActionCard.
+   */
+  async function handlePriceStockQuickAction(
+    choiceId
+  ) {
+    const productId =
+      conversationContext.productId;
+
+    if (!productId) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu mai știu despre ce produs vorbeam. Alege din nou produsul."
+        )
+      );
+
+      await openEditProductSelector(null, {
+        narrow: true,
+      });
+
+      return;
+    }
+
+    if (choiceId === "change-product") {
+      setResolvedProductPreview(null);
+      setComboPriceResult(null);
+
+      setConversationContext(
+        EMPTY_CONVERSATION_CONTEXT
+      );
+
+      await openEditProductSelector(null, {
+        narrow: true,
+      });
+
+      return;
+    }
+
+    const currentPriceLabel =
+      resolvedProductPreview?.priceCents != null
+        ? formatRonFromCents(
+            resolvedProductPreview.priceCents
+          )
+        : "necunoscut";
+
+    const availabilityLabel = describeAvailability(
+      resolvedProductPreview
+    );
+
+    if (choiceId === "price") {
+      setConversationContext((current) => ({
+        ...current,
+        mode: "PRODUCT_UPDATE",
+        productId,
+        awaitingField: "price",
+        productUpdateDraft: null,
+        comboStep: null,
+      }));
+
+      addMessage(
+        createMessage(
+          "assistant",
+          `Prețul actual este ${currentPriceLabel}. Care este noul preț?`
+        )
+      );
+
+      return;
+    }
+
+    if (choiceId === "stock") {
+      setConversationContext((current) => ({
+        ...current,
+        mode: "PRODUCT_UPDATE",
+        productId,
+        awaitingField: null,
+        productUpdateDraft: null,
+        comboStep: null,
+      }));
+
+      addMessage(
+        createMessage(
+          "assistant",
+
+          `Disponibilitate actuală: ${availabilityLabel}. Ce vrei să modific? ` +
+            `(ex: „mai am 5 bucăți”, „disponibil doar la comandă, termen 5 zile”, ` +
+            `„precomandă, livrare din 12 martie” sau „stoc epuizat”)`
+        )
+      );
+
+      return;
+    }
+
+    if (choiceId === "both") {
+      setComboPriceResult(null);
+
+      setConversationContext((current) => ({
+        ...current,
+        mode: "PRODUCT_UPDATE",
+        productId,
+        awaitingField: "price",
+        productUpdateDraft: null,
+        comboStep: "awaiting-price",
+      }));
+
+      addMessage(
+        createMessage(
+          "assistant",
+
+          `Prețul actual este ${currentPriceLabel}. Care este noul preț? ` +
+            `(după preț, te întreb și despre stoc/disponibilitate)`
+        )
+      );
+
+      return;
+    }
+  }
+
+  /*
    * Quick actions arătate DUPĂ o modificare salvată cu succes (vezi
    * handleConfirmPendingCostingAction, action.kind === "UPDATE_PRODUCT") -
    * vendorul rămâne pe același produs în loc să fie resetat la
@@ -2145,23 +2424,45 @@ const [
   async function handleProductFollowUpChoice(
     choiceLabel
   ) {
+    /*
+     * PRICE_STOCK (audit 2026-09-23) - dacă venim din fluxul
+     * restrâns, "Mai modific ceva"/"Alege alt produs" trebuie să
+     * ducă tot la meniul restrâns, nu la cel general (10 opțiuni).
+     * Citit ÎNAINTE de orice reset de context (EMPTY_CONVERSATION_CONTEXT
+     * ar șterge flag-ul).
+     */
+    const wasPriceStockNarrow =
+      conversationContext.priceStockNarrow;
+
     if (
       choiceLabel ===
       "Mai modific ceva la acest produs"
     ) {
-      presentProductQuickActions(
+      const presenter = wasPriceStockNarrow
+        ? presentPriceStockQuickActions
+        : presentProductQuickActions;
+
+      presenter(
         {
           id: conversationContext.productId,
           title: resolvedProductPreview?.title,
           image: resolvedProductPreview?.image,
           priceCents:
             resolvedProductPreview?.priceCents,
+          availability:
+            resolvedProductPreview?.availability,
+          stock: resolvedProductPreview?.stock,
         },
         {
-          intro: `Ce altceva dorești să modific la „${
-            resolvedProductPreview?.title ||
-            "produs"
-          }”?`,
+          intro: wasPriceStockNarrow
+            ? `Ce altceva vrei să modific la „${
+                resolvedProductPreview?.title ||
+                "produs"
+              }”?`
+            : `Ce altceva dorești să modific la „${
+                resolvedProductPreview?.title ||
+                "produs"
+              }”?`,
         }
       );
 
@@ -2170,12 +2471,15 @@ const [
 
     if (choiceLabel === "Alege alt produs") {
       setResolvedProductPreview(null);
+      setComboPriceResult(null);
 
       setConversationContext(
         EMPTY_CONVERSATION_CONTEXT
       );
 
-      await openEditProductSelector();
+      await openEditProductSelector(null, {
+        narrow: wasPriceStockNarrow,
+      });
 
       return;
     }
@@ -3829,6 +4133,101 @@ if (resetBatch) {
         pendingContext,
       });
 
+      /*
+       * PRICE_STOCK "Ambele" (audit 2026-09-23) - colectare
+       * secvențială preț -> stoc, combinate într-un SINGUR
+       * PendingActionCard. NU inventăm extragere/parsare nouă -
+       * fiecare pas trece prin EXACT același orchestrator ca un
+       * quick-action simplu (awaitingField "price", apoi compus
+       * pentru stoc); doar rezultatul primului pas e ținut aici și
+       * combinat cu al doilea (action.patch/action.changes au deja
+       * shape-ul potrivit, vezi PendingActionCard.jsx -
+       * UpdateProductBody, care randează action.changes ca listă,
+       * indiferent de câte elemente are).
+       *
+       * Dacă orchestratorul NU întoarce pending_action pentru acest
+       * pas (ex. preț invalid -> needs_field/eroare), cade la
+       * processCostingCommandResult normal mai jos - vendorul e
+       * re-întrebat, comboStep rămâne neschimbat (păstrat prin
+       * spread în toate ramurile din processCostingCommandResult),
+       * deci colectarea continuă corect la următorul răspuns.
+       */
+      if (
+        conversationContext.comboStep ===
+          "awaiting-price" &&
+        result?.resultType === "pending_action" &&
+        result?.pendingAction?.kind ===
+          "UPDATE_PRODUCT"
+      ) {
+        setComboPriceResult({
+          patch: result.pendingAction.patch || {},
+          changes:
+            result.pendingAction.changes || [],
+        });
+
+        const availabilityLabel =
+          describeAvailability(
+            resolvedProductPreview
+          );
+
+        setConversationContext((current) => ({
+          ...current,
+          mode: "PRODUCT_UPDATE",
+          productId:
+            result.pendingAction.productId ||
+            current.productId,
+          awaitingField: null,
+          productUpdateDraft: null,
+          comboStep: "awaiting-stock",
+        }));
+
+        addMessage(
+          createMessage(
+            "assistant",
+
+            `Am notat noul preț. Disponibilitate actuală: ${availabilityLabel}. ` +
+              `Ce vrei să modific la stoc/disponibilitate? ` +
+              `(ex: „mai am 5 bucăți”, „disponibil doar la comandă, termen 5 zile”, ` +
+              `„precomandă, livrare din 12 martie” sau „stoc epuizat”)`
+          )
+        );
+
+        return;
+      }
+
+      if (
+        conversationContext.comboStep ===
+          "awaiting-stock" &&
+        result?.resultType === "pending_action" &&
+        result?.pendingAction?.kind ===
+          "UPDATE_PRODUCT"
+      ) {
+        const mergedAction = {
+          ...result.pendingAction,
+
+          patch: {
+            ...(comboPriceResult?.patch || {}),
+            ...(result.pendingAction.patch || {}),
+          },
+
+          changes: [
+            ...(comboPriceResult?.changes || []),
+            ...(result.pendingAction.changes || []),
+          ],
+        };
+
+        setPendingCostingAction(mergedAction);
+        setPendingCostingActionError("");
+        setComboPriceResult(null);
+
+        setConversationContext((current) => ({
+          ...current,
+          comboStep: null,
+        }));
+
+        return;
+      }
+
       processCostingCommandResult(result);
     } catch (err) {
       addMessage(
@@ -4188,6 +4587,17 @@ if (resetBatch) {
             toPriceCentsFromProduct(updated) ??
             resolvedProductPreview?.priceCents ??
             null,
+
+          availability:
+            updated?.availability ??
+            resolvedProductPreview?.availability ??
+            null,
+
+          stock:
+            updated?.stock ??
+            updated?.readyQty ??
+            resolvedProductPreview?.stock ??
+            null,
         });
 
         setConversationContext((current) => ({
@@ -4198,17 +4608,29 @@ if (resetBatch) {
           productUpdateDraft: null,
         }));
 
+        /*
+         * PRICE_STOCK (audit 2026-09-23) - mesaj + meniu de
+         * follow-up DIFERITE pentru fluxul restrâns, EXACT cum a
+         * cerut vendorul ("Produsul a fost actualizat.", fără
+         * "Deschide editorul complet" ca opțiune implicită). Fluxul
+         * EDIT_PRODUCT general rămâne NESCHIMBAT.
+         */
         addMessage(
           createMessage(
             "assistant",
 
-            `Am actualizat „${action.productTitle}”: ${action.summary}.`,
+            conversationContext.priceStockNarrow
+              ? "Produsul a fost actualizat."
+              : `Am actualizat „${action.productTitle}”: ${action.summary}.`,
 
             {
               type: "choices",
               choiceStep: "product-update-followup",
+
               choices:
-                PRODUCT_UPDATE_FOLLOWUP_CHOICES,
+                conversationContext.priceStockNarrow
+                  ? PRICE_STOCK_UPDATE_FOLLOWUP_CHOICES
+                  : PRODUCT_UPDATE_FOLLOWUP_CHOICES,
             }
           )
         );
@@ -5028,6 +5450,32 @@ async function handleAction(
     }
 
     /*
+     * PRICE_STOCK (audit 2026-09-23) - mirror ÎNGUST al celor două
+     * cazuri de mai sus, pentru selectorul/meniul restrâns.
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep ===
+        "price-stock-product-select"
+    ) {
+      presentPriceStockQuickActions(choice);
+
+      return;
+    }
+
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep ===
+        "price-stock-quick-action"
+    ) {
+      await handlePriceStockQuickAction(
+        choice?.id
+      );
+
+      return;
+    }
+
+    /*
      * Quick actions afișate după selectarea produsului (Titlul/
      * Descrierea/Prețul/Stocul/.../Deschide editorul complet).
      */
@@ -5046,7 +5494,9 @@ async function handleAction(
     /*
      * Quick actions afișate DUPĂ o modificare salvată cu succes
      * (Mai modific ceva / Alege alt produs / Deschide editorul
-     * complet / Înapoi la Produse).
+     * complet / Înapoi la Produse) - inclusiv varianta restrânsă
+     * PRICE_STOCK_UPDATE_FOLLOWUP_CHOICES (fără "Deschide editorul
+     * complet"), tot prin handleProductFollowUpChoice.
      */
     if (
       sourceMessage?.type === "choices" &&
@@ -5072,6 +5522,25 @@ async function handleAction(
       choice === "Vezi produsele mele"
     ) {
       await openEditProductSelector();
+
+      return;
+    }
+
+    /*
+     * FIX (audit 2026-09-23): "Alege un produs" din startVendorFlow
+     * (PRICE_STOCK) - identic ca principiu cu "Vezi produsele mele"
+     * de mai sus, dar deschide selectorul în mod restrâns (narrow),
+     * care duce la presentPriceStockQuickActions, nu la meniul
+     * complet de 10 opțiuni.
+     */
+    if (
+      activeFlow ===
+        VENDOR_PRODUCT_FLOWS.PRICE_STOCK &&
+      choice === "Alege un produs"
+    ) {
+      await openEditProductSelector(null, {
+        narrow: true,
+      });
 
       return;
     }
@@ -9229,9 +9698,19 @@ function handleResetBatch() {
             pendingCostingAction?.kind ===
             "UPDATE_PRODUCT"
           ) {
+            /*
+             * PRICE_STOCK "Ambele" (audit 2026-09-23) - Renunță la
+             * un card (combinat sau nu) curăță și draftul
+             * intermediar de colectare secvențială, ca să nu rămână
+             * un patch de preț "stale" agățat pentru o eventuală
+             * colectare viitoare.
+             */
+            setComboPriceResult(null);
+
             setConversationContext((current) => ({
               ...current,
               awaitingField: null,
+              comboStep: null,
             }));
           }
         }}
