@@ -650,6 +650,20 @@ export default function GuestOrderPage() {
       ) || ""
     ).trim();
 
+  /*
+   * Tokenul acesta vine în email dacă reminder-ul de plată
+   * neterminată (guestPaymentReminderJob.js) e trimis - permite
+   * reluarea plății integrale CARD, la fel ca `token`, dar NU
+   * deblochează retragerea din contract (WithdrawalButton, mai jos)
+   * - doar guestToken-ul original face asta.
+   */
+  const paymentToken =
+    String(
+      searchParams.get(
+        "paymentToken"
+      ) || ""
+    ).trim();
+
     const paymentResult =
   String(
     searchParams.get(
@@ -670,6 +684,13 @@ export default function GuestOrderPage() {
           guestToken
         );
       } else if (
+        paymentToken
+      ) {
+        params.set(
+          "paymentToken",
+          paymentToken
+        );
+      } else if (
         depositToken
       ) {
         params.set(
@@ -681,6 +702,7 @@ export default function GuestOrderPage() {
       return params.toString();
     }, [
       guestToken,
+      paymentToken,
       depositToken,
     ]);
 
@@ -747,6 +769,7 @@ export default function GuestOrderPage() {
 
         if (
           !guestToken &&
+          !paymentToken &&
           !depositToken
         ) {
           setError(
@@ -818,6 +841,7 @@ export default function GuestOrderPage() {
       [
         id,
         guestToken,
+        paymentToken,
         depositToken,
         accessQuery,
       ]
@@ -1000,12 +1024,18 @@ const paymentPending =
   isCardPayment &&
   !isPaid;
 
+/*
+ * NU permitem ca depositToken să fie folosit pentru plata integrală -
+ * doar guestToken (linkul original) sau paymentToken (reminder de
+ * plată neterminată).
+ */
 const canRetryPayment =
   paymentPending &&
   order?.canRetryPayment ===
     true &&
   Boolean(
-    guestToken
+    guestToken ||
+    paymentToken
   );
 
   async function handlePayOrder() {
@@ -1017,7 +1047,8 @@ const canRetryPayment =
   }
 
   if (
-    !guestToken
+    !guestToken &&
+    !paymentToken
   ) {
     window.alert(
       "Pentru a relua plata integrală trebuie să deschizi linkul original al comenzii."
@@ -1046,10 +1077,19 @@ const canRetryPayment =
     const params =
       new URLSearchParams();
 
-    params.set(
-      "token",
-      guestToken
-    );
+    if (guestToken) {
+      params.set(
+        "token",
+        guestToken
+      );
+    } else if (
+      paymentToken
+    ) {
+      params.set(
+        "paymentToken",
+        paymentToken
+      );
+    }
 
     const response =
       await api(
@@ -1983,7 +2023,8 @@ const canRetryPayment =
     </div>
 
     {paymentPending &&
-      !guestToken && (
+      !guestToken &&
+      !paymentToken && (
         <p
           style={{
             ...subtleStyle,

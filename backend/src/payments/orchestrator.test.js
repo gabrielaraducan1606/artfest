@@ -227,3 +227,74 @@ test("comandă fără shipments -> verificarea Stripe nu blochează", async () =
 
   assert.equal(payment.provider, "stripe");
 });
+
+/* =========================================================
+   GUEST: success/cancel URL - guestAccessToken (neschimbat) vs.
+   guestReturnToken (paymentToken din reminder-ul de plată)
+========================================================= */
+
+test("guest, doar guestAccessToken (comportament EXISTENT, neschimbat): success/cancel URL cu ?token=", async () => {
+  fakeDb.__setShipments([{ orderId: "order-guest-1", vendorId: "vendor-a" }]);
+  fakeDb.__setVendors([readyVendor("vendor-a")]);
+
+  await createPaymentForOrder({
+    id: "order-guest-1",
+    total: 100,
+    currency: "RON",
+    isGuestOrder: true,
+    guestAccessToken: "plain-guest-token",
+  });
+
+  assert.equal(
+    lastSessionCreateArgs.success_url,
+    "https://app.test/comanda-guest/order-guest-1?token=plain-guest-token&payment=success"
+  );
+
+  assert.equal(
+    lastSessionCreateArgs.cancel_url,
+    "https://app.test/comanda-guest/order-guest-1?token=plain-guest-token&payment=cancelled"
+  );
+});
+
+test("guest, cu guestReturnToken + guestReturnTokenParam=paymentToken (reminder plată): success/cancel URL cu ?paymentToken=", async () => {
+  fakeDb.__setShipments([{ orderId: "order-guest-2", vendorId: "vendor-a" }]);
+  fakeDb.__setVendors([readyVendor("vendor-a")]);
+
+  await createPaymentForOrder({
+    id: "order-guest-2",
+    total: 100,
+    currency: "RON",
+    isGuestOrder: true,
+    guestReturnToken: "jwt-payment-token",
+    guestReturnTokenParam: "paymentToken",
+  });
+
+  assert.equal(
+    lastSessionCreateArgs.success_url,
+    "https://app.test/comanda-guest/order-guest-2?paymentToken=jwt-payment-token&payment=success"
+  );
+
+  assert.equal(
+    lastSessionCreateArgs.cancel_url,
+    "https://app.test/comanda-guest/order-guest-2?paymentToken=jwt-payment-token&payment=cancelled"
+  );
+});
+
+test("guest, fără niciun token de acces -> guest_access_token_missing (neschimbat)", async () => {
+  fakeDb.__setShipments([{ orderId: "order-guest-3", vendorId: "vendor-a" }]);
+  fakeDb.__setVendors([readyVendor("vendor-a")]);
+
+  await assert.rejects(
+    () =>
+      createPaymentForOrder({
+        id: "order-guest-3",
+        total: 100,
+        currency: "RON",
+        isGuestOrder: true,
+      }),
+    (err) => {
+      assert.equal(err.message, "guest_access_token_missing");
+      return true;
+    }
+  );
+});

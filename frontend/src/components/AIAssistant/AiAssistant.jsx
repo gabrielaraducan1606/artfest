@@ -986,6 +986,14 @@ export default function AiAssistant({
   const messagesEndRef =
     useRef(null);
 
+  /*
+   * Folosit DOAR pentru focus, când inputul e precompletat dintr-un
+   * eveniment "artfest:assistant-prompt" (ocazii / speech bubble
+   * homepage) - vezi efectul de mai jos.
+   */
+  const assistantInputRef =
+    useRef(null);
+
   const supportRefreshRef =
     useRef(false);
 
@@ -1562,6 +1570,38 @@ Poți reveni oricând la pasul anterior.`
         pendingAssistantEvent.detail ||
           {}
       );
+    } else if (
+      pendingAssistantEvent.type ===
+      "artfest:assistant-prompt"
+    ) {
+      /*
+       * Homepage (2026) - "Cumpără după ocazie" / speech bubble de
+       * lângă bulă (FloatingHub.jsx). DOAR precompletează inputul cu
+       * textul primit - NU trimite automat mesajul (utilizatorul
+       * trebuie să poată edita înainte de a trimite). Fără `text`
+       * (cazul speech bubble), doar deschide Asistentul, fără să
+       * atingă inputul curent.
+       */
+      const promptText =
+        pendingAssistantEvent.detail
+          ?.text;
+
+      if (
+        typeof promptText ===
+          "string" &&
+        promptText.trim()
+      ) {
+        setInputValue(
+          promptText
+        );
+
+        window.setTimeout(
+          () => {
+            assistantInputRef.current?.focus();
+          },
+          0
+        );
+      }
     }
 
     onPendingAssistantEventHandled?.();
@@ -6409,6 +6449,9 @@ if (personalizationHandled) {
                 </button>
 
                 <textarea
+                  ref={
+                    assistantInputRef
+                  }
                   value={
                     inputValue
                   }

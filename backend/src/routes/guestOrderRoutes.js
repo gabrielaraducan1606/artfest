@@ -16,6 +16,7 @@ import {
   DepositPaymentBlockedError,
   getDepositBlockReason,
 } from "../payments/depositGuards.js";
+import { verifyGuestPaymentAccessToken } from "../lib/guestPaymentAccessToken.js";
 
 const router = Router();
 
@@ -646,17 +647,84 @@ async function findGuestOrderByDepositToken({
 }
 
 /* =========================================================
+   Găsește guest order folosind paymentToken
+
+   Token JWT (guest_payment_access), semnat cu JWT_SECRET, NU e
+   salvat în DB (spre deosebire de guestAccessTokenHash) - vezi
+   src/lib/guestPaymentAccessToken.js. Trimis clientului de
+   guestPaymentReminderJob.js pentru comenzi CARD neplătite.
+========================================================= */
+
+async function findGuestOrderByPaymentToken({
+  orderReference,
+  paymentToken,
+}) {
+  const payload =
+    verifyGuestPaymentAccessToken(
+      paymentToken
+    );
+
+  if (!payload) {
+    return null;
+  }
+
+  /*
+   * Tokenul permite acces DOAR la comanda
+   * indicată de orderId din JWT.
+   */
+  if (
+    String(
+      payload.orderId
+    ) !==
+    String(
+      orderReference
+    )
+  ) {
+    return null;
+  }
+
+  const order =
+    await prisma.order.findFirst({
+      where: {
+        id:
+          payload.orderId,
+
+        isGuestOrder:
+          true,
+
+        userId:
+          null,
+      },
+
+      include:
+        guestOrderInclude,
+    });
+
+  if (!order) {
+    return null;
+  }
+
+  return {
+    order,
+    payload,
+  };
+}
+
+/* =========================================================
    Resolve acces
 
    Acceptăm:
    - token = guestAccessToken normal
-   - depositToken = token temporar primit pe email
+   - depositToken = token temporar primit pe email (avans)
+   - paymentToken = token temporar primit pe email (reminder
+     plată CARD neterminată)
 ========================================================= */
 
 async function resolveGuestOrderAccess({
   orderReference,
   token,
   depositToken,
+  paymentToken,
 }) {
   if (token) {
     const order =
@@ -694,6 +762,27 @@ async function resolveGuestOrderAccess({
 
         depositPayload:
           result.payload,
+      };
+    }
+  }
+
+  if (paymentToken) {
+    const result =
+      await findGuestOrderByPaymentToken({
+        orderReference,
+        paymentToken,
+      });
+
+    if (result?.order) {
+      return {
+        order:
+          result.order,
+
+        accessType:
+          "payment_token",
+
+        depositPayload:
+          null,
       };
     }
   }
@@ -738,6 +827,13 @@ router.get(
             ""
         ).trim();
 
+      const paymentToken =
+        String(
+          req.query
+            .paymentToken ||
+            ""
+        ).trim();
+
       /*
        * Trebuie să avem:
        * - ID / orderNumber
@@ -747,7 +843,8 @@ router.get(
         !orderReference ||
         (
           !token &&
-          !depositToken
+          !depositToken &&
+          !paymentToken
         )
       ) {
         return res
@@ -764,13 +861,15 @@ router.get(
       /*
        * Poate fi accesată fie cu:
        * - guestAccessToken normal
-       * - depositToken temporar.
+       * - depositToken temporar (avans)
+       * - paymentToken temporar (reminder plată CARD)
        */
       const access =
         await resolveGuestOrderAccess({
           orderReference,
           token,
           depositToken,
+          paymentToken,
         });
 
       if (!access) {
@@ -1332,9 +1431,19 @@ router.post(
           ""
         ).trim();
 
+      const paymentToken =
+        String(
+          req.query.paymentToken ||
+          req.body?.paymentToken ||
+          ""
+        ).trim();
+
       if (
         !orderReference ||
-        !token
+        (
+          !token &&
+          !paymentToken
+        )
       ) {
         return res
           .status(400)
@@ -1348,14 +1457,58 @@ router.post(
       }
 
       /*
-       * Pentru plata integrală folosim
-       * DOAR guestAccessToken-ul original.
+       * Reluarea plății integrale acceptă:
+       * - guestAccessToken-ul original (ca înainte)
+       * - paymentToken (reminder de plată CARD neterminată,
+       *   src/jobs/guestPaymentReminderJob.js) - NU depositToken,
+       *   care rămâne strict pentru fluxul de avans.
+       *
+       * Reținem CU CE token s-a făcut accesul, ca să-l trimitem mai
+       * departe la createPaymentForOrder() - în DB avem doar hash-ul
+       * guestAccessToken-ului, deci nu poate fi reconstruit; pentru
+       * paymentToken avem oricum tokenul original din query/body.
        */
-      const order =
-        await findGuestOrder({
-          orderReference,
-          token,
-        });
+      let order = null;
+      let guestReturnToken = null;
+      let guestReturnTokenParam = "token";
+
+      if (token) {
+        order =
+          await findGuestOrder({
+            orderReference,
+            token,
+          });
+
+        if (order) {
+          guestReturnToken =
+            token;
+
+          guestReturnTokenParam =
+            "token";
+        }
+      }
+
+      if (
+        !order &&
+        paymentToken
+      ) {
+        const result =
+          await findGuestOrderByPaymentToken({
+            orderReference,
+            paymentToken,
+          });
+
+        if (result?.order) {
+          order =
+            result.order;
+
+          guestReturnToken =
+            paymentToken;
+
+          guestReturnTokenParam =
+            "paymentToken";
+        }
+      }
 
       if (!order) {
         return res
@@ -1430,18 +1583,19 @@ router.post(
       /*
        * IMPORTANT:
        *
-       * În DB există doar hash-ul tokenului.
-       * Tokenul original îl avem aici din URL.
-       *
-       * Îl atașăm temporar obiectului trimis
-       * către orchestrator.
+       * În DB există doar hash-ul guestAccessToken-ului normal.
+       * Tokenul cu care s-a făcut accesul (guestAccessToken SAU
+       * paymentToken) îl avem aici din URL/body - îl atașăm temporar
+       * obiectului trimis către orchestrator, ca success/cancel URL
+       * să rămână valabile cu ACEL token (vezi guestReturnToken/
+       * guestReturnTokenParam în orchestrator.js).
        */
       const payment =
         await createPaymentForOrder({
           ...order,
 
-          guestAccessToken:
-            token,
+          guestReturnToken,
+          guestReturnTokenParam,
         });
 
       const redirectUrl =

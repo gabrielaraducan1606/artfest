@@ -91,12 +91,42 @@ export async function createPaymentForOrder(
     order.guestAccessToken ||
     null;
 
+  /*
+   * Acces alternativ prin `guestReturnToken` (ex.: paymentToken
+   * din reminder-ul de plată neterminată, guestPaymentReminderJob.js).
+   *
+   * IMPORTANT: dacă accesul comenzii s-a făcut printr-un token care
+   * NU este guestAccessToken original (deci nu poate fi reconstruit
+   * din hash), ruta guest trebuie să trimită aici tokenul CU care a
+   * fost accesată comanda (`guestReturnToken`) + numele parametrului
+   * de query corespunzător (`guestReturnTokenParam`, implicit
+   * "token"), ca succes/cancel URL să rămână valabile cu ACEL token,
+   * nu cu unul reconstruit greșit.
+   *
+   * Dacă `guestReturnToken` nu e trimis, comportamentul e IDENTIC cu
+   * înainte (fallback pe guestAccessToken + "token") - niciun apelant
+   * existent (chekoutRoutes.js, userOrdersRoutes.js,
+   * assistantQuotesRoutes.js) nu e afectat.
+   */
+  const guestReturnToken =
+    order.guestReturnToken ||
+    guestAccessToken ||
+    null;
+
+  const guestReturnTokenParam =
+    order.guestReturnToken
+      ? (
+          order.guestReturnTokenParam ||
+          "token"
+        )
+      : "token";
+
   let successUrl;
   let cancelUrl;
 
  if (
   isGuestOrder &&
-  !guestAccessToken
+  !guestReturnToken
 ) {
   throw new Error(
     "guest_access_token_missing"
@@ -113,8 +143,8 @@ if (isGuestOrder)  {
       `${appUrl}/comanda-guest/${encodeURIComponent(
         order.id
       )}` +
-      `?token=${encodeURIComponent(
-        guestAccessToken
+      `?${guestReturnTokenParam}=${encodeURIComponent(
+        guestReturnToken
       )}` +
       `&payment=success`;
 
@@ -122,8 +152,8 @@ if (isGuestOrder)  {
       `${appUrl}/comanda-guest/${encodeURIComponent(
         order.id
       )}` +
-      `?token=${encodeURIComponent(
-        guestAccessToken
+      `?${guestReturnTokenParam}=${encodeURIComponent(
+        guestReturnToken
       )}` +
       `&payment=cancelled`;
   } else {

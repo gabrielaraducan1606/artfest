@@ -1008,14 +1008,19 @@ export function buildVendorPayoutPeriodKey(periodFrom, periodTo) {
 }
 
 /**
- * ARTFEST DATOREAZĂ VENDORULUI (audit 2026-09-16) - notificare
- * internă de solicitare document, la click admin pe "Solicită
- * factura" (vendor CU formă juridică). Idempotent: dedupeKey pe
- * vendor + interval - un al doilea click pe același interval NU
- * creează un al doilea rând (createVendorNotification ignoră P2002),
- * și returnează `null`, folosit de apelant (adminInvoicesRoutes.js)
- * ca semnal explicit "deja solicitat" - NU trimite un al doilea
- * email în acel caz.
+ * CORECTAT (audit facturare, 2026-09-23): NU reprezintă o sumă pe care
+ * Artfest o datorează vendorului - în modelul actual (Model B), banii
+ * ajung la vendor direct (CARD, transfer Stripe la plată) sau nu trec
+ * niciodată prin Artfest (COD); relația e inversă, vendorul datorează
+ * comision Artfest. Aceasta e STRICT o solicitare de document fiscal
+ * (factura vendorului), pentru reconciliere administrativă - la click
+ * admin pe "Solicită factura" (vendor CU formă juridică). `amount`/
+ * `currency` rămân în `meta` doar ca referință internă a perioadei, NU
+ * ca sumă de plată. Idempotent: dedupeKey pe vendor + interval - un al
+ * doilea click pe același interval NU creează un al doilea rând
+ * (createVendorNotification ignoră P2002), și returnează `null`, folosit
+ * de apelant (adminInvoicesRoutes.js) ca semnal explicit "deja solicitat"
+ * - NU trimite un al doilea email în acel caz.
  */
 export async function notifyVendorPayoutInvoiceRequested(vendorId, { periodFrom, periodTo, amount, currency = "RON" }) {
   if (!vendorId) return null;
@@ -1025,8 +1030,8 @@ export async function notifyVendorPayoutInvoiceRequested(vendorId, { periodFrom,
   return createVendorNotification(vendorId, {
     dedupeKey: `${VENDOR_PAYOUT_INVOICE_REQUEST_PREFIX}:${vendorId}:${periodKey}`,
     type: "system",
-    title: "Solicitare factură - sumă de încasat",
-    body: `Ai o sumă de încasat de la Artfest (${amount} ${currency}). Te rugăm să ne trimiți factura pentru procesarea plății.`,
+    title: "Solicitare factură",
+    body: "Avem nevoie de factura ta pentru reconcilierea internă a comisionului Artfest. Te rugăm să ne-o trimiți.",
     link: "/vendor/support",
     meta: {
       kind: "vendor_payout_invoice_requested",
@@ -1040,10 +1045,11 @@ export async function notifyVendorPayoutInvoiceRequested(vendorId, { periodFrom,
 }
 
 /**
- * ARTFEST DATOREAZĂ VENDORULUI - persoană fizică FĂRĂ formă
- * juridică (independent_creator) - mirror STRUCTURAL de mai sus,
- * NICIODATĂ nu cere "factură" explicit (regulă de business, nu
- * presupunem că PF poate emite una).
+ * CORECTAT (audit facturare, 2026-09-23) - persoană fizică FĂRĂ formă
+ * juridică (independent_creator) - mirror STRUCTURAL de mai sus, aceeași
+ * corectare de sens (NU e o sumă datorată vendorului), NICIODATĂ nu cere
+ * "factură" explicit (regulă de business, nu presupunem că PF poate
+ * emite una).
  */
 export async function notifyVendorPayoutFiscalDocsRequested(vendorId, { periodFrom, periodTo, amount, currency = "RON" }) {
   if (!vendorId) return null;
@@ -1053,8 +1059,8 @@ export async function notifyVendorPayoutFiscalDocsRequested(vendorId, { periodFr
   return createVendorNotification(vendorId, {
     dedupeKey: `${VENDOR_PAYOUT_FISCAL_DOCS_REQUEST_PREFIX}:${vendorId}:${periodKey}`,
     type: "system",
-    title: "Documente necesare pentru plata Artfest",
-    body: `Ai o sumă de încasat de la Artfest (${amount} ${currency}). Avem nevoie de verificarea documentelor fiscale necesare pentru situația ta - te rugăm să ne contactezi.`,
+    title: "Documente fiscale necesare",
+    body: "Avem nevoie de verificarea documentelor fiscale necesare pentru situația ta, pentru reconcilierea comisionului Artfest - te rugăm să ne contactezi.",
     link: "/vendor/support",
     meta: {
       kind: "vendor_payout_fiscal_docs_requested",

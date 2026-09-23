@@ -65,8 +65,19 @@
 
 .feed {
   display: grid;
+  /*
+   * Desktop lat: 6 coloane (2 rânduri de 12 = senzație de marketplace
+   * bogat, fără să încarce mai multe produse decât PAGE_SIZE=12).
+   * Sub 1440px (max-width al secțiunii), 4 coloane - identic cu
+   * comportamentul anterior.
+   */
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 22px;
+}
+
+.loadMoreSentinel {
+  width: 100%;
+  height: 1px;
 }
 
 /* =========================================================
@@ -424,6 +435,11 @@
   overflow: hidden;
 
   -webkit-box-orient: vertical;
+  /* line-clamp real (lipsea) - titluri lungi nu mai destabilizează
+     înălțimea rândului din grid; min-height rezervă spațiul pentru
+     titlurile scurte, ca toate cardurile să rămână uniforme. */
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 
   min-height: 42px;
 
@@ -720,6 +736,17 @@
 }
 
 /* =========================================================
+   DESKTOP LAT - 6 coloane (2 rânduri de 12 = "marketplace bogat"),
+   fără să încarce mai multe produse decât cele deja aduse (PAGE_SIZE)
+========================================================= */
+
+@media (min-width: 1301px) {
+  .feed {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+/* =========================================================
    TABLETĂ
 ========================================================= */
 
@@ -774,18 +801,46 @@
     white-space: nowrap;
   }
 
+  /*
+   * Carusel orizontal, nu grid vertical lung - carduri suficient de
+   * mari pentru imagine, scroll fluid, fără să încarce prima pagină
+   * mai mult decât PAGE_SIZE (infinite-scroll-ul rămâne funcțional:
+   * IntersectionObserver-ul din PopularProducts.jsx verifică
+   * intersecția cu viewport-ul, indiferent dacă mișcarea e din
+   * scroll vertical sau orizontal).
+   */
   .feed {
-    grid-template-columns:
-      repeat(
-        2,
-        minmax(0, 1fr)
-      );
+    display: flex;
+    grid-template-columns: none;
 
     gap: 12px;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scroll-padding-left: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .feed::-webkit-scrollbar {
+    display: none;
   }
 
   .postCard {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    width: min(66vw, 300px);
+
     border-radius: 14px;
+  }
+
+  /*
+   * Sentinela de infinite-scroll (element gol, la finalul listei) -
+   * într-un rând flex nu mai are voie să pretindă `width: 100%`
+   * (ar împinge ultimul card real în afara ecranului).
+   */
+  .loadMoreSentinel {
+    flex: 0 0 8px;
+    width: 8px;
   }
 
   .productImageWrap {

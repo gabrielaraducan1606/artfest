@@ -1,6 +1,12 @@
 .section {
   width: 100%;
-  padding: 42px 20px 56px;
+  /*
+   * Aliniat cu ritmul celorlalte secțiuni de homepage (34px sus,
+   * PopularProducts/CollectionsSection folosesc aceeași valoare) -
+   * mai compact vertical decât înainte (42/56px), fără să schimbe
+   * structura cardurilor.
+   */
+  padding: 34px 20px 40px;
 
   background:
     linear-gradient(
@@ -12,7 +18,8 @@
 
 .container {
   width: 100%;
-  max-width: 1320px;
+  /* aceeași lățime maximă ca restul secțiunilor de homepage */
+  max-width: 1440px;
   margin: 0 auto;
 }
 

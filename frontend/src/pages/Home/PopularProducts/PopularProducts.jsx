@@ -16,7 +16,12 @@ import {
 import styles from "./PopularProducts.module.css";
 import { api } from "../../../lib/api";
 
-const PAGE_SIZE = 8;
+/*
+ * 12 (în loc de 8) - homepage mai "bogat" vizual, fără endpoint nou:
+ * /api/public/products/feed acceptă `limit` până la 30
+ * (publicProductRoutes.js), deci 12 e sigur, fără schimbare backend.
+ */
+const PAGE_SIZE = 12;
 const RECENT_DAYS = 7;
 
 /* =========================================================
@@ -1413,10 +1418,7 @@ export default function PopularProducts() {
         <div
           ref={loadMoreRef}
           aria-hidden="true"
-          style={{
-            width: "100%",
-            height: "1px",
-          }}
+          className={styles.loadMoreSentinel}
         />
       )}
 

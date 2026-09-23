@@ -20,7 +20,7 @@
 // permanent, doar ascuns cu `hidden` la închidere/comutare - la fel pentru
 // fiecare conținut intern (Asistent/Mesaje) - ca să nu se piardă
 // conversația AI / thread-ul selectat la redeschidere.
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { MessageSquare } from "lucide-react";
 import { SparkleIcon } from "../AIAssistant/icons/AssistantIcons.jsx";
@@ -29,6 +29,7 @@ import { prefetchThreads } from "../../features/messages/hooks/messageThreadsCac
 import MiniMessages from "../../features/messages/components/MiniMessages";
 import { useDraggableLauncher } from "./useDraggableLauncher";
 import { getSafeAreaInsets } from "./safeArea";
+import { createAssistantPromptScheduler } from "./assistantPromptScheduler.js";
 import styles from "./FloatingHub.module.css";
 
 // Identic cu URL-ul construit de MiniMessages (`apiBase`/`scope=all`) -
@@ -55,6 +56,28 @@ const MOBILE_MAX_WIDTH = 480;
 // desktop-ul nu se schimbă față de cum era.
 const DESKTOP_STORAGE_KEY = "artfest-assistant-position";
 const MOBILE_STORAGE_KEY = "artfest-assistant-position-mobile";
+
+/*
+ * Speech bubble homepage (redesign 2026) - vezi comentariul din
+ * componentă. Mesaj "principal" + 3 alternative, alese la întâmplare -
+ * text fix, cerut explicit de business, nu date din API.
+ */
+const PROMPT_MESSAGES = [
+  "Ce cauți? Întreabă-mă orice ✨",
+  "Cauți un cadou? Spune-mi bugetul.",
+  "Ai o ocazie specială? Te ajut să găsești ceva.",
+  "Nu știi ce să alegi? Întreabă-mă.",
+  "Spune-mi pentru cine cauți și ce buget ai.",
+];
+const PROMPT_SESSION_KEY = "artfest-assistant-prompt-shown";
+const PROMPT_SHOW_DELAY_MS = 4500;
+const PROMPT_VISIBLE_MS = 7000;
+const PROMPT_GAP = 12;
+const PROMPT_MAX_WIDTH = 260;
+// butonul × iese puțin peste colțul boxului (ca pe un toast/bubble
+// real) - rezervăm spațiul ăsta la clamp-ul de lățime/poziție, ca să
+// nu iasă niciodată din viewport
+const PROMPT_DISMISS_OVERHANG = 10;
 
 function getPanelSize(insets) {
   if (typeof window === "undefined") return { width: 380, height: 580 };
@@ -282,6 +305,18 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
       "artfest:quote-request",
       openAssistantForBuyerEvent
     );
+    /*
+     * Redesign homepage (2026) - "Cumpără după ocazie" și mesajul
+     * speech-bubble de lângă bulă (mai jos) deschid Asistentul prin
+     * ACELAȘI mecanism ca personalization-start/quote-request de mai
+     * sus, doar cu un nume nou de eveniment și un payload liber
+     * ({ text } opțional, citit în AiAssistant.jsx - doar precompletează
+     * inputul, NU trimite automat mesajul).
+     */
+    window.addEventListener(
+      "artfest:assistant-prompt",
+      openAssistantForBuyerEvent
+    );
 
     return () => {
       window.removeEventListener(
@@ -290,6 +325,10 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
       );
       window.removeEventListener(
         "artfest:quote-request",
+        openAssistantForBuyerEvent
+      );
+      window.removeEventListener(
+        "artfest:assistant-prompt",
         openAssistantForBuyerEvent
       );
     };
@@ -333,6 +372,107 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
     setActivePanel("messages");
     setHasOpenedMessages(true);
   }, [activePanel]);
+
+  /*
+   * =========================================================
+   * SPEECH BUBBLE - invitație spre Asistent, DOAR pe homepage (2026)
+   * =========================================================
+   *
+   * Apare o singură dată automat, la câteva secunde după intrarea pe
+   * "/", rămâne vizibilă câteva secunde, apoi dispare singură - fără
+   * să reapară obsesiv (sessionStorage: o singură dată per tab/sesiune
+   * de navigare, nu la fiecare vizită a homepage-ului). Click -> deschide
+   * Asistentul existent, prin ACELAȘI eveniment folosit de "Cumpără
+   * după ocazie" (vezi listener-ul de mai sus) - nu duplicăm logica de
+   * deschidere.
+   */
+  const isHomepage = location.pathname === "/";
+
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [promptMessage, setPromptMessage] = useState(PROMPT_MESSAGES[0]);
+
+  /*
+   * BUGFIX (audit 2026) - scheduler PUR (assistantPromptScheduler.js,
+   * testat separat cu node --test), fără nicio stare suplimentară de
+   * tip "am încercat deja o dată". Varianta anterioară (un `useRef`
+   * separat de sessionStorage) rămânea blocată permanent după o
+   * tentativă ÎNTRERUPTĂ (user pleacă de pe homepage sau deschide
+   * Asistentul înainte să expire delay-ul) - FloatingHub nu se
+   * demontează la navigare (randat din AppLayout.jsx, în afara
+   * <Outlet/>), deci acel flag supraviețuia pentru tot restul filei,
+   * deși mesajul nu fusese afișat NICIODATĂ (sessionStorage rămânea
+   * gol). `sync()` e idempotent - la fiecare schimbare a lui
+   * `isHomepage`/`open`, anulează orice timer anterior și decide din
+   * nou, strict pe baza stării curente + sessionStorage.
+   */
+  const promptSchedulerRef = useRef(null);
+  if (!promptSchedulerRef.current) {
+    promptSchedulerRef.current = createAssistantPromptScheduler({
+      delayMs: PROMPT_SHOW_DELAY_MS,
+      getAlreadyShown: () => {
+        try {
+          return (
+            window.sessionStorage.getItem(PROMPT_SESSION_KEY) === "1"
+          );
+        } catch {
+          // sessionStorage indisponibil (mod privat etc.) - fără
+          // scriere posibilă, deci mesajul s-ar putea reprograma la
+          // fiecare navigare în acea filă; acceptabil ca degradare
+          // (nu poate deveni "obsesiv" - tot dispare automat).
+          return false;
+        }
+      },
+      markShown: () => {
+        try {
+          window.sessionStorage.setItem(PROMPT_SESSION_KEY, "1");
+        } catch {
+          // ignorăm - fără sessionStorage, nu putem persista flagul
+        }
+      },
+      onShow: () => {
+        setPromptMessage(
+          PROMPT_MESSAGES[
+            Math.floor(Math.random() * PROMPT_MESSAGES.length)
+          ]
+        );
+        setShowPrompt(true);
+      },
+    });
+  }
+
+  useEffect(() => {
+    const scheduler = promptSchedulerRef.current;
+    scheduler.sync({ isHomepage, open });
+    return () => scheduler.cancel();
+  }, [isHomepage, open]);
+
+  useEffect(() => {
+    if (!showPrompt) return undefined;
+
+    const hideTimer = window.setTimeout(() => {
+      setShowPrompt(false);
+    }, PROMPT_VISIBLE_MS);
+
+    return () => window.clearTimeout(hideTimer);
+  }, [showPrompt]);
+
+  // dacă panoul se deschide prin orice altă cale (click direct pe
+  // bulă, alt eveniment deep-link), ascundem imediat mesajul
+  useEffect(() => {
+    if (open) setShowPrompt(false);
+  }, [open]);
+
+  const dismissPrompt = useCallback((event) => {
+    event.stopPropagation();
+    setShowPrompt(false);
+  }, []);
+
+  const handlePromptClick = useCallback(() => {
+    setShowPrompt(false);
+    window.dispatchEvent(
+      new CustomEvent("artfest:assistant-prompt", { detail: {} })
+    );
+  }, []);
 
   const { position, dragHandlers } = useDraggableLauncher({
     storageKey,
@@ -412,6 +552,91 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
     Math.max(padLeft, viewport.width - panelSize.width - padRight)
   );
 
+  /*
+   * Mesajul speech-bubble - poziționare (2026, ajustare):
+   *
+   *   1. STÂNGA bulei ✨, centrat vertical pe ea (cazul normal -
+   *      bula stă implicit jos-dreapta, deci stânga încape aproape
+   *      mereu) - `data-placement="left"`, coada spre dreapta.
+   *   2. Dacă nu încape în stânga (bulă trasă spre marginea stângă,
+   *      viewport îngust), încearcă DREAPTA - `data-placement="right"`,
+   *      coada spre stânga.
+   *   3. Dacă nici lateral nu încape, DEASUPRA bulei (fallback final,
+   *      util mai ales pe mobil) - `data-placement="above"`, coada
+   *      jos, aliniată spre centrul bulei. Dacă nici deasupra nu
+   *      încape (bulă lipită de marginea de sus), trece dedesubt.
+   *
+   * Element decorativ, tranzitoriu (auto-dispare) - o înălțime
+   * ESTIMATĂ (nu măsurată din DOM) e suficientă pentru clamp.
+   */
+  const promptAvailableWidth = Math.max(
+    0,
+    viewport.width - padLeft - padRight - PROMPT_DISMISS_OVERHANG
+  );
+  const promptWidth = Math.min(
+    PROMPT_MAX_WIDTH,
+    Math.max(160, promptAvailableWidth)
+  );
+  const promptEstimatedHeight = 74;
+
+  const promptFitsLeft =
+    position.x - PROMPT_GAP - promptWidth >= padLeft;
+  const promptFitsRight =
+    position.x + COLLAPSED_SIZE + PROMPT_GAP + promptWidth <=
+    viewport.width - padRight;
+
+  const promptPlacement = promptFitsLeft
+    ? "left"
+    : promptFitsRight
+    ? "right"
+    : "above";
+
+  let promptLeft;
+  let promptTop;
+  let promptTailOffset = "50%";
+
+  if (promptPlacement === "left") {
+    promptLeft = position.x - PROMPT_GAP - promptWidth;
+    promptTop =
+      position.y + COLLAPSED_SIZE / 2 - promptEstimatedHeight / 2;
+  } else if (promptPlacement === "right") {
+    promptLeft = position.x + COLLAPSED_SIZE + PROMPT_GAP;
+    promptTop =
+      position.y + COLLAPSED_SIZE / 2 - promptEstimatedHeight / 2;
+  } else {
+    const spaceAboveBubble = position.y - padTop;
+    const fitsAbove =
+      spaceAboveBubble >= promptEstimatedHeight + PROMPT_GAP;
+
+    promptTop = fitsAbove
+      ? position.y - promptEstimatedHeight - PROMPT_GAP
+      : position.y + COLLAPSED_SIZE + PROMPT_GAP;
+
+    promptLeft =
+      position.x + COLLAPSED_SIZE / 2 - promptWidth / 2;
+  }
+
+  promptTop = Math.min(
+    Math.max(promptTop, padTop),
+    Math.max(padTop, viewport.height - promptEstimatedHeight - padBottom)
+  );
+  promptLeft = Math.min(
+    Math.max(promptLeft, padLeft),
+    Math.max(padLeft, viewport.width - promptWidth - padRight)
+  );
+
+  if (promptPlacement === "above") {
+    // coada rămâne aliniată spre centrul bulei, chiar dacă boxul a
+    // fost clamp-uit lateral ca să rămână în viewport
+    promptTailOffset = `${Math.min(
+      Math.max(
+        position.x + COLLAPSED_SIZE / 2 - promptLeft,
+        18
+      ),
+      promptWidth - 18
+    )}px`;
+  }
+
   return (
     <>
       {hasOpenedPanelOnce && (
@@ -478,6 +703,39 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
             </span>
           )}
         </button>
+      )}
+
+      {showPrompt && (
+        <div
+          className={styles.promptWrap}
+          data-placement={promptPlacement}
+          style={{
+            left: promptLeft,
+            top: promptTop,
+            width: promptWidth,
+            "--prompt-tail-offset": promptTailOffset,
+          }}
+        >
+          <button
+            type="button"
+            className={styles.promptBubble}
+            onClick={handlePromptClick}
+          >
+            <span className={styles.promptSparkle} aria-hidden="true">
+              <SparkleIcon size={13} />
+            </span>
+            <span className={styles.promptText}>{promptMessage}</span>
+          </button>
+
+          <button
+            type="button"
+            className={styles.promptDismiss}
+            onClick={dismissPrompt}
+            aria-label="Închide mesajul"
+          >
+            ×
+          </button>
+        </div>
       )}
 
       <button

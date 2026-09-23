@@ -126,6 +126,8 @@ import vendorCatalogImportRoutes from "./src/routes/vendorCatalogImportRoutes.js
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
 // 🔔 JOB: preț orientativ lipsă la produse QUOTE_ONLY
 import { runQuotePriceReminderJob } from "./src/jobs/quotePriceReminderJob.js";
+// 🔔 JOB: reminder plată CARD neterminată (comenzi guest)
+import { runGuestPaymentReminderJob } from "./src/jobs/guestPaymentReminderJob.js";
 import vendorCatalogProductsRoutes
   from "./src/routes/vendorCatalogProductsRoutes.js";
 import customerRequestsRouter
@@ -808,6 +810,22 @@ setInterval(() => {
     console.error("quotePriceReminderJob (interval) failed:", err)
   );
 }, quotePriceReminderIntervalMs);
+
+/*
+ * Reminder plată CARD neterminată (comenzi guest) - o dată la
+ * startup, apoi la fiecare 10 minute, ca followUpNotificationJob.
+ */
+runGuestPaymentReminderJob().catch((err) =>
+  console.error("guestPaymentReminderJob (startup) failed:", err)
+);
+
+const guestPaymentReminderIntervalMs = 10 * 60 * 1000;
+
+setInterval(() => {
+  runGuestPaymentReminderJob().catch((err) =>
+    console.error("guestPaymentReminderJob (interval) failed:", err)
+  );
+}, guestPaymentReminderIntervalMs);
 
 });
 

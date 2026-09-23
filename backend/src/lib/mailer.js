@@ -2934,20 +2934,22 @@ const WHATSAPP_PAYOUT_NUMBER_DISPLAY = "0760 565 147";
 const WHATSAPP_PAYOUT_LINK = "https://wa.me/40760565147";
 
 /**
- * Vendor CU formă juridică (verified_business: SRL/PFA/II/IF) - i se
- * cere să trimită factura pentru suma datorată de Artfest.
+ * CORECTAT (audit facturare, 2026-09-23): NU este o sumă datorată de
+ * Artfest - în modelul actual, Artfest nu mai are de plătit vendorului
+ * pe această cale (CARD: transfer Stripe direct la plată; COD: Artfest
+ * nu încasează niciodată suma produselor). E STRICT o cerere de factură
+ * pentru reconcilierea comisionului lunar (vendorul datorează comision
+ * Artfest, nu invers) - vendor CU formă juridică (verified_business:
+ * SRL/PFA/II/IF).
  */
 export async function sendVendorPayoutInvoiceRequestEmail({
   to,
   vendorName,
   periodLabel,
-  amount,
-  currency = "RON",
 }) {
   if (!to) return;
 
-  const amountLabel = formatMoney(amount || 0, currency);
-  const subject = `Solicitare factură - sumă de încasat de la ${BRAND_NAME}`;
+  const subject = `Solicitare factură - reconciliere comision ${BRAND_NAME}`;
 
   const html = `
 <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -2956,19 +2958,15 @@ export async function sendVendorPayoutInvoiceRequestEmail({
       style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
 
-  <h2 style="color:#111827;margin:0 0 8px;">Ai o sumă de încasat de la ${BRAND_NAME}</h2>
+  <h2 style="color:#111827;margin:0 0 8px;">Solicitare factură</h2>
 
   <p style="color:#374151;margin:0 0 12px;">
     Bună${vendorName ? `, ${vendorName}` : ""},
   </p>
 
   <p style="color:#374151;margin:0 0 12px;">
-    Ai o sumă de încasat de la ${BRAND_NAME} pentru perioada <strong>${periodLabel}</strong>.
-  </p>
-
-  <p style="color:#374151;margin:0 0 12px;">
-    Pentru procesarea plății, te rugăm să ne transmiți factura pentru suma de
-    <strong>${amountLabel}</strong>.
+    Pentru reconcilierea internă a comisionului ${BRAND_NAME} aferent perioadei
+    <strong>${periodLabel}</strong>, te rugăm să ne transmiți factura ta.
   </p>
 
   <p style="color:#374151;margin:0 0 12px;">
@@ -2988,9 +2986,7 @@ export async function sendVendorPayoutInvoiceRequestEmail({
   const text = [
     `Bună${vendorName ? `, ${vendorName}` : ""},`,
     "",
-    `Ai o sumă de încasat de la ${BRAND_NAME} pentru perioada ${periodLabel}.`,
-    "",
-    `Pentru procesarea plății, te rugăm să ne transmiți factura pentru suma de ${amountLabel}.`,
+    `Pentru reconcilierea internă a comisionului ${BRAND_NAME} aferent perioadei ${periodLabel}, te rugăm să ne transmiți factura ta.`,
     "",
     "Poți trimite factura:",
     `- WhatsApp: ${WHATSAPP_PAYOUT_NUMBER_DISPLAY}`,
@@ -3015,22 +3011,22 @@ export async function sendVendorPayoutInvoiceRequestEmail({
 }
 
 /**
- * Vendor PERSOANĂ FIZICĂ, FĂRĂ formă juridică (independent_creator) -
- * NU i se cere factură (nu presupunem că poate emite una) - i se cer
- * STRICT documentele fiscale necesare, fără promisiune de plată până
- * la verificare (cerință explicită, audit 2026-09-16).
+ * CORECTAT (audit facturare, 2026-09-23): NU este o sumă datorată de
+ * Artfest (vezi nota de la sendVendorPayoutInvoiceRequestEmail) - vendor
+ * PERSOANĂ FIZICĂ, FĂRĂ formă juridică (independent_creator). NU i se
+ * cere factură (nu presupunem că poate emite una) - i se cer STRICT
+ * documentele fiscale necesare pentru reconcilierea comisionului lunar,
+ * fără nicio promisiune de plată (cerință explicită, audit 2026-09-16,
+ * reconfirmată 2026-09-23).
  */
 export async function sendVendorPayoutFiscalDocsRequestEmail({
   to,
   vendorName,
   periodLabel,
-  amount,
-  currency = "RON",
 }) {
   if (!to) return;
 
-  const amountLabel = formatMoney(amount || 0, currency);
-  const subject = `Documente necesare pentru plata ${BRAND_NAME}`;
+  const subject = `Documente fiscale necesare - reconciliere comision ${BRAND_NAME}`;
 
   const html = `
 <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -3039,19 +3035,15 @@ export async function sendVendorPayoutFiscalDocsRequestEmail({
       style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
 
-  <h2 style="color:#111827;margin:0 0 8px;">Documente necesare pentru plata ${BRAND_NAME}</h2>
+  <h2 style="color:#111827;margin:0 0 8px;">Documente fiscale necesare</h2>
 
   <p style="color:#374151;margin:0 0 12px;">
     Bună${vendorName ? `, ${vendorName}` : ""},
   </p>
 
   <p style="color:#374151;margin:0 0 12px;">
-    Ai o sumă de încasat de la ${BRAND_NAME} pentru perioada <strong>${periodLabel}</strong>,
-    în valoare de <strong>${amountLabel}</strong>.
-  </p>
-
-  <p style="color:#374151;margin:0 0 12px;">
-    Pentru procesarea corectă a plății, avem nevoie de verificarea documentelor fiscale
+    Pentru reconcilierea internă a comisionului ${BRAND_NAME} aferent perioadei
+    <strong>${periodLabel}</strong>, avem nevoie de verificarea documentelor fiscale
     necesare pentru situația ta.
   </p>
 
@@ -3076,9 +3068,7 @@ export async function sendVendorPayoutFiscalDocsRequestEmail({
   const text = [
     `Bună${vendorName ? `, ${vendorName}` : ""},`,
     "",
-    `Ai o sumă de încasat de la ${BRAND_NAME} pentru perioada ${periodLabel}, în valoare de ${amountLabel}.`,
-    "",
-    "Pentru procesarea corectă a plății, avem nevoie de verificarea documentelor fiscale necesare pentru situația ta.",
+    `Pentru reconcilierea internă a comisionului ${BRAND_NAME} aferent perioadei ${periodLabel}, avem nevoie de verificarea documentelor fiscale necesare pentru situația ta.`,
     "",
     "Te rugăm să ne contactezi prin:",
     `- WhatsApp: ${WHATSAPP_PAYOUT_NUMBER_DISPLAY}`,
@@ -3566,6 +3556,186 @@ const orderLink =
 
     template:
       "deposit_requested",
+
+    userId,
+
+    orderId,
+
+    toName:
+      customerName ||
+      null,
+
+    mailOptions: {
+      ...senderEnvelope(
+        "noreply"
+      ),
+
+      to,
+
+      subject,
+      html,
+      text,
+
+      headers:
+        AUTO_HEADERS,
+    },
+  });
+}
+
+/* ============================================================
+   GUEST PAYMENT REMINDER (comandă guest CARD neplătită)
+
+   Trimis de src/jobs/guestPaymentReminderJob.js - o singură dată
+   per comandă (dedup pe Order.guestPaymentReminderSentAt).
+============================================================ */
+
+export async function sendGuestPaymentReminderEmail({
+  to,
+  userId = null,
+  orderId,
+  orderNumber,
+  customerName,
+  total,
+  currency = "RON",
+  paymentToken,
+}) {
+  if (
+    !to ||
+    !orderId ||
+    !paymentToken
+  ) {
+    return;
+  }
+
+  const displayNo =
+    orderNumber ||
+    orderId;
+
+  const totalLabel =
+    formatMoney(
+      total,
+      currency
+    );
+
+  const orderLink =
+    APP_URL
+      ? `${APP_URL}/comanda-guest/${encodeURIComponent(
+          orderId
+        )}?paymentToken=${encodeURIComponent(
+          paymentToken
+        )}`
+      : null;
+
+  const subject =
+    `Plata pentru comanda #${displayNo} nu a fost finalizată - ${BRAND_NAME}`;
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img
+      src="${EMAIL_LOGO_URL}"
+      alt="${BRAND_NAME} logo"
+      width="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;"
+    >
+  </div>
+
+  <div style="background:#ffffff;border-radius:14px;padding:22px;border:1px solid #e5e7eb;">
+    <h2 style="color:#111827;margin:0 0 12px;">
+      Plata comenzii tale nu a fost finalizată
+    </h2>
+
+    <p style="color:#374151;margin:0 0 12px;line-height:1.6;">
+      Bună, <strong>${customerName || "client"}</strong>,
+    </p>
+
+    <p style="color:#374151;margin:0 0 16px;line-height:1.6;">
+      Am observat că plata cu cardul pentru comanda
+      <strong>#${displayNo}</strong> nu a fost finalizată. Comanda ta
+      este păstrată, dar nu va putea fi procesată până la finalizarea
+      plății.
+    </p>
+
+    <div
+      style="
+        background:#fff8e8;
+        border:1px solid #f3d48a;
+        border-radius:12px;
+        padding:16px;
+        margin:16px 0;
+      "
+    >
+      <div style="color:#374151;">
+        <strong>Total de achitat:</strong>
+        ${totalLabel}
+      </div>
+    </div>
+
+    <p style="color:#374151;margin:0 0 16px;line-height:1.6;">
+      Poți finaliza plata în siguranță, oricând, folosind butonul de
+      mai jos.
+    </p>
+
+    ${
+      orderLink
+        ? `
+          <p style="text-align:center;margin:24px 0 12px;">
+            <a
+              href="${orderLink}"
+              style="
+                background:#6f4e43;
+                color:#ffffff;
+                padding:13px 22px;
+                border-radius:10px;
+                text-decoration:none;
+                font-weight:700;
+                display:inline-block;
+              "
+            >
+              Finalizează plata
+            </a>
+          </p>
+
+          <p style="color:#6b7280;font-size:12px;text-align:center;margin:0;">
+            Dacă butonul nu funcționează, accesează:
+            <a href="${orderLink}">
+              ${orderLink}
+            </a>
+          </p>
+        `
+        : ""
+    }
+  </div>
+
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:20px 0 0;">
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>
+`.trim();
+
+  const text = [
+    `Bună, ${customerName || "client"},`,
+    "",
+    `Plata cu cardul pentru comanda #${displayNo} nu a fost finalizată.`,
+    `Total de achitat: ${totalLabel}`,
+    "",
+    orderLink
+      ? `Finalizează plata: ${orderLink}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return sendMailLogged({
+    senderKey:
+      "noreply",
+
+    to,
+
+    subject,
+
+    template:
+      "guest_payment_reminder",
 
     userId,
 

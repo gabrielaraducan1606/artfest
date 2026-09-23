@@ -1,0 +1,71 @@
+/* =========================================================
+   SECTION (aceeași convenție ca PopularProducts/OccasionCarousel)
+   Doar chrome-ul secțiunii - grila de carduri vine din
+   CollectionCards.jsx / CollectionsSection.module.css (reutilizat
+   ca atare, neatins).
+========================================================= */
+
+.section {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 8px 24px 34px;
+  color: var(--color-text);
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.heading {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: clamp(1.5rem, 2vw, 2rem);
+  line-height: 1.15;
+  font-weight: 800;
+  color: var(--color-text);
+  letter-spacing: -0.025em;
+}
+
+.subheading {
+  margin: 7px 0 0;
+  max-width: 560px;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+
+.viewAll {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-primary);
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition:
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.viewAll:hover {
+  color: var(--color-hover);
+  transform: translateX(2px);
+}
+
+@media (max-width: 640px) {
+  .section {
+    padding: 4px 16px 26px;
+  }
+
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+}
