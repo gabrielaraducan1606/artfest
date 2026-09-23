@@ -69,8 +69,28 @@ const PROMPT_MESSAGES = [
   "Nu știi ce să alegi? Întreabă-mă.",
   "Spune-mi pentru cine cauți și ce buget ai.",
 ];
-const PROMPT_SESSION_KEY = "artfest-assistant-prompt-shown";
-const PROMPT_SHOW_DELAY_MS = 4500;
+
+/*
+ * FRECVENȚĂ (audit 2026) - vezi assistantPromptScheduler.js pentru
+ * logica completă (pură, testată separat). Chei sessionStorage (NU
+ * localStorage) - separate, nu mai e un singur flag boolean:
+ *   - PROMPT_SHOWN_COUNT_KEY: câte apariții reale, în sesiunea curentă;
+ *   - PROMPT_NEXT_ELIGIBLE_AT_KEY: timestamp - cea mai devreme oră la
+ *     care poate avea loc URMĂTOAREA apariție (reapariție normală SAU
+ *     cooldown de dismiss, oricare a fost setat ultimul);
+ *   - ASSISTANT_OPENED_KEY: userul a deschis Asistentul, vreodată, în
+ *     această sesiune - dacă da, NU mai apare deloc mesajul.
+ */
+const PROMPT_SHOWN_COUNT_KEY = "artfest-assistant-prompt-shown-count";
+const PROMPT_NEXT_ELIGIBLE_AT_KEY = "artfest-assistant-prompt-next-eligible-at";
+const ASSISTANT_OPENED_KEY = "artfest-assistant-opened";
+
+const PROMPT_SHOW_DELAY_MS = 4500; // prima apariție, ~4-5s
+const PROMPT_MIN_REAPPEAR_MS = 60000; // reapariție (ignorată) - 60-90s
+const PROMPT_MAX_REAPPEAR_MS = 90000;
+const PROMPT_DISMISS_COOLDOWN_MS = 240000; // dismiss manual (×) - 4 minute
+const PROMPT_MAX_APPEARANCES = 3; // maximum pe sesiune
+
 const PROMPT_VISIBLE_MS = 7000;
 const PROMPT_GAP = 12;
 const PROMPT_MAX_WIDTH = 260;
@@ -378,63 +398,102 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
    * SPEECH BUBBLE - invitație spre Asistent, DOAR pe homepage (2026)
    * =========================================================
    *
-   * Apare o singură dată automat, la câteva secunde după intrarea pe
-   * "/", rămâne vizibilă câteva secunde, apoi dispare singură - fără
-   * să reapară obsesiv (sessionStorage: o singură dată per tab/sesiune
-   * de navigare, nu la fiecare vizită a homepage-ului). Click -> deschide
-   * Asistentul existent, prin ACELAȘI eveniment folosit de "Cumpără
-   * după ocazie" (vezi listener-ul de mai sus) - nu duplicăm logica de
-   * deschidere.
+   * Frecvență (vezi assistantPromptScheduler.js pentru logica completă,
+   * testată separat): primă apariție ~4,5s; dacă userul o ignoră, poate
+   * reapărea după 60-90s, maximum 3 apariții/sesiune; odată ce userul
+   * DESCHIDE Asistentul, nu mai apare deloc restul sesiunii; dismiss
+   * manual (×) aplică un cooldown mai lung (4 minute) înainte de o
+   * eventuală reapariție. Click -> deschide Asistentul existent, prin
+   * ACELAȘI eveniment folosit de "Cumpără după ocazie" (vezi
+   * listener-ul de mai sus) - nu duplicăm logica de deschidere.
    */
   const isHomepage = location.pathname === "/";
 
   const [showPrompt, setShowPrompt] = useState(false);
   const [promptMessage, setPromptMessage] = useState(PROMPT_MESSAGES[0]);
+  const lastPromptMessageIndexRef = useRef(-1);
 
   /*
    * BUGFIX (audit 2026) - scheduler PUR (assistantPromptScheduler.js,
    * testat separat cu node --test), fără nicio stare suplimentară de
-   * tip "am încercat deja o dată". Varianta anterioară (un `useRef`
-   * separat de sessionStorage) rămânea blocată permanent după o
-   * tentativă ÎNTRERUPTĂ (user pleacă de pe homepage sau deschide
-   * Asistentul înainte să expire delay-ul) - FloatingHub nu se
-   * demontează la navigare (randat din AppLayout.jsx, în afara
-   * <Outlet/>), deci acel flag supraviețuia pentru tot restul filei,
-   * deși mesajul nu fusese afișat NICIODATĂ (sessionStorage rămânea
-   * gol). `sync()` e idempotent - la fiecare schimbare a lui
-   * `isHomepage`/`open`, anulează orice timer anterior și decide din
-   * nou, strict pe baza stării curente + sessionStorage.
+   * tip "am încercat deja o dată" în afara sessionStorage. `sync()` e
+   * idempotent - la fiecare schimbare a lui `isHomepage`/`open`,
+   * anulează orice timer anterior și decide din nou, strict pe baza
+   * stării curente + sessionStorage - inclusiv la navigare away/back
+   * repetată, fără să dubleze timere.
    */
   const promptSchedulerRef = useRef(null);
   if (!promptSchedulerRef.current) {
     promptSchedulerRef.current = createAssistantPromptScheduler({
-      delayMs: PROMPT_SHOW_DELAY_MS,
-      getAlreadyShown: () => {
+      firstDelayMs: PROMPT_SHOW_DELAY_MS,
+      minReappearMs: PROMPT_MIN_REAPPEAR_MS,
+      maxReappearMs: PROMPT_MAX_REAPPEAR_MS,
+      dismissCooldownMs: PROMPT_DISMISS_COOLDOWN_MS,
+      maxAppearances: PROMPT_MAX_APPEARANCES,
+
+      getShownCount: () => {
         try {
-          return (
-            window.sessionStorage.getItem(PROMPT_SESSION_KEY) === "1"
-          );
+          const raw = window.sessionStorage.getItem(PROMPT_SHOWN_COUNT_KEY);
+          const n = raw == null ? 0 : Number(raw);
+          return Number.isFinite(n) && n >= 0 ? n : 0;
+        } catch {
+          return 0;
+        }
+      },
+      incrementShownCount: () => {
+        try {
+          const raw = window.sessionStorage.getItem(PROMPT_SHOWN_COUNT_KEY);
+          const n = raw == null ? 0 : Number(raw);
+          const next = (Number.isFinite(n) && n >= 0 ? n : 0) + 1;
+          window.sessionStorage.setItem(PROMPT_SHOWN_COUNT_KEY, String(next));
         } catch {
           // sessionStorage indisponibil (mod privat etc.) - fără
-          // scriere posibilă, deci mesajul s-ar putea reprograma la
-          // fiecare navigare în acea filă; acceptabil ca degradare
-          // (nu poate deveni "obsesiv" - tot dispare automat).
+          // contor persistat, mesajul s-ar putea reafișa mai des în
+          // acea filă; degradare acceptabilă (tot dispare automat,
+          // nu poate deveni obsesiv - vezi getEverOpened mai jos).
+        }
+      },
+      getNextEligibleAt: () => {
+        try {
+          const raw = window.sessionStorage.getItem(
+            PROMPT_NEXT_ELIGIBLE_AT_KEY
+          );
+          const n = raw == null ? null : Number(raw);
+          return Number.isFinite(n) ? n : null;
+        } catch {
+          return null;
+        }
+      },
+      setNextEligibleAt: (timestamp) => {
+        try {
+          window.sessionStorage.setItem(
+            PROMPT_NEXT_ELIGIBLE_AT_KEY,
+            String(Math.round(timestamp))
+          );
+        } catch {
+          // ignorăm - vezi nota de la incrementShownCount
+        }
+      },
+      getEverOpened: () => {
+        try {
+          return window.sessionStorage.getItem(ASSISTANT_OPENED_KEY) === "1";
+        } catch {
           return false;
         }
       },
-      markShown: () => {
-        try {
-          window.sessionStorage.setItem(PROMPT_SESSION_KEY, "1");
-        } catch {
-          // ignorăm - fără sessionStorage, nu putem persista flagul
-        }
-      },
+
       onShow: () => {
-        setPromptMessage(
-          PROMPT_MESSAGES[
-            Math.floor(Math.random() * PROMPT_MESSAGES.length)
-          ]
+        // evită repetarea EXACT a ultimului mesaj afișat, ca
+        // alternanța să fie mereu vizibilă la apariții succesive
+        const pool = PROMPT_MESSAGES.map((_, index) => index).filter(
+          (index) =>
+            PROMPT_MESSAGES.length <= 1 ||
+            index !== lastPromptMessageIndexRef.current
         );
+        const nextIndex = pool[Math.floor(Math.random() * pool.length)];
+
+        lastPromptMessageIndexRef.current = nextIndex;
+        setPromptMessage(PROMPT_MESSAGES[nextIndex]);
         setShowPrompt(true);
       },
     });
@@ -445,6 +504,23 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
     scheduler.sync({ isHomepage, open });
     return () => scheduler.cancel();
   }, [isHomepage, open]);
+
+  /*
+   * Odată ce userul deschide Asistentul (oricând, prin orice cale -
+   * bula ✨, o ocazie, mesajul însuși) - marcăm persistent, ca mesajul
+   * să nu mai reapară deloc restul sesiunii, nici după ce panoul se
+   * închide la loc (efectul de mai sus oricum nu programează NIMIC
+   * cât `open === true`, dar fără acest flag ar relua reapariția
+   * normală imediat ce panoul se închide).
+   */
+  useEffect(() => {
+    if (!open) return;
+    try {
+      window.sessionStorage.setItem(ASSISTANT_OPENED_KEY, "1");
+    } catch {
+      // ignorăm - fără sessionStorage, flagul nu poate fi persistat
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!showPrompt) return undefined;
@@ -465,6 +541,9 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
   const dismissPrompt = useCallback((event) => {
     event.stopPropagation();
     setShowPrompt(false);
+    // cooldown mai lung înainte de o eventuală reapariție - vezi
+    // assistantPromptScheduler.js
+    promptSchedulerRef.current?.registerDismiss();
   }, []);
 
   const handlePromptClick = useCallback(() => {

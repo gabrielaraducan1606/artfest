@@ -1,7 +1,7 @@
 // src/components/FloatingHub/assistantPromptScheduler.test.js
 //
 // Teste pentru createAssistantPromptScheduler (fără React/DOM - ceas
-// fals injectat, la fel ca restul modulelor pure din proiect).
+// fals + random injectat, la fel ca restul modulelor pure din proiect).
 //
 // Rulare: node --test src/components/FloatingHub/assistantPromptScheduler.test.js
 
@@ -11,17 +11,17 @@ import assert from "node:assert/strict";
 import { createAssistantPromptScheduler } from "./assistantPromptScheduler.js";
 
 /* =========================================================
-   CEAS FALS - control manual asupra timpului, fără dependințe noi
+   CEAS FALS - `now()` și `setTimeout` legate de ACELAȘI timp intern
 ========================================================= */
 
-function makeFakeClock() {
+function makeFakeClock(startAt = 0) {
   let idSeq = 0;
-  let now = 0;
+  let currentTime = startAt;
   const pending = new Map(); // id -> { fn, dueAt }
 
   function setTimeoutFn(fn, ms) {
     const id = ++idSeq;
-    pending.set(id, { fn, dueAt: now + ms });
+    pending.set(id, { fn, dueAt: currentTime + ms });
     return id;
   }
 
@@ -30,9 +30,9 @@ function makeFakeClock() {
   }
 
   function advance(ms) {
-    now += ms;
+    currentTime += ms;
     const due = [...pending.entries()]
-      .filter(([, t]) => t.dueAt <= now)
+      .filter(([, t]) => t.dueAt <= currentTime)
       .sort((a, b) => a[1].dueAt - b[1].dueAt);
     for (const [id, t] of due) {
       pending.delete(id);
@@ -41,6 +41,7 @@ function makeFakeClock() {
   }
 
   return {
+    now: () => currentTime,
     setTimeoutFn,
     clearTimeoutFn,
     advance,
@@ -48,20 +49,44 @@ function makeFakeClock() {
   };
 }
 
-function makeHarness({ delayMs = 4500 } = {}) {
+/* =========================================================
+   RANDOM CONTROLAT (secvență fixă, altfel 0.5)
+========================================================= */
+
+function makeRandom(sequence = []) {
+  const queue = [...sequence];
+  return () => (queue.length ? queue.shift() : 0.5);
+}
+
+/* =========================================================
+   HARNESS
+========================================================= */
+
+function makeHarness(overrides = {}) {
   const clock = makeFakeClock();
-  let shown = false;
+  let shownCount = 0;
+  let nextEligibleAt = null;
+  let everOpened = false;
   const showCalls = [];
 
   const scheduler = createAssistantPromptScheduler({
-    delayMs,
-    getAlreadyShown: () => shown,
-    markShown: () => {
-      shown = true;
+    firstDelayMs: overrides.firstDelayMs ?? 4500,
+    minReappearMs: overrides.minReappearMs ?? 60000,
+    maxReappearMs: overrides.maxReappearMs ?? 90000,
+    dismissCooldownMs: overrides.dismissCooldownMs ?? 240000,
+    maxAppearances: overrides.maxAppearances ?? 3,
+    getShownCount: () => shownCount,
+    incrementShownCount: () => {
+      shownCount += 1;
     },
-    onShow: () => {
-      showCalls.push(true);
+    getNextEligibleAt: () => nextEligibleAt,
+    setNextEligibleAt: (t) => {
+      nextEligibleAt = t;
     },
+    getEverOpened: () => everOpened,
+    onShow: () => showCalls.push(clock.now()),
+    now: clock.now,
+    random: overrides.random ?? makeRandom(),
     setTimeoutFn: clock.setTimeoutFn,
     clearTimeoutFn: clock.clearTimeoutFn,
   });
@@ -71,217 +96,218 @@ function makeHarness({ delayMs = 4500 } = {}) {
     clock,
     showCalls,
     get shownCount() {
-      return showCalls.length;
+      return shownCount;
     },
-    get isMarkedShown() {
-      return shown;
+    get nextEligibleAt() {
+      return nextEligibleAt;
+    },
+    setEverOpened: (v) => {
+      everOpened = v;
     },
   };
 }
 
 /* =========================================================
-   COMPORTAMENT DE BAZĂ
+   1. PRIMA APARIȚIE (~4,5s)
 ========================================================= */
 
-test("programează și afișează după delay, când homepage și panou închis", () => {
-  const h = makeHarness();
+test("prima apariție: exact la firstDelayMs, nu mai devreme", () => {
+  const h = makeHarness({ firstDelayMs: 4500 });
 
   h.scheduler.sync({ isHomepage: true, open: false });
-  assert.equal(h.clock.pendingCount(), 1);
-  assert.equal(h.shownCount, 0);
-
   h.clock.advance(4499);
-  assert.equal(h.shownCount, 0, "nu apare înainte de expirarea delay-ului");
+  assert.equal(h.showCalls.length, 0);
 
   h.clock.advance(1);
+  assert.equal(h.showCalls.length, 1);
   assert.equal(h.shownCount, 1);
-  assert.equal(h.isMarkedShown, true);
-});
-
-test("NU programează dacă open=true", () => {
-  const h = makeHarness();
-
-  h.scheduler.sync({ isHomepage: true, open: true });
-  assert.equal(h.clock.pendingCount(), 0);
-
-  h.clock.advance(10000);
-  assert.equal(h.shownCount, 0);
-});
-
-test("NU programează dacă isHomepage=false", () => {
-  const h = makeHarness();
-
-  h.scheduler.sync({ isHomepage: false, open: false });
-  assert.equal(h.clock.pendingCount(), 0);
-
-  h.clock.advance(10000);
-  assert.equal(h.shownCount, 0);
-});
-
-test("NU reprogramează dacă mesajul e deja marcat ca afișat", () => {
-  const h = makeHarness();
-
-  // simulează o afișare anterioară reală (sessionStorage deja "1")
-  h.scheduler.sync({ isHomepage: true, open: false });
-  h.clock.advance(4500);
-  assert.equal(h.shownCount, 1);
-
-  h.scheduler.sync({ isHomepage: true, open: false });
-  assert.equal(h.clock.pendingCount(), 0, "niciun timer nou programat");
-
-  h.clock.advance(10000);
-  assert.equal(h.shownCount, 1, "onShow nu se apelează a doua oară");
-});
-
-test("cancel() oprește un timer pending, fără efect ulterior", () => {
-  const h = makeHarness();
-
-  h.scheduler.sync({ isHomepage: true, open: false });
-  assert.equal(h.clock.pendingCount(), 1);
-
-  h.scheduler.cancel();
-  assert.equal(h.clock.pendingCount(), 0);
-
-  h.clock.advance(10000);
-  assert.equal(h.shownCount, 0);
 });
 
 /* =========================================================
-   SCENARIILE CERUTE EXPLICIT
+   2. A DOUA APARIȚIE, DUPĂ COOLDOWN (60-90s)
 ========================================================= */
 
-test("A. intrare pe / -> plecare înainte de delay -> revenire -> mesajul apare", () => {
-  const h = makeHarness();
-
-  // efectul React rulează la montare
-  h.scheduler.sync({ isHomepage: true, open: false });
-  assert.equal(h.clock.pendingCount(), 1);
-
-  // trece puțin timp, dar NU suficient
-  h.clock.advance(2000);
-  assert.equal(h.shownCount, 0);
-
-  // userul pleacă de pe homepage - efectul React rulează cleanup-ul
-  // (cancel), apoi corpul efectului cu isHomepage=false
-  h.scheduler.cancel();
-  h.scheduler.sync({ isHomepage: false, open: false });
-  assert.equal(h.clock.pendingCount(), 0, "timerul a fost anulat la plecare");
-
-  // TENTATIVA NU trebuie considerată "consumată" - sessionStorage
-  // rămâne gol, pentru că mesajul nu a fost afișat niciodată
-  assert.equal(h.isMarkedShown, false);
-
-  // userul revine pe homepage
-  h.scheduler.cancel();
-  h.scheduler.sync({ isHomepage: true, open: false });
-  assert.equal(
-    h.clock.pendingCount(),
-    1,
-    "un nou timer TREBUIE programat la revenire - aici pica bug-ul vechi"
-  );
-
-  h.clock.advance(4500);
-  assert.equal(h.shownCount, 1, "mesajul apare la a doua încercare");
-});
-
-test("B. intrare pe / cu Assistant deja deschis -> close -> mesajul apare", () => {
-  const h = makeHarness();
-
-  // montare cu panoul deja deschis (ex. deep-link ?assistant=quote)
-  h.scheduler.sync({ isHomepage: true, open: true });
-  assert.equal(h.clock.pendingCount(), 0, "nu se programează cât panoul e deschis");
-
-  // panoul rămâne deschis o vreme
-  h.clock.advance(10000);
-  assert.equal(h.shownCount, 0);
-
-  // userul închide panoul
-  h.scheduler.cancel();
-  h.scheduler.sync({ isHomepage: true, open: false });
-  assert.equal(
-    h.clock.pendingCount(),
-    1,
-    "la închiderea panoului, mesajul trebuie reprogramat"
-  );
-
-  h.clock.advance(4500);
-  assert.equal(h.shownCount, 1);
-});
-
-test("C. mesaj deja afișat -> navigare away/back -> NU reapare", () => {
-  const h = makeHarness();
+test("a doua apariție: reprogramată automat, în fereastra 60-90s (auto-perpetuare, fără schimbare de rută)", () => {
+  // random=0.5 -> delay reapariție = 60000 + round(0.5*30000) = 75000ms
+  const h = makeHarness({ random: makeRandom([0.5]) });
 
   h.scheduler.sync({ isHomepage: true, open: false });
   h.clock.advance(4500);
-  assert.equal(h.shownCount, 1);
-  assert.equal(h.isMarkedShown, true);
+  assert.equal(h.showCalls.length, 1, "prima apariție");
 
-  // pleacă de pe homepage
-  h.scheduler.cancel();
-  h.scheduler.sync({ isHomepage: false, open: false });
-  assert.equal(h.clock.pendingCount(), 0);
+  // nextEligibleAt trebuie să fie în fereastra [60s, 90s] de la prima afișare
+  const delta = h.nextEligibleAt - h.showCalls[0];
+  assert.ok(delta >= 60000 && delta <= 90000, `delay ${delta}ms în afara ferestrei 60-90s`);
+  assert.equal(delta, 75000, "cu random=0.5, exact mijlocul intervalului");
 
-  // revine pe homepage
-  h.scheduler.cancel();
-  h.scheduler.sync({ isHomepage: true, open: false });
-  assert.equal(
-    h.clock.pendingCount(),
-    0,
-    "NU se reprogramează - a fost deja afișat în această sesiune"
-  );
+  // înainte de expirare - nicio a doua apariție
+  h.clock.advance(74999);
+  assert.equal(h.showCalls.length, 1);
 
-  h.clock.advance(10000);
-  assert.equal(h.shownCount, 1, "tot o singură afișare");
-});
-
-test("D. dismiss manual (echivalent: mesaj marcat afișat) -> NU reapare în aceeași sesiune", () => {
-  // Dismiss-ul manual (FloatingHub.jsx: dismissPrompt) NU atinge
-  // scheduler-ul deloc - doar ascunde vizual (`setShowPrompt(false)`).
-  // sessionStorage e deja "1" din momentul AFIȘĂRII (markShown se
-  // apelează la show, nu la dismiss) - deci, din perspectiva
-  // scheduler-ului, comportamentul e identic cu C: odată marcat ca
-  // afișat, niciun sync() ulterior (indiferent de motiv - navigare,
-  // deschidere/închidere panou) nu mai reprogramează nimic.
-  const h = makeHarness();
-
-  h.scheduler.sync({ isHomepage: true, open: false });
-  h.clock.advance(4500);
-  assert.equal(h.shownCount, 1);
-
-  // userul a apăsat × imediat după afișare (echivalent: showPrompt=false
-  // în React, sessionStorage rămâne "1" - neatins de dismiss)
-  // apoi revine pe homepage / deschide și închide Asistentul de mai
-  // multe ori
-  for (let i = 0; i < 3; i += 1) {
-    h.scheduler.cancel();
-    h.scheduler.sync({ isHomepage: false, open: false });
-    h.scheduler.cancel();
-    h.scheduler.sync({ isHomepage: true, open: true });
-    h.scheduler.cancel();
-    h.scheduler.sync({ isHomepage: true, open: false });
-  }
-
-  assert.equal(h.clock.pendingCount(), 0);
-  h.clock.advance(10000);
-  assert.equal(h.shownCount, 1, "rămâne o singură afișare, orice ar face userul după");
+  // la expirare - a doua apariție
+  h.clock.advance(1);
+  assert.equal(h.showCalls.length, 2);
 });
 
 /* =========================================================
-   markShown - apelat STRICT la afișarea reală, niciodată mai devreme
+   3. LIMITĂ MAXIMĂ DE APARIȚII
 ========================================================= */
 
-test("markShown NU se apelează pentru o tentativă întreruptă (doar la afișarea reală)", () => {
+test("limită maximă de apariții: exact maxAppearances, apoi NIMIC (fără timer nou)", () => {
+  const h = makeHarness({
+    maxAppearances: 3,
+    random: makeRandom([0.1, 0.5, 0.9]), // irelevant care valori exacte
+  });
+
+  h.scheduler.sync({ isHomepage: true, open: false });
+
+  h.clock.advance(4500);
+  assert.equal(h.showCalls.length, 1);
+
+  h.clock.advance(90000); // suficient pentru orice reapariție posibilă
+  assert.equal(h.showCalls.length, 2);
+
+  h.clock.advance(90000);
+  assert.equal(h.showCalls.length, 3);
+
+  // a 4-a NU trebuie să mai apară, indiferent cât timp trece
+  assert.equal(h.clock.pendingCount(), 0, "niciun timer nou programat după limită");
+  h.clock.advance(10 * 60000);
+  assert.equal(h.showCalls.length, 3, "rămâne la maximum");
+});
+
+/* =========================================================
+   4. DUPĂ DESCHIDEREA ASISTENTULUI, NU MAI APARE
+========================================================= */
+
+test("dacă Asistentul e deschis ÎNAINTE de prima apariție -> nu programează nimic", () => {
   const h = makeHarness();
+  h.setEverOpened(true);
+
+  h.scheduler.sync({ isHomepage: true, open: false });
+  assert.equal(h.clock.pendingCount(), 0);
+
+  h.clock.advance(10 * 60000);
+  assert.equal(h.showCalls.length, 0);
+});
+
+test("dacă Asistentul e deschis DUPĂ o apariție, apoi închis -> nu mai reapare restul sesiunii", () => {
+  const h = makeHarness({ random: makeRandom([0.5]) });
+
+  h.scheduler.sync({ isHomepage: true, open: false });
+  h.clock.advance(4500);
+  assert.equal(h.showCalls.length, 1);
+
+  // userul deschide Asistentul (FloatingHub.jsx marchează everOpened=true
+  // și apelează sync cu open:true - care oricum anulează orice timer activ)
+  h.setEverOpened(true);
+  h.scheduler.sync({ isHomepage: true, open: true });
+  assert.equal(h.clock.pendingCount(), 0);
+
+  // apoi închide panoul - revenim la open:false, dar everOpened rămâne true
+  h.scheduler.sync({ isHomepage: true, open: false });
+  assert.equal(h.clock.pendingCount(), 0, "nu se reprogramează - everOpened blochează definitiv");
+
+  h.clock.advance(10 * 60000);
+  assert.equal(h.showCalls.length, 1, "o singură apariție, niciodată a doua");
+});
+
+/* =========================================================
+   5. DISMISS MANUAL -> COOLDOWN MAI LUNG
+========================================================= */
+
+test("dismiss manual: suprascrie fereastra scurtă cu un cooldown mai lung, respectat", () => {
+  const h = makeHarness({
+    random: makeRandom([0.5]), // reapariție normală ar fi la +75000ms
+    dismissCooldownMs: 240000,
+    maxAppearances: 3,
+  });
+
+  h.scheduler.sync({ isHomepage: true, open: false });
+  h.clock.advance(4500);
+  assert.equal(h.showCalls.length, 1);
+
+  const normalReappearAt = h.nextEligibleAt; // 4500 + 75000 = 79500
+
+  // userul dă dismiss imediat
+  h.scheduler.registerDismiss();
+  assert.notEqual(
+    h.nextEligibleAt,
+    normalReappearAt,
+    "cooldown-ul de dismiss suprascrie fereastra normală"
+  );
+  assert.equal(h.nextEligibleAt, h.clock.now() + 240000);
+
+  // la momentul la care AR fi reapărut normal (75000ms) - NU reapare
+  h.clock.advance(75000 - 1);
+  assert.equal(h.showCalls.length, 1, "cooldown-ul scurt e ignorat după dismiss");
+
+  // la expirarea cooldown-ului de dismiss - reapare
+  h.clock.advance(240000 - 75000 + 1);
+  assert.equal(h.showCalls.length, 2, "reapare abia după cooldown-ul mai lung");
+});
+
+test("dismiss manual după ULTIMA apariție permisă - nu forțează o reapariție peste limită", () => {
+  const h = makeHarness({ maxAppearances: 1, random: makeRandom([0.5]) });
+
+  h.scheduler.sync({ isHomepage: true, open: false });
+  h.clock.advance(4500);
+  assert.equal(h.showCalls.length, 1);
+
+  h.scheduler.registerDismiss();
+  h.clock.advance(10 * 60000);
+  assert.equal(h.showCalls.length, 1, "maxAppearances=1 rămâne respectat");
+});
+
+/* =========================================================
+   6. NAVIGARE AWAY/BACK NU DUBLEAZĂ TIMERE
+========================================================= */
+
+test("navigare away/back repetată înainte de prima apariție - nu dublează timer-ul, nu dublează afișarea", () => {
+  const h = makeHarness({ firstDelayMs: 4500 });
 
   h.scheduler.sync({ isHomepage: true, open: false });
   h.clock.advance(1000);
 
-  // întrerupem înainte de expirare
-  h.scheduler.cancel();
-  assert.equal(h.isMarkedShown, false, "markShown nu a fost apelat");
+  // pleacă și revine de mai multe ori, înainte de expirarea delay-ului
+  for (let i = 0; i < 5; i += 1) {
+    h.scheduler.sync({ isHomepage: false, open: false });
+    assert.ok(h.clock.pendingCount() <= 1, "niciodată mai mult de un timer pending");
+    h.scheduler.sync({ isHomepage: true, open: false });
+    assert.ok(h.clock.pendingCount() <= 1, "niciodată mai mult de un timer pending");
+  }
+
+  h.clock.advance(4500);
+  assert.equal(h.showCalls.length, 1, "exact o singură apariție, nu una per revenire");
+});
+
+test("navigare away/back repetată ÎNTRE apariții - nu accelerează/dublează reapariția", () => {
+  const h = makeHarness({ random: makeRandom([0.5]) });
 
   h.scheduler.sync({ isHomepage: true, open: false });
   h.clock.advance(4500);
-  assert.equal(h.isMarkedShown, true, "markShown se apelează abia la afișarea reală");
-  assert.equal(h.shownCount, 1);
+  assert.equal(h.showCalls.length, 1);
+
+  for (let i = 0; i < 5; i += 1) {
+    h.scheduler.sync({ isHomepage: false, open: false });
+    h.scheduler.sync({ isHomepage: true, open: false });
+    assert.ok(h.clock.pendingCount() <= 1);
+  }
+
+  h.clock.advance(75000);
+  assert.equal(h.showCalls.length, 2, "reapariția normală, nicio duplicare din cauza navigării");
+});
+
+test("deschidere/închidere repetată a panoului nu creează timere multiple", () => {
+  const h = makeHarness();
+
+  for (let i = 0; i < 4; i += 1) {
+    h.scheduler.sync({ isHomepage: true, open: true });
+    assert.equal(h.clock.pendingCount(), 0);
+    h.scheduler.sync({ isHomepage: true, open: false });
+    assert.equal(h.clock.pendingCount(), 1);
+  }
+
+  h.clock.advance(4500);
+  assert.equal(h.showCalls.length, 1);
 });

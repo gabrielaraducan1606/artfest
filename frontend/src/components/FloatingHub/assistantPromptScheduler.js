@@ -2,48 +2,81 @@
 //
 // Logica de PROGRAMARE a mesajului speech-bubble de lângă bula
 // Asistentului (FloatingHub.jsx) - extrasă ca modul PUR (fără React,
-// fără DOM direct - `setTimeout`/`clearTimeout` injectabile), ca să
-// poată fi testată cu `node --test`, la fel ca restul modulelor pure
-// din proiect (ex. collectionCards.js).
+// fără DOM direct - storage/ceas/scheduler injectabile), testabilă cu
+// `node --test`, la fel ca restul modulelor pure din proiect.
 //
-// BUG REPARAT (audit 2026) - varianta anterioară ținea o stare
-// suplimentară de tip "am încercat deja o dată să programez" (un
-// `useRef` separat de sessionStorage). O tentativă ÎNTRERUPTĂ (user
-// pleacă de pe homepage, sau deschide Asistentul, ÎNAINTE ca delay-ul
-// să expire) anula timer-ul, dar acel flag rămânea `true` PENTRU
-// TOATĂ DURATA DE VIAȚĂ A COMPONENTEI (FloatingHub nu se demontează
-// la navigare, fiind randat din AppLayout.jsx, în afara <Outlet/>) -
-// deci mesajul nu mai putea fi reprogramat NICIODATĂ în acea filă,
-// deși nu fusese afișat efectiv niciodată (sessionStorage rămânea gol).
+// FRECVENȚĂ (audit 2026, cerință explicită de business):
+//   - prima apariție: ~4,5s de la intrarea pe homepage;
+//   - dacă userul o ignoră (nu deschide Asistentul, nu dă dismiss),
+//     poate reapărea după 60-90s (interval, ales aleator la fiecare
+//     afișare - "aproximativ", nu o valoare fixă);
+//   - maximum 3 apariții pe sesiune;
+//   - dacă userul deschide Asistentul (oricând, chiar dacă îl închide
+//     ulterior) - NU mai apare deloc, tot restul sesiunii;
+//   - dacă userul dă dismiss manual (×) - cooldown mai lung
+//     (implicit 4 minute) înainte de o eventuală reapariție ulterioară,
+//     tot sub limita de 3 apariții.
 //
-// Fix: NICIO stare suplimentară de tip "am încercat" - `sync()` e
-// idempotent, apelabil oricând, decide STRICT pe baza stării curente
-// (isHomepage, open) + sessionStorage (`getAlreadyShown`, singura
-// sursă de adevăr pentru "a fost deja AFIȘAT"). O tentativă întreruptă
-// nu "consumă" nimic - la revenire pe homepage (sau la închiderea
-// panoului), `sync()` reprogramează normal.
+// STARE - păstrată STRICT prin accessorii injectați (sessionStorage în
+// FloatingHub.jsx, NU localStorage):
+//   - `getShownCount`/`incrementShownCount` - câte apariții reale au
+//     avut loc deja în sesiune;
+//   - `getNextEligibleAt`/`setNextEligibleAt` - timestamp (ms) - cel
+//     mai devreme moment la care poate avea loc URMĂTOAREA apariție
+//     (folosit doar de la a 2-a apariție încolo; prima foloseşte
+//     mereu `firstDelayMs` de la intrarea pe homepage);
+//   - `getEverOpened` - a deschis userul Asistentul, VREODATĂ, în
+//     această sesiune (setat din FloatingHub.jsx la `open === true`).
+//
+// BUG-UL VECHI (reparat anterior, audit 2026) NU se repetă aici: nu
+// există nicio stare suplimentară de tip "am încercat deja o dată" în
+// afara stării descrise mai sus - `sync()` rămâne idempotent, apelabil
+// oricând (inclusiv la navigare away/back repetată), anulează mereu
+// timer-ul anterior și decide din nou, strict pe baza stării curente.
+
+export const DEFAULT_FIRST_DELAY_MS = 4500;
+export const DEFAULT_MIN_REAPPEAR_MS = 60000;
+export const DEFAULT_MAX_REAPPEAR_MS = 90000;
+export const DEFAULT_DISMISS_COOLDOWN_MS = 240000; // 4 minute
+export const DEFAULT_MAX_APPEARANCES = 3;
 
 /**
  * @param {object} params
- * @param {number} params.delayMs - întârzierea înainte de afișare.
- * @param {() => boolean} params.getAlreadyShown - citește dacă mesajul
- *   a fost deja AFIȘAT în sesiunea curentă (sessionStorage).
- * @param {() => void} params.markShown - marchează afișarea (scris
- *   STRICT în momentul afișării reale, niciodată mai devreme).
- * @param {() => void} params.onShow - apelat când expiră delay-ul și
- *   chiar trebuie afișat mesajul (ex. setState React).
+ * @param {number} [params.firstDelayMs]
+ * @param {number} [params.minReappearMs]
+ * @param {number} [params.maxReappearMs]
+ * @param {number} [params.dismissCooldownMs]
+ * @param {number} [params.maxAppearances]
+ * @param {() => number} params.getShownCount
+ * @param {() => void} params.incrementShownCount
+ * @param {() => number|null} params.getNextEligibleAt
+ * @param {(timestamp: number) => void} params.setNextEligibleAt
+ * @param {() => boolean} params.getEverOpened
+ * @param {() => void} params.onShow - apelat la fiecare apariție reală.
+ * @param {() => number} [params.now] - injectabil pentru teste.
+ * @param {() => number} [params.random] - injectabil (0..1) pentru teste.
  * @param {typeof setTimeout} [params.setTimeoutFn]
  * @param {typeof clearTimeout} [params.clearTimeoutFn]
  */
 export function createAssistantPromptScheduler({
-  delayMs,
-  getAlreadyShown,
-  markShown,
+  firstDelayMs = DEFAULT_FIRST_DELAY_MS,
+  minReappearMs = DEFAULT_MIN_REAPPEAR_MS,
+  maxReappearMs = DEFAULT_MAX_REAPPEAR_MS,
+  dismissCooldownMs = DEFAULT_DISMISS_COOLDOWN_MS,
+  maxAppearances = DEFAULT_MAX_APPEARANCES,
+  getShownCount,
+  incrementShownCount,
+  getNextEligibleAt,
+  setNextEligibleAt,
+  getEverOpened,
   onShow,
+  now = () => Date.now(),
+  random = Math.random,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
 }) {
   let timerId = null;
+  let lastState = { isHomepage: false, open: false };
 
   function cancel() {
     if (timerId !== null) {
@@ -52,28 +85,62 @@ export function createAssistantPromptScheduler({
     }
   }
 
-  /**
-   * Re-evaluează dacă trebuie (re)programat un timer - apelată din
-   * efectul React la montare și la fiecare schimbare a lui `isHomepage`
-   * / `open` (vezi FloatingHub.jsx, dependințele efectului).
-   *
-   * Anulează întotdeauna orice timer anterior, apoi decide din nou,
-   * de la zero - fără nicio memorie a încercărilor anterioare în
-   * afara sessionStorage (`getAlreadyShown`).
+  function pickReappearDelayMs() {
+    const span = Math.max(0, maxReappearMs - minReappearMs);
+    return minReappearMs + Math.round(random() * span);
+  }
+
+  /*
+   * Anulează orice timer anterior și decide DIN NOU, de la zero,
+   * strict pe baza `lastState` (ultimele isHomepage/open primite prin
+   * `sync()`) + starea persistată. Apelată atât din `sync()` (la
+   * schimbarea rutei/panoului), cât și din PROPRIUL callback de
+   * afișare (auto-reprogramare - vezi mai jos, necesar ca fereastra
+   * de 60-90s să fie respectată chiar dacă userul rămâne continuu pe
+   * homepage, fără nicio schimbare de rută care să retrigger-uiască
+   * efectul React).
    */
-  function sync({ isHomepage, open }) {
+  function evaluate() {
     cancel();
 
-    if (!isHomepage || open || getAlreadyShown()) {
-      return;
-    }
+    const { isHomepage, open } = lastState;
+    if (!isHomepage || open || getEverOpened()) return;
+
+    const shownCount = getShownCount();
+    if (shownCount >= maxAppearances) return;
+
+    const delayMs =
+      shownCount === 0
+        ? firstDelayMs
+        : Math.max(0, (getNextEligibleAt() ?? 0) - now());
 
     timerId = setTimeoutFn(() => {
       timerId = null;
-      markShown();
+      incrementShownCount();
+      setNextEligibleAt(now() + pickReappearDelayMs());
       onShow();
+      // auto-reprogramare imediată pentru eventuala apariție următoare
+      // (respectă oricum maxAppearances/nextEligibleAt/everOpened mai
+      // sus) - fără asta, fereastra de 60-90s nu s-ar mai verifica
+      // niciodată dacă userul nu schimbă ruta.
+      evaluate();
     }, delayMs);
   }
 
-  return { sync, cancel };
+  function sync({ isHomepage, open }) {
+    lastState = { isHomepage, open };
+    evaluate();
+  }
+
+  /*
+   * Dismiss manual (×) - cooldown MAI LUNG decât reapariția normală
+   * (implicit 4 minute), suprascriind orice fereastră scurtă deja
+   * programată, apoi reprogramează imediat cu noua valoare.
+   */
+  function registerDismiss() {
+    setNextEligibleAt(now() + dismissCooldownMs);
+    evaluate();
+  }
+
+  return { sync, cancel, registerDismiss };
 }
