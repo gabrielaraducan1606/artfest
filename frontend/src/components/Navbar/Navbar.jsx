@@ -565,6 +565,62 @@ export default function Navbar() {
   const [authTab, setAuthTab] = useState("login");
   const [partnerOpen, setPartnerOpen] = useState(false);
 
+  /*
+   * Fix dropdown "Colecții" (audit navigare 2026-09-23) - varianta
+   * veche era controlată STRICT prin CSS (:hover/:focus-within, vezi
+   * .dropdown/.dropdownContent), deci un click pe o colecție naviga,
+   * dar dropdown-ul rămânea vizual deschis cât timp mouse-ul nu se
+   * muta efectiv de pe el. Stare JS proprie, izolată de dropdown-ul
+   * "Servicii digitale" (acela rămâne neatins, tot CSS-only) - vezi
+   * .collectionsDropdown/.collectionsDropdownContent(Open) din
+   * Navbar.module.css.
+   */
+  const [collectionsMenuOpen, setCollectionsMenuOpen] = useState(false);
+  const collectionsDropdownRef = useRef(null);
+
+  const closeCollectionsMenu = useCallback(() => {
+    setCollectionsMenuOpen(false);
+  }, []);
+
+  // click în afara dropdown-ului -> închide
+  useEffect(() => {
+    if (!collectionsMenuOpen) return undefined;
+
+    function handlePointerDown(e) {
+      if (
+        collectionsDropdownRef.current &&
+        !collectionsDropdownRef.current.contains(e.target)
+      ) {
+        closeCollectionsMenu();
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+    };
+  }, [collectionsMenuOpen, closeCollectionsMenu]);
+
+  // Escape -> închide
+  useEffect(() => {
+    if (!collectionsMenuOpen) return undefined;
+
+    function handleKeyDown(e) {
+      if (e.key === "Escape") closeCollectionsMenu();
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [collectionsMenuOpen, closeCollectionsMenu]);
+
+  // navigare pe altă rută -> închide
+  useEffect(() => {
+    setCollectionsMenuOpen(false);
+  }, [location.pathname]);
+
   const [q, setQ] = useState("");
 
   const [wishCount, setWishCount] = useState(0);
@@ -1815,27 +1871,47 @@ const isAdminRoute = location.pathname.startsWith("/admin");
               </NavLink>
 
               {menuCollections.length > 0 && (
-                <div className={styles.dropdown} tabIndex={0}>
+                <div
+                  className={styles.collectionsDropdown}
+                  ref={collectionsDropdownRef}
+                  onMouseEnter={() => setCollectionsMenuOpen(true)}
+                  onMouseLeave={closeCollectionsMenu}
+                >
                   <button
                     type="button"
                     className={styles.navLink}
                     aria-haspopup="menu"
+                    aria-expanded={collectionsMenuOpen}
+                    onClick={() => setCollectionsMenuOpen((o) => !o)}
+                    onFocus={() => setCollectionsMenuOpen(true)}
                   >
                     Colecții
                     <ChevronDown className={styles.dropdownIcon} size={14} />
                   </button>
 
-                  <div className={styles.dropdownContent} role="menu">
+                  <div
+                    className={`${styles.collectionsDropdownContent} ${
+                      collectionsMenuOpen
+                        ? styles.collectionsDropdownContentOpen
+                        : ""
+                    }`}
+                    role="menu"
+                  >
                     {menuCollections.map((collection) => (
                       <NavLink
                         key={collection.slug}
                         to={collection.to}
                         role="menuitem"
+                        onClick={closeCollectionsMenu}
                       >
                         {collection.title}
                       </NavLink>
                     ))}
-                    <NavLink to="/colectii" role="menuitem">
+                    <NavLink
+                      to="/colectii"
+                      role="menuitem"
+                      onClick={closeCollectionsMenu}
+                    >
                       Toate colecțiile
                     </NavLink>
                   </div>

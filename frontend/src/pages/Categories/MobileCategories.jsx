@@ -14,6 +14,7 @@ import styles from "./MobileCategories.module.css";
 import ProductsPage from "../Products/Products.jsx";
 import StoresPage from "../Stores/StoresPage.jsx";
 import ServiciiDigitale from "../ServiciiDigitale/ServiciiDigitale.jsx";
+import CollectionsIndexPage from "../Collections/CollectionsIndex.jsx";
 
 import {
   FaClock,
@@ -39,6 +40,10 @@ const ROOT_TABS = [
   {
     key: "magazine",
     label: "Magazine",
+  },
+  {
+    key: "colectii",
+    label: "Colecții",
   },
 ];
 
@@ -244,7 +249,8 @@ export default function MobileCategories() {
         className={`${styles.panel} ${
           tab === "produse" ||
           tab === "magazine" ||
-          tab === "digitale"
+          tab === "digitale" ||
+          tab === "colectii"
             ? styles.marketplacePanel
             : ""
         }`}
@@ -304,6 +310,27 @@ export default function MobileCategories() {
             <StoresPage
               embedded
             />
+          </div>
+        )}
+
+        {/* =================================================
+            COLECȚII
+
+            Reutilizează STRICT pagina /colectii existentă
+            (CollectionsIndexPage - usePublicCollections/
+            fetchPublicCollections + CollectionCards, același
+            fetch/componente ca desktop-ul) - niciun endpoint,
+            hook sau componentă nouă.
+        ================================================= */}
+
+        {tab ===
+          "colectii" && (
+          <div
+            className={
+              styles.collectionsEmbed
+            }
+          >
+            <CollectionsIndexPage />
           </div>
         )}
       </main>

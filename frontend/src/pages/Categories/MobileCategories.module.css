@@ -471,7 +471,8 @@
 
 .productsEmbed,
 .storesEmbed,
-.digitalEmbed {
+.digitalEmbed,
+.collectionsEmbed {
   width: 100%;
 
   min-width: 0;
@@ -487,7 +488,8 @@
 
 .productsEmbed > *,
 .storesEmbed > *,
-.digitalEmbed > * {
+.digitalEmbed > *,
+.collectionsEmbed > * {
   width: 100%;
 
   min-width: 0;
@@ -1071,7 +1073,8 @@
 
   .productsEmbed,
   .storesEmbed,
-  .digitalEmbed {
+  .digitalEmbed,
+  .collectionsEmbed {
     width:
       100%;
 
@@ -1322,6 +1325,7 @@ html[data-theme="dark"]
   .productsEmbed,
   .storesEmbed,
   .digitalEmbed,
+  .collectionsEmbed,
   .unavailableState {
     animation:
       none;

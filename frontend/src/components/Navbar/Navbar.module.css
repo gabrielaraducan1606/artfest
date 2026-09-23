@@ -107,6 +107,55 @@
   }
 }
 
+/*
+ * ===== Dropdown "Colecții" (audit navigare 2026-09-23) =====
+ * Vizual IDENTIC cu .dropdown/.dropdownContent de mai sus, dar
+ * vizibilitatea e controlată STRICT prin clasa .collectionsDropdownContentOpen
+ * (JS, Navbar.jsx) - NU prin :hover/:focus-within. Izolat intenționat
+ * de .dropdown/.dropdownContent (folosit și de "Servicii digitale",
+ * neatins) ca să se poată închide explicit la click pe o colecție,
+ * chiar dacă mouse-ul rămâne deasupra.
+ */
+.collectionsDropdown { position: relative; }
+.collectionsDropdownContent {
+  display: none;
+  position: absolute;
+  background-color: var(--surface);
+  min-width: 170px;
+  box-shadow: 0 12px 24px rgba(0,0,0,.12);
+  z-index: 100;
+  border-radius: var(--radius);
+  overflow: hidden;
+  right: auto;
+  left: 0;
+  will-change: opacity, transform;
+}
+.collectionsDropdownContent a {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 0.9rem;
+  color: var(--color-text);
+  padding: 10px 14px;
+  display: block;
+  text-decoration: none;
+}
+.collectionsDropdownContent a:hover {
+  background-color: color-mix(in oklab, var(--color-border) 80%, transparent);
+}
+.collectionsDropdownContentOpen { display: block; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .collectionsDropdownContent {
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity .14s ease, transform .14s ease;
+  }
+  .collectionsDropdownContentOpen {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ===== Search (desktop & mobil) ===== */
 .search {
   gap: 6px;

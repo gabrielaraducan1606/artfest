@@ -25,6 +25,7 @@ export const GUEST_NAV_SECTIONS = [
       { label: "Produse", to: "/produse", icon: "Package" },
       { label: "Magazine", to: "/magazine", icon: "Store" },
       { label: "Categorii", to: "/categorii", icon: "LayoutGrid" },
+      { label: "Colecții", to: "/colectii", icon: "Layers" },
     ],
   },
   {
