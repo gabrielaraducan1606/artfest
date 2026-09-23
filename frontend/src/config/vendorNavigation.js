@@ -43,17 +43,23 @@ export const VENDOR_NAV_SECTIONS = [
      * cerută explicit de vendor, cu același sistem de
      * acordeon/secțiuni ca restul burgerului (NU link-uri separate de
      * nivel 1 - varianta anterioară a fost respinsă). Rutele deja
-     * există, nicio pagină/logică nouă: /vendor/catalog (produse),
-     * /vendor/stores (magazinele proprii ale vendorului, nu
-     * directorul public /magazine), /servicii-digitale (pagina
-     * publică existentă, fosta zonă "Servicii digitale" din vechiul
-     * dropdown "Achiziții").
+     * există, nicio pagină/logică nouă: /vendor/stores (magazinele
+     * proprii ale vendorului, nu directorul public /magazine),
+     * /servicii-digitale (pagina publică existentă, fosta zonă
+     * "Servicii digitale" din vechiul dropdown "Achiziții").
+     *
+     * FIX (audit 2026-09-23) - "Achiziții > Produse" ducea greșit spre
+     * /vendor/catalog (catalogul PROPRIU al vendorului, identic cu
+     * "Produse > Catalog produse" de mai jos - secțiunea "Achiziții"
+     * e despre ce CUMPĂRĂ vendorul, nu ce vinde). Dusă acum spre
+     * pagina publică de produse (/produse, Products.jsx) - același
+     * pattern ca intrarea "Produse" din guestNavigation.js.
      */
     key: "achizitii",
     label: "Achiziții",
     icon: "ShoppingBag",
     items: [
-      { label: "Produse", to: "/vendor/catalog", icon: "Package" },
+      { label: "Produse", to: "/produse", icon: "Package" },
       { label: "Magazine", to: "/vendor/stores", icon: "Store" },
       { label: "Servicii digitale", to: "/servicii-digitale", icon: "Sparkles" },
     ],
