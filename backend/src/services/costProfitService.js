@@ -415,7 +415,7 @@ export function formatCostItem(item) {
   return {
     id: item.id,
     type: item.type,
-    name: item.name,
+    name: item.label,
     unit: item.unit || "",
 
     unitCostCents: item.unitCostCents,

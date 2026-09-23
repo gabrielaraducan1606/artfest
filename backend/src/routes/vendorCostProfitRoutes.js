@@ -172,7 +172,7 @@ router.get(
         .slice(0, 160);
 
       if (q) {
-        where.name = {
+        where.label = {
           contains: q,
           mode: "insensitive",
         };
@@ -183,7 +183,7 @@ router.get(
 
         orderBy: [
           { type: "asc" },
-          { name: "asc" },
+          { label: "asc" },
         ],
       });
 
@@ -269,7 +269,7 @@ router.post(
           vendorId: vendor.id,
 
           type,
-          name,
+          label: name,
           unit: unit || null,
           unitCostCents,
           currency: "RON",
@@ -354,7 +354,7 @@ router.patch(
           });
         }
 
-        data.name = name;
+        data.label = name;
       }
 
       if (req.body?.unit !== undefined) {
