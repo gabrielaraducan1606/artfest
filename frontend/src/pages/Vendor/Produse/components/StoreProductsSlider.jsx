@@ -36,12 +36,22 @@ function StoreProductsSliderBase({ products, cacheT, navigate }) {
           ? p.price
           : null;
 
+      // badge unic (max 1 per card), la fel ca SimilarProductsGrid -
+      // reducerea are prioritate față de "Personalizabil"
+      const badge =
+        p.hasDiscount && p.discountPercent > 0
+          ? { kind: "discount", label: `-${p.discountPercent}%` }
+          : p.acceptsCustom
+            ? { kind: "custom", label: "Personalizabil" }
+            : null;
+
       return {
         ...p,
         imageSrc,
         price,
         formattedPrice:
           price != null ? formatMoney(price, p.currency || "RON") : null,
+        badge,
       };
     });
   }, [products, cacheT]);
@@ -112,15 +122,27 @@ function StoreProductsSliderBase({ products, cacheT, navigate }) {
             aria-label={`Vezi ${p.title}`}
             type="button"
           >
-            <img
-              loading={index < 2 ? "eager" : "lazy"}
-              decoding="async"
-              src={p.imageSrc}
-              alt={p.title || "Produs"}
-              width={480}
-              height={360}
-              onError={(e) => onImgError(e, 480, 360, "Produs")}
-            />
+            <div className={styles.relImageWrap}>
+              <img
+                loading={index < 2 ? "eager" : "lazy"}
+                decoding="async"
+                src={p.imageSrc}
+                alt={p.title || "Produs"}
+                width={480}
+                height={360}
+                onError={(e) => onImgError(e, 480, 360, "Produs")}
+              />
+
+              {p.badge && (
+                <span
+                  className={`${styles.relBadge} ${
+                    p.badge.kind === "discount" ? styles.relBadgeDiscount : ""
+                  }`}
+                >
+                  {p.badge.label}
+                </span>
+              )}
+            </div>
 
             <div className={styles.relBody}>
               <div className={styles.relTitle}>{p.title}</div>

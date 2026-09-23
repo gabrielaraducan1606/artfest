@@ -570,6 +570,21 @@ discount:
     color:
       p.color || null,
 
+    /*
+     * Expuse public (audit 2026, "produse similare" - scoring pe
+     * material/ocazie/stil) - câmpurile EXISTĂ deja în baseProductSelect
+     * (selectate din DB), doar lipseau din răspunsul public. Fără
+     * schimbare de schemă/migrare - doar includerea lor aici.
+     */
+    materialMain:
+      p.materialMain || null,
+
+    styleTags:
+      Array.isArray(p.styleTags) ? p.styleTags : [],
+
+    occasionTags:
+      Array.isArray(p.occasionTags) ? p.occasionTags : [],
+
     createdAt:
       p.createdAt,
 

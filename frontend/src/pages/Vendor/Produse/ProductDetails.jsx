@@ -32,6 +32,7 @@ import {
 } from "../../../components/utils/imageFallback.js";
 
 import { useIsMobile } from "./hooks/useIsMobile.js";
+import { rankSimilarProducts } from "./hooks/similarProductsScoring.js";
 import { ProductGallery } from "./components/ProductGallery.jsx";
 import DetailsContent from "./components/DetailsContent.jsx";
 import { getHasStructuredDetails } from "./hooks/detailsUtils.js";
@@ -98,6 +99,12 @@ const StoreProductsSlider = lazy(() =>
 const SimilarProductsGrid = lazy(() =>
   import("./components/SimilarProductsGrid.jsx").then((m) => ({
     default: m.SimilarProductsGrid,
+  }))
+);
+
+const DiscoverMoreProducts = lazy(() =>
+  import("./components/DiscoverMoreProducts.jsx").then((m) => ({
+    default: m.DiscoverMoreProducts,
   }))
 );
 
@@ -390,6 +397,35 @@ export default function ProductDetails() {
 
   const [storeProducts, setStoreProducts] = useState([]);
   const [similarProducts, setSimilarProducts] = useState([]);
+
+  /*
+   * "Descoperă și alte produse pe Artfest" (a treia secțiune, sub
+   * cele două de mai sus) citește ACESTE liste doar în momentul în
+   * care propriul IntersectionObserver declanșează fetch-ul - de
+   * regulă la mult timp după ce Similar/Magazin s-au încărcat deja.
+   * Refs (nu doar `similarProducts`/`storeProducts` direct), ca
+   * DiscoverMoreProducts să primească mereu valoarea CURENTĂ la
+   * momentul fetch-ului, fără ca funcția de excludere să-și schimbe
+   * referința la fiecare actualizare (ceea ce i-ar recrea inutil
+   * IntersectionObserver-ul intern).
+   */
+  const similarProductsRef = useRef(similarProducts);
+  const storeProductsRef = useRef(storeProducts);
+
+  useEffect(() => {
+    similarProductsRef.current = similarProducts;
+  }, [similarProducts]);
+
+  useEffect(() => {
+    storeProductsRef.current = storeProducts;
+  }, [storeProducts]);
+
+  const getDiscoverExcludedIds = useCallback(() => {
+    const ids = new Set();
+    for (const p of similarProductsRef.current) if (p?.id) ids.add(p.id);
+    for (const p of storeProductsRef.current) if (p?.id) ids.add(p.id);
+    return ids;
+  }, []);
 
   const [reviews, setReviews] = useState([]);
   const [avg, setAvg] = useState({ average: 0, count: 0 });
@@ -2175,85 +2211,53 @@ alert(
     }
   }, []);
 
+  /*
+   * "Mai multe din acest magazin" - același endpoint, neschimbat.
+   * Returnează lista (nu mai face `setState` direct aici) - combinarea
+   * cu "Produse similare" (deduplicare, fără al doilea fetch) se face
+   * într-un singur loc, mai jos.
+   */
   const loadStoreProducts = useCallback(async (p) => {
-    if (!p?.service?.profile?.slug) {
-      if (mountedRef.current) setStoreProducts([]);
-      return;
-    }
+    if (!p?.service?.profile?.slug) return [];
 
     try {
       const items = await api(
         `/api/public/store/${encodeURIComponent(p.service.profile.slug)}/products?take=12`
       );
 
-      if (!mountedRef.current) return;
-
       const list = Array.isArray(items) ? items : [];
-      setStoreProducts(list.filter((x) => x.id !== p.id));
+      return list.filter((x) => x.id !== p.id);
     } catch {
-      if (mountedRef.current) setStoreProducts([]);
+      return [];
     }
   }, []);
 
-  const loadSimilarProducts = useCallback(async (p) => {
+  /*
+   * "Produse similare" - scoring cumulat (similarProductsScoring.js,
+   * testat separat cu node --test), NU filtrare în cascadă. UN singur
+   * fetch (limit=60, cap existent pe backend, neschimbat) - același
+   * pool candidat servește și ca sursă de fallback: un produs fără
+   * NICIO potrivire tot primește scor 0 și rămâne în listă (nu e
+   * eliminat), doar ajunge ultimul la sortare - deci "completează din
+   * aceeași categorie, apoi din produse relevante" se întâmplă
+   * NATURAL, prin reordonare, fără al doilea request. Întoarce lista
+   * ranked COMPLETĂ (nu doar primele 12) - tăierea la 12 se face DUPĂ
+   * deduplicarea cu "Mai multe din acest magazin", mai jos.
+   */
+  const loadSimilarCandidates = useCallback(async (p) => {
     try {
       const params = new URLSearchParams();
-      params.set("limit", "48");
+      params.set("limit", "60");
       params.set("sort", "popular");
       if (p.category) params.set("category", p.category);
-      if (p.color) params.set("color", p.color);
 
       const res = await api(`/api/public/products?${params.toString()}`);
-      if (!mountedRef.current) return;
-
       const items = Array.isArray(res?.items) ? res.items : [];
-      const baseList = items.filter((it) => it.id !== p.id);
+      const pool = items.filter((it) => it.id !== p.id);
 
-      const same = (a, b) =>
-        a && b && String(a).toLowerCase() === String(b).toLowerCase();
-
-      const splitTags = (v) =>
-        String(v || "")
-          .split(",")
-          .map((t) => t.trim().toLowerCase())
-          .filter(Boolean);
-
-      const productStyleTags = splitTags(p.styleTags);
-      const productOccasionTags = splitTags(p.occasionTags);
-
-      let strict = baseList.filter((it) => same(it.category, p.category));
-
-      if (p.color) {
-        strict = strict.filter((it) => same(it.color, p.color));
-      }
-
-      if (productStyleTags.length) {
-        strict = strict.filter((it) => {
-          const itsTags = splitTags(it.styleTags);
-          return itsTags.some((tag) => productStyleTags.includes(tag));
-        });
-      }
-
-      if (productOccasionTags.length) {
-        strict = strict.filter((it) => {
-          const itsTags = splitTags(it.occasionTags);
-          return itsTags.some((tag) => productOccasionTags.includes(tag));
-        });
-      }
-
-      let finalList = strict;
-
-      if (finalList.length < 4) {
-        finalList = baseList.filter((it) => same(it.category, p.category));
-      }
-
-      if (finalList.length < 4) {
-        finalList = baseList;
-      }
-
-      setSimilarProducts(finalList.slice(0, 12));
+      return rankSimilarProducts(p, pool);
     } catch {
-      if (mountedRef.current) setSimilarProducts([]);
+      return [];
     }
   }, []);
 
@@ -2454,18 +2458,43 @@ useEffect(() => {
   }, [product]);
 
   useEffect(() => {
-    if (!product || !deferredSections) return;
+    if (!product || !deferredSections) return undefined;
+
+    let alive = true;
 
     Promise.allSettled([
       loadStoreProducts(product),
-      loadSimilarProducts(product),
-    ]).then(() => {
+      loadSimilarCandidates(product),
+    ]).then(([storeResult, similarResult]) => {
+      if (!alive || !mountedRef.current) return;
+
+      const storeList =
+        storeResult.status === "fulfilled" ? storeResult.value : [];
+      const similarRanked =
+        similarResult.status === "fulfilled" ? similarResult.value : [];
+
+      /*
+       * Deduplicare FĂRĂ fetch suplimentar: "Produse similare" exclude
+       * orice produs deja afișat în "Mai multe din acest magazin" -
+       * simplă intersecție de id-uri pe listele deja aduse, calculată
+       * aici, o singură dată, după ce ambele răspunsuri au sosit.
+       */
+      const storeIds = new Set(storeList.map((x) => x.id));
+      const dedupedSimilar = similarRanked.filter((x) => !storeIds.has(x.id));
+
+      setStoreProducts(storeList.slice(0, 12));
+      setSimilarProducts(dedupedSimilar.slice(0, 12));
+
       if (secondaryContentMarkedRef.current) return;
       secondaryContentMarkedRef.current = true;
       markPdTiming("productdetails:secondary-content-loaded");
       logPdTimingSummary();
     });
-  }, [product, deferredSections, loadStoreProducts, loadSimilarProducts]);
+
+    return () => {
+      alive = false;
+    };
+  }, [product, deferredSections, loadStoreProducts, loadSimilarCandidates]);
 
   useEffect(() => {
     if (!product?.id || reviewsLoaded) return;
@@ -5297,7 +5326,19 @@ const isUploading =
         <Suspense fallback={null}>
           <>
             <section className={styles.relatedSec}>
-              <h2 className={styles.sectionTitle}>Mai multe din acest magazin</h2>
+              <div className={styles.relatedSecHeader}>
+                <h2 className={styles.sectionTitle}>Mai multe din acest magazin</h2>
+
+                {product?.service?.profile?.slug && (
+                  <Link
+                    to={`/magazin/${product.service.profile.slug}`}
+                    className={styles.relatedSecViewAll}
+                  >
+                    Vezi magazinul
+                  </Link>
+                )}
+              </div>
+
               <StoreProductsSlider
                 products={storeProducts}
                 cacheT={cacheT}
@@ -5310,6 +5351,24 @@ const isUploading =
               cacheT={cacheT}
               navigate={navigate}
             />
+
+            {/*
+              "Descoperă și alte produse pe Artfest" - a treia
+              secțiune, complet autonomă (propriul fetch, declanșat
+              DOAR când userul se apropie de ea prin scroll - vezi
+              DiscoverMoreProducts.jsx). `key={product.id}` - resetare
+              curată (observer + stare internă) la navigarea către un
+              alt produs, fără logică suplimentară aici.
+            */}
+            {product?.id && (
+              <DiscoverMoreProducts
+                key={product.id}
+                product={product}
+                getExcludedIds={getDiscoverExcludedIds}
+                cacheT={cacheT}
+                navigate={navigate}
+              />
+            )}
           </>
         </Suspense>
       )}

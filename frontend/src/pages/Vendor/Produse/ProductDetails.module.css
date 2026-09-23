@@ -626,10 +626,34 @@
   opacity: 0.9;
 }
 
-/* ============ Produse similare ============ */
+/* ============ Produse similare / Mai multe din magazin ============ */
 .relatedSec {
   margin-top: 26px;
 }
+
+/* header cu titlu + CTA "Vezi magazinul" (secțiunea de magazin) */
+.relatedSecHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.relatedSecHeader .sectionTitle {
+  margin-bottom: 0;
+}
+.relatedSecViewAll {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-primary, #8b5cf6);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.relatedSecViewAll:hover {
+  text-decoration: underline;
+}
+
 .sectionTitle {
   font-size: 1.1rem;
   font-weight: 700;
@@ -646,9 +670,30 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/*
+ * Mobil: carusel orizontal cu scroll-snap, NU grid vertical pe o
+ * coloană (audit 2026) - aceeași convenție ca sliderul de magazin
+ * (.relatedScroll) și ca omologul de pe homepage (PopularProducts).
+ */
 @media (max-width: 560px) {
   .relatedGrid {
-    grid-template-columns: 1fr;
+    display: flex;
+    grid-template-columns: none;
+    overflow-x: auto;
+    gap: 12px;
+    padding: 4px 0;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .relatedGrid::-webkit-scrollbar {
+    display: none;
+  }
+  .relatedGrid .relatedCard {
+    flex: 0 0 auto;
+    width: min(62vw, 260px);
+    scroll-snap-align: start;
   }
 }
 
@@ -677,13 +722,57 @@
   object-fit: cover;
   display: block;
 }
+
+/* wrapper imagine - poziționează badge-ul peste imagine, fără să
+   atingă layout-ul existent al .relatedCard img */
+.relImageWrap {
+  position: relative;
+}
+
+.relBadge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.72);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.4;
+  backdrop-filter: blur(3px);
+}
+.relBadgeDiscount {
+  background: var(--color-danger, #dc2626);
+}
+
 .relBody {
   padding: 10px 12px 12px;
 }
+
+/* numele magazinului - max 1 linie, cu ellipsis (doar "Produse
+   similare" - cardurile din slider-ul de magazin nu au nevoie, contextul
+   secțiunii spune deja de la ce magazin sunt) */
+.relStore {
+  overflow: hidden;
+  margin-bottom: 3px;
+  color: var(--color-muted, #6b7280);
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .relTitle {
+  display: -webkit-box;
+  overflow: hidden;
   font-weight: 600;
   margin-bottom: 4px;
   font-size: 0.95rem;
+  line-height: 1.3;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 .relPrice {
   font-weight: 700;
@@ -698,6 +787,63 @@
   text-align: center;
   opacity: 0.8;
   font-size: 0.9rem;
+}
+
+/* ============ Descoperă și alte produse pe Artfest ============ */
+
+/* țintă pentru IntersectionObserver cât timp secțiunea nu are încă
+   produse (fără fetch pornit) - fără conținut vizibil, deci nicio
+   secțiune goală înainte de a se apropia scroll-ul de ea */
+.discoverSentinel {
+  min-height: 1px;
+}
+
+.discoverSec {
+  margin-top: 30px;
+  /* ritm vizual față de "Produse similare" imediat deasupra -
+     separator discret, nu doar spațiu gol */
+  padding-top: 26px;
+  border-top: 1px solid var(--color-border);
+}
+
+.discoverGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (min-width: 1300px) {
+  .discoverGrid {
+    /* grid compact - 12-16 produse în 2-3 rânduri pe ecran lat */
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+@media (max-width: 980px) {
+  .discoverGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* mobil: carusel orizontal cu scroll-snap, NU grid vertical - aceeași
+   convenție ca .relatedGrid (Produse similare) */
+@media (max-width: 560px) {
+  .discoverGrid {
+    display: flex;
+    grid-template-columns: none;
+    overflow-x: auto;
+    gap: 12px;
+    padding: 4px 0;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .discoverGrid::-webkit-scrollbar {
+    display: none;
+  }
+  .discoverGrid .relatedCard {
+    flex: 0 0 auto;
+    width: min(58vw, 240px);
+    scroll-snap-align: start;
+  }
 }
 
 /* ============ Reviews ============ */
