@@ -3,7 +3,7 @@
 /*
  * Captură globală a linkului de referral influencer
  * (?ref=<referralCode>), pe ORICE pagină - mirror al
- * ScrollToTop.jsx (component mic, montat o singură dată direct
+ * ScrollManager.jsx (component mic, montat o singură dată direct
  * în <BrowserRouter>, care reacționează la schimbarea rutei).
  *
  * Spre deosebire de campaniile vendor (captură STRICT pe pagina

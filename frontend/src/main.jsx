@@ -14,6 +14,22 @@ import {
 import "./styles/variables.css";
 
 /* =========================================================
+   SCROLL RESTORATION
+========================================================= */
+
+/*
+ * Dezactivează restaurarea NATIVĂ a browserului (implicit "auto") -
+ * ASTA era cauza saltului la refresh pe homepage (vezi
+ * ScrollManager.jsx pentru explicația completă și mecanismul propriu,
+ * bazat pe React Router). Trebuie setat CÂT MAI DEVREME, înainte ca
+ * browserul să apuce să încerce restaurarea lui - o rulare într-un
+ * efect React (după primul paint) ar fi prea târziu.
+ */
+if (typeof window !== "undefined" && "scrollRestoration" in window.history) {
+  window.history.scrollRestoration = "manual";
+}
+
+/* =========================================================
    ANALYTICS + COOKIE CONSENT
 ========================================================= */
 

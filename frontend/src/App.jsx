@@ -20,7 +20,7 @@ import {
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-import ScrollToTop from "./components/ScrollToTop.jsx";
+import ScrollManager from "./components/ScrollManager/ScrollManager.jsx";
 import InfluencerAttributionCapture from "./components/InfluencerAttributionCapture.jsx";
 import VendorReferralAttributionCapture from "./components/VendorReferralAttributionCapture.jsx";
 import AppLayout from "./components/Navbar/AppLayout.jsx";
@@ -585,7 +585,7 @@ const ORIGIN =
 export default function App() {
   return (
     <BrowserRouter>
-      <ScrollToTop />
+      <ScrollManager />
       <InfluencerAttributionCapture />
       <VendorReferralAttributionCapture />
       <ToastContainer position="top-center" autoClose={3500} />
