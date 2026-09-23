@@ -39,6 +39,12 @@ import {
 import {
   evaluateVendorDocument,
 } from "../services/reacceptanceService.js";
+import {
+  WithdrawalError,
+  withdrawalRequestsForVendor,
+  autoCloseUnambiguousWithdrawalRequests,
+  closeWithdrawalRequestForVendor,
+} from "../services/withdrawalService.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -3023,6 +3029,43 @@ router.get(
       order.messageThreads ||
       [];
 
+    /*
+     * Secțiune persistentă "Retragere din contract" (audit 2026-09-23,
+     * punctul 4/5) - declarațiile care ating vreun shipment al ACESTUI
+     * vendor din comandă. Query separat, minimal - findShipmentByOrderRef
+     * de mai sus nu a încărcat shipments/withdrawalRequests pe order.
+     * NU modifică Order/Shipment/depositStatus - strict citire.
+     */
+    const orderForWithdrawals =
+      await prisma.order.findUnique({
+        where: { id: order.id },
+        select: {
+          shipments: {
+            select: { id: true, vendorId: true },
+          },
+          withdrawalRequests: {
+            select: {
+              id: true,
+              shipmentIds: true,
+              status: true,
+              submittedAt: true,
+              clientName: true,
+              contactEmail: true,
+              declarationText: true,
+            },
+            orderBy: { submittedAt: "desc" },
+          },
+        },
+      });
+
+    const withdrawalRequests =
+      orderForWithdrawals
+        ? withdrawalRequestsForVendor({
+            order: orderForWithdrawals,
+            vendorId,
+          })
+        : [];
+
     return res.json({
       id:
         order.id,
@@ -3472,7 +3515,65 @@ router.get(
         null,
 
       messageThreads,
+
+      withdrawalRequests,
     });
+  }
+);
+
+/* ----------------------------------------------------
+   POST /api/vendor/orders/:id/withdrawal/:withdrawalId/close
+
+   "Marchează procesată" (audit 2026-09-23) - STRICT administrativ:
+   WithdrawalRequest.status -> CLOSED. NU schimbă Order.status,
+   Shipment.status sau depositStatus - acelea rămân acțiuni separate
+   ("Anulează comanda" / avans), neschimbate de acest endpoint.
+----------------------------------------------------- */
+router.post(
+  "/orders/:id/withdrawal/:withdrawalId/close",
+  requireVendor,
+  async (req, res) => {
+    try {
+      const vendorId = req.user.vendorId;
+
+      const withdrawalRequestId = String(
+        req.params.withdrawalId || ""
+      ).trim();
+
+      if (!withdrawalRequestId) {
+        return res.status(400).json({
+          ok: false,
+          error: "withdrawal_id_required",
+          message: "Lipsește identificatorul cererii de retragere.",
+        });
+      }
+
+      const result = await closeWithdrawalRequestForVendor({
+        withdrawalRequestId,
+        vendorId,
+      });
+
+      return res.json({ ok: true, withdrawal: result });
+    } catch (error) {
+      if (error instanceof WithdrawalError) {
+        return res.status(error.status).json({
+          ok: false,
+          error: error.code,
+          message: error.message,
+        });
+      }
+
+      console.error(
+        "POST /api/vendor/orders/:id/withdrawal/:withdrawalId/close FAILED:",
+        error
+      );
+
+      return res.status(500).json({
+        ok: false,
+        error: "withdrawal_close_failed",
+        message: "Cererea nu a putut fi marcată ca procesată.",
+      });
+    }
   }
 );
 
@@ -4662,6 +4763,26 @@ if (
           "vendor cancel: expire pending deposit failed:",
           updatedShipment.id,
           depositError
+        );
+      }
+
+      /*
+       * Auto-close WithdrawalRequest (audit 2026-09-23, punctul 6) -
+       * DOAR declarațiile care priveau STRICT acest shipment, fără
+       * ambiguitate (vezi coversExactlyOneShipment în
+       * withdrawalService.js). Non-blocant: un eșec aici nu anulează
+       * anularea comenzii, deja reușită mai sus.
+       */
+      try {
+        await autoCloseUnambiguousWithdrawalRequests({
+          orderId: updatedShipment.orderId,
+          shipmentId: updatedShipment.id,
+        });
+      } catch (withdrawalError) {
+        console.error(
+          "vendor cancel: auto-close withdrawal failed:",
+          updatedShipment.id,
+          withdrawalError
         );
       }
     }

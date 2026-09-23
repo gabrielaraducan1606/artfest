@@ -1725,11 +1725,12 @@ const canRetryPayment =
 ================================================= */}
 
 {guestToken &&
-  order.status !== "CANCELED" && (
+  order.status !== "CANCELLED" && (
     <section style={cardStyle}>
       <div style={subtleStyle}>
-        Ai dreptul să te retragi din contract, fără a invoca un motiv,
-        în termenul legal.
+        Poți solicita retragerea din contract, fără a invoca un motiv, în
+        termenul legal. Cererea este transmisă vânzătorului și nu
+        anulează automat comanda.
       </div>
 
       <div style={{ marginTop: 10 }}>

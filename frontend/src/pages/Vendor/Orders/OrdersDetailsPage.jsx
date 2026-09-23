@@ -480,6 +480,10 @@ export default function OrderDetailsPage() {
   const [cancelOrder, setCancelOrder] = useState(null);
 const [imagePreview, setImagePreview] = useState(null);
 
+  // 🔹 Retragere din contract (audit 2026-09-23) - "Marchează procesată"
+  const [closingWithdrawalId, setClosingWithdrawalId] = useState(null);
+  const [withdrawalActionError, setWithdrawalActionError] = useState("");
+
 useEffect(() => {
   if (!imagePreview) return;
 
@@ -528,6 +532,36 @@ useEffect(() => {
   useEffect(() => {
     load();
   }, [load]);
+
+  /*
+   * "Marchează procesată" (audit 2026-09-23) - STRICT administrativ,
+   * marchează declarația (WithdrawalRequest) ca procesată. NU schimbă
+   * Order.status/Shipment.status - acelea rămân acțiuni separate.
+   */
+  const handleCloseWithdrawal = useCallback(
+    async (withdrawalId) => {
+      if (!order?.id || closingWithdrawalId) return;
+
+      setClosingWithdrawalId(withdrawalId);
+      setWithdrawalActionError("");
+
+      try {
+        await api(
+          `/api/vendor/orders/${order.id}/withdrawal/${withdrawalId}/close`,
+          { method: "POST" }
+        );
+
+        await load();
+      } catch (e) {
+        setWithdrawalActionError(
+          e?.message || "Nu am putut marca cererea ca procesată."
+        );
+      } finally {
+        setClosingWithdrawalId(null);
+      }
+    },
+    [order?.id, closingWithdrawalId, load]
+  );
 
   // 🔹 Load billing vendor – minimul necesar ca să poți genera facturi
   useEffect(() => {
@@ -1046,6 +1080,153 @@ const contactPerson =
                     </>
                   )}
                 </div>
+              </div>
+            )}
+
+          {/* =====================================================
+              RETRAGERE DIN CONTRACT (audit 2026-09-23)
+
+              Secțiune persistentă - vendorul nu mai depinde STRICT de
+              notificare/email. NU execută refund/cancel automat -
+              doar afișează contextul (inclusiv avansul) și acțiunea
+              "Marchează procesată" (WithdrawalRequest.status -> CLOSED,
+              nu atinge Order/Shipment/depositStatus).
+          ===================================================== */}
+
+          {Array.isArray(order.withdrawalRequests) &&
+            order.withdrawalRequests.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                {order.withdrawalRequests.map((wr) => {
+                  const isClosed = wr.status === "CLOSED";
+
+                  return (
+                    <div
+                      key={wr.id}
+                      style={{
+                        marginTop: 10,
+                        padding: "10px 12px",
+                        borderRadius: 10,
+                        background: isClosed
+                          ? "rgba(107, 114, 128, 0.08)"
+                          : "rgba(190, 140, 40, 0.08)",
+                        border: isClosed
+                          ? "1px solid rgba(107, 114, 128, 0.24)"
+                          : "1px solid rgba(170, 120, 30, 0.24)",
+                      }}
+                    >
+                      <strong>
+                        Clientul a trimis o solicitare de retragere din
+                        contract
+                      </strong>
+
+                      <div className={styles.muted} style={{ marginTop: 4 }}>
+                        Client: {wr.clientName || "—"}
+                        {wr.contactEmail ? ` (${wr.contactEmail})` : ""}
+                        <br />
+                        Data: {formatDate(wr.submittedAt)}
+                        <br />
+                        Acoperă:{" "}
+                        {wr.coversWholeOrder
+                          ? "întreaga comandă"
+                          : "doar livrarea ta din această comandă"}
+                        <br />
+                        Statusul cererii:{" "}
+                        {
+                          {
+                            SUBMITTED: "transmisă",
+                            FORWARDED_TO_VENDOR: "transmisă vânzătorului",
+                            CLOSED: "procesată",
+                          }[wr.status] || wr.status
+                        }
+                        <br />
+                        Statusul comenzii: {order.status}
+                      </div>
+
+                      {wr.declarationText && (
+                        <div
+                          style={{
+                            marginTop: 8,
+                            padding: "8px 10px",
+                            borderRadius: 8,
+                            background: "rgba(255,255,255,0.6)",
+                            fontSize: 13,
+                            whiteSpace: "pre-line",
+                          }}
+                        >
+                          {wr.declarationText}
+                        </div>
+                      )}
+
+                      {order.deposit &&
+                        order.deposit.status !== "NOT_REQUESTED" && (
+                          <div
+                            className={styles.muted}
+                            style={{ marginTop: 8 }}
+                          >
+                            Avans:{" "}
+                            {
+                              {
+                                PENDING: "solicitat, neplătit încă",
+                                PAID: "plătit",
+                                FAILED: "plată eșuată",
+                                EXPIRED: "expirat",
+                                REFUNDED: "rambursat",
+                              }[order.deposit.status] || order.deposit.status
+                            }{" "}
+                            · Solicitat:{" "}
+                            {order.deposit.requestedAmount != null
+                              ? formatMoney(order.deposit.requestedAmount)
+                              : "—"}{" "}
+                            · Plătit:{" "}
+                            {order.deposit.paidAmount != null
+                              ? formatMoney(order.deposit.paidAmount)
+                              : "—"}{" "}
+                            · Rest COD:{" "}
+                            {order.deposit.remainingCodAmount != null
+                              ? formatMoney(order.deposit.remainingCodAmount)
+                              : "—"}
+                          </div>
+                        )}
+
+                      {order.deposit && order.deposit.status === "PAID" && (
+                        <div
+                          style={{
+                            marginTop: 8,
+                            fontWeight: 700,
+                            color: "#991b1b",
+                          }}
+                        >
+                          Există un avans achitat. Rambursarea poate fi
+                          necesară înainte de anularea comenzii.
+                        </div>
+                      )}
+
+                      {!isClosed && (
+                        <div style={{ marginTop: 10 }}>
+                          <button
+                            type="button"
+                            className={styles.secondaryBtn}
+                            disabled={closingWithdrawalId === wr.id}
+                            onClick={() => handleCloseWithdrawal(wr.id)}
+                          >
+                            {closingWithdrawalId === wr.id
+                              ? "Se procesează…"
+                              : "Marchează procesată"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {withdrawalActionError && (
+                  <div
+                    className={styles.muted}
+                    style={{ marginTop: 6, color: "#991b1b" }}
+                  >
+                    {withdrawalActionError}
+                  </div>
+                )}
               </div>
             )}
 

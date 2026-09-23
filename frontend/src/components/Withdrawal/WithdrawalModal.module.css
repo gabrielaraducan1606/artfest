@@ -177,6 +177,18 @@
   font: inherit;
 }
 
+/*
+ * Clarificare sub buton (audit "Retragere din contract" 2026-09-23) -
+ * clientul trebuie să înțeleagă, ÎNAINTE de a deschide formularul, că
+ * e o solicitare, nu o anulare instantanee.
+ */
+.clarification {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.72;
+  max-width: 420px;
+}
+
 @media (max-width: 740px) {
   .actions {
     flex-direction: column-reverse;

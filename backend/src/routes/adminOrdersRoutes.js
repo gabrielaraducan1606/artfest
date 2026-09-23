@@ -1111,6 +1111,82 @@ router.post(
 );
 
 /* ----------------------------------------------------
+   GET /api/admin/withdrawals
+
+   Vizibilitate MINIMĂ pentru Admin asupra declarațiilor de retragere
+   din contract (audit 2026-09-23, punctul 7) - listă simplă, fără
+   workflow/acțiuni. Strict citire - nu modifică nimic.
+----------------------------------------------------- */
+router.get("/withdrawals", async (req, res) => {
+  try {
+    const requests = await prisma.withdrawalRequest.findMany({
+      orderBy: { submittedAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        orderId: true,
+        shipmentIds: true,
+        clientName: true,
+        contactEmail: true,
+        status: true,
+        submittedAt: true,
+        order: {
+          select: {
+            orderNumber: true,
+            shipments: {
+              select: {
+                id: true,
+                vendorId: true,
+                vendor: { select: { displayName: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const items = requests.map((request) => {
+      const ids = request.shipmentIds || [];
+      const coversWholeOrder = !ids.length;
+
+      const relevantShipments = coversWholeOrder
+        ? request.order?.shipments || []
+        : (request.order?.shipments || []).filter((s) => ids.includes(s.id));
+
+      const vendorNames = [
+        ...new Set(
+          relevantShipments
+            .map((s) => s.vendor?.displayName)
+            .filter(Boolean)
+        ),
+      ];
+
+      return {
+        id: request.id,
+        orderId: request.orderId,
+        orderNumber: request.order?.orderNumber || null,
+        clientName: request.clientName,
+        contactEmail: request.contactEmail,
+        status: request.status,
+        submittedAt: request.submittedAt,
+        coversWholeOrder,
+        shipmentIds: ids,
+        vendorNames,
+      };
+    });
+
+    return res.json({ ok: true, items });
+  } catch (error) {
+    console.error("GET /api/admin/withdrawals FAILED:", error);
+    return res.status(500).json({
+      ok: false,
+      error: "withdrawals_list_failed",
+      message: "Lista de cereri de retragere nu a putut fi încărcată.",
+    });
+  }
+});
+
+/* ----------------------------------------------------
    GET /api/admin/orders/:id
 
    Detalii comandă pentru admin.

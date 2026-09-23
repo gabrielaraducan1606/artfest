@@ -311,3 +311,420 @@ test("payload de status: prefill din comandă + declarații existente", () => {
   assert.equal(payload.existing.length, 1);
   assert.equal(payload.periodDays, 14);
 });
+
+/* =========================================================
+   PRODUSE PERSONALIZATE - hasCustomItems (audit 2026-09-23,
+   punctul 3) - informativ, NU blocant: eligible NU se schimbă.
+========================================================= */
+
+function makeOrderWithItems(itemsA, itemsB = [{ title: "Ceramică", qty: 1 }]) {
+  const order = makeOrder();
+  order.shipments[0].items = itemsA;
+  order.shipments[1].items = itemsB;
+  return order;
+}
+
+test("E. produs cu customAnswers completate -> hasCustomItems=true, eligible neschimbat", () => {
+  const order = makeOrderWithItems([
+    { title: "Invitație", qty: 1, customAnswers: { text: "Ana & Radu" } },
+  ]);
+
+  const { shipments } = svc.evaluateWithdrawalEligibility(order);
+  const shipA = shipments.find((s) => s.id === "ship-A");
+
+  assert.equal(shipA.hasCustomItems, true);
+  assert.equal(shipA.eligible, true); // NU blocat
+});
+
+test("E bis. produs cu selectedOptions completate -> hasCustomItems=true", () => {
+  const order = makeOrderWithItems([
+    { title: "Tricou", qty: 1, selectedOptions: { size: "M" } },
+  ]);
+
+  const { shipments } = svc.evaluateWithdrawalEligibility(order);
+  assert.equal(
+    shipments.find((s) => s.id === "ship-A").hasCustomItems,
+    true
+  );
+});
+
+test("E ter. configurationKey non-default -> hasCustomItems=true", () => {
+  const order = makeOrderWithItems([
+    { title: "Vază", qty: 1, configurationKey: "gravat" },
+  ]);
+
+  assert.equal(
+    svc
+      .evaluateWithdrawalEligibility(order)
+      .shipments.find((s) => s.id === "ship-A").hasCustomItems,
+    true
+  );
+});
+
+test("produs standard, fără date de personalizare -> hasCustomItems=false", () => {
+  const order = makeOrderWithItems([
+    { title: "Lumânare", qty: 2, customAnswers: {}, selectedOptions: {} },
+  ]);
+
+  assert.equal(
+    svc
+      .evaluateWithdrawalEligibility(order)
+      .shipments.find((s) => s.id === "ship-A").hasCustomItems,
+    false
+  );
+});
+
+test("payload agregat: hasCustomItems=true dacă ORICE shipment eligibil are produse personalizate", () => {
+  const order = makeOrderWithItems([
+    { title: "Invitație", qty: 1, customAnswers: { text: "x" } },
+  ]);
+
+  const payload = svc.buildWithdrawalStatusPayload(order);
+  assert.equal(payload.hasCustomItems, true);
+});
+
+/* =========================================================
+   VENDOR - vizibilitate persistentă (audit 2026-09-23, punctul 4/5)
+========================================================= */
+
+test("I. withdrawalRequestsForVendor: vendorul vede declarația 'întreaga comandă' (atinge orice shipment al lui)", () => {
+  const order = makeOrder({
+    withdrawalRequests: [
+      { id: "wd-1", shipmentIds: [], status: "FORWARDED_TO_VENDOR", submittedAt: new Date(), clientName: "Ana", contactEmail: "ana@example.com", declarationText: "text" },
+    ],
+  });
+
+  const list = svc.withdrawalRequestsForVendor({ order, vendorId: "vendor-A" });
+  assert.equal(list.length, 1);
+  assert.equal(list[0].coversWholeOrder, true);
+});
+
+test("withdrawalRequestsForVendor: declarație parțială pe alt shipment NU apare la acest vendor", () => {
+  const order = makeOrder({
+    withdrawalRequests: [
+      { id: "wd-1", shipmentIds: ["ship-B"], status: "SUBMITTED", submittedAt: new Date(), clientName: "Ana", contactEmail: "a@x.com", declarationText: "t" },
+    ],
+  });
+
+  const listA = svc.withdrawalRequestsForVendor({ order, vendorId: "vendor-A" });
+  const listB = svc.withdrawalRequestsForVendor({ order, vendorId: "vendor-B" });
+
+  assert.equal(listA.length, 0);
+  assert.equal(listB.length, 1);
+});
+
+test("G. multi-vendor: fiecare vendor vede STRICT declarațiile care ating shipment-ul lui", () => {
+  const order = makeOrder({
+    withdrawalRequests: [
+      { id: "wd-A", shipmentIds: ["ship-A"], status: "SUBMITTED", submittedAt: new Date(), clientName: "Ana", contactEmail: "a@x.com", declarationText: "t" },
+      { id: "wd-B", shipmentIds: ["ship-B"], status: "SUBMITTED", submittedAt: new Date(), clientName: "Ana", contactEmail: "a@x.com", declarationText: "t" },
+    ],
+  });
+
+  const listA = svc.withdrawalRequestsForVendor({ order, vendorId: "vendor-A" });
+  const listB = svc.withdrawalRequestsForVendor({ order, vendorId: "vendor-B" });
+
+  assert.deepEqual(listA.map((r) => r.id), ["wd-A"]);
+  assert.deepEqual(listB.map((r) => r.id), ["wd-B"]);
+});
+
+/* =========================================================
+   "Marchează procesată" - closeWithdrawalRequestForVendor
+   (audit 2026-09-23, punctul 5)
+========================================================= */
+
+function makeCloseFakeDb({ requestRow, updateCalls }) {
+  return {
+    withdrawalRequest: {
+      findUnique: async () => requestRow,
+      update: async ({ where, data }) => {
+        updateCalls.push({ where, data });
+        return { id: where.id, status: data.status };
+      },
+    },
+  };
+}
+
+test("J. vendorul CORECT poate marca o cerere ca procesată -> CLOSED", async () => {
+  const updateCalls = [];
+  const db = makeCloseFakeDb({
+    updateCalls,
+    requestRow: {
+      id: "wd-1",
+      orderId: "order-1",
+      shipmentIds: ["ship-A"],
+      status: "FORWARDED_TO_VENDOR",
+      order: {
+        shipments: [
+          { id: "ship-A", vendorId: "vendor-A" },
+          { id: "ship-B", vendorId: "vendor-B" },
+        ],
+      },
+    },
+  });
+
+  const result = await svc.closeWithdrawalRequestForVendor({
+    withdrawalRequestId: "wd-1",
+    vendorId: "vendor-A",
+    prisma: db,
+  });
+
+  assert.equal(result.status, "CLOSED");
+  assert.equal(updateCalls.length, 1);
+  assert.equal(updateCalls[0].data.status, "CLOSED");
+});
+
+test("K. vendorul GREȘIT nu poate închide cererea -> 403 not_your_shipment, fără update", async () => {
+  const updateCalls = [];
+  const db = makeCloseFakeDb({
+    updateCalls,
+    requestRow: {
+      id: "wd-1",
+      orderId: "order-1",
+      shipmentIds: ["ship-A"],
+      status: "FORWARDED_TO_VENDOR",
+      order: {
+        shipments: [
+          { id: "ship-A", vendorId: "vendor-A" },
+          { id: "ship-B", vendorId: "vendor-B" },
+        ],
+      },
+    },
+  });
+
+  await assert.rejects(
+    svc.closeWithdrawalRequestForVendor({
+      withdrawalRequestId: "wd-1",
+      vendorId: "vendor-B",
+      prisma: db,
+    }),
+    (error) => error.status === 403 && error.code === "not_your_shipment"
+  );
+
+  assert.equal(updateCalls.length, 0);
+});
+
+test("cerere inexistentă -> 404 not_found", async () => {
+  const db = makeCloseFakeDb({ updateCalls: [], requestRow: null });
+
+  await assert.rejects(
+    svc.closeWithdrawalRequestForVendor({
+      withdrawalRequestId: "wd-x",
+      vendorId: "vendor-A",
+      prisma: db,
+    }),
+    (error) => error.status === 404 && error.code === "not_found"
+  );
+});
+
+test("declarație 'întreaga comandă' - orice vendor cu shipment în comandă poate închide", async () => {
+  const updateCalls = [];
+  const db = makeCloseFakeDb({
+    updateCalls,
+    requestRow: {
+      id: "wd-1",
+      orderId: "order-1",
+      shipmentIds: [], // întreaga comandă
+      status: "SUBMITTED",
+      order: {
+        shipments: [
+          { id: "ship-A", vendorId: "vendor-A" },
+          { id: "ship-B", vendorId: "vendor-B" },
+        ],
+      },
+    },
+  });
+
+  await svc.closeWithdrawalRequestForVendor({
+    withdrawalRequestId: "wd-1",
+    vendorId: "vendor-B",
+    prisma: db,
+  });
+
+  assert.equal(updateCalls.length, 1);
+});
+
+/* =========================================================
+   AUTO-CLOSE la anulare (audit 2026-09-23, punctul 6) - DOAR
+   cazuri neambigue; multi-vendor ambiguu rămâne manual.
+========================================================= */
+
+function makeAutoCloseFakeDb({ orderRow, updateManyResults = {} }) {
+  const updateManyCalls = [];
+  return {
+    db: {
+      order: {
+        findUnique: async () => orderRow,
+      },
+      withdrawalRequest: {
+        updateMany: async ({ where }) => {
+          updateManyCalls.push(where);
+          const count = updateManyResults[where.id] ?? 1;
+          return { count };
+        },
+      },
+    },
+    updateManyCalls,
+  };
+}
+
+test("L. shipment unic în comandă, declarație 'întreaga comandă' -> auto-close SIGUR", async () => {
+  const { db, updateManyCalls } = makeAutoCloseFakeDb({
+    orderRow: {
+      shipments: [{ id: "ship-A", direction: "OUTBOUND" }],
+      withdrawalRequests: [
+        { id: "wd-1", shipmentIds: [] },
+      ],
+    },
+  });
+
+  const closed = await svc.autoCloseUnambiguousWithdrawalRequests({
+    orderId: "order-1",
+    shipmentId: "ship-A",
+    prisma: db,
+  });
+
+  assert.deepEqual(closed, ["wd-1"]);
+  assert.equal(updateManyCalls.length, 1);
+});
+
+test("M. multi-vendor, declarație 'întreaga comandă', se anulează DOAR un shipment -> NU auto-close (ambiguu)", async () => {
+  const { db, updateManyCalls } = makeAutoCloseFakeDb({
+    orderRow: {
+      shipments: [
+        { id: "ship-A", direction: "OUTBOUND" },
+        { id: "ship-B", direction: "OUTBOUND" },
+      ],
+      withdrawalRequests: [{ id: "wd-1", shipmentIds: [] }],
+    },
+  });
+
+  const closed = await svc.autoCloseUnambiguousWithdrawalRequests({
+    orderId: "order-1",
+    shipmentId: "ship-A",
+    prisma: db,
+  });
+
+  assert.deepEqual(closed, []);
+  assert.equal(updateManyCalls.length, 0);
+});
+
+test("declarație parțială care acoperă STRICT shipment-ul anulat -> auto-close SIGUR", async () => {
+  const { db, updateManyCalls } = makeAutoCloseFakeDb({
+    orderRow: {
+      shipments: [
+        { id: "ship-A", direction: "OUTBOUND" },
+        { id: "ship-B", direction: "OUTBOUND" },
+      ],
+      withdrawalRequests: [{ id: "wd-1", shipmentIds: ["ship-A"] }],
+    },
+  });
+
+  const closed = await svc.autoCloseUnambiguousWithdrawalRequests({
+    orderId: "order-1",
+    shipmentId: "ship-A",
+    prisma: db,
+  });
+
+  assert.deepEqual(closed, ["wd-1"]);
+});
+
+test("declarație parțială pe 2 shipment-uri, se anulează doar unul -> NU auto-close (ambiguu)", async () => {
+  const { db, updateManyCalls } = makeAutoCloseFakeDb({
+    orderRow: {
+      shipments: [
+        { id: "ship-A", direction: "OUTBOUND" },
+        { id: "ship-B", direction: "OUTBOUND" },
+      ],
+      withdrawalRequests: [{ id: "wd-1", shipmentIds: ["ship-A", "ship-B"] }],
+    },
+  });
+
+  const closed = await svc.autoCloseUnambiguousWithdrawalRequests({
+    orderId: "order-1",
+    shipmentId: "ship-A",
+    prisma: db,
+  });
+
+  assert.deepEqual(closed, []);
+  assert.equal(updateManyCalls.length, 0);
+});
+
+test("declarație deja CLOSED nu e re-procesată de auto-close", async () => {
+  const { db, updateManyCalls } = makeAutoCloseFakeDb({
+    orderRow: {
+      shipments: [{ id: "ship-A", direction: "OUTBOUND" }],
+      // filtrul where:{status:{in:[SUBMITTED,FORWARDED_TO_VENDOR]}} e
+      // aplicat de query-ul real Prisma - aici simulăm direct rezultatul
+      // (lista goală, ca și cum ar fi fost deja filtrată).
+      withdrawalRequests: [],
+    },
+  });
+
+  const closed = await svc.autoCloseUnambiguousWithdrawalRequests({
+    orderId: "order-1",
+    shipmentId: "ship-A",
+    prisma: db,
+  });
+
+  assert.deepEqual(closed, []);
+  assert.equal(updateManyCalls.length, 0);
+});
+
+test("comandă inexistentă -> [] fără eroare (fail-open, non-blocant)", async () => {
+  const closed = await svc.autoCloseUnambiguousWithdrawalRequests({
+    orderId: "order-x",
+    shipmentId: "ship-A",
+    prisma: { order: { findUnique: async () => null } },
+  });
+
+  assert.deepEqual(closed, []);
+});
+
+/* =========================================================
+   STRUCTURAL: WithdrawalRequest NU modifică Order/Shipment/Deposit
+   (audit 2026-09-23, punctul 9) - fake db-urile de mai sus NU
+   definesc deloc shipment.update/order.update/depositStatus - dacă
+   vreo funcție ar încerca să le atingă, testul ar arunca "is not a
+   function", nu ar trece silențios.
+========================================================= */
+
+test("N. closeWithdrawalRequestForVendor nu atinge Order/Shipment (db fake nu are acele metode)", async () => {
+  const updateCalls = [];
+  const db = makeCloseFakeDb({
+    updateCalls,
+    requestRow: {
+      id: "wd-1",
+      orderId: "order-1",
+      shipmentIds: ["ship-A"],
+      status: "SUBMITTED",
+      order: { shipments: [{ id: "ship-A", vendorId: "vendor-A" }] },
+    },
+  });
+  // db-ul de mai sus NU are shipment/order.update - dacă codul le-ar
+  // apela, ar arunca TypeError, nu ar trece testul.
+  await svc.closeWithdrawalRequestForVendor({
+    withdrawalRequestId: "wd-1",
+    vendorId: "vendor-A",
+    prisma: db,
+  });
+  assert.equal(updateCalls.length, 1);
+  assert.equal(updateCalls[0].data.status, "CLOSED");
+});
+
+test("O. autoCloseUnambiguousWithdrawalRequests nu atinge Order/Shipment (db fake nu are acele metode)", async () => {
+  const { db, updateManyCalls } = makeAutoCloseFakeDb({
+    orderRow: {
+      shipments: [{ id: "ship-A", direction: "OUTBOUND" }],
+      withdrawalRequests: [{ id: "wd-1", shipmentIds: [] }],
+    },
+  });
+
+  await svc.autoCloseUnambiguousWithdrawalRequests({
+    orderId: "order-1",
+    shipmentId: "ship-A",
+    prisma: db,
+  });
+
+  assert.equal(updateManyCalls.length, 1);
+});

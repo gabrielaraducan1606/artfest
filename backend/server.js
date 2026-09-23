@@ -128,6 +128,8 @@ import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
 import { runQuotePriceReminderJob } from "./src/jobs/quotePriceReminderJob.js";
 // 🔔 JOB: reminder plată CARD neterminată (comenzi guest)
 import { runGuestPaymentReminderJob } from "./src/jobs/guestPaymentReminderJob.js";
+// 🔔 JOB: notificare vendor/influencer la expirarea unui cod de reducere
+import { runDiscountCodeExpiryJob } from "./src/jobs/discountCodeExpiryJob.js";
 import vendorCatalogProductsRoutes
   from "./src/routes/vendorCatalogProductsRoutes.js";
 import customerRequestsRouter
@@ -826,6 +828,24 @@ setInterval(() => {
     console.error("guestPaymentReminderJob (interval) failed:", err)
   );
 }, guestPaymentReminderIntervalMs);
+
+/*
+ * Notificare vendor/influencer la expirarea unui cod de reducere
+ * (audit 2026-09-23) - dedupeKey pe {id}+{endsAt}, deci nu are
+ * nevoie de verificare deasă; la fel ca quotePriceReminderJob, o
+ * frecvență de oră e suficientă (nu la fiecare minut).
+ */
+runDiscountCodeExpiryJob().catch((err) =>
+  console.error("discountCodeExpiryJob (startup) failed:", err)
+);
+
+const discountCodeExpiryIntervalMs = 60 * 60 * 1000;
+
+setInterval(() => {
+  runDiscountCodeExpiryJob().catch((err) =>
+    console.error("discountCodeExpiryJob (interval) failed:", err)
+  );
+}, discountCodeExpiryIntervalMs);
 
 });
 

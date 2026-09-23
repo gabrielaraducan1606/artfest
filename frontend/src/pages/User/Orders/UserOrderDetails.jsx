@@ -1604,7 +1604,7 @@ export default function MyOrderDetailsPage() {
             )}
 
             {order &&
-              order.status !== "CANCELED" && (
+              order.status !== "CANCELLED" && (
                 <WithdrawalButton
                   orderRef={order.id}
                   mode="user"

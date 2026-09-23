@@ -11,6 +11,7 @@ import AdminProductsTab from "./tabs/AdminProductsTab.jsx";
 import AdminCollectionsTab from "./tabs/AdminCollectionsTab.jsx";
 import AdminPoliciesTab from "./tabs/AdminPoliciesTab.jsx";
 import AdminEmailLogsTab from "./tabs/AdminEmailLogsTab.jsx";
+import AdminWithdrawalsTab from "./tabs/AdminWithdrawalsTab.jsx";
 
 const TABS = [
   { id: "adminAllUsers", label: "Toate conturile" },
@@ -22,6 +23,7 @@ const TABS = [
   { id: "collections", label: "Colecții" },
   { id: "policies", label: "Politici / consimțăminte" },
   { id: "emails", label: "Emailuri" },
+  { id: "withdrawals", label: "Retrageri din contract" },
 ];
 
 const TAB_IDS = TABS.reduce((acc, t) => {
@@ -58,6 +60,7 @@ export default function AdminDesktop() {
     collections: false,
     policies: false,
     emails: false,
+    withdrawals: false,
   });
 
   const [stats, setStats] = useState({
@@ -145,6 +148,11 @@ export default function AdminDesktop() {
 
       if (tabId === TAB_IDS.emails) {
         setLoadedTabs((prev) => ({ ...prev, emails: true }));
+        return;
+      }
+
+      if (tabId === TAB_IDS.withdrawals) {
+        setLoadedTabs((prev) => ({ ...prev, withdrawals: true }));
         return;
       }
 
@@ -338,6 +346,10 @@ export default function AdminDesktop() {
 
     if (activeTab === TAB_IDS.emails) {
       return <AdminEmailLogsTab />;
+    }
+
+    if (activeTab === TAB_IDS.withdrawals) {
+      return <AdminWithdrawalsTab />;
     }
 
     return null;

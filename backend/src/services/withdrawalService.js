@@ -65,7 +65,21 @@ export const withdrawalOrderSelect = {
         },
       },
       items: {
-        select: { title: true, qty: true },
+        select: {
+          title: true,
+          qty: true,
+
+          /*
+           * Strict pentru avertismentul de personalizare (Returns v2
+           * §4.3 + excepția legală pentru bunuri personalizate) - NU
+           * pentru blocare, doar informativ. Date deja existente pe
+           * ShipmentItem (snapshot real al comenzii), fără schimbare
+           * de schemă.
+           */
+          customAnswers: true,
+          selectedOptions: true,
+          configurationKey: true,
+        },
       },
     },
   },
@@ -79,6 +93,29 @@ export const withdrawalOrderSelect = {
     orderBy: { submittedAt: "desc" },
   },
 };
+
+/*
+ * Un item "arată" personalizat dacă are o configurație non-implicită
+ * sau răspunsuri/opțiuni completate de client - semnal informativ,
+ * NU o regulă legală definitivă (evaluarea excepției rămâne la
+ * Vânzător, ca și la termen - vezi comentariul de mai jos).
+ */
+function hasObjectContent(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length > 0
+  );
+}
+
+function itemLooksCustomized(item) {
+  return Boolean(
+    (item.configurationKey && item.configurationKey !== "default") ||
+      hasObjectContent(item.customAnswers) ||
+      hasObjectContent(item.selectedOptions)
+  );
+}
 
 export function hashGuestToken(token) {
   return crypto
@@ -215,6 +252,13 @@ export function evaluateWithdrawalEligibility(order) {
       withinStandardPeriod,
       eligible: reason === null,
       reason,
+
+      /*
+       * Informativ, NU blocant - vezi itemLooksCustomized. Eligibilitatea
+       * (`eligible`/`reason` de mai sus) NU e afectată de acest flag.
+       */
+      hasCustomItems: (shipment.items || []).some(itemLooksCustomized),
+
       items: (shipment.items || []).map((item) => ({
         title: item.title,
         qty: item.qty,
@@ -244,6 +288,16 @@ export function buildWithdrawalStatusPayload(order) {
     },
     periodDays: WITHDRAWAL_PERIOD_DAYS,
     eligible: eligibility.eligible,
+
+    /*
+     * Agregat, pentru un avertisment simplu în UI fără să iterăm
+     * shipment-urile - true dacă ORICARE shipment eligibil conține
+     * produse ce arată personalizate. Informativ, NU blocant.
+     */
+    hasCustomItems: eligibility.shipments.some(
+      (s) => s.eligible && s.hasCustomItems
+    ),
+
     shipments: eligibility.shipments,
     existing: (order.withdrawalRequests || []).map((request) => ({
       id: request.id,
@@ -619,5 +673,181 @@ export async function submitWithdrawal({
     shipmentIds: coversWholeOrder ? [] : requestedIds,
     confirmationSent,
     forwardedToVendor: notifiedVendorIds.length > 0,
+  };
+}
+
+/* ----------------------------------------------------
+   Vizibilitate + acțiuni VENDOR (audit „Retragere din contract”,
+   2026-09-23) - NU modifică Order/Shipment/depositStatus, NICIODATĂ.
+   Închiderea cererii (WithdrawalRequest.status -> CLOSED) e o
+   acțiune STRICT administrativă asupra declarației în sine.
+----------------------------------------------------- */
+
+/*
+ * Toate declarațiile ale căror shipmentIds ating shipment-urile
+ * ACESTUI vendor, dintr-o comandă - folosit de GET /api/vendor/orders/:id
+ * ca să afișeze secțiunea persistentă (audit, punctul 4/5).
+ */
+export function withdrawalRequestsForVendor({ order, vendorId }) {
+  const vendorShipmentIds = new Set(
+    (order.shipments || [])
+      .filter((s) => String(s.vendorId) === String(vendorId))
+      .map((s) => s.id)
+  );
+
+  return (order.withdrawalRequests || [])
+    .filter((request) => {
+      const ids = request.shipmentIds || [];
+      // gol = comandă întreagă -> atinge orice shipment, inclusiv al
+      // acestui vendor.
+      if (!ids.length) return true;
+      return ids.some((id) => vendorShipmentIds.has(id));
+    })
+    .map((request) => ({
+      id: request.id,
+      status: request.status,
+      submittedAt: request.submittedAt,
+      clientName: request.clientName,
+      contactEmail: request.contactEmail,
+      declarationText: request.declarationText,
+      shipmentIds: request.shipmentIds || [],
+      coversWholeOrder: !(request.shipmentIds || []).length,
+    }));
+}
+
+/*
+ * Un shipment "acoperă unic" o declarație dacă acea declarație NU
+ * poate privi și alt shipment (alt vendor) din aceeași comandă -
+ * condiție pentru auto-close SIGUR (punctul 6, cerut explicit: "dacă
+ * există cazuri ambigue multi-vendor, nu ghici").
+ */
+function coversExactlyOneShipment({ request, shipmentId, totalOutboundCount }) {
+  const ids = request.shipmentIds || [];
+
+  if (ids.length === 1 && ids[0] === shipmentId) {
+    return true;
+  }
+
+  // gol = "întreaga Comandă" - neambiguu STRICT dacă acea comandă are
+  // un singur shipment în total (altfel ar acoperi și alți vendori).
+  if (!ids.length && totalOutboundCount === 1) {
+    return true;
+  }
+
+  return false;
+}
+
+/*
+ * Apelată de ruta de anulare vendor DUPĂ ce anularea shipment-ului a
+ * reușit efectiv (nu înainte, nu condițional). Închide DOAR
+ * declarațiile care priveau STRICT acest shipment, fără ambiguitate -
+ * orice caz cu mai multe shipment-uri implicate rămâne neatins,
+ * pentru "Marchează procesată" manual.
+ */
+export async function autoCloseUnambiguousWithdrawalRequests({
+  orderId,
+  shipmentId,
+  prisma: db = prisma,
+}) {
+  const order = await db.order.findUnique({
+    where: { id: orderId },
+    select: {
+      shipments: {
+        select: { id: true, direction: true },
+      },
+      withdrawalRequests: {
+        where: { status: { in: ["SUBMITTED", "FORWARDED_TO_VENDOR"] } },
+        select: { id: true, shipmentIds: true },
+      },
+    },
+  });
+
+  if (!order) return [];
+
+  const totalOutboundCount = (order.shipments || []).filter(
+    (s) => s.direction !== "RETURN"
+  ).length;
+
+  const closedIds = [];
+
+  for (const request of order.withdrawalRequests || []) {
+    if (
+      !coversExactlyOneShipment({
+        request,
+        shipmentId,
+        totalOutboundCount,
+      })
+    ) {
+      continue;
+    }
+
+    const updated = await db.withdrawalRequest.updateMany({
+      where: {
+        id: request.id,
+        status: { in: ["SUBMITTED", "FORWARDED_TO_VENDOR"] },
+      },
+      data: { status: "CLOSED" },
+    });
+
+    if (updated.count === 1) closedIds.push(request.id);
+  }
+
+  return closedIds;
+}
+
+/*
+ * Acțiune manuală "Marchează procesată" (punctul 5, cerut explicit) -
+ * DOAR vendorul căruia îi aparține un shipment atins de declarație
+ * poate face asta. NU schimbă Order/Shipment/depositStatus.
+ */
+export async function closeWithdrawalRequestForVendor({
+  withdrawalRequestId,
+  vendorId,
+  prisma: db = prisma,
+}) {
+  const request = await db.withdrawalRequest.findUnique({
+    where: { id: withdrawalRequestId },
+    select: {
+      id: true,
+      orderId: true,
+      shipmentIds: true,
+      status: true,
+      order: {
+        select: {
+          shipments: { select: { id: true, vendorId: true } },
+        },
+      },
+    },
+  });
+
+  if (!request) {
+    throw new WithdrawalError(404, "not_found", "Cererea nu a fost găsită.");
+  }
+
+  const vendorShipmentIds = new Set(
+    (request.order?.shipments || [])
+      .filter((s) => String(s.vendorId) === String(vendorId))
+      .map((s) => s.id)
+  );
+
+  const ids = request.shipmentIds || [];
+  const covers = !ids.length || ids.some((id) => vendorShipmentIds.has(id));
+
+  if (!covers) {
+    throw new WithdrawalError(
+      403,
+      "not_your_shipment",
+      "Această cerere de retragere nu privește o livrare a ta."
+    );
+  }
+
+  const updated = await db.withdrawalRequest.update({
+    where: { id: withdrawalRequestId },
+    data: { status: "CLOSED" },
+  });
+
+  return {
+    id: updated.id,
+    status: updated.status,
   };
 }

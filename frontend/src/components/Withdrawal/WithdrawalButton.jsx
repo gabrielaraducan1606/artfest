@@ -168,20 +168,26 @@ export default function WithdrawalButton({
         className={className || styles.trigger}
         onClick={() => setOpen(true)}
       >
-        Retrageți-vă din contract aici
+        Solicită retragerea din comandă
       </button>
+
+      <div className={styles.clarification}>
+        Cererea este transmisă vânzătorului și nu anulează automat comanda.
+      </div>
 
       {open && (
         <div
           className={styles.backdrop}
           role="dialog"
           aria-modal="true"
-          aria-label="Retragere din contract"
+          aria-label="Solicită retragerea din contractul acestei comenzi"
         >
           <div className={styles.modal}>
             <div className={styles.head}>
               <div>
-                <div className={styles.title}>Retragere din contract</div>
+                <div className={styles.title}>
+                  Solicită retragerea din contractul acestei comenzi
+                </div>
                 <div className={styles.subtle}>
                   Comandă:{" "}
                   <b>#{status?.order?.orderNumber || orderRef}</b>
@@ -241,6 +247,16 @@ export default function WithdrawalButton({
                         poți transmite retragerea și pe alte căi permise de
                         lege.
                       </p>
+
+                      {status.hasCustomItems && (
+                        <div className={styles.warn}>
+                          Pentru produsele realizate după specificațiile
+                          tale sau personalizate în mod clar, dreptul legal
+                          de retragere poate să nu se aplice. Vânzătorul va
+                          analiza solicitarea conform legii și politicii
+                          aplicabile.
+                        </div>
+                      )}
 
                       <div className={styles.field}>
                         <label className={styles.label} htmlFor="wd-name">
@@ -341,7 +357,7 @@ export default function WithdrawalButton({
                 <>
                   <div className={styles.card}>
                     <div className={styles.cardTitle}>
-                      Confirmă retragerea din contract
+                      Confirmă solicitarea de retragere
                     </div>
 
                     <div className={styles.declaration}>
@@ -383,7 +399,7 @@ export default function WithdrawalButton({
                     >
                       {submitting
                         ? "Se transmite…"
-                        : "Confirm retragerea din contract"}
+                        : "Confirm solicitarea de retragere"}
                     </button>
                   </div>
                 </>
