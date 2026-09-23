@@ -166,7 +166,18 @@ import CustomerRequestDetailsPage
   from "./pages/Home/CustomerRequestsSection/CustomerRequestsPage.jsx";
 
   import InfluencerRegisterPage from "./pages/Influencer/InfluencerRegisterPage.jsx";
-import InfluencerDashboardPage from "./pages/Influencer/InfluencerDashboardPage/InfluencerDashboardPage.jsx";
+/*
+ * Audit performanță 2026-09-23 - lazy la nivel de rută, mirror al
+ * AdminDesktop/ProfilMagazin de mai sus. Dashboardul influencer (3456
+ * linii + secțiunea de resurse + cele 4 modale, toate importate static
+ * din interiorul lui) intra azi în bundle-ul PRINCIPAL, descărcat de
+ * orice vizitator - indiferent dacă e influencer sau nu. Prefetch-uit
+ * explicit la hover/focus/touchstart pe linkurile către /influencer
+ * (Navbar.jsx), ca navigarea efectivă să nu mai aștepte chunk-ul.
+ */
+const InfluencerDashboardPage = lazy(() =>
+  import("./pages/Influencer/InfluencerDashboardPage/InfluencerDashboardPage.jsx")
+);
 import {
   SEOProvider,
 } from "./components/Seo/SeoProvider";

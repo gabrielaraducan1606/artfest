@@ -1205,6 +1205,18 @@ function serializeDiscountCodeValidation(validation) {
     estimatedDiscountAmountCents: validation.estimatedDiscountAmountCents,
     wonOnAnyItem: validation.wonOnAnyItem !== false,
     eligibleProductIds: [...validation.eligibleProductIds],
+
+    /*
+     * Expuse STRICT ca hint pentru frontend (persistență separată de
+     * discount, vezi discountCodeAttribution.js) - niciodată de
+     * încredere de unul singur, backend-ul le revalidează mereu fresh
+     * din DB pe baza discountCodeId/code înainte să le folosească
+     * efectiv la /checkout/place (vezi discountCodeAttributionHint
+     * mai jos în acest fișier).
+     */
+    discountCodeId: validation.discountCode.id,
+    influencerId: validation.discountCode.influencerId || null,
+    vendorId: validation.discountCode.vendorId || null,
   };
 }
 
@@ -2692,6 +2704,70 @@ if (err?.message === "product_not_found") {
   }
 });
 
+/*
+ * Revalidează un hint de atribuire pe cod de reducere
+ * (discountCodeAttribution trimis de frontend, vezi
+ * discountCodeAttribution.js) - folosit STRICT când clientul a apăsat
+ * "Elimină" pe cod (deci `discountCode` lipsește din body la
+ * /checkout/place), ca să nu pierdem atribuirea către
+ * influencer/vendor doar pentru că discountul nu se mai aplică.
+ *
+ * Fail-open, exact ca influencerAttribution/vendorReferralAttribution:
+ * un hint lipsă/invalid/expirat/manipulat NU blochează comanda, doar
+ * ignoră atribuirea (return null). NU se are încredere niciodată
+ * direct în influencerId/vendorId trimis de frontend - se recitesc
+ * din DB prin ACELAȘI validateDiscountCode() folosit pentru codul
+ * activ, pe baza codului text din hint; dacă hint-ul a trimis și
+ * discountCodeId, se verifică și potrivirea, ca protecție
+ * suplimentară împotriva unui hint manipulat manual în frontend
+ * (ex. code valid trimis cu un discountCodeId al altui cod).
+ *
+ * NU afectează niciodată prețul/discountul - doar eligibilitatea de
+ * ATRIBUIRE (vezi discountCodeEligibleOnAnyItem mai jos), niciodată
+ * discountCodePromotionsByProductId/pricingByProductId, care rămân
+ * strict pe discountCodeValidationForPlace (codul activ, dacă există).
+ */
+export async function resolveDiscountCodeAttributionHintValidation({
+  hint,
+  cartItems,
+  currency,
+  userId = null,
+  customerEmail = null,
+  db = prisma,
+}) {
+  try {
+    const code =
+      hint && typeof hint === "object" ? String(hint.code || "").trim() : "";
+    if (!code) return null;
+
+    const validation = await validateDiscountCode({
+      code,
+      cartItems,
+      currency,
+      userId,
+      customerEmail,
+      db,
+    });
+
+    if (!validation.valid) return null;
+
+    if (
+      hint.discountCodeId &&
+      String(validation.discountCode.id) !== String(hint.discountCodeId)
+    ) {
+      return null;
+    }
+
+    return validation;
+  } catch (err) {
+    console.error(
+      "discountCodeAttribution hint revalidation failed:",
+      err
+    );
+    return null;
+  }
+}
+
 /**
  * PLACE
  */
@@ -2712,6 +2788,7 @@ router.post("/checkout/place", authRequired, async (req, res) => {
       vendorReferralAttribution,
       vendorCollectionAttribution,
       discountCode,
+      discountCodeAttribution,
     } = req.body || {};
 
     const ctRaw = String(customerType || "").toUpperCase();
@@ -2821,6 +2898,32 @@ if (discountCode) {
     });
   }
 }
+
+/*
+ * Hint de atribuire pe cod (client a apăsat "Elimină", dar codul era
+ * al unui influencer/vendor) - vezi resolveDiscountCodeAttributionHintValidation
+ * mai sus. Verificat DOAR când nu există deja un `discountCode` activ
+ * pe această comandă (dacă există, el are oricum prioritate - regula
+ * existentă, neschimbată). Fail-open: nu blochează comanda.
+ */
+const discountCodeAttributionHintValidation = discountCodeValidationForPlace
+  ? null
+  : await resolveDiscountCodeAttributionHintValidation({
+      hint: discountCodeAttribution,
+      cartItems: cart,
+      currency,
+      userId: req.user.sub,
+      customerEmail: null,
+    });
+
+/*
+ * Sursa folosită STRICT pentru eligibilitatea de ATRIBUIRE - codul
+ * activ dacă există, altfel hint-ul revalidat. NU e folosită pentru
+ * preț/discount (discountCodePromotionsByProductId/pricingByProductId
+ * rămân strict pe discountCodeValidationForPlace, mai jos).
+ */
+const discountCodeAttributionValidation =
+  discountCodeValidationForPlace || discountCodeAttributionHintValidation;
 
 /*
  * Atribuire influencer - GLOBALĂ pentru toată comanda (nu per
@@ -2953,15 +3056,15 @@ const discountCodeWonOnAnyItem =
  * refVendor) rămâne neatins, nu are legătură cu un cod.
  */
 const discountCodeEligibleOnAnyItem =
-  discountCodeValidationForPlace?.valid &&
-  discountCodeValidationForPlace.eligibleProductIds?.size > 0;
+  discountCodeAttributionValidation?.valid &&
+  discountCodeAttributionValidation.eligibleProductIds?.size > 0;
 
 const discountCodeInfluencerAttribution =
   discountCodeEligibleOnAnyItem &&
-  discountCodeValidationForPlace.discountCode.influencerId
+  discountCodeAttributionValidation.discountCode.influencerId
     ? await resolveInfluencerAttributionByInfluencerId({
         influencerId:
-          discountCodeValidationForPlace.discountCode.influencerId,
+          discountCodeAttributionValidation.discountCode.influencerId,
       })
     : null;
 
@@ -2973,10 +3076,10 @@ const discountCodeInfluencerAttribution =
  */
 const discountCodeVendorAttribution =
   discountCodeEligibleOnAnyItem &&
-  discountCodeValidationForPlace.discountCode.vendorId
+  discountCodeAttributionValidation.discountCode.vendorId
     ? await resolveVendorReferralAttributionByVendorId({
         vendorId:
-          discountCodeValidationForPlace.discountCode.vendorId,
+          discountCodeAttributionValidation.discountCode.vendorId,
       })
     : null;
 
@@ -3321,7 +3424,7 @@ for (const item of cart) {
           its.some(
             (item) =>
               item.productId &&
-              discountCodeValidationForPlace?.eligibleProductIds?.has(
+              discountCodeAttributionValidation?.eligibleProductIds?.has(
                 item.productId
               )
           );
@@ -3336,7 +3439,7 @@ for (const item of cart) {
           its.some(
             (item) =>
               item.productId &&
-              discountCodeValidationForPlace?.eligibleProductIds?.has(
+              discountCodeAttributionValidation?.eligibleProductIds?.has(
                 item.productId
               )
           );
@@ -3801,6 +3904,7 @@ router.post("/checkout/guest/place", async (req, res) => {
       vendorReferralAttribution,
       vendorCollectionAttribution,
       discountCode,
+      discountCodeAttribution,
     } = req.body || {};
 
     const ctRaw = String(customerType || "").toUpperCase();
@@ -3903,6 +4007,24 @@ if (discountCode) {
 }
 
 /*
+ * Hint de atribuire pe cod - mirror identic cu /checkout/place, vezi
+ * resolveDiscountCodeAttributionHintValidation la începutul acestui
+ * fișier. Fail-open, nu blochează comanda.
+ */
+const discountCodeAttributionHintValidation = discountCodeValidationForPlace
+  ? null
+  : await resolveDiscountCodeAttributionHintValidation({
+      hint: discountCodeAttribution,
+      cartItems: cart,
+      currency,
+      userId: null,
+      customerEmail: discountCodeCustomerEmail || null,
+    });
+
+const discountCodeAttributionValidation =
+  discountCodeValidationForPlace || discountCodeAttributionHintValidation;
+
+/*
  * Atribuire influencer - identică ca regulă cu /checkout/place:
  * cod de reducere al unui influencer, dacă a câștigat efectiv
  * reducere pe un produs din comandă, are prioritate față de ?ref=.
@@ -4003,24 +4125,24 @@ const discountCodeWonOnAnyItem =
  * cod. PRICE WINNER != ATTRIBUTION WINNER.
  */
 const discountCodeEligibleOnAnyItem =
-  discountCodeValidationForPlace?.valid &&
-  discountCodeValidationForPlace.eligibleProductIds?.size > 0;
+  discountCodeAttributionValidation?.valid &&
+  discountCodeAttributionValidation.eligibleProductIds?.size > 0;
 
 const discountCodeInfluencerAttribution =
   discountCodeEligibleOnAnyItem &&
-  discountCodeValidationForPlace.discountCode.influencerId
+  discountCodeAttributionValidation.discountCode.influencerId
     ? await resolveInfluencerAttributionByInfluencerId({
         influencerId:
-          discountCodeValidationForPlace.discountCode.influencerId,
+          discountCodeAttributionValidation.discountCode.influencerId,
       })
     : null;
 
 const discountCodeVendorAttribution =
   discountCodeEligibleOnAnyItem &&
-  discountCodeValidationForPlace.discountCode.vendorId
+  discountCodeAttributionValidation.discountCode.vendorId
     ? await resolveVendorReferralAttributionByVendorId({
         vendorId:
-          discountCodeValidationForPlace.discountCode.vendorId,
+          discountCodeAttributionValidation.discountCode.vendorId,
       })
     : null;
 
@@ -4446,7 +4568,7 @@ const storeAddresses = {};
             shipmentItems.some(
               (item) =>
                 item.productId &&
-                discountCodeValidationForPlace?.eligibleProductIds?.has(
+                discountCodeAttributionValidation?.eligibleProductIds?.has(
                   item.productId
                 )
             );
@@ -4460,7 +4582,7 @@ const storeAddresses = {};
             shipmentItems.some(
               (item) =>
                 item.productId &&
-                discountCodeValidationForPlace?.eligibleProductIds?.has(
+                discountCodeAttributionValidation?.eligibleProductIds?.has(
                   item.productId
                 )
             );

@@ -281,9 +281,20 @@ export async function buildAttributionCommissionPreview({
  *
  * Notă: shipping NU intră în earning vendor.
  */
+/*
+ * Audit performanță 2026-09-23 (influencer dashboard, N+1) -
+ * `billing`/`plan` opționale, pre-fetched de apelant (Map batch/cache
+ * per-request, vezi influencerEarnings.js). Aditiv, 100% retro-compatibil:
+ * dacă nu sunt trimise (`undefined`, cazul TUTUROR celorlalți apelanți
+ * existenți - Order Details, admin, Stripe payout etc.), comportamentul
+ * rămâne EXACT cel de dinainte (query propriu, ca înainte). Formula de
+ * calcul de mai jos NU a fost atinsă - doar SURSA lui `billing`/`plan`.
+ */
 export async function computeVendorEarningForShipment({
   vendorId,
   shipmentId,
+  billing: preloadedBilling,
+  plan: preloadedPlan,
 }) {
   const shipment =
     await prisma.shipment.findUnique({
@@ -306,11 +317,13 @@ export async function computeVendorEarningForShipment({
   }
 
   const billing =
-    await prisma.vendorBilling.findUnique({
-      where: {
-        vendorId,
-      },
-    });
+    preloadedBilling !== undefined
+      ? preloadedBilling
+      : await prisma.vendorBilling.findUnique({
+          where: {
+            vendorId,
+          },
+        });
 
   const vatStatus =
     billing?.vatStatus ||
@@ -367,9 +380,11 @@ export async function computeVendorEarningForShipment({
     );
 
   const plan =
-    await getActivePlanForVendor(
-      vendorId
-    );
+    preloadedPlan !== undefined
+      ? preloadedPlan
+      : await getActivePlanForVendor(
+          vendorId
+        );
 
   let baseCommissionBps =
     Number(

@@ -16,7 +16,10 @@
  */
 
 import { prisma } from "../db.js";
-import { computeVendorEarningForShipment } from "../routes/vendorOrdersRoutes.js";
+import {
+  computeVendorEarningForShipment,
+  getActivePlanForVendor,
+} from "../routes/vendorOrdersRoutes.js";
 
 /*
  * Statusuri de shipment care NU mai pot deveni o vânzare
@@ -137,14 +140,69 @@ export async function getInfluencerAttributedTotals(influencerId) {
   };
 }
 
+/*
+ * Rulează `worker` pe `items`, cel mult `limit` execuții simultane -
+ * concurență LIMITATĂ, nu nelimitată (audit performanță 2026-09-23,
+ * fix N+1 getInfluencerEstimatedEarnings). Ordinea rezultatelor
+ * corespunde ordinii din `items`, indiferent de ordinea de finalizare.
+ */
+export async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    for (;;) {
+      const current = nextIndex++;
+      if (current >= items.length) return;
+      results[current] = await worker(items[current], current);
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, runWorker));
+
+  return results;
+}
+
+const DEFAULT_ESTIMATE_CONCURRENCY = 6;
+
 /**
  * Câștig ESTIMAT (live, nepersistat) - shipment-uri atribuite
  * influencerului care încă nu au ajuns la statusul care creează
  * ledger entry (DELIVERED/IN_TRANSIT) și nu au fost refuzate/
  * returnate.
+ *
+ * FIX N+1 (audit performanță 2026-09-23) - fostă buclă `for...await`
+ * serială (1 shipment pending = 3-4 query-uri DB secvențiale prin
+ * computeVendorEarningForShipment: shipment.findUnique +
+ * vendorBilling.findUnique + getActivePlanForVendor). Pentru un
+ * influencer cu 32 shipment-uri pending, măsurat: ~24-25 SECUNDE
+ * pentru `/api/influencer/me`, aproape în întregime din acest loc.
+ *
+ * Optimizări aplicate, FĂRĂ să schimbe formula de calcul (vezi
+ * computeVendorEarningForShipment, vendorOrdersRoutes.js - NEATINSĂ
+ * ca logică, doar cu `billing`/`plan` opționale, pre-fetched):
+ * 1. concurență LIMITATĂ (implicit 6, nu nelimitată) în loc de serial;
+ * 2. cache local (Map, per-apel, NU global/persistent) pentru
+ *    getActivePlanForVendor - planul fiecărui vendor se citește o
+ *    singură dată, reutilizat de toate shipment-urile lui;
+ * 3. batch VendorBilling - un singur findMany({vendorId:{in:[...]}})
+ *    pentru toți vendorii unici, în loc de N findUnique individuale.
+ *
+ * Parametrii din al 2-lea argument sunt STRICT pentru testare
+ * (injectare de db/dependențe fake, fără DB real) - toți apelanții
+ * din producție (ruta /me) folosesc valorile implicite.
  */
-export async function getInfluencerEstimatedEarnings(influencerId) {
-  const pendingShipments = await prisma.shipment.findMany({
+export async function getInfluencerEstimatedEarnings(
+  influencerId,
+  {
+    db = prisma,
+    computeEarning = computeVendorEarningForShipment,
+    getPlan = getActivePlanForVendor,
+    concurrency = DEFAULT_ESTIMATE_CONCURRENCY,
+  } = {}
+) {
+  const pendingShipments = await db.shipment.findMany({
     where: {
       influencerId,
       status: { notIn: Array.from(NON_ESTIMABLE_SHIPMENT_STATUSES) },
@@ -158,32 +216,98 @@ export async function getInfluencerEstimatedEarnings(influencerId) {
     },
   });
 
-  let estimatedEarningsAmount = 0;
+  /*
+   * Identic comportamentului vechi (`if (!commissionBpsSnapshot) continue;`)
+   * - filtrat ÎNAINTE de batch-uri, ca să nu aducem billing/plan
+   * pentru vendori ale căror shipment-uri oricum nu contribuie.
+   */
+  const eligibleShipments = pendingShipments.filter(
+    (shipment) =>
+      Number(shipment.influencerCommissionBpsSnapshot || 0) > 0
+  );
 
-  for (const shipment of pendingShipments) {
-    const commissionBpsSnapshot = Number(
-      shipment.influencerCommissionBpsSnapshot || 0
-    );
+  if (!eligibleShipments.length) return 0;
 
-    if (!commissionBpsSnapshot) continue;
+  /*
+   * BATCH billing (punctul 3) - un singur query pentru toți vendorii
+   * unici implicați în shipment-urile eligibile.
+   */
+  const uniqueVendorIds = [
+    ...new Set(eligibleShipments.map((s) => s.vendorId)),
+  ];
 
-    try {
-      const earning = await computeVendorEarningForShipment({
-        vendorId: shipment.vendorId,
-        shipmentId: shipment.id,
-      });
+  const billingRows = await db.vendorBilling.findMany({
+    where: { vendorId: { in: uniqueVendorIds } },
+  });
 
-      estimatedEarningsAmount +=
-        (Number(earning.commissionNet || 0) *
-          commissionBpsSnapshot) /
-        10000;
-    } catch {
-      /*
-       * Shipment fără iteme încă / date incomplete - îl sărim,
-       * nu blocăm restul estimării.
-       */
+  const billingByVendorId = new Map(
+    billingRows.map((b) => [b.vendorId, b])
+  );
+
+  /*
+   * CACHE local per-request (punctul 2) - Map cu PROMISE-uri (nu doar
+   * valori rezolvate), ca să dedupleze și apeluri concurente pentru
+   * ACELAȘI vendor (2 workeri care ajung simultan la primul shipment
+   * al aceluiași vendor nu declanșează 2 query-uri - al doilea
+   * așteaptă promisiunea primului). Trăiește STRICT în closure-ul
+   * acestui apel - NU e cache global/persistent, dispare la finalul
+   * funcției.
+   */
+  const planCache = new Map();
+
+  function getCachedPlan(vendorId) {
+    if (!planCache.has(vendorId)) {
+      planCache.set(vendorId, getPlan(vendorId));
     }
+    return planCache.get(vendorId);
   }
+
+  /*
+   * PARALELIZARE cu concurență limitată (punctul 1) - înlocuiește
+   * bucla `for...await` serială. Concurență implicit 6 (interval
+   * cerut: 5-8), ca să nu saturăm conexiunile DB dacă numărul de
+   * shipment-uri pending crește mult.
+   */
+  const contributions = await mapWithConcurrency(
+    eligibleShipments,
+    concurrency,
+    async (shipment) => {
+      const commissionBpsSnapshot = Number(
+        shipment.influencerCommissionBpsSnapshot || 0
+      );
+
+      try {
+        const billing =
+          billingByVendorId.get(shipment.vendorId) ?? null;
+
+        const plan = await getCachedPlan(shipment.vendorId);
+
+        const earning = await computeEarning({
+          vendorId: shipment.vendorId,
+          shipmentId: shipment.id,
+          billing,
+          plan,
+        });
+
+        return (
+          (Number(earning.commissionNet || 0) *
+            commissionBpsSnapshot) /
+          10000
+        );
+      } catch {
+        /*
+         * Shipment fără iteme încă / date incomplete - îl sărim,
+         * nu blocăm restul estimării. Identic comportamentul vechi.
+         */
+        return 0;
+      }
+    }
+  );
+
+  const estimatedEarningsAmount = contributions.reduce(
+    (sum, value) => sum + value,
+    0
+  );
 
   return Math.round(estimatedEarningsAmount * 100) / 100;
 }

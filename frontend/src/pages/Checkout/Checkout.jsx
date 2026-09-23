@@ -21,6 +21,11 @@ import {
   storeDiscountCode,
   clearStoredDiscountCode,
 } from "../../utils/discountCode.js";
+import {
+  getStoredDiscountCodeAttribution,
+  storeDiscountCodeAttribution,
+  clearStoredDiscountCodeAttribution,
+} from "../../utils/discountCodeAttribution.js";
 import { humanizeOptionValue } from "../../utils/optionLabels.js";
 import styles from "./Checkout.module.css";
 import TraderStatusNotice from "./TraderStatusNotice.jsx";
@@ -1763,6 +1768,18 @@ const offer =
         if (summary?.discountCode?.valid) {
           setDiscountCodeApplied(summary.discountCode);
           setDiscountCodeError("");
+
+          /*
+           * Hint de atribuire SEPARAT de discount (vezi
+           * discountCodeAttribution.js) - mirror al Cart.jsx. Ultimul
+           * cod VALID revalidat aici înlocuiește hint-ul anterior.
+           */
+          storeDiscountCodeAttribution({
+            discountCodeId: summary.discountCode.discountCodeId,
+            code: summary.discountCode.code,
+            influencerId: summary.discountCode.influencerId,
+            vendorId: summary.discountCode.vendorId,
+          });
         } else if (summary?.discountCode) {
           setDiscountCodeApplied(null);
           setDiscountCodeError(summary.discountCode.message || "");
@@ -2191,6 +2208,8 @@ const removeDiscountCode = () => {
         vendorCollectionAttribution:
           getVendorCollectionAttributionForCheckout(),
         discountCode: getStoredDiscountCode() || undefined,
+        discountCodeAttribution:
+          getStoredDiscountCodeAttribution() || undefined,
       };
 /*
  * =========================================================
@@ -2346,6 +2365,15 @@ if (result?.ok || result?.orderId) {
   }
 
   clearStoredDiscountCode();
+
+  /*
+   * Hint de atribuire pe cod (discountCodeAttribution.js) - șters
+   * DOAR aici, după plasarea CU SUCCES, ca să nu fie reutilizat
+   * accidental la o comandă viitoare din aceeași filă (cerință
+   * explicită). NU se șterge la "Elimină" (removeDiscountCode) - vezi
+   * comentariul din discountCodeAttribution.js.
+   */
+  clearStoredDiscountCodeAttribution();
 
   /*
    * Consumare token campanie (audit 2026-09-14, lifecycle

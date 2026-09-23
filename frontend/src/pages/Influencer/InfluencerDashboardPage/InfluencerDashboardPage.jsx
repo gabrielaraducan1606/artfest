@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -17,25 +19,38 @@ import { POLICY_REQUIRED_EVENT } from "../../../lib/policyRequired.js";
 import PolicyGate from "../../Admin/AdminDesktop/PolicyGate/PolicyGate.jsx";
 import usePolicyGateController from "../../Admin/AdminDesktop/PolicyGate/usePolicyGateController.js";
 
-import InfluencerCollectionsModal
-  from "../components/InfluencerCollectionsModal.jsx";
-
-import InfluencerDiscountCodesModal
-  from "../components/InfluencerDiscountCodesModal.jsx";
-
-import InfluencerTermsGateModal
-  from "../components/InfluencerTermsGateModal.jsx";
-
-import InfluencerFilesModal
-  from "../components/InfluencerFilesModal.jsx";
-
-import InfluencerResourcesSection
-  from "./InfluencerResourcesSection.jsx";
-
-import CommunityFeaturesSection
-  from "./CommunityFeaturesSection.jsx";
-
 import styles from "./InfluencerDashboardPage.module.css";
+
+/*
+ * Audit performanță 2026-09-23 - lazy pentru cele 4 modale + cele 2
+ * secțiuni de tab grele. Condițiile de randare EXISTENTE
+ * ({xOpen && <Modal/>}, {activeTab === "x" && <Secțiune/>}) rămân
+ * neschimbate mai jos - doar sursa importului devine un chunk
+ * separat, ca greutatea lor să nu mai intre în chunk-ul paginii.
+ */
+const InfluencerCollectionsModal = lazy(() =>
+  import("../components/InfluencerCollectionsModal.jsx")
+);
+
+const InfluencerDiscountCodesModal = lazy(() =>
+  import("../components/InfluencerDiscountCodesModal.jsx")
+);
+
+const InfluencerTermsGateModal = lazy(() =>
+  import("../components/InfluencerTermsGateModal.jsx")
+);
+
+const InfluencerFilesModal = lazy(() =>
+  import("../components/InfluencerFilesModal.jsx")
+);
+
+const InfluencerResourcesSection = lazy(() =>
+  import("./InfluencerResourcesSection.jsx")
+);
+
+const CommunityFeaturesSection = lazy(() =>
+  import("./CommunityFeaturesSection.jsx")
+);
 
 /* =========================================================
    WHATSAPP
@@ -83,6 +98,79 @@ const DASHBOARD_TABS = [
     label: "Resurse",
   },
 ];
+
+/* =========================================================
+   SKELETON (audit performanță 2026-09-23)
+
+   Înlocuiește vechiul ecran "Se încarcă dashboardul…" (card de text,
+   fără layout, ecran practic gol) cu un layout STABIL - header, bară
+   de tab-uri și grid de KPI, toate cu dimensiunile reale (aceleași
+   clase CSS: .page/.shell/.header/.tabs/.statsGrid/.statCard), doar
+   cu conținut placeholder animat. Afișat cât timp `loading === true`
+   (înainte ca /api/influencer/me să răspundă).
+========================================================= */
+
+function SkeletonBlock({ width = "100%", height = 14, radius = 6, style }) {
+  return (
+    <div
+      className={styles.skeletonBlock}
+      style={{ width, height, borderRadius: radius, ...style }}
+      aria-hidden="true"
+    />
+  );
+}
+
+function DashboardOverviewSkeleton() {
+  return (
+    <main className={styles.page}>
+      <div className={styles.shell}>
+        <div className={styles.header}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <SkeletonBlock
+              width={150}
+              height={22}
+              radius={999}
+              style={{ marginBottom: 11 }}
+            />
+            <SkeletonBlock
+              width="55%"
+              height={34}
+              style={{ marginBottom: 10 }}
+            />
+            <SkeletonBlock width="80%" height={16} />
+          </div>
+        </div>
+
+        <div className={styles.tabs}>
+          {DASHBOARD_TABS.map((tab) => (
+            <SkeletonBlock
+              key={tab.id}
+              height={43}
+              radius={10}
+              style={{ flex: "1 0 auto" }}
+            />
+          ))}
+        </div>
+
+        <div className={styles.statsGrid}>
+          {/* 5 placeholder-e, câte coloane are .statsGrid azi (vezi
+              InfluencerDashboardPage.module.css) - independent de
+              numărul de tab-uri, doar coincide numeric. */}
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className={styles.statCard}>
+              <SkeletonBlock
+                width="65%"
+                height={12}
+                style={{ marginBottom: 10 }}
+              />
+              <SkeletonBlock width="45%" height={24} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </main>
+  );
+}
 
 /* =========================================================
    COMPONENT
@@ -1092,21 +1180,7 @@ export default function InfluencerDashboardPage() {
   ========================================================= */
 
   if (loading) {
-    return (
-      <main
-        className={
-          styles.page
-        }
-      >
-        <div
-          className={
-            styles.loadingCard
-          }
-        >
-          Se încarcă dashboardul…
-        </div>
-      </main>
-    );
+    return <DashboardOverviewSkeleton />;
   }
 
   /* =========================================================
@@ -2165,7 +2239,9 @@ export default function InfluencerDashboardPage() {
 
         {activeTab ===
           "community" && (
-          <CommunityFeaturesSection />
+          <Suspense fallback={null}>
+            <CommunityFeaturesSection />
+          </Suspense>
         )}
 
         {activeTab ===
@@ -2327,6 +2403,7 @@ export default function InfluencerDashboardPage() {
         {activeTab ===
           "resources" && (
           <>
+            <Suspense fallback={null}>
             <InfluencerResourcesSection
               resources={
                 resources
@@ -2373,6 +2450,7 @@ export default function InfluencerDashboardPage() {
                 initialResourceFilters
               }
             />
+            </Suspense>
 
             <section
               className={
@@ -2497,13 +2575,15 @@ export default function InfluencerDashboardPage() {
       ===================================================== */}
 
       {collectionsOpen && (
-        <InfluencerCollectionsModal
-          onClose={() =>
-            setCollectionsOpen(
-              false
-            )
-          }
-        />
+        <Suspense fallback={null}>
+          <InfluencerCollectionsModal
+            onClose={() =>
+              setCollectionsOpen(
+                false
+              )
+            }
+          />
+        </Suspense>
       )}
 
       {/* =====================================================
@@ -2511,13 +2591,15 @@ export default function InfluencerDashboardPage() {
       ===================================================== */}
 
       {discountCodesOpen && (
-        <InfluencerDiscountCodesModal
-          onClose={() =>
-            setDiscountCodesOpen(
-              false
-            )
-          }
-        />
+        <Suspense fallback={null}>
+          <InfluencerDiscountCodesModal
+            onClose={() =>
+              setDiscountCodesOpen(
+                false
+              )
+            }
+          />
+        </Suspense>
       )}
 
       {/* =====================================================
@@ -2525,13 +2607,15 @@ export default function InfluencerDashboardPage() {
       ===================================================== */}
 
       {filesOpen && (
-        <InfluencerFilesModal
-          onClose={() =>
-            setFilesOpen(
-              false
-            )
-          }
-        />
+        <Suspense fallback={null}>
+          <InfluencerFilesModal
+            onClose={() =>
+              setFilesOpen(
+                false
+              )
+            }
+          />
+        </Suspense>
       )}
 
       {/* =====================================================
@@ -2552,15 +2636,17 @@ export default function InfluencerDashboardPage() {
 
       {data?.terms?.outdated &&
         !(termsDismissed && data.terms.blocking === false) && (
-          <InfluencerTermsGateModal
-            terms={data.terms}
-            onAccepted={handleTermsAccepted}
-            onDismiss={
-              data.terms.blocking === false
-                ? handleTermsDismiss
-                : undefined
-            }
-          />
+          <Suspense fallback={null}>
+            <InfluencerTermsGateModal
+              terms={data.terms}
+              onAccepted={handleTermsAccepted}
+              onDismiss={
+                data.terms.blocking === false
+                  ? handleTermsDismiss
+                  : undefined
+              }
+            />
+          </Suspense>
         )}
     </main>
   );

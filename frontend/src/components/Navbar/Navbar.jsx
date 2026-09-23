@@ -66,6 +66,7 @@ import {
   INFLUENCER_NAV_SECTIONS,
 } from "../../config/influencerNavigation.js";
 import { GUEST_NAV_SECTIONS } from "../../config/guestNavigation.js";
+import { prefetchChunk } from "../../lib/smartPrefetch.js";
 import { usePublicCollections } from "../../hooks/usePublicCollections";
 import { toCollectionCards } from "../../pages/Home/CollectionsSection/collectionCards.js";
 import {
@@ -113,6 +114,29 @@ function VendorDrawerIcon({ name, size = 18 }) {
   const IconComponent = VENDOR_DRAWER_ICONS[name];
   if (!IconComponent) return null;
   return <IconComponent size={size} aria-hidden="true" />;
+}
+
+/*
+ * Audit performanță 2026-09-23 - InfluencerDashboardPage a devenit
+ * lazy (App.jsx), deci chunk-ul lui nu mai e deja în bundle-ul
+ * principal. Încălzim explicit chunk-ul la hover/focus/touchstart pe
+ * oricare din cele 3 intrări spre /influencer (icon navbar, dropdown,
+ * item din burger), ca navigarea efectivă să nu mai aștepte
+ * descărcarea codului paginii. Reutilizează STRICT infrastructura
+ * existentă (smartPrefetch.js) - dedup, coadă, gating pe conexiune -
+ * fără nimic nou. DOAR chunk-ul (cod), NICIODATĂ date (/api/influencer/me
+ * e privat/autentificat - smartPrefetch.js e documentat explicit
+ * pentru date PUBLICE, nu îl folosim pentru asta).
+ */
+function prefetchInfluencerDashboard() {
+  prefetchChunk(
+    "influencer-dashboard",
+    () =>
+      import(
+        "../../pages/Influencer/InfluencerDashboardPage/InfluencerDashboardPage.jsx"
+      ),
+    { mode: "intent" }
+  );
 }
 
 /*
@@ -362,6 +386,13 @@ function VendorDrawer({
                 ? styles.vendorDrawerItemActive
                 : ""
             }`}
+            {...(dashboardLink.to === "/influencer"
+              ? {
+                  onMouseEnter: prefetchInfluencerDashboard,
+                  onFocus: prefetchInfluencerDashboard,
+                  onTouchStart: prefetchInfluencerDashboard,
+                }
+              : null)}
           >
             <VendorDrawerIcon name={dashboardLink.icon} />
             {dashboardLink.label}
@@ -409,6 +440,13 @@ function VendorDrawer({
                             ? styles.vendorDrawerItemActive
                             : ""
                         }`}
+                        {...(item.to.startsWith("/influencer")
+                          ? {
+                              onMouseEnter: prefetchInfluencerDashboard,
+                              onFocus: prefetchInfluencerDashboard,
+                              onTouchStart: prefetchInfluencerDashboard,
+                            }
+                          : null)}
                       >
                         <VendorDrawerIcon name={item.icon} size={16} />
                         {item.label}
@@ -2012,6 +2050,9 @@ const isAdminRoute = location.pathname.startsWith("/admin");
     to="/influencer"
     title="Dashboard influencer"
     aria-label="Dashboard influencer"
+    onMouseEnter={prefetchInfluencerDashboard}
+    onFocus={prefetchInfluencerDashboard}
+    onTouchStart={prefetchInfluencerDashboard}
   >
     <LayoutGrid size={22} />
   </NavLink>
@@ -2135,7 +2176,12 @@ const isAdminRoute = location.pathname.startsWith("/admin");
 ) : isInfluencer ? (
   <>
     <li>
-      <NavLink to="/influencer">
+      <NavLink
+        to="/influencer"
+        onMouseEnter={prefetchInfluencerDashboard}
+        onFocus={prefetchInfluencerDashboard}
+        onTouchStart={prefetchInfluencerDashboard}
+      >
         Dashboard influencer
       </NavLink>
     </li>

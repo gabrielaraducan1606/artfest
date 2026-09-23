@@ -2013,6 +2013,46 @@
     var(--color-muted, #6b7280);
 }
 
+/* =========================================================
+   SKELETON (audit performanță 2026-09-23) - overview/KPI, cât timp
+   se încarcă /api/influencer/me. Refolosește EXACT clasele de layout
+   reale (.page/.shell/.header/.tabs/.statsGrid/.statCard), ca layout-ul
+   să rămână stabil când skeleton-ul e înlocuit de conținutul real -
+   fără "salt" de dimensiuni. Animație identică (gradient + keyframes)
+   cu PopularProducts.module.css/Desktop.module.css, pentru
+   consecvență vizuală cu restul aplicației.
+========================================================= */
+
+.skeletonBlock {
+  border-radius: 6px;
+
+  background:
+    linear-gradient(
+      90deg,
+      var(--color-bg, #f3f4f6) 25%,
+      var(--surface, #fff) 37%,
+      var(--color-bg, #f3f4f6) 63%
+    );
+
+  background-size: 400% 100%;
+
+  animation:
+    skeletonLoading
+    1.3s
+    ease
+    infinite;
+}
+
+@keyframes skeletonLoading {
+  0% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0 50%;
+  }
+}
+
 .errorCard h1 {
   margin:
     0

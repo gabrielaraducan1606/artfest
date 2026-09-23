@@ -35,6 +35,7 @@ import {
   storeDiscountCode,
   clearStoredDiscountCode,
 } from "../../utils/discountCode.js";
+import { storeDiscountCodeAttribution } from "../../utils/discountCodeAttribution.js";
 import {
   trackAddToCart,
   trackBeginCheckout,
@@ -880,6 +881,20 @@ availabilityMessage:
           setDiscountCodeApplied(res);
           setDiscountCodeError("");
           storeDiscountCode(code);
+
+          /*
+           * Hint de atribuire SEPARAT de discount (vezi
+           * discountCodeAttribution.js) - ultimul cod VALID introdus
+           * înlocuiește mereu hint-ul anterior, indiferent dacă are
+           * sau nu owner (fără owner => storeDiscountCodeAttribution
+           * șterge orice hint vechi, intenționat).
+           */
+          storeDiscountCodeAttribution({
+            discountCodeId: res.discountCodeId,
+            code: res.code,
+            influencerId: res.influencerId,
+            vendorId: res.vendorId,
+          });
         } else {
           setDiscountCodeApplied(null);
           setDiscountCodeError(
