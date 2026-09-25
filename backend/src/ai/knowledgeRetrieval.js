@@ -18,6 +18,7 @@ import { openai } from "../lib/openai.js";
 import {
   scoreTextMatch,
   scoreTextMatchStrict,
+  scoreTokenPair,
   tokenizeSearchText,
 } from "../lib/textRelevance.js";
 import { getPlatformManifests } from "./manifests/index.js";
@@ -94,6 +95,42 @@ const LAST_CATEGORY_DOMINANCE_MARGIN = 0.5;
  * indiferent de scor - vezi comentariul din getRelevantPlatformKnowledge.
  */
 const MIN_MEANINGFUL_TOKENS_FOR_CONFIDENCE = 3;
+
+/*
+ * SEMNAL DE SPECIFICITATE (audit 2026-09-24, regresie "cat e
+ * comisionul?"/"ce procent ia platforma?") - distinge un match
+ * organic pe un TERMEN SPECIFIC ("comision", "procent", "curier") de
+ * un match aparent puternic, dar rezultat DOAR din cuvinte generice/
+ * funcționale ("unde", "vad", "cat", "este", "și" - foarte comune,
+ * apar în zeci de manifeste). Principiu: frecvență de document (IDF) -
+ * un token care apare în PUȚINE manifeste e un semnal specific de
+ * domeniu; un token care apare în MULTE manifeste e zgomot generic,
+ * indiferent cât de "complet" pare match-ul. NU verifică niciun
+ * cuvânt anume (nu hardcodează "comision") - calculează frecvența
+ * pentru ORICE token, din conținutul REAL al manifestelor.
+ *
+ * Calibrare (verificată direct, pe manifestele reale, 2026-09-24):
+ * "comision" -> 5/28 manifeste, "procent" -> 2/28, "curier" -> 1/28
+ * (specifice) vs. "unde" -> 20/28, "vad" -> 18/28, "este" -> 14/28,
+ * "artfest" -> 11/28 (generice). Pragul de 6 manifeste separă clar
+ * cele două grupuri, cu marjă.
+ *
+ * Lungimea minimă (5) elimină suplimentar cuvinte funcționale scurte
+ * care, întâmplător, pot avea o frecvență brută mică în textul
+ * STRUCTURAT (tags/aliases/faq, scrise ca fraze scurte) fără să fie
+ * semantic specifice (ex. "cat" apare doar în 5 manifeste ca token
+ * structurat, dar e un cuvânt de întrebare obișnuit, nu un concept).
+ */
+const SPECIFIC_TOKEN_MAX_MANIFEST_COUNT = 6;
+const SPECIFIC_TOKEN_MIN_LENGTH = 5;
+
+/*
+ * Prag de scor pentru "match tare" pe o pereche de tokeni (exact sau
+ * prefix - vezi scoreTokenPair din textRelevance.js) - un match doar
+ * "includes"/fuzzy (sub 2.5) e prea slab ca să demonstreze că un
+ * token e cu adevărat prezent și relevant.
+ */
+const STRONG_TOKEN_PAIR_SCORE = 2.5;
 
 /*
  * Filtru de dominanță (zgomot din retrieval): dacă top-1 e clar
@@ -176,11 +213,151 @@ function normalizeAudience(value) {
 }
 
 /*
+ * Frecvența de document (IDF) a fiecărui token, peste TOATE
+ * manifestele - câte manifeste DIFERITE conțin acel token, în
+ * title/tags/aliases/faq[].q (text STRUCTURAT, scris de audit, nu
+ * description - text liber, prea zgomotos pentru semnalul ăsta).
+ * Calculată o singură dată per set de manifeste (manifestele sunt
+ * module JS statice, aceeași referință la fiecare apel al
+ * getPlatformManifests() în timpul rulării procesului) - cache simplu,
+ * cheiat pe referința array-ului.
+ */
+let cachedManifestsRef = null;
+let cachedTokenFrequency = null;
+
+function buildTokenManifestFrequency(manifests) {
+  const frequency = new Map();
+
+  for (const manifest of manifests) {
+    const seenInThisManifest = new Set();
+
+    const texts = [
+      manifest.title || "",
+      ...(manifest.tags || []),
+      ...(manifest.aliases || []),
+      ...(manifest.faq || []).map((f) => f?.q || ""),
+    ];
+
+    for (const text of texts) {
+      for (const token of tokenizeSearchText(text)) {
+        if (token.length < 3) continue;
+        seenInThisManifest.add(token);
+      }
+    }
+
+    for (const token of seenInThisManifest) {
+      frequency.set(token, (frequency.get(token) || 0) + 1);
+    }
+  }
+
+  return frequency;
+}
+
+function getTokenManifestFrequency(manifests) {
+  if (cachedManifestsRef === manifests && cachedTokenFrequency) {
+    return cachedTokenFrequency;
+  }
+
+  cachedManifestsRef = manifests;
+  cachedTokenFrequency = buildTokenManifestFrequency(manifests);
+
+  return cachedTokenFrequency;
+}
+
+/*
+ * Un token e "specific" dacă (a) are conținut real (lungime >=
+ * SPECIFIC_TOKEN_MIN_LENGTH - elimină cuvinte funcționale scurte) și
+ * (b) apare în PUȚINE manifeste (frecvență <=
+ * SPECIFIC_TOKEN_MAX_MANIFEST_COUNT) - vezi calibrarea de mai sus.
+ * Generic, NU verifică niciun cuvânt anume.
+ */
+function isSpecificToken(token, tokenFrequency) {
+  if (token.length < SPECIFIC_TOKEN_MIN_LENGTH) return false;
+
+  const frequency = tokenFrequency.get(token);
+
+  return (
+    Number.isFinite(frequency) &&
+    frequency > 0 &&
+    frequency <= SPECIFIC_TOKEN_MAX_MANIFEST_COUNT
+  );
+}
+
+/*
+ * "Match organic specific" pentru o pereche (query, text-țintă care a
+ * produs cel mai bun scor al unui manifest): există cel puțin UN
+ * token din query care (a) a avut un match TARE (exact/prefix, scor
+ * >= STRONG_TOKEN_PAIR_SCORE) împotriva textului-țintă ȘI (b) e
+ * specific (vezi isSpecificToken). Diferă de bonusul de acoperire
+ * completă din scoreTextMatch/scoreTextMatchStrict - aici verificăm
+ * UN SINGUR token relevant, nu proporția din query care s-a potrivit
+ * (un query poate avea și cuvinte generice alături de unul specific,
+ * ex. "cat e comisionul" - "cat"/"e" generice, "comision" specific -
+ * tot contează ca match specific).
+ */
+function hasSpecificOrganicMatch(query, targetText, tokenFrequency) {
+  if (!targetText) return false;
+
+  const queryTokens = tokenizeSearchText(query).filter(
+    (token) => token.length >= 3
+  );
+
+  const targetTokens = tokenizeSearchText(targetText);
+
+  if (!queryTokens.length || !targetTokens.length) return false;
+
+  for (const queryToken of queryTokens) {
+    if (!isSpecificToken(queryToken, tokenFrequency)) continue;
+
+    let bestPairScore = 0;
+
+    for (const targetToken of targetTokens) {
+      const pairScore = scoreTokenPair(queryToken, targetToken);
+      if (pairScore > bestPairScore) bestPairScore = pairScore;
+    }
+
+    if (bestPairScore >= STRONG_TOKEN_PAIR_SCORE) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/*
+ * Calitatea SURSEI care a produs cel mai bun scor al unui manifest -
+ * folosită DOAR ca tie-break determinist la scor egal (cerință audit
+ * 2026-09-24: "la scor egal NU vreau ca ordinea din manifests/index.js
+ * să decidă manifestul dominant"). Ordine explicită, generică (nu
+ * legată de niciun subiect anume - nu hardcodăm "comision" nicăieri
+ * aici): FAQ (întrebare reală, verificată) e semnalul cel mai tare
+ * că manifestul chiar răspunde la ÎNTREBAREA asta, nu doar la
+ * cuvintele din ea; title/tag sunt etichete scurte, de încredere;
+ * alias e o frază de intenție, utilă dar mai slabă ca semnal de
+ * "asta e răspunsul canonic"; description e text lung, cel mai slab
+ * semnal; STRUCTURAL e hint-ul de pagină/entitate curentă (cel mai
+ * slab - context, nu potrivire de text).
+ */
+const MATCH_TIER = {
+  FAQ: 0,
+  TITLE_OR_TAG: 1,
+  ALIAS: 2,
+  DESCRIPTION: 3,
+  STRUCTURAL: 4,
+};
+
+/*
  * Scor per manifest = cel mai bun scor din (title, tags[],
- * aliases[], description), plus boost-uri de context. tags/aliases
- * sunt fraze scurte de intenție ("cum programez curierul") - se
- * potrivesc de multe ori mai bine cu o întrebare liberă decât
- * title/description, care sunt mai degrabă etichete.
+ * aliases[], description, faq[].q), plus boost-uri de context.
+ * tags/aliases sunt fraze scurte de intenție ("cum programez
+ * curierul") - se potrivesc de multe ori mai bine cu o întrebare
+ * liberă decât title/description, care sunt mai degrabă etichete.
+ *
+ * Întoarce { score, tier } - `tier` e sursa (vezi MATCH_TIER) care a
+ * produs `score`; dacă mai multe surse ating ACELAȘI scor maxim,
+ * păstrăm tier-ul cel mai bun (cel mai mic) dintre ele - manifestul
+ * "câștigă" cu cea mai tare dovadă posibilă pentru scorul lui, nu cu
+ * prima sursă întâlnită.
  */
 function scoreManifest({
   manifest,
@@ -188,17 +365,35 @@ function scoreManifest({
   currentPage,
   currentEntity,
   conversationContext,
+  tokenFrequency,
 }) {
-  let best = scoreTextMatch(manifest.title || "", query);
+  let best = 0;
+  let bestTier = MATCH_TIER.STRUCTURAL;
+  let bestTarget = "";
+
+  function consider(score, tier, target) {
+    if (score > best) {
+      best = score;
+      bestTier = tier;
+      bestTarget = target;
+    } else if (score > 0 && score === best && tier < bestTier) {
+      bestTier = tier;
+      bestTarget = target;
+    }
+  }
+
+  consider(
+    scoreTextMatch(manifest.title || "", query),
+    MATCH_TIER.TITLE_OR_TAG,
+    manifest.title || ""
+  );
 
   for (const tag of manifest.tags || []) {
-    const score = scoreTextMatch(tag, query);
-    if (score > best) best = score;
+    consider(scoreTextMatch(tag, query), MATCH_TIER.TITLE_OR_TAG, tag);
   }
 
   for (const alias of manifest.aliases || []) {
-    const score = scoreTextMatch(alias, query);
-    if (score > best) best = score;
+    consider(scoreTextMatch(alias, query), MATCH_TIER.ALIAS, alias);
   }
 
   /*
@@ -214,23 +409,26 @@ function scoreManifest({
    * aliases, nu zgomot nou.
    */
   for (const faqEntry of manifest.faq || []) {
-    const score = scoreTextMatchStrict(faqEntry?.q || "", query);
-    if (score > best) best = score;
+    consider(
+      scoreTextMatchStrict(faqEntry?.q || "", query),
+      MATCH_TIER.FAQ,
+      faqEntry?.q || ""
+    );
   }
-
-  const descriptionScore = scoreTextMatch(
-    manifest.description || "",
-    query
-  );
 
   /*
    * description e text lung - un match acolo contează mai puțin
    * decât un match pe title/tags/aliases, dar tot ajută (ex.
    * cuvinte menționate doar în descriere).
    */
-  if (descriptionScore * 0.6 > best) {
-    best = descriptionScore * 0.6;
-  }
+  const descriptionScore =
+    scoreTextMatch(manifest.description || "", query) * 0.6;
+
+  consider(
+    descriptionScore,
+    MATCH_TIER.DESCRIPTION,
+    manifest.description || ""
+  );
 
   const pageTypeHint = String(
     currentPage?.pageType || ""
@@ -265,7 +463,11 @@ function scoreManifest({
     VAGUE_QUERY_MAX_TOKENS;
 
   if (best <= 0 && (!hasStructuralHint || !isVagueQuery)) {
-    return 0;
+    return {
+      score: 0,
+      tier: MATCH_TIER.STRUCTURAL,
+      hasSpecificMatch: false,
+    };
   }
 
   /*
@@ -281,8 +483,13 @@ function scoreManifest({
    * despre ce e vorba). De-aia e Math.max, nu doar un caz "best
    * era 0" - se aplică și când best era deja pozitiv, dar slab.
    */
-  if (hasStructuralHint && isVagueQuery) {
-    best = Math.max(best, VAGUE_QUERY_STRUCTURAL_SCORE);
+  if (
+    hasStructuralHint &&
+    isVagueQuery &&
+    VAGUE_QUERY_STRUCTURAL_SCORE > best
+  ) {
+    best = VAGUE_QUERY_STRUCTURAL_SCORE;
+    bestTier = MATCH_TIER.STRUCTURAL;
   }
 
   if (
@@ -349,7 +556,20 @@ function scoreManifest({
     best += CONTEXT_ENTITY_BOOST;
   }
 
-  return best;
+  /*
+   * hasSpecificMatch (audit 2026-09-24) - calculat DOAR pe textul
+   * care a produs efectiv scorul câștigător (bestTarget), nu pe tot
+   * manifestul - un termen specific care apare DOAR în descrierea
+   * lungă, dar nu și în alias-ul/FAQ-ul care a câștigat, nu e o
+   * dovadă că ACEST match anume e specific.
+   */
+  const hasSpecificMatch = hasSpecificOrganicMatch(
+    query,
+    bestTarget,
+    tokenFrequency
+  );
+
+  return { score: best, tier: bestTier, hasSpecificMatch };
 }
 
 /*
@@ -469,17 +689,20 @@ export async function getRelevantPlatformKnowledge({
     );
   });
 
-  const organic = manifests.map((manifest) => ({
-    manifest,
+  const tokenFrequency = getTokenManifestFrequency(manifests);
 
-    score: scoreManifest({
+  const organic = manifests.map((manifest) => {
+    const { score, tier, hasSpecificMatch } = scoreManifest({
       manifest,
       query: safeQuery,
       currentPage,
       currentEntity,
       conversationContext,
-    }),
-  }));
+      tokenFrequency,
+    });
+
+    return { manifest, score, tier, hasSpecificMatch };
+  });
 
   /*
    * BATCH 1 (FINAL GAP PASS, 2026-09-07) - hint de context GLOBAL,
@@ -558,14 +781,41 @@ export async function getRelevantPlatformKnowledge({
        * cerem, în plus, un NUMĂR MINIM de cuvinte de conținut real
        * (lungime >= 3) în query, nu doar scorul. Sub acest minim, un
        * match "complet" e prea ambiguu ca să blocheze contextul.
+       *
+       * CORECȚIE (audit 2026-09-24, regresie "cat e comisionul?"):
+       * scorul BRUT al unui match organic real, dar PARȚIAL, pe un
+       * termen specific ("comision" - 1 din 2-3 cuvinte de conținut)
+       * poate rămâne sub CONFIDENT_MATCH_SCORE - fix-ul din 2026-09-07
+       * de mai sus (numărul de tokeni) rezolva zgomotul generic, dar
+       * bloca și match-uri reale, doar pentru că query-ul era scurt.
+       * Am verificat empiric: nici scăderea bonusului de acoperire
+       * completă din scor, nici eliminarea completă a condiției pe
+       * tokeni, nu rezolvă cazul fără să regreseze fie "comision", fie
+       * Q255 ("Unde o văd?") - vezi raportul livrat. Soluția: un AL
+       * TREILEA semnal, independent de scor/tokeni - `hasSpecificMatch`
+       * (vezi hasSpecificOrganicMatch/isSpecificToken mai sus) - adevărat
+       * dacă manifestul organic-câștigător are cel puțin UN token de
+       * query specific (frecvență mică peste toate manifestele - vezi
+       * SPECIFIC_TOKEN_MAX_MANIFEST_COUNT), cu match TARE, împotriva
+       * TEXTULUI care i-a produs scorul. Generic - nu verifică niciun
+       * cuvânt anume. Dacă acest semnal e adevărat, hint-ul NU se mai
+       * aplică, INDIFERENT de scor/lungime query - un match specific
+       * real nu trebuie niciodată suprascris de continuitatea de
+       * conversație.
        */
       const meaningfulQueryTokenCount = tokenizeSearchText(
         safeQuery
       ).filter((token) => token.length >= 3).length;
 
+      const organicWinnerHasSpecificMatch = organic.some(
+        (o) => o.score === bestOrganicScore && o.hasSpecificMatch
+      );
+
       const isContextDependent =
-        bestOrganicScore < CONFIDENT_MATCH_SCORE ||
-        meaningfulQueryTokenCount < MIN_MEANINGFUL_TOKENS_FOR_CONFIDENCE;
+        !organicWinnerHasSpecificMatch &&
+        (bestOrganicScore < CONFIDENT_MATCH_SCORE ||
+          meaningfulQueryTokenCount <
+            MIN_MEANINGFUL_TOKENS_FOR_CONFIDENCE);
 
       if (isContextDependent) {
         hinted.score = Math.max(
@@ -579,9 +829,21 @@ export async function getRelevantPlatformKnowledge({
     }
   }
 
+  /*
+   * Tie-break determinist (audit 2026-09-24): la scor EGAL, ordinea
+   * din manifests/index.js NU mai decide manifestul dominant. Preferă
+   * întâi sursa de match mai TARE (tier mai mic - vezi MATCH_TIER:
+   * FAQ > title/tag > alias > description > structural), apoi, dacă
+   * tot egal, id-ul manifestului (alfabetic) - stabil, reproductibil,
+   * fără nimic hardcodat pe vreun subiect anume (comision sau altul).
+   */
   const ranked = organic
     .filter(({ score }) => score >= MIN_RELEVANCE_SCORE)
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.tier !== b.tier) return a.tier - b.tier;
+      return a.manifest.id.localeCompare(b.manifest.id);
+    });
 
   if (!ranked.length) {
     return [];
@@ -622,10 +884,24 @@ export async function getRelevantPlatformKnowledge({
 
   const top = dominant.slice(0, MAX_RESULTS);
 
+  /*
+   * Dacă top-1 și top-2 au scor egal, dar tie-break-ul determinist
+   * de mai sus i-a departajat deja pe TIER (ex. top-1 vine dintr-un
+   * match FAQ, top-2 doar dintr-un alias) - NU mai e o ambiguitate
+   * reală, e o decizie de calitate deja luată; nu cerem LLM-ului să
+   * aleagă din nou (economisește un apel și evită să răstoarne
+   * exact decizia corectă pe care tocmai am calculat-o).
+   */
+  const clearlyResolvedByTier =
+    top.length >= 2 &&
+    top[0].score === top[1].score &&
+    top[0].tier < top[1].tier;
+
   const isAmbiguous =
     allowLlmDisambiguation &&
     top.length >= 2 &&
-    top[0].score - top[1].score < AMBIGUITY_GAP;
+    top[0].score - top[1].score < AMBIGUITY_GAP &&
+    !clearlyResolvedByTier;
 
   if (isAmbiguous) {
     const chosenId = await disambiguateWithLLM({

@@ -49,6 +49,7 @@ import {
 } from "../../../../../backend/src/constants/productMerchantAttributes.js";
 import { addToGuestCart } from "../../../utils/guestCart";
 import { getAttributionsForCheckout } from "../../../utils/campaignAttribution.js";
+import { getCanonicalLabel } from "../../../utils/optionLabels.js";
 import {
   getPrefetchedData,
   getSmartPrefetchStats,
@@ -3867,7 +3868,7 @@ const uploadCustomizationFile = useCallback(
           {product.color && (
             <div className={styles.colorRow}>
               Culoare principală:{" "}
-              <span className={styles.colorValue}>{product.color}</span>
+              <span className={styles.colorValue}>{getCanonicalLabel("color", product.color)}</span>
             </div>
           )}
 

@@ -190,6 +190,7 @@ Alege UNA din deciziile următoare:
 
 Reguli:
 - Nu propune ticket pentru o simplă întrebare informativă care are deja răspuns clar în manifeste sau printr-un sfat general sigur.
+- În câmpul "message" (vizibil direct utilizatorului), NICIODATĂ cuvintele "manifest"/"context intern"/"knowledge base"/"model" - utilizatorul nu trebuie să știe cum funcționează asistentul pe dinăuntru. Dacă nu găsești o informație sigură, formulează natural, ex. "Nu găsesc o informație sigură despre asta în datele Artfest disponibile."
 - category (pentru ticket, dacă alegi OFFER_TICKET/HIGH_PRIORITY_ESCALATION) trebuie să fie una scurtă, în engleză, lowercase: "account", "order", "payment", "bug", sau "general".
 - priority (dacă alegi OFFER_TICKET) trebuie să fie "MEDIUM" sau ocazional "LOW" pentru ceva minor; pentru HIGH_PRIORITY_ESCALATION folosește ÎNTOTDEAUNA "HIGH".
 
@@ -318,7 +319,7 @@ export async function evaluateSupportRequest({
 
     message:
       String(parsed.message || "").trim() ||
-      "Nu am suficiente informații pentru a răspunde.",
+      "Nu găsesc o informație sigură despre asta în datele Artfest disponibile. Pot deschide un tichet către suport.",
 
     steps: Array.isArray(parsed.steps)
       ? parsed.steps.slice(0, 6)

@@ -9,14 +9,76 @@ import React, {
 
 import ProductVideoField from "../../../../components/ProductVideoField";
 import { validateProductConfiguration } from "../../../../utils/productConfigurationValidator.js";
-import { normalizeOptionChoice } from "../../../../utils/optionLabels.js";
+import { normalizeOptionChoice, getCanonicalLabel } from "../../../../utils/optionLabels.js";
 
 import ProductModalWizard from "../../../../pages/Vendor/ProfilMagazin/modals/ProductModal/ProductModalWizard";
 import { useProductEditorController } from "../../../../pages/Vendor/ProfilMagazin/modals/useProductEditorController.js";
 import EditModal from "../../../../pages/Vendor/ProfilMagazin/ui/Modal";
 
+/*
+ * Corectare UI (audit 2026-09-23): category/color/materialMain din acest
+ * wizard rapid ("Adaugă produs") sunt câmpuri CANONICE (listă închisă,
+ * validată de backend) - le afișăm ca select-uri cu value=slug intern /
+ * option text=label canonic, NU ca input text în care se vede slug-ul
+ * brut. Reutilizăm STRICT *_DETAILED deja existente (niciun dicționar
+ * nou), același import direct din backend/src/constants folosit deja de
+ * optionLabels.js / AdminCollectionsTab.jsx.
+ */
+import { CATEGORIES_DETAILED } from "../../../../../../backend/src/constants/categories.js";
+import { COLORS_DETAILED } from "../../../../../../backend/src/constants/colors.js";
+import { MATERIALS_DETAILED } from "../../../../../../backend/src/constants/materials.js";
+
 import styles from "./VendorProductWizard.module.css";
 import editStyles from "./VendorProductEditWizard.module.css";
+
+/*
+ * Grupare pe `group`/`groupLabel` (identic AdminCollectionsTab.jsx,
+ * categoriesByGroup) - generalizată pentru cele 3 liste *_DETAILED, ca
+ * select-urile de mai jos să nu fie o listă plată de 30-130 opțiuni.
+ */
+function groupDetailedOptions(detailedList) {
+  const groups = [];
+  const byKey = new Map();
+
+  for (const item of detailedList) {
+    const groupKey = item.group || "alte";
+    let group = byKey.get(groupKey);
+
+    if (!group) {
+      group = {
+        key: groupKey,
+        label: item.groupLabel || "Altele",
+        items: [],
+      };
+      byKey.set(groupKey, group);
+      groups.push(group);
+    }
+
+    group.items.push(item);
+  }
+
+  return groups;
+}
+
+function renderGroupedOptions(groups) {
+  return groups.map((group) => (
+    <optgroup key={group.key} label={group.label}>
+      {group.items.map((item) => (
+        <option key={item.key} value={item.key}>
+          {item.label}
+        </option>
+      ))}
+    </optgroup>
+  ));
+}
+
+const CATEGORY_OPTION_GROUPS = groupDetailedOptions(CATEGORIES_DETAILED);
+const COLOR_OPTION_GROUPS = groupDetailedOptions(COLORS_DETAILED);
+const MATERIAL_OPTION_GROUPS = groupDetailedOptions(MATERIALS_DETAILED);
+
+const CATEGORY_KEY_SET = new Set(CATEGORIES_DETAILED.map((c) => c.key));
+const COLOR_KEY_SET = new Set(COLORS_DETAILED.map((c) => c.key));
+const MATERIAL_KEY_SET = new Set(MATERIALS_DETAILED.map((c) => c.key));
 
 const EMPTY_DRAFT = {
   images: [],
@@ -160,27 +222,25 @@ function getOrderModeDescription(
   }
 }
 
+/*
+ * Corectare label-uri canonice (audit 2026-09-23): nu mai există aici
+ * un al doilea dicționar de disponibilitate - delegă la SINGURA sursă
+ * canonică (getCanonicalLabel/AVAILABILITY_LABELS din
+ * utils/optionLabels.js), cerință explicită "nu vreau multiple
+ * AVAILABILITY_LABELS diferite în mai multe fișiere". Fallback pentru
+ * valoare necompletată/necunoscută, neschimbat funcțional.
+ */
 function getAvailabilityLabel(
   availability
 ) {
-  switch (
-    availability
-  ) {
-    case "READY":
-      return "Gata de livrare";
-
-    case "MADE_TO_ORDER":
-      return "Realizat la comandă";
-
-    case "PREORDER":
-      return "Precomandă";
-
-    case "SOLD_OUT":
-      return "Indisponibil";
-
-    default:
-      return "Nu a fost stabilită";
+  if (!availability) {
+    return "Nu a fost stabilită";
   }
+
+  return getCanonicalLabel(
+    "availability",
+    availability
+  );
 }
 
 /*
@@ -893,7 +953,7 @@ function VendorProductCreateWizard({
                 Categorie
               </label>
 
-              <input
+              <select
                 value={
                   safeDraft.category
                 }
@@ -910,8 +970,27 @@ function VendorProductCreateWizard({
                 className={
                   styles.input
                 }
-                placeholder="Categoria"
-              />
+              >
+                <option value="">
+                  Alege categoria
+                </option>
+
+                {safeDraft.category &&
+                  !CATEGORY_KEY_SET.has(
+                    safeDraft.category
+                  ) && (
+                    <option value={safeDraft.category}>
+                      {getCanonicalLabel(
+                        "category",
+                        safeDraft.category
+                      )}
+                    </option>
+                  )}
+
+                {renderGroupedOptions(
+                  CATEGORY_OPTION_GROUPS
+                )}
+              </select>
             </div>
 
             {safeDraft
@@ -929,7 +1008,7 @@ function VendorProductCreateWizard({
                   Material identificat
                 </label>
 
-                <input
+                <select
                   value={
                     safeDraft
                       .materialMain
@@ -947,7 +1026,31 @@ function VendorProductCreateWizard({
                   className={
                     styles.input
                   }
-                />
+                >
+                  <option value="">
+                    Alege materialul
+                  </option>
+
+                  {safeDraft.materialMain &&
+                    !MATERIAL_KEY_SET.has(
+                      safeDraft.materialMain
+                    ) && (
+                      <option
+                        value={
+                          safeDraft.materialMain
+                        }
+                      >
+                        {getCanonicalLabel(
+                          "materialMain",
+                          safeDraft.materialMain
+                        )}
+                      </option>
+                    )}
+
+                  {renderGroupedOptions(
+                    MATERIAL_OPTION_GROUPS
+                  )}
+                </select>
               </div>
             )}
 
@@ -966,7 +1069,7 @@ function VendorProductCreateWizard({
                   Culoare identificată
                 </label>
 
-                <input
+                <select
                   value={
                     safeDraft.color
                   }
@@ -983,7 +1086,27 @@ function VendorProductCreateWizard({
                   className={
                     styles.input
                   }
-                />
+                >
+                  <option value="">
+                    Alege culoarea
+                  </option>
+
+                  {safeDraft.color &&
+                    !COLOR_KEY_SET.has(
+                      safeDraft.color
+                    ) && (
+                      <option value={safeDraft.color}>
+                        {getCanonicalLabel(
+                          "color",
+                          safeDraft.color
+                        )}
+                      </option>
+                    )}
+
+                  {renderGroupedOptions(
+                    COLOR_OPTION_GROUPS
+                  )}
+                </select>
               </div>
             )}
 
@@ -1708,8 +1831,12 @@ function VendorProductCreateWizard({
                 <span>
                   Categorie:{" "}
                   <strong>
-                    {safeDraft.category ||
-                      "Neselectată"}
+                    {safeDraft.category
+                      ? getCanonicalLabel(
+                          "category",
+                          safeDraft.category
+                        )
+                      : "Neselectată"}
                   </strong>
                 </span>
 

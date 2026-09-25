@@ -6,6 +6,7 @@ import {
 
 import { api } from "../../../../lib/api";
 import ProductGpsrSection from "../../../Vendor/ProfilMagazin/modals/ProductModal/components/ProductGpsrSection.jsx";
+import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
 
 /* =========================================================
    Helpers
@@ -1305,6 +1306,13 @@ export default function AdminProductEditForm({
                 inputStyle
               }
             />
+
+            {form.category && (
+              <span style={canonicalHintStyle}>
+                Categorie selectată:{" "}
+                {getCanonicalLabel("category", form.category)}
+              </span>
+            )}
           </label>
         </div>
 
@@ -1333,6 +1341,13 @@ export default function AdminProductEditForm({
                 inputStyle
               }
             />
+
+            {form.color && (
+              <span style={canonicalHintStyle}>
+                Culoare selectată:{" "}
+                {getCanonicalLabel("color", form.color)}
+              </span>
+            )}
           </label>
 
           <label>
@@ -1355,6 +1370,13 @@ export default function AdminProductEditForm({
                 inputStyle
               }
             />
+
+            {form.materialMain && (
+              <span style={canonicalHintStyle}>
+                Material selectat:{" "}
+                {getCanonicalLabel("materialMain", form.materialMain)}
+              </span>
+            )}
           </label>
         </div>
       </section>
@@ -1695,6 +1717,13 @@ export default function AdminProductEditForm({
                 inputStyle
               }
             />
+
+            {form.technique && (
+              <span style={canonicalHintStyle}>
+                Tehnică selectată:{" "}
+                {getCanonicalLabel("technique", form.technique)}
+              </span>
+            )}
           </label>
 
           <label>
@@ -1946,6 +1975,19 @@ const inputStyle = {
   borderRadius: 9,
   boxSizing:
     "border-box",
+};
+
+/*
+ * Corectare label-uri canonice (audit 2026-09-23): stil pentru
+ * label-ul user-friendly afișat lângă inputurile tehnice de
+ * categorie/culoare/material/tehnică - inputul rămâne neschimbat
+ * (value = slug tehnic), doar afișăm alături traducerea.
+ */
+const canonicalHintStyle = {
+  display: "block",
+  marginTop: 4,
+  fontSize: 12,
+  color: "#6b7280",
 };
 
 const twoColumns = {

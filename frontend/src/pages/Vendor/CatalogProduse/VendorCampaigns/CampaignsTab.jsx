@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import styles from "./CampaignsTab.module.css";
+import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
 
 const EMPTY_FORM = {
   name: "",
@@ -838,7 +839,9 @@ export default function CampaignsTab({ products = [] }) {
                             <div className={styles.productOptionText}>
                               <strong>{product.title}</strong>
                               <span>
-                                {product.category || "Fără categorie"}
+                                {product.category
+                                  ? getCanonicalLabel("category", product.category)
+                                  : "Fără categorie"}
                                 {product.store?.title
                                   ? ` · ${product.store.title}`
                                   : ""}

@@ -401,6 +401,42 @@ function isQuoteChoice(
   );
 }
 
+/* =========================================================
+   Helper card "Comenzile magazinului" (Vendor Assistant,
+   conectare flow, 2026-09-23) - detecție simplă, analogă
+   isQuoteChoice/isProductEditChoice de mai sus/mai jos.
+========================================================= */
+
+function isVendorOrderChoice(
+  choice
+) {
+  return Boolean(
+    choice &&
+      typeof choice ===
+        "object" &&
+      choice.vendorOrder ===
+        true
+  );
+}
+
+/* =========================================================
+   Helper card "Magazinul meu" - sugestii de îmbunătățire
+   (Vendor Assistant, conectare flow, 2026-09-23) - detecție
+   analogă isVendorOrderChoice de mai sus.
+========================================================= */
+
+function isVendorStoreSuggestionChoice(
+  choice
+) {
+  return Boolean(
+    choice &&
+      typeof choice ===
+        "object" &&
+      choice.vendorStoreSuggestion ===
+        true
+  );
+}
+
 function getQuoteChoiceDetails(
   choice
 ) {
@@ -860,6 +896,216 @@ function QuoteChoiceCard({
 }
 
 /* =========================================================
+   Card comandă - "Comenzile magazinului" (Vendor Assistant,
+   conectare flow, 2026-09-23)
+
+   Reutilizează STRICT clasele CSS deja existente pentru cardurile
+   de cereri de ofertă (quoteChoiceCard, Content, Title, Description,
+   Status, Arrow) - fără imagine (listele de comenzi nu au
+   thumbnail la nivel de listă, confirmat prin audit), fără CSS nou.
+   `getQuoteChoiceDetails` e generic (doar parsează description pe
+   "·"), reutilizat ca atare.
+========================================================= */
+
+function VendorOrderChoiceCard({
+  choice,
+  onChoice,
+}) {
+  const title =
+    getChoiceLabel(
+      choice
+    );
+
+  const {
+    details,
+    statusLabel,
+  } =
+    getQuoteChoiceDetails(
+      choice
+    );
+
+  const statusType =
+    choice?.statusType ||
+    "pending";
+
+  return (
+    <button
+      type="button"
+      className={
+        styles.quoteChoiceCard
+      }
+      onClick={() =>
+        onChoice(
+          choice
+        )
+      }
+      aria-label={`Vezi comanda ${title}`}
+    >
+      <span
+        className={
+          styles.quoteChoiceContent
+        }
+      >
+        <strong
+          className={
+            styles.quoteChoiceTitle
+          }
+        >
+          {title}
+        </strong>
+
+        {details && (
+          <span
+            className={
+              styles.quoteChoiceDescription
+            }
+          >
+            {details}
+          </span>
+        )}
+
+        <span
+          className={`${styles.quoteChoiceStatus} ${
+            statusType ===
+            "new"
+              ? styles.quoteChoiceStatusNew
+              : statusType ===
+                "discussion"
+              ? styles.quoteChoiceStatusDiscussion
+              : statusType ===
+                "offer"
+              ? styles.quoteChoiceStatusOffer
+              : statusType ===
+                "accepted"
+              ? styles.quoteChoiceStatusAccepted
+              : styles.quoteChoiceStatusPending
+          }`}
+        >
+          <span
+            aria-hidden="true"
+          />
+
+          {statusLabel}
+        </span>
+      </span>
+
+      <span
+        className={
+          styles.quoteChoiceArrow
+        }
+        aria-hidden="true"
+      >
+        ›
+      </span>
+    </button>
+  );
+}
+
+/* =========================================================
+   Card sugestie - "Magazinul meu" -> "Îmbunătățește magazinul"
+   (Vendor Assistant, conectare flow, 2026-09-23)
+
+   Reutilizează STRICT aceleași clase CSS (quoteChoiceCard etc.) ca
+   VendorOrderChoiceCard de mai sus - fără imagine, fără CSS nou.
+   Titlu = suggestion.title; details (linia gri) = motivul concret;
+   pill-ul colorat (ultimul segment din description) = eticheta CTA
+   (ex. "Editează magazinul"), colorată după prioritate (choice.
+   priorityType: HIGH->new/albastru, MEDIUM->discussion/galben,
+   LOW->pending/gri) - exact formatul cerut (titlu; motiv; CTA).
+========================================================= */
+
+function VendorStoreSuggestionCard({
+  choice,
+  onChoice,
+}) {
+  const title =
+    getChoiceLabel(
+      choice
+    );
+
+  const {
+    details,
+    statusLabel,
+  } =
+    getQuoteChoiceDetails(
+      choice
+    );
+
+  const priorityType =
+    choice?.priorityType ||
+    "pending";
+
+  return (
+    <button
+      type="button"
+      className={
+        styles.quoteChoiceCard
+      }
+      onClick={() =>
+        onChoice(
+          choice
+        )
+      }
+      aria-label={`${title} - ${
+        choice?.cta?.label ||
+        "Deschide"
+      }`}
+    >
+      <span
+        className={
+          styles.quoteChoiceContent
+        }
+      >
+        <strong
+          className={
+            styles.quoteChoiceTitle
+          }
+        >
+          {title}
+        </strong>
+
+        {details && (
+          <span
+            className={
+              styles.quoteChoiceDescription
+            }
+          >
+            {details}
+          </span>
+        )}
+
+        <span
+          className={`${styles.quoteChoiceStatus} ${
+            priorityType ===
+            "new"
+              ? styles.quoteChoiceStatusNew
+              : priorityType ===
+                "discussion"
+              ? styles.quoteChoiceStatusDiscussion
+              : styles.quoteChoiceStatusPending
+          }`}
+        >
+          <span
+            aria-hidden="true"
+          />
+
+          {statusLabel}
+        </span>
+      </span>
+
+      <span
+        className={
+          styles.quoteChoiceArrow
+        }
+        aria-hidden="true"
+      >
+        ›
+      </span>
+    </button>
+  );
+}
+
+/* =========================================================
    Listă choices
 ========================================================= */
 
@@ -906,6 +1152,16 @@ function ChoiceList({
       isProductEditChoice
     );
 
+  const containsVendorOrderChoices =
+    choices.some(
+      isVendorOrderChoice
+    );
+
+  const containsVendorStoreSuggestionChoices =
+    choices.some(
+      isVendorStoreSuggestionChoice
+    );
+
   /*
    * "Nu încărca sute de carduri deodată" (cerință) - căutare +
    * "Încarcă mai multe" DOAR pentru selectorul de produse, filtrare
@@ -942,7 +1198,9 @@ function ChoiceList({
     <div
       className={`${styles.choiceList} ${
         containsQuoteChoices ||
-        containsProductEditChoices
+        containsProductEditChoices ||
+        containsVendorOrderChoices ||
+        containsVendorStoreSuggestionChoices
           ? styles.quoteChoiceList
           : ""
       } ${
@@ -1018,6 +1276,48 @@ function ChoiceList({
           ) {
             return (
               <ProductEditChoiceCard
+                key={getChoiceKey(
+                  choice,
+                  index
+                )}
+                choice={
+                  choice
+                }
+                onChoice={
+                  onChoice
+                }
+              />
+            );
+          }
+
+          if (
+            isVendorOrderChoice(
+              choice
+            )
+          ) {
+            return (
+              <VendorOrderChoiceCard
+                key={getChoiceKey(
+                  choice,
+                  index
+                )}
+                choice={
+                  choice
+                }
+                onChoice={
+                  onChoice
+                }
+              />
+            );
+          }
+
+          if (
+            isVendorStoreSuggestionChoice(
+              choice
+            )
+          ) {
+            return (
+              <VendorStoreSuggestionCard
                 key={getChoiceKey(
                   choice,
                   index

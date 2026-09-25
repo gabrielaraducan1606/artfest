@@ -18,6 +18,21 @@ import { getActivePlanForVendor } from "../payments/marketplaceCalc.js";
 import { findBestMatch, findMatchingItems } from "../lib/textMatch.js";
 import { scoreTextMatch } from "../lib/textRelevance.js";
 
+/*
+ * Corectare label-uri canonice (audit 2026-09-23) - STRICT pentru
+ * afișarea before/after din formatProductFieldValue() (PendingActionCard,
+ * UPDATE_PRODUCT). Nu ating patch-ul/payload-ul construit în altă parte
+ * a fișierului - doar traducerea textului afișat vendorului. Reutilizez
+ * EXACT dicționarele canonice existente, fără nicio mapare nouă.
+ */
+import { CATEGORY_LABELS } from "../constants/categories.js";
+import { COLOR_LABELS } from "../constants/colors.js";
+import { MATERIAL_LABELS } from "../constants/materials.js";
+import { OCCASION_LABELS } from "../constants/occasinsTags.js";
+import { STYLE_TAG_LABELS } from "../constants/stylesTags.js";
+import { TECHNIQUE_LABELS } from "../constants/tehniques.js";
+import { humanizeSlug } from "../constants/ui/slugUtils.js";
+
 import {
   formatCosting,
   costingToCostDraft,
@@ -1618,6 +1633,55 @@ export function formatProductFieldValue(field, value) {
     } catch {
       return String(value);
     }
+  }
+
+  /*
+   * Corectare label-uri canonice (audit 2026-09-23): category/color/
+   * materialMain/technique/styleTags/occasionTags nu mai afișează
+   * slug-ul brut în before/after - traducem prin dicționarul canonic
+   * corespunzător, cu fallback humanizeSlug (ACELAȘI helper folosit de
+   * backend pentru restul UI-ului) dacă valoarea nu e găsită. Doar
+   * afișare - valoarea reală rămasă în patch/payload nu e atinsă aici.
+   */
+  const singleValueLabelSource = {
+    category: CATEGORY_LABELS,
+    color: COLOR_LABELS,
+    materialMain: MATERIAL_LABELS,
+    technique: TECHNIQUE_LABELS,
+  }[field];
+
+  if (singleValueLabelSource) {
+    const key = String(value);
+    return (
+      singleValueLabelSource[key] ||
+      humanizeSlug(key, {
+        dropPrefix: field === "category",
+      })
+    );
+  }
+
+  const tagListLabelSource = {
+    styleTags: STYLE_TAG_LABELS,
+    occasionTags: OCCASION_LABELS,
+  }[field];
+
+  if (tagListLabelSource) {
+    const tags = Array.isArray(value)
+      ? value
+      : String(value)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean);
+
+    if (!tags.length) return "—";
+
+    return tags
+      .map(
+        (tag) =>
+          tagListLabelSource[tag] ||
+          humanizeSlug(tag)
+      )
+      .join(", ");
   }
 
   if (Array.isArray(value)) {

@@ -103,6 +103,55 @@ import {
 } from "../copilotApi.js";
 
 import { createSupportTicket } from "../Support/supportApi.js";
+import { getCanonicalLabel } from "../../../utils/optionLabels.js";
+
+/*
+ * "Cereri primite" (audit 2026-09-23) - conectare la infrastructura
+ * REALĂ, deja existentă și folosită de AiAssistant.jsx (client/user):
+ * fetchVendorQuotes (GET /api/vendor/quotes), openVendorQuote +
+ * handleQuoteChoice (deschidere cerere/conversație + mark-as-read,
+ * QUOTE_FLOWS pentru activeFlow). Niciun duplicat - aceleași funcții,
+ * reutilizate ca atare. vendorQuoteLeadCards.js e STRICT sortare/
+ * formatare pură (fără rețea), specifică vizualizării compacte cerute
+ * aici.
+ */
+import { fetchVendorQuotes } from "../quotes/quoteApi.js";
+import {
+  handleQuoteChoice,
+  QUOTE_FLOWS,
+} from "../quotes/assistantQuotes.js";
+import {
+  normalizeVendorQuoteList,
+  buildVendorQuoteLeadCards,
+} from "../quotes/vendorQuoteLeadCards.js";
+
+/*
+ * "Comenzile magazinului" (audit 2026-09-23) - conectare la
+ * GET /api/vendor/orders + GET /api/vendor/orders/thread-meta
+ * (DEJA existente, folosite de pagina reală Orders.jsx). Read-only
+ * strict: niciun apel de scriere (fără schimbare de status) în acest
+ * prim pas. vendorOrderLeadCards.js e STRICT sortare/formatare pură.
+ */
+import {
+  normalizeVendorOrderList,
+  buildVendorOrderLeadCards,
+  mergeVendorOrderThreadMeta,
+  RETRY_VENDOR_ORDER_LEADS_ACTION,
+} from "./vendorOrderLeadCards.js";
+
+/*
+ * "Magazinul meu" (audit 2026-09-23) - conectare la
+ * GET /api/vendors/me/dashboard + GET /api/vendors/me/billing +
+ * GET /api/vendor/store/:slug/products (DEJA existente). Reguli
+ * 100% deterministe, fără scor numeric, fără AI - vezi
+ * vendorStoreLeadRules.js. "Îmbunătățește magazinul" încarcă date
+ * suplimentare DOAR la click (nu la simpla deschidere a meniului).
+ */
+import {
+  buildVendorStoreSuggestions,
+  isVendorStoreComplete,
+  buildVendorStoreSnapshot,
+} from "./vendorStoreLeadRules.js";
 
 /*
  * BUGFIX (audit): moștenire capabilități USER -> VENDOR - vendorul
@@ -1019,6 +1068,21 @@ export default function VendorAssistant({
   const [
     activeFlow,
     setActiveFlow,
+  ] = useState(null);
+
+  /*
+   * "Cereri primite" (audit 2026-09-23) - setter minim necesar de
+   * openVendorQuote()/handleQuoteChoice() (quotes/assistantQuotes.js),
+   * reutilizate ca atare. NU e "o a doua sursă de adevăr" - e exact
+   * ce AiAssistant.jsx pasează deja acelorași funcții. Valoarea
+   * (quoteContext) nu e citită nicăieri în acest wiring minim (doar
+   * "Vezi cererea" -> deschidere/citire, fără continuare de
+   * ofertă/checkout aici) - nu o destructurăm ca să nu rămână
+   * nefolosită.
+   */
+  const [
+    ,
+    setQuoteContext,
   ] = useState(null);
 
   const [
@@ -3329,20 +3393,22 @@ if (resetBatch) {
           `Titlu sugerat: ${analysis.title}`,
 
         analysis?.category &&
-          `Categorie: ${analysis.category}`,
+          `Categorie: ${getCanonicalLabel("category", analysis.category)}`,
 
         analysis?.materialMain &&
-          `Material principal: ${analysis.materialMain}`,
+          `Material principal: ${getCanonicalLabel("materialMain", analysis.materialMain)}`,
 
         analysis?.technique &&
-          `Tehnică: ${analysis.technique}`,
+          `Tehnică: ${getCanonicalLabel("technique", analysis.technique)}`,
 
         analysis?.color &&
-          `Culoare: ${analysis.color}`,
+          `Culoare: ${getCanonicalLabel("color", analysis.color)}`,
 
         Array.isArray(analysis?.styleTags) &&
           analysis.styleTags.length > 0 &&
-          `Stil: ${analysis.styleTags.join(", ")}`,
+          `Stil: ${analysis.styleTags
+            .map((tag) => getCanonicalLabel("styleTags", tag))
+            .join(", ")}`,
 
         analysis?.description &&
           `Descriere: ${analysis.description}`,
@@ -5131,6 +5197,829 @@ setTopicTracking({
   }
 
   /* =======================================================
+     "Cereri primite" (audit 2026-09-23)
+
+     Conectare reală: fetchVendorQuotes() (GET /api/vendor/quotes,
+     DEJA existent, reutilizat ca atare) -> sortare/limitare pură
+     (vendorQuoteLeadCards.js) -> primele 3-5 cereri ca "choices" cu
+     `quote` atașat, randate de QuoteChoiceCard din
+     AssistantMessage.jsx (DEJA existent, neatins). Click pe card ->
+     handleChoice mai jos -> handleQuoteChoice() -> openVendorQuote()
+     (DEJA existent) -> detaliu + conversație + mark-as-read prin
+     PATCH /api/vendor/quotes/:id/read (logica existentă, neschimbată).
+  ======================================================= */
+
+  async function openVendorQuoteLeads() {
+    const loadingId =
+      `${Date.now()}-vendor-quote-leads-loading`;
+
+    addMessage({
+      id: loadingId,
+      role: "assistant",
+      type: "loading",
+      content:
+        "Încarc cererile primite...",
+    });
+
+    try {
+      const result =
+        await fetchVendorQuotes();
+
+      const quotes =
+        normalizeVendorQuoteList(
+          result
+        );
+
+      removeLoadingMessages();
+
+      setActiveFlow(
+        QUOTE_FLOWS.VENDOR_QUOTES
+      );
+
+      if (!quotes.length) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Nu ai cereri noi momentan."
+          )
+        );
+
+        return;
+      }
+
+      const cards =
+        buildVendorQuoteLeadCards(
+          quotes,
+          5
+        );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Cererile tale recente:",
+          {
+            type:
+              "choices",
+
+            choiceStep:
+              "vendor-quote-leads",
+
+            choices:
+              cards,
+          }
+        )
+      );
+    } catch (error) {
+      removeLoadingMessages();
+
+      addMessage(
+        createMessage(
+          "assistant",
+
+          humanizeAssistantErrorMessage(
+            error,
+            "Nu am putut încărca cererile primite."
+          ),
+          {
+            type:
+              "choices",
+
+            choiceStep:
+              "vendor-quote-leads-error",
+
+            choices: [
+              {
+                id:
+                  "retry-vendor-quote-leads",
+
+                action:
+                  "retry-vendor-quote-leads",
+
+                title:
+                  "Reîncearcă",
+
+                label:
+                  "Reîncearcă",
+              },
+            ],
+          }
+        )
+      );
+    }
+  }
+
+  /* =======================================================
+     "Comenzile magazinului" (audit 2026-09-23)
+
+     Read-only strict: GET /api/vendor/orders (pageSize=20, ca
+     prioritatea pe status să aibă din ce alege, nu doar ultimele 5
+     create) + GET /api/vendor/orders/thread-meta pentru unread
+     (identic Orders.jsx). Sortare/limitare pură
+     (vendorOrderLeadCards.js) -> primele 5, randate ca "choices" cu
+     `vendorOrder: true`, randate de VendorOrderChoiceCard din
+     AssistantMessage.jsx (nou, dar reutilizează clasele CSS
+     quoteChoice* existente). Click pe card -> handleChoice mai jos ->
+     navigare directă la /vendor/orders/:id (OrdersDetailsPage,
+     existentă) - NICIO acțiune de scriere (fără schimbare de status)
+     în acest prim pas.
+  ======================================================= */
+
+  async function openVendorOrderLeads() {
+    const loadingId =
+      `${Date.now()}-vendor-order-leads-loading`;
+
+    addMessage({
+      id: loadingId,
+      role: "assistant",
+      type: "loading",
+      content:
+        "Încarc comenzile...",
+    });
+
+    try {
+      const result =
+        await api(
+          "/api/vendor/orders?pageSize=20"
+        );
+
+      const orders =
+        normalizeVendorOrderList(
+          result
+        );
+
+      let ordersWithMeta =
+        orders;
+
+      if (orders.length) {
+        try {
+          const orderIds =
+            orders
+              .map(
+                (o) => o.id
+              )
+              .filter(
+                Boolean
+              )
+              .join(
+                ","
+              );
+
+          const meta =
+            await api(
+              `/api/vendor/orders/thread-meta?orderIds=${orderIds}`
+            );
+
+          ordersWithMeta =
+            mergeVendorOrderThreadMeta(
+              orders,
+              meta || {}
+            );
+        } catch {
+          /*
+           * Non-blocant, la fel ca în Orders.jsx: badge-ul de
+           * necitite rămâne 0 dacă acest apel eșuează, restul
+           * cardului funcționează normal.
+           */
+        }
+      }
+
+      removeLoadingMessages();
+
+      setActiveFlow(
+        VENDOR_ACTION_IDS.ORDERS
+      );
+
+      /*
+       * Gate de facturare (DEJA existent în răspunsul rutei reale) -
+       * dacă vendorul nu poate vedea comenzile fără să completeze
+       * datele de facturare, arătăm EXACT mesajul/CTA-ul venit din
+       * backend, nu "Nu ai comenzi momentan." (ar fi înșelător -
+       * vendorul chiar are comenzi, doar nu le poate vedea încă).
+       */
+      if (result?.billingRequired) {
+        const gate =
+          result.billingGate ||
+          {};
+
+        addMessage(
+          createMessage(
+            "assistant",
+
+            gate.message ||
+              "Completează datele de facturare pentru a vedea comenzile.",
+
+            gate.cta
+              ? {
+                  type:
+                    "choices",
+
+                  choiceStep:
+                    "vendor-order-leads-billing",
+
+                  choices: [
+                    {
+                      id:
+                        "vendor-order-leads-billing-cta",
+
+                      action:
+                        "navigate-vendor-billing-settings",
+
+                      title:
+                        gate.cta
+                          .label ||
+                        "Completează datele de facturare",
+
+                      label:
+                        gate.cta
+                          .label ||
+                        "Completează datele de facturare",
+
+                      url:
+                        gate.cta
+                          .url ||
+                        "/setari?tab=billing",
+                    },
+                  ],
+                }
+              : undefined
+          )
+        );
+
+        return;
+      }
+
+      if (!ordersWithMeta.length) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Nu ai comenzi momentan."
+          )
+        );
+
+        return;
+      }
+
+      const cards =
+        buildVendorOrderLeadCards(
+          ordersWithMeta,
+          5
+        );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Comenzile tale recente:",
+          {
+            type:
+              "choices",
+
+            choiceStep:
+              "vendor-order-leads",
+
+            choices:
+              cards,
+          }
+        )
+      );
+    } catch (error) {
+      removeLoadingMessages();
+
+      addMessage(
+        createMessage(
+          "assistant",
+
+          humanizeAssistantErrorMessage(
+            error,
+            "Nu am putut încărca comenzile."
+          ),
+          {
+            type:
+              "choices",
+
+            choiceStep:
+              "vendor-order-leads-error",
+
+            choices: [
+              {
+                id:
+                  "retry-vendor-order-leads",
+
+                action:
+                  RETRY_VENDOR_ORDER_LEADS_ACTION,
+
+                title:
+                  "Reîncearcă",
+
+                label:
+                  "Reîncearcă",
+              },
+            ],
+          }
+        )
+      );
+    }
+  }
+
+  /* =======================================================
+     "Magazinul meu" (audit 2026-09-23)
+
+     Click simplu -> UN SINGUR apel, minim necesar (slug/serviceId/
+     status activ pentru cele 4 opțiuni) - GET /api/vendors/me/
+     dashboard, DEJA existent. Fără produse/cereri/comenzi aici.
+
+     "Îmbunătățește magazinul" -> abia atunci (openVendorStoreImprove)
+     se încarcă datele suplimentare (billing, produse, cereri,
+     comenzi noi) - vezi mai jos.
+  ======================================================= */
+
+  async function openVendorStoreMenu() {
+    const loadingId =
+      `${Date.now()}-vendor-store-menu-loading`;
+
+    addMessage({
+      id: loadingId,
+      role: "assistant",
+      type: "loading",
+      content:
+        "Verific magazinul tău...",
+    });
+
+    try {
+      const dashboard =
+        await api(
+          "/api/vendors/me/dashboard"
+        );
+
+      removeLoadingMessages();
+
+      const service =
+        Array.isArray(
+          dashboard?.services
+        ) &&
+        dashboard.services
+          .length
+          ? dashboard
+              .services[0]
+          : null;
+
+      const slug =
+        service?.profile
+          ?.slug ||
+        null;
+
+      const serviceId =
+        service?.id ||
+        null;
+
+      const isActive =
+        Boolean(
+          service?.isActive
+        );
+
+      const greeting =
+        isActive
+          ? "Magazinul tău este activ. Ce vrei să faci?"
+          : "Magazinul tău este inactiv momentan. Ce vrei să faci?";
+
+      addMessage(
+        createMessage(
+          "assistant",
+          greeting,
+          {
+            type:
+              "choices",
+
+            choiceStep:
+              "vendor-store-menu",
+
+            choices: [
+              {
+                id:
+                  "vendor-store-view",
+
+                action:
+                  "view-store",
+
+                title:
+                  "Vezi magazinul",
+
+                label:
+                  "Vezi magazinul",
+
+                slug,
+              },
+
+              {
+                id:
+                  "vendor-store-improve",
+
+                action:
+                  "improve-store",
+
+                title:
+                  "Îmbunătățește magazinul",
+
+                label:
+                  "Îmbunătățește magazinul",
+
+                dashboard,
+                slug,
+                serviceId,
+              },
+
+              {
+                id:
+                  "vendor-store-edit",
+
+                action:
+                  "edit-store",
+
+                title:
+                  "Editează magazinul",
+
+                label:
+                  "Editează magazinul",
+
+                serviceId,
+              },
+
+              {
+                id:
+                  "vendor-store-products",
+
+                action:
+                  "edit-products",
+
+                title:
+                  "Produsele mele",
+
+                label:
+                  "Produsele mele",
+              },
+            ],
+          }
+        )
+      );
+    } catch (error) {
+      removeLoadingMessages();
+
+      addMessage(
+        createMessage(
+          "assistant",
+
+          humanizeAssistantErrorMessage(
+            error,
+            "Nu am putut încărca datele magazinului."
+          ),
+          {
+            type:
+              "choices",
+
+            choiceStep:
+              "vendor-store-menu-error",
+
+            choices: [
+              {
+                id:
+                  "retry-vendor-store-menu",
+
+                action:
+                  "retry-vendor-store-menu",
+
+                title:
+                  "Reîncearcă",
+
+                label:
+                  "Reîncearcă",
+              },
+            ],
+          }
+        )
+      );
+    }
+  }
+
+  /*
+   * Mapare prioritate internă (HIGH/MEDIUM/LOW, vezi
+   * vendorStoreLeadRules.js) -> tipul vizual deja existent pe
+   * cardurile quoteChoice* (fără culoare nouă): HIGH pe accentul
+   * "new" (cel mai vizibil), MEDIUM pe "discussion", LOW pe
+   * "pending" (neutru).
+   */
+  function vendorStorePriorityType(
+    priority
+  ) {
+    if (priority === "HIGH")
+      return "new";
+
+    if (
+      priority === "MEDIUM"
+    )
+      return "discussion";
+
+    return "pending";
+  }
+
+  function buildVendorStoreSuggestionChoice(
+    suggestion,
+    { serviceId }
+  ) {
+    return {
+      id: suggestion.id,
+      vendorStoreSuggestion: true,
+
+      label:
+        suggestion.title,
+
+      title:
+        suggestion.title,
+
+      description: `${suggestion.reason} · ${suggestion.cta.label}`,
+
+      priorityType:
+        vendorStorePriorityType(
+          suggestion.priority
+        ),
+
+      cta: suggestion.cta,
+      serviceId,
+    };
+  }
+
+  async function openVendorStoreImprove(
+    dashboard,
+    slug,
+    serviceId
+  ) {
+    const loadingId =
+      `${Date.now()}-vendor-store-improve-loading`;
+
+    addMessage({
+      id: loadingId,
+      role: "assistant",
+      type: "loading",
+      content:
+        "Analizez magazinul tău...",
+    });
+
+    try {
+      const [
+        billingResult,
+        productsResult,
+        quotesResult,
+        ordersResult,
+      ] =
+        await Promise.allSettled(
+          [
+            api(
+              "/api/vendors/me/billing"
+            ),
+
+            slug
+              ? api(
+                  `/api/vendor/store/${encodeURIComponent(
+                    slug
+                  )}/products?take=200`
+                )
+              : Promise.resolve(
+                  {
+                    items: [],
+                  }
+                ),
+
+            fetchVendorQuotes(),
+
+            api(
+              "/api/vendor/orders?status=new&pageSize=1"
+            ),
+          ]
+        );
+
+      const billing =
+        billingResult.status ===
+        "fulfilled"
+          ? billingResult
+              .value
+              ?.billing ||
+            null
+          : null;
+
+      const products =
+        productsResult.status ===
+        "fulfilled"
+          ? Array.isArray(
+              productsResult
+                .value
+                ?.items
+            )
+            ? productsResult
+                .value
+                .items
+            : []
+          : [];
+
+      const quotes =
+        quotesResult.status ===
+        "fulfilled"
+          ? normalizeVendorQuoteList(
+              quotesResult.value
+            )
+          : [];
+
+      const unansweredQuotesCount =
+        quotes.filter(
+          (q) =>
+            String(
+              q?.status ||
+                ""
+            ).toUpperCase() ===
+              "SUBMITTED" &&
+            (!Array.isArray(
+              q?.offers
+            ) ||
+              q.offers
+                .length ===
+                0)
+        ).length;
+
+      const newOrdersCount =
+        ordersResult.status ===
+        "fulfilled"
+          ? Number(
+              ordersResult
+                .value
+                ?.total
+            ) || 0
+          : 0;
+
+      const snapshot =
+        buildVendorStoreSnapshot(
+          {
+            dashboard,
+            billing,
+            products,
+            unansweredQuotesCount,
+            newOrdersCount,
+          }
+        );
+
+      removeLoadingMessages();
+
+      if (
+        isVendorStoreComplete(
+          snapshot
+        )
+      ) {
+        const perfectChoices = [
+          {
+            id:
+              "vendor-store-add-product-perfect",
+
+            action:
+              "add-product",
+
+            title:
+              "Adaugă produs",
+
+            label:
+              "Adaugă produs",
+          },
+        ];
+
+        /*
+         * "Promovează produse" - inclus DOAR pentru că am confirmat
+         * în audit o destinație reală: /vendor/catalog?tab=campaigns
+         * (tab-ul Campanii din Catalog produse, existent).
+         */
+        perfectChoices.push(
+          {
+            id:
+              "vendor-store-promote-perfect",
+
+            action:
+              "promote-products",
+
+            title:
+              "Promovează produse",
+
+            label:
+              "Promovează produse",
+          }
+        );
+
+        perfectChoices.push(
+          {
+            id:
+              "vendor-store-view-perfect",
+
+            action:
+              "view-store",
+
+            title:
+              "Vezi magazinul",
+
+            label:
+              "Vezi magazinul",
+
+            slug,
+          }
+        );
+
+        addMessage(
+          createMessage(
+            "assistant",
+            "Magazinul tău este bine configurat. Poți continua cu adăugarea sau promovarea produselor.",
+            {
+              type:
+                "choices",
+
+              choiceStep:
+                "vendor-store-perfect",
+
+              choices:
+                perfectChoices,
+            }
+          )
+        );
+
+        return;
+      }
+
+      const suggestions =
+        buildVendorStoreSuggestions(
+          snapshot
+        );
+
+      const choices =
+        suggestions.map(
+          (suggestion) =>
+            buildVendorStoreSuggestionChoice(
+              suggestion,
+              {
+                serviceId,
+              }
+            )
+        );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Câteva lucruri pe care le poți îmbunătăți acum:",
+          {
+            type:
+              "choices",
+
+            choiceStep:
+              "vendor-store-suggestions",
+
+            choices,
+          }
+        )
+      );
+    } catch (error) {
+      removeLoadingMessages();
+
+      addMessage(
+        createMessage(
+          "assistant",
+
+          humanizeAssistantErrorMessage(
+            error,
+            "Nu am putut analiza magazinul tău."
+          ),
+          {
+            type:
+              "choices",
+
+            choiceStep:
+              "vendor-store-improve-error",
+
+            choices: [
+              {
+                id:
+                  "retry-vendor-store-improve",
+
+                action:
+                  "retry-vendor-store-improve",
+
+                title:
+                  "Reîncearcă",
+
+                label:
+                  "Reîncearcă",
+
+                dashboard,
+                slug,
+                serviceId,
+              },
+            ],
+          }
+        )
+      );
+    }
+  }
+
+  /* =======================================================
      Acțiuni meniu
   ======================================================= */
 async function handleAction(
@@ -5204,6 +6093,40 @@ async function handleAction(
   }
 
   /*
+   * "Cereri primite" (audit 2026-09-23) - conectare reală, vezi
+   * openVendorQuoteLeads() mai sus. Interceptat aici, la fel ca
+   * STORE/SHOPPING mai jos, ÎNAINTE de fallback-ul generic
+   * startVendorFlow (care nu mai are niciun caz pentru acest id).
+   */
+  if (
+    actionId ===
+    VENDOR_ACTION_IDS.RECEIVED_QUOTES
+  ) {
+    setShowMenu(false);
+
+    await openVendorQuoteLeads();
+
+    return;
+  }
+
+  /*
+   * "Comenzile magazinului" (audit 2026-09-23) - conectare reală,
+   * vezi openVendorOrderLeads() mai sus. Interceptat aici, la fel
+   * ca RECEIVED_QUOTES mai sus, ÎNAINTE de fallback-ul generic
+   * startVendorFlow (care nu mai are niciun caz pentru acest id).
+   */
+  if (
+    actionId ===
+    VENDOR_ACTION_IDS.ORDERS
+  ) {
+    setShowMenu(false);
+
+    await openVendorOrderLeads();
+
+    return;
+  }
+
+  /*
    * BUGFIX (audit): butonul "Cumpărături" exista în meniu
    * (vendorMenus.js) dar nu era conectat la nimic - vendorul
    * rămâne și cumpărător, folosește exact flow-ul de marketplace
@@ -5237,22 +6160,18 @@ async function handleAction(
     return;
   }
 
+  /*
+   * "Magazinul meu" (audit 2026-09-23) - conectare reală, vezi
+   * openVendorStoreMenu() mai jos. Interceptat aici, la fel ca
+   * RECEIVED_QUOTES/ORDERS mai sus.
+   */
   if (
     actionId ===
     VENDOR_ACTION_IDS.STORE
   ) {
-    setCurrentMenu(
-      VENDOR_MENU_IDS.STORE
-    );
+    setShowMenu(false);
 
-    setShowMenu(true);
-
-    addMessage(
-      createMessage(
-        "assistant",
-        "Secțiunea magazinului va fi conectată într-o etapă ulterioară."
-      )
-    );
+    await openVendorStoreMenu();
 
     return;
   }
@@ -5400,6 +6319,343 @@ async function handleAction(
       sourceMessage?.choiceStep === "vendor-insight-action"
     ) {
       await handleVendorInsightNavAction(choice);
+      return;
+    }
+
+    /*
+     * "Cereri primite" (audit 2026-09-23) - "Reîncearcă" de pe cardul
+     * de eroare al fetch-ului.
+     */
+    if (
+      choice?.action ===
+      "retry-vendor-quote-leads"
+    ) {
+      await openVendorQuoteLeads();
+      return;
+    }
+
+    /*
+     * "Cereri primite" (audit 2026-09-23) - click pe un card din
+     * lista compactă -> handleQuoteChoice() (quotes/assistantQuotes.js,
+     * DEJA existent) recunoaște generic choice.quote/activeFlow ===
+     * QUOTE_FLOWS.VENDOR_QUOTES și deschide EXACT openVendorQuote()
+     * (detaliu + conversație + mark-as-read prin PATCH
+     * /api/vendor/quotes/:id/read) - nimic reimplementat aici.
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep === "vendor-quote-leads"
+    ) {
+      const quoteHandled =
+        await handleQuoteChoice({
+          activeFlow,
+          choice,
+          sourceMessage,
+
+          addMessage,
+          createMessage,
+
+          setActiveFlow,
+          setQuoteContext,
+        });
+
+      if (quoteHandled) {
+        return;
+      }
+    }
+
+    /*
+     * "Comenzile magazinului" (audit 2026-09-23) - "Reîncearcă" de pe
+     * cardul de eroare al fetch-ului.
+     */
+    if (
+      choice?.action ===
+      RETRY_VENDOR_ORDER_LEADS_ACTION
+    ) {
+      await openVendorOrderLeads();
+      return;
+    }
+
+    /*
+     * "Comenzile magazinului" (audit 2026-09-23) - CTA "Completează
+     * datele de facturare" de pe gate-ul de billing (venit STRICT din
+     * răspunsul GET /api/vendor/orders, nimic inventat) - navigare
+     * directă, nicio logică nouă.
+     */
+    if (
+      choice?.action ===
+      "navigate-vendor-billing-settings"
+    ) {
+      if (choice?.url) {
+        window.location.href =
+          choice.url;
+      }
+
+      return;
+    }
+
+    /*
+     * "Comenzile magazinului" (audit 2026-09-23) - click pe un card
+     * din lista compactă -> navigare DIRECTĂ la pagina reală
+     * /vendor/orders/:id (OrdersDetailsPage, existentă) - read-only
+     * strict, nicio acțiune de scriere/schimbare de status aici.
+     */
+    if (
+      choice?.vendorOrder ===
+      true
+    ) {
+      const orderId =
+        choice.order?.id ||
+        choice.id ||
+        null;
+
+      if (orderId) {
+        window.location.href =
+          `/vendor/orders/${orderId}`;
+      }
+
+      return;
+    }
+
+    /*
+     * "Magazinul meu" (audit 2026-09-23) - toate acțiunile din
+     * meniul principal + din cardurile de sugestii. Fiecare acțiune
+     * de navigare merge STRICT la o rută reală, deja confirmată în
+     * audit; fiecare acțiune de flow reutilizează handleAction cu
+     * exact același actionId pe care l-ar folosi un click direct pe
+     * meniu (zero logică duplicată).
+     */
+
+    if (
+      choice?.action ===
+      "view-store"
+    ) {
+      if (choice?.slug) {
+        window.location.href =
+          `/magazin/${choice.slug}`;
+      }
+
+      return;
+    }
+
+    if (
+      choice?.action ===
+      "edit-store"
+    ) {
+      if (
+        choice?.serviceId
+      ) {
+        window.location.href =
+          `/onboarding/details?serviceId=${encodeURIComponent(
+            choice.serviceId
+          )}&tab=profil`;
+      }
+
+      return;
+    }
+
+    if (
+      choice?.action ===
+      "edit-products"
+    ) {
+      await handleAction(
+        VENDOR_ACTION_IDS.EDIT_PRODUCT
+      );
+
+      return;
+    }
+
+    if (
+      choice?.action ===
+      "add-product"
+    ) {
+      await handleAction(
+        VENDOR_ACTION_IDS.ADD_PRODUCT
+      );
+
+      return;
+    }
+
+    if (
+      choice?.action ===
+      "received-quotes"
+    ) {
+      await handleAction(
+        VENDOR_ACTION_IDS.RECEIVED_QUOTES
+      );
+
+      return;
+    }
+
+    if (
+      choice?.action ===
+      "vendor-orders"
+    ) {
+      await handleAction(
+        VENDOR_ACTION_IDS.ORDERS
+      );
+
+      return;
+    }
+
+    if (
+      choice?.action ===
+      "vendor-billing"
+    ) {
+      window.location.href =
+        "/setari?tab=billing";
+
+      return;
+    }
+
+    if (
+      choice?.action ===
+      "vendor-payouts"
+    ) {
+      window.location.href =
+        "/setari?tab=payouts";
+
+      return;
+    }
+
+    if (
+      choice?.action ===
+      "promote-products"
+    ) {
+      window.location.href =
+        "/vendor/catalog?tab=campaigns";
+
+      return;
+    }
+
+    if (
+      choice?.action ===
+      "improve-store"
+    ) {
+      await openVendorStoreImprove(
+        choice.dashboard,
+        choice.slug,
+        choice.serviceId
+      );
+
+      return;
+    }
+
+    if (
+      choice?.action ===
+      "retry-vendor-store-menu"
+    ) {
+      await openVendorStoreMenu();
+      return;
+    }
+
+    if (
+      choice?.action ===
+      "retry-vendor-store-improve"
+    ) {
+      await openVendorStoreImprove(
+        choice.dashboard,
+        choice.slug,
+        choice.serviceId
+      );
+
+      return;
+    }
+
+    /*
+     * Click pe un card de sugestie ("Magazinul meu" ->
+     * "Îmbunătățește magazinul") - `cta.action` e UNA dintre
+     * acțiunile de mai sus (edit-store/add-product/edit-products/
+     * vendor-payouts/vendor-billing/received-quotes/vendor-orders),
+     * cu `serviceId` deja atașat pe choice pentru "edit-store".
+     */
+    if (
+      choice?.vendorStoreSuggestion ===
+      true
+    ) {
+      const ctaAction =
+        choice?.cta?.action;
+
+      if (
+        ctaAction ===
+        "edit-store"
+      ) {
+        if (
+          choice?.serviceId
+        ) {
+          window.location.href =
+            `/onboarding/details?serviceId=${encodeURIComponent(
+              choice.serviceId
+            )}&tab=profil`;
+        }
+
+        return;
+      }
+
+      if (
+        ctaAction ===
+        "add-product"
+      ) {
+        await handleAction(
+          VENDOR_ACTION_IDS.ADD_PRODUCT
+        );
+
+        return;
+      }
+
+      if (
+        ctaAction ===
+        "edit-products"
+      ) {
+        await handleAction(
+          VENDOR_ACTION_IDS.EDIT_PRODUCT
+        );
+
+        return;
+      }
+
+      if (
+        ctaAction ===
+        "received-quotes"
+      ) {
+        await handleAction(
+          VENDOR_ACTION_IDS.RECEIVED_QUOTES
+        );
+
+        return;
+      }
+
+      if (
+        ctaAction ===
+        "vendor-orders"
+      ) {
+        await handleAction(
+          VENDOR_ACTION_IDS.ORDERS
+        );
+
+        return;
+      }
+
+      if (
+        ctaAction ===
+        "vendor-payouts"
+      ) {
+        window.location.href =
+          "/setari?tab=payouts";
+
+        return;
+      }
+
+      if (
+        ctaAction ===
+        "vendor-billing"
+      ) {
+        window.location.href =
+          "/setari?tab=billing";
+
+        return;
+      }
+
       return;
     }
 

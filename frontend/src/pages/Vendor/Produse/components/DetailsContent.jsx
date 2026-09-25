@@ -2,6 +2,7 @@
 import React from "react";
 import styles from "../ProductDetails.module.css";
 import { hasText, splitTags } from "../hooks/detailsUtils.js";
+import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
 
 // fișierul acesta exportă DOAR componentă React → OK pentru Fast Refresh
 function DetailsContentBase({ product, availabilityText }) {
@@ -25,13 +26,15 @@ function DetailsContentBase({ product, availabilityText }) {
 
       {hasText(product.materialMain) && (
         <p className={styles.detailsLine}>
-          <strong>Material principal:</strong> {product.materialMain}
+          <strong>Material principal:</strong>{" "}
+          {getCanonicalLabel("materialMain", product.materialMain)}
         </p>
       )}
 
       {hasText(product.technique) && (
         <p className={styles.detailsLine}>
-          <strong>Tehnică:</strong> {product.technique}
+          <strong>Tehnică:</strong>{" "}
+          {getCanonicalLabel("technique", product.technique)}
         </p>
       )}
 
@@ -46,7 +49,7 @@ function DetailsContentBase({ product, availabilityText }) {
           <strong>Stil:</strong>{" "}
           {splitTags(product.styleTags).map((tag) => (
             <span key={tag} className={styles.detailTag}>
-              {tag}
+              {getCanonicalLabel("styleTags", tag)}
             </span>
           ))}
         </p>
@@ -57,7 +60,7 @@ function DetailsContentBase({ product, availabilityText }) {
           <strong>Ocazii:</strong>{" "}
           {splitTags(product.occasionTags).map((tag) => (
             <span key={tag} className={styles.detailTag}>
-              {tag}
+              {getCanonicalLabel("occasionTags", tag)}
             </span>
           ))}
         </p>
@@ -82,7 +85,8 @@ function DetailsContentBase({ product, availabilityText }) {
 
       {hasText(product.color) && (
         <p className={styles.detailsLine}>
-          <strong>Culoare principală:</strong> {product.color}
+          <strong>Culoare principală:</strong>{" "}
+          {getCanonicalLabel("color", product.color)}
         </p>
       )}
     </>

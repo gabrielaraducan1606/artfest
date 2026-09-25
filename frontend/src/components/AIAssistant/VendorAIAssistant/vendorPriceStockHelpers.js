@@ -5,16 +5,15 @@
 // (.jsx, nu poate fi importat de Node fără transformare JSX) ca să
 // poată fi testat direct cu `node --test`.
 //
-// Nu inventează un model nou de disponibilitate - etichetele de mai
-// jos corespund EXACT enum-ului deja validat de backend
+// AVAILABILITY_LABELS (audit corectare label-uri canonice, 2026-09-23):
+// reexportat DOAR din sursa unică ../../../utils/optionLabels.js - nu
+// mai există aici o a doua declarație (cerință explicită: o singură
+// mapare de disponibilitate reutilizată peste tot în frontend).
+// Etichetele corespund EXACT enum-ului deja validat de backend
 // (vendorProductRoutes.js: READY/MADE_TO_ORDER/PREORDER/SOLD_OUT).
+import { AVAILABILITY_LABELS } from "../../../utils/optionLabels.js";
 
-export const AVAILABILITY_LABELS = {
-  READY: "în stoc",
-  MADE_TO_ORDER: "la comandă",
-  PREORDER: "precomandă",
-  SOLD_OUT: "stoc epuizat",
-};
+export { AVAILABILITY_LABELS };
 
 /**
  * Text scurt pentru "Disponibilitate actuală: ..." - folosește DOAR

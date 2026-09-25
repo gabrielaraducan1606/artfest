@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../lib/api.js";
 import styles from "../AdminMaintenancePage.module.css";
+import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
 
 function fmtPrice(value, currency = "RON") {
   const num = Number(value || 0);
@@ -128,7 +129,9 @@ function ProductRow({ item, busyId, onApprove, onReject, onHideAgain }) {
 
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 700 }}>{fmtPrice(item.price, item.currency)}</div>
-            <div className={styles.subtle}>{item.category || "Fără categorie"}</div>
+            <div className={styles.subtle}>
+              {item.category ? getCanonicalLabel("category", item.category) : "Fără categorie"}
+            </div>
           </div>
         </div>
 
@@ -148,14 +151,21 @@ function ProductRow({ item, busyId, onApprove, onReject, onHideAgain }) {
           <span className={styles.badge}>Status activ: {item.isActive ? "Da" : "Nu"}</span>
           <span className={styles.badge}>Ascuns: {item.isHidden ? "Da" : "Nu"}</span>
           <span className={styles.badge}>
-            Disponibilitate: {item.availability || "—"}
+            Disponibilitate:{" "}
+            {item.availability ? getCanonicalLabel("availability", item.availability) : "—"}
           </span>
-          {item.color ? <span className={styles.badge}>Culoare: {item.color}</span> : null}
+          {item.color ? (
+            <span className={styles.badge}>Culoare: {getCanonicalLabel("color", item.color)}</span>
+          ) : null}
           {item.materialMain ? (
-            <span className={styles.badge}>Material: {item.materialMain}</span>
+            <span className={styles.badge}>
+              Material: {getCanonicalLabel("materialMain", item.materialMain)}
+            </span>
           ) : null}
           {item.technique ? (
-            <span className={styles.badge}>Tehnică: {item.technique}</span>
+            <span className={styles.badge}>
+              Tehnică: {getCanonicalLabel("technique", item.technique)}
+            </span>
           ) : null}
         </div>
 

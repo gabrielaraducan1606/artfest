@@ -10,6 +10,7 @@ import styles from "./VendorProductBatchWizard.module.css";
 import { getMissingFields } from "./VendorProductWizard.jsx";
 
 import ProductClientPreviewModal from "../../../../pages/Vendor/ProfilMagazin/modals/ProductModal/components/ProductClientPreviewModal.jsx";
+import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
 
 function getImageUrl(image) {
   if (typeof image === "string") {
@@ -386,8 +387,9 @@ function ProductReviewCard({
             styles.reviewCardMeta
           }
         >
-          {draft.category ||
-            "Categorie nedetectată"}
+          {draft.category
+            ? getCanonicalLabel("category", draft.category)
+            : "Categorie nedetectată"}
         </p>
 
         <span

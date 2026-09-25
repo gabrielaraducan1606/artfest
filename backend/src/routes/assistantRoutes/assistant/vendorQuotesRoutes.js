@@ -578,6 +578,22 @@ function serializeVendorQuote(
       quote.threadId ||
       null,
 
+    /*
+     * Status CRM real + citit/necitit (Vendor Assistant "Cereri
+     * primite", 2026-09-23) - din thread-ul asociat, NU recalculate
+     * aici. Fallback "NEW" doar dacă cererea nu are încă thread
+     * (teoretic imposibil azi, dar nu crăpăm răspunsul).
+     */
+    leadStatus:
+      quote.thread
+        ?.leadStatus ||
+      "NEW",
+
+    vendorLastReadAt:
+      quote.thread
+        ?.vendorLastReadAt ||
+      null,
+
     orderId:
       quote.orderId ||
       null,
@@ -827,6 +843,25 @@ router.get(
               orderBy: {
                 createdAt:
                   "desc",
+              },
+            },
+
+            /*
+             * Conectare "Cereri primite" (Vendor Assistant, 2026-09-23) -
+             * leadStatus/vendorLastReadAt vin STRICT din thread-ul
+             * asociat (QuoteRequest.threadId), aceeași sursă unică
+             * deja folosită de GET /api/inbox/threads
+             * (vendorMessageRoutes.js) și scrisă de PATCH
+             * /api/vendor/quotes/:id/read (mai jos, neschimbat) - nicio
+             * a doua sursă de adevăr pentru statusul CRM/necitit.
+             */
+            thread: {
+              select: {
+                leadStatus:
+                  true,
+
+                vendorLastReadAt:
+                  true,
               },
             },
           },
@@ -2667,6 +2702,25 @@ router.get(
               orderBy: {
                 createdAt:
                   "desc",
+              },
+            },
+
+            /*
+             * Conectare "Cereri primite" (Vendor Assistant, 2026-09-23) -
+             * leadStatus/vendorLastReadAt vin STRICT din thread-ul
+             * asociat (QuoteRequest.threadId), aceeași sursă unică
+             * deja folosită de GET /api/inbox/threads
+             * (vendorMessageRoutes.js) și scrisă de PATCH
+             * /api/vendor/quotes/:id/read (mai jos, neschimbat) - nicio
+             * a doua sursă de adevăr pentru statusul CRM/necitit.
+             */
+            thread: {
+              select: {
+                leadStatus:
+                  true,
+
+                vendorLastReadAt:
+                  true,
               },
             },
           },

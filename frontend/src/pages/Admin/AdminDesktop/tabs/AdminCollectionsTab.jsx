@@ -5,6 +5,7 @@ import { api } from "../../../../lib/api";
 import styles from "../AdminDesktop.module.css";
 import AdminHomepageFeaturesTab from "./AdminPromotionsTab/AdminHomepageFeaturesTab.jsx";
 import { CATEGORIES_DETAILED } from "../../../../../../backend/src/constants/categories.js";
+import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
 
 const OCCASION_OPTIONS = [
   { value: "cadou-educatoare", label: "Cadou educatoare" },
@@ -1197,7 +1198,7 @@ function ProductLiteRow({ product }) {
         <strong>{product.title}</strong>
         <div className={styles.subtle}>
           {product.price} {product.currency} ·{" "}
-          {product.category || "fără categorie"}
+          {product.category ? getCanonicalLabel("category", product.category) : "fără categorie"}
           {product.vendor?.displayName ? ` · ${product.vendor.displayName}` : ""}
         </div>
       </div>

@@ -126,41 +126,23 @@ AI-ul va pregăti un draft, iar echipa Artfest te poate ajuta să îl finalizezi
       break;
   }
 
-  if (
-    actionId ===
-    VENDOR_ACTION_IDS.RECEIVED_QUOTES
-  ) {
-    setActiveFlow(
-      VENDOR_ACTION_IDS.RECEIVED_QUOTES
-    );
+  /*
+   * RECEIVED_QUOTES (audit "Cereri primite", 2026-09-23): stub-ul
+   * ELIMINAT de aici - conectat acum DIRECT în VendorAssistant.jsx
+   * (handleAction), la fel ca STORE/SHOPPING mai jos, reutilizând
+   * infrastructura reală (fetchVendorQuotes/openVendorQuote din
+   * quotes/quoteApi.js + quotes/assistantQuotes.js) - nu mai există
+   * niciun mesaj static aici pentru acest id.
+   */
 
-    addMessage(
-      createMessage(
-        "assistant",
-        "Secțiunea pentru cererile primite va fi conectată la fluxul existent în etapa următoare."
-      )
-    );
-
-    return true;
-  }
-
-  if (
-    actionId ===
-    VENDOR_ACTION_IDS.ORDERS
-  ) {
-    setActiveFlow(
-      VENDOR_ACTION_IDS.ORDERS
-    );
-
-    addMessage(
-      createMessage(
-        "assistant",
-        "Secțiunea pentru comenzile magazinului va fi conectată ulterior."
-      )
-    );
-
-    return true;
-  }
+  /*
+   * ORDERS (audit "Comenzile magazinului", 2026-09-23): stub-ul
+   * ELIMINAT de aici, la fel ca RECEIVED_QUOTES mai sus - conectat
+   * acum DIRECT în VendorAssistant.jsx (handleAction), reutilizând
+   * GET /api/vendor/orders + GET /api/vendor/orders/thread-meta
+   * (DEJA existente, folosite de pagina reală Orders.jsx) - niciun
+   * mesaj static aici pentru acest id.
+   */
 
   if (
     actionId ===

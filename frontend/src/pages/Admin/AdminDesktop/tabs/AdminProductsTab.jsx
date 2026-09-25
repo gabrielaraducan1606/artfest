@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../lib/api";
 import styles from "../css/AdminProductsTab.module.css";
+import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
 import AdminProductEditForm
   from "./AdminProductEditModal.jsx";
 
@@ -588,11 +589,11 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
                     </td>
 
                     <td>
-                      <div>{p.category || "—"}</div>
+                      <div>{p.category ? getCanonicalLabel("category", p.category) : "—"}</div>
 
                       {p.color ? (
                         <div className={styles.subtleLine}>
-                          Culoare: {p.color}
+                          Culoare: {getCanonicalLabel("color", p.color)}
                         </div>
                       ) : null}
                     </td>
@@ -600,7 +601,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
                     <td>
                       <div className={styles.badgesCol}>
                         <StatusBadge tone="info">
-                          {p.availability || "—"}
+                          {p.availability ? getCanonicalLabel("availability", p.availability) : "—"}
                         </StatusBadge>
 
                         {p.availability === "READY" && p.readyQty != null ? (
@@ -1187,16 +1188,24 @@ function ProductReviewModal({
                 <Detail
                   label="Categorie"
                   value={
-                    product.category ||
-                    "—"
+                    product.category
+                      ? getCanonicalLabel(
+                          "category",
+                          product.category
+                        )
+                      : "—"
                   }
                 />
 
                 <Detail
                   label="Culoare"
                   value={
-                    product.color ||
-                    "—"
+                    product.color
+                      ? getCanonicalLabel(
+                          "color",
+                          product.color
+                        )
+                      : "—"
                   }
                 />
 
@@ -1211,8 +1220,12 @@ function ProductReviewModal({
                 <Detail
                   label="Disponibilitate"
                   value={
-                    product.availability ||
-                    "—"
+                    product.availability
+                      ? getCanonicalLabel(
+                          "availability",
+                          product.availability
+                        )
+                      : "—"
                   }
                 />
 

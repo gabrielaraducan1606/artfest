@@ -12,6 +12,11 @@
  */
 import { COLOR_LABELS } from "../../../backend/src/constants/colors.js";
 import { MATERIAL_LABELS } from "../../../backend/src/constants/materials.js";
+import { CATEGORY_LABELS } from "../../../backend/src/constants/categories.js";
+import { OCCASION_LABELS } from "../../../backend/src/constants/occasinsTags.js";
+import { STYLE_TAG_LABELS } from "../../../backend/src/constants/stylesTags.js";
+import { TECHNIQUE_LABELS } from "../../../backend/src/constants/tehniques.js";
+import { humanizeSlug } from "../../../backend/src/constants/ui/slugUtils.js";
 
 /*
  * Sinonime folosite istoric doar în frontend, fără corespondent exact
@@ -76,6 +81,110 @@ export function humanizeOptionValue(raw) {
   if (canonical) return canonical;
 
   return naiveHumanize(value);
+}
+
+/* =========================================================
+   getCanonicalLabel (audit label-uri produs, 2026-09-23)
+
+   Wrapper GENERIC pentru orice câmp canonic de produs (category/
+   color/materialMain/technique/occasionTags/styleTags/availability) -
+   NU o a doua listă de mapări: fiecare dicționar de mai jos e
+   importat STRICT din sursa backend deja existentă
+   (backend/src/constants/*.js), aceleași fișiere folosite deja de
+   humanizeOptionValue() de mai sus pentru color/materialMain.
+
+   value → label pentru UI, NICIODATĂ invers - value-ul intern
+   (trimis la submit/payload) nu e atins de nicio funcție din acest
+   fișier.
+========================================================= */
+
+/*
+ * Singura sursă pentru etichetele de disponibilitate (audit
+ * performanță 2026-09-23, extins acum) - NU există un fișier
+ * constants/availability.js în backend (spre deosebire de
+ * category/color/etc.), deci acesta e helper-ul comun minim cerut
+ * explicit. Orice alt loc din frontend care are nevoie de eticheta
+ * de disponibilitate trebuie să importe DE AICI, nu să-și declare
+ * propriul dicționar (vezi vendorPriceStockHelpers.js, actualizat
+ * să reutilizeze exact acest obiect).
+ */
+export const AVAILABILITY_LABELS = {
+  READY: "în stoc",
+  MADE_TO_ORDER: "la comandă",
+  PREORDER: "precomandă",
+  SOLD_OUT: "stoc epuizat",
+};
+
+const FIELD_LABEL_SOURCES = {
+  category: CATEGORY_LABELS,
+  technique: TECHNIQUE_LABELS,
+  occasionTags: OCCASION_LABELS,
+  styleTags: STYLE_TAG_LABELS,
+  availability: AVAILABILITY_LABELS,
+};
+
+/**
+ * Label pentru O SINGURĂ valoare a unui câmp canonic de produs.
+ * `field`: "category" | "color" | "materialMain" | "technique" |
+ *          "occasionTags" | "styleTags" | "availability".
+ *
+ * Ordinea de rezolvare:
+ * 1. color/materialMain -> reutilizează EXACT humanizeOptionValue()
+ *    de mai sus (aceeași sursă, inclusiv LEGACY_LOCAL_LABELS) - nicio
+ *    logică nouă pentru aceste 2 câmpuri;
+ * 2. restul câmpurilor -> dicționarul canonic corespunzător
+ *    (identic backend-ului, import direct, fără duplicare);
+ * 3. dacă valoarea nu există în dicționar -> humanizeSlug (ACELAȘI
+ *    helper folosit de backend pentru fallback, cu dropPrefix pentru
+ *    categorie, la fel ca getCategoryLabel din backend);
+ * 4. câmp necunoscut -> fallback determinist local (naiveHumanize),
+ *    niciodată "undefined", niciodată crash.
+ */
+export function getCanonicalLabel(field, value) {
+  if (value === null || value === undefined) return "";
+
+  const raw = String(value).trim();
+  if (!raw) return "";
+
+  if (field === "color" || field === "materialMain") {
+    return humanizeOptionValue(raw);
+  }
+
+  const source = FIELD_LABEL_SOURCES[field];
+
+  if (source) {
+    const key = field === "availability" ? raw.toUpperCase() : raw;
+
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      return source[key];
+    }
+
+    return field === "category"
+      ? humanizeSlug(raw, { dropPrefix: true })
+      : humanizeSlug(raw);
+  }
+
+  return naiveHumanize(raw);
+}
+
+/**
+ * Mirror al getCanonicalLabel(), dar pentru câmpuri stocate
+ * comma-separated (Product.styleTags/occasionTags - vezi comentariile
+ * din backend/src/constants/stylesTags.js/occasinsTags.js). Fiecare
+ * tag e rezolvat individual, apoi rejoin cu ", " - valoarea
+ * originală (string comma-separated) NU e modificată, doar ce se
+ * afișează.
+ */
+export function getCanonicalLabelList(field, commaSeparatedValue) {
+  const raw = String(commaSeparatedValue || "").trim();
+  if (!raw) return "";
+
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => getCanonicalLabel(field, item))
+    .join(", ");
 }
 
 /*

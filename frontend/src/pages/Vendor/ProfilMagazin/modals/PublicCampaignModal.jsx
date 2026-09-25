@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FaTimes } from "react-icons/fa";
 import styles from "../ProfilMagazin.module.css";
 import { storeCampaignAttribution } from "../../../../utils/campaignAttribution.js";
+import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
 
 function money(value) {
   const number = Number(value || 0);
@@ -291,7 +292,7 @@ export default function PublicCampaignModal({
                           styles.publicCampaignProductCategory
                         }
                       >
-                        {product.category}
+                        {getCanonicalLabel("category", product.category)}
                       </span>
                     )}
 

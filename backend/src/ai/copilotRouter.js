@@ -274,7 +274,7 @@ Categorii posibile:
   Pentru un INFLUENCER, "comenzile mele"/"ce comenzi am adus"/"ce comenzi am generat" înseamnă comenzile ATRIBUITE prin promovarea lui (link/cod), nu comenzi de cumpărător - rămâne tot ORDER_HELP (aceeași formă de întrebare, doar sursa datelor diferă după rol).
   STRICT NU pentru rolul VENDOR - "comenzile mele"/"ce comenzi am" de la un VÂNZĂTOR înseamnă mereu comenzile primite în magazinul lui, categorie EXISTING_FLOW (vezi definiția de mai sus și regula explicită din secțiunea Reguli) - vânzătorul rămâne teoretic și cumpărător pe platformă, dar formularea neutră, fără alt context, se referă mereu la magazinul lui.
 
-- PAYMENT_HELP: întrebări sau probleme despre plată, facturare, comision, rambursare.
+- PAYMENT_HELP: PROBLEME/incidente reale despre plată, facturare, comision, rambursare - ceva NU merge sau pare greșit ("nu îmi merge plata", "am fost taxat greșit", "nu am primit banii", "vreau un refund", "eroare Stripe", "problemă de încasare", "de ce nu apare comisionul corect"). NU include o întrebare GENERICĂ, informativă, despre CÂT/CUM funcționează plata/comisionul, fără nicio problemă raportată ("Cât e comisionul?", "Ce comision ia Artfest?", "Cât oprește Artfest?", "Ce procent ia platforma?", "Cât plătesc pe o comandă?") - acelea sunt EXPLAIN normal, deci PLATFORM_KNOWLEDGE (vezi definiția de mai sus și regula explicită din secțiunea Reguli).
 
 - INCIDENT_OR_BUG: userul RAPORTEAZĂ o eroare/problemă tehnică, fără să fie neapărat clar ce domeniu ("nu merge", "îmi dă eroare", "nu pot", "s-a blocat", "nu apare").
 
@@ -312,6 +312,7 @@ Reguli:
 - NAVIGARE explicită spre o pagină ("du-mă la comenzi", "deschide comenzile", "arată-mi comenzile", "du-mă la produsele mele", "deschide profilul magazinului") = PLATFORM_KNOWLEDGE (nu PLATFORM_ACTION - nu există parametri de modificat, userul vrea doar să ajungă undeva). Diferența față de o întrebare EXPLAIN obișnuită: aici userul NU întreabă cum funcționează ceva, doar cere direct locația - răspunsul poate fi foarte scurt (unde se găsește pagina), fără explicații suplimentare nesolicitate.
 - O întrebare EXPLICATIVĂ care conține cuvântul "personalizare"/"personalizat" ("Care e diferența dintre variantă și personalizare?", "Cum funcționează personalizarea?", "Ce înseamnă produs personalizat?") rămâne PLATFORM_KNOWLEDGE - NU este o cerere de ofertă/quote doar pentru că apare cuvântul "personalizare". O cerere REALĂ de ofertă cere explicit o ofertă/preț PENTRU UN PRODUS ANUME al vânzătorului ("vreau o ofertă pentru...", "cât ar costa personalizat...") - o întrebare despre CUM funcționează conceptul de personalizare nu e niciodată o cerere de ofertă.
 - Întrebări despre COMISIONUL vânzătorului legat de campanie, chiar dacă menționează "alt produs"/"alte produse"/"două produse"/"produsul cumpărat" ("Dacă intră prin campania mea și cumpără alt produs de-al meu, ce comision am?") = PLATFORM_KNOWLEDGE ÎNTOTDEAUNA, NICIODATĂ MARKETPLACE_SEARCH - vânzătorul întreabă despre propriul mecanism de comision/atribuire, nu caută să cumpere ceva. Cuvântul "produs" izolat, într-o întrebare despre COMISION/ATRIBUIRE/CONTUL PROPRIU, nu declanșează niciodată MARKETPLACE_SEARCH.
+- O întrebare GENERICĂ, informativă, despre cât/cum e comisionul sau plata - "Cât e comisionul?", "Ce comision ia Artfest?", "Cât oprește Artfest?", "Ce procent ia platforma?", "Cât plătesc pe o comandă?" și orice formulare echivalentă - este ÎNTOTDEAUNA PLATFORM_KNOWLEDGE (e o întrebare EXPLAIN despre cum funcționează platforma), NICIODATĂ PAYMENT_HELP - nu conține nicio problemă/incident raportat(ă). Rămâne PAYMENT_HELP DOAR când userul semnalează că ceva NU merge sau pare greșit: "nu îmi merge plata", "am fost taxat greșit", "nu am primit banii", "vreau un refund"/"vreau bani înapoi", "eroare Stripe", "problemă de încasare" și echivalente - acolo e o problemă reală, nu o întrebare informativă.
 
 Istoric conversație:
 ${JSON.stringify(history || [], null, 2)}
@@ -418,7 +419,7 @@ async function buildKnowledgeAnswer({
       resultType: "answer",
 
       message:
-        "Nu am suficiente informații sigure despre această funcționalitate.",
+        "Nu găsesc o informație sigură despre asta în datele Artfest disponibile. Pot deschide un tichet către suport.",
 
       topic: "general",
       route: null,
@@ -451,8 +452,8 @@ Reguli:
 - Nu inventa funcționalități sau endpointuri.
 - Dacă manifestul spune available=false sau status=PLANNED pentru ce se întreabă, spune clar că nu este disponibil / este planificat, nu confirma disponibilitatea.
 - Nu afișa endpointuri tehnice decât dacă utilizatorul e ADMIN sau cere explicit detalii tehnice.
-- Dacă informația nu e suficient de sigură în manifeste, spune: "Nu am suficiente informații sigure despre această funcționalitate."
-- Răspunde în română, practic și simplu.
+- Dacă informația nu e suficient de sigură în manifestele de mai jos, spune EXACT: "Nu găsesc o informație sigură despre asta în datele Artfest disponibile. Pot deschide un tichet către suport." - NICIODATĂ cuvintele "manifest"/"context intern"/"knowledge base"/"model" în răspuns (sunt termeni tehnici interni, utilizatorul nu trebuie să știe cum funcționează asistentul pe dinăuntru) - nici în acest fallback, nici în restul răspunsului.
+- Răspunde în română, practic și simplu, direct la obiect - pentru o întrebare cu un răspuns cuantificabil (procent, sumă, termen), începe răspunsul CU acel răspuns direct, apoi adaugă nuanțele relevante (nu invers).
 - IMPORTANT - separă CITIREA de EXECUTAREA: un manifest poate fi vizibil unui rol care nu poate folosi el însuși capabilitatea descrisă (ex. un USER/GUEST poate întreba despre Costuri & Profit sau despre onboarding de vânzător, deși acelea sunt unelte pentru VENDOR). Verifică audience-ul REAL al utilizatorului (${audience}) față de audience-ul cerut de capabilities/endpoints din manifest:
   - dacă utilizatorul NU are audience-ul cerut de acea capabilitate: explică CONCEPTUL/cum funcționează, la persoana a treia sau condițional ("vânzătorii au acces la...", "după ce devii vânzător, vei putea să..."), NU la persoana a doua ca și cum ar fi deja disponibil lui ("poți face X" e greșit dacă X e vendor-only și el nu e vendor). Nu-l invita să apese butoane/pagini la care nu are acces.
   - dacă întrebarea e despre CUM DEVINE utilizatorul eligibil pentru acel rol (ex. "cum devin vânzător?"), explică pasul de eligibilitate folosind informația din manifest, apoi poți descrie pe scurt ce urmează să poată face.
@@ -491,7 +492,7 @@ Returnează EXCLUSIV JSON valid:
 
     message:
       String(parsed.message || "").trim() ||
-      "Nu am suficiente informații sigure despre această funcționalitate.",
+      "Nu găsesc o informație sigură despre asta în datele Artfest disponibile. Pot deschide un tichet către suport.",
 
     topic: String(parsed.topic || "general").slice(0, 80),
     route: null,
@@ -3623,8 +3624,9 @@ export async function routeCopilotMessage({
    * FLOW+EXPLAIN) - dacă există cunoștință relevantă (ex.
    * messages.manifest.js spune deja onest "e calculat live, nu am
    * o valoare statică"), o folosește; altfel buildKnowledgeAnswer
-   * cade singur pe "Nu am suficiente informații sigure...", niciodată
-   * pe afirmația falsă de rol.
+   * cade singur pe fallback-ul standard "Nu găsesc o informație
+   * sigură despre asta..." (audit 2026-09-24), niciodată pe
+   * afirmația falsă de rol.
    */
   /*
    * USER BATCH 2 (audit USER, 2026-09-08) - Messages Live: interceptează
