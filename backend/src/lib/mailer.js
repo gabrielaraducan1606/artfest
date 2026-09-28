@@ -3138,7 +3138,6 @@ export async function sendHomepageFeatureSelectedEmail({
   storeName = null,
   startsAt,
   endsAt,
-  platformDiscountPercent = 0,
 }) {
   if (!to || !featureId) {
     return null;
@@ -3171,15 +3170,10 @@ export async function sendHomepageFeatureSelectedEmail({
       endsAt
     );
 
-  const discountPercent =
-    Math.max(
-      0,
-      Number(
-        platformDiscountPercent ||
-          0
-      )
-    );
-
+  /*
+   * Artfest oferă promovarea, NU reducerea. Orice reducere e
+   * opțională, aleasă și suportată integral de vendor.
+   */
   const promotionLink =
     APP_URL
       ? `${APP_URL}/vendor/promovari?featureId=${encodeURIComponent(
@@ -3253,9 +3247,9 @@ export async function sendHomepageFeatureSelectedEmail({
     }
 
     <p style="color:#374151;margin:0 0 16px;line-height:1.6;">
-      Artfest oferă o reducere de
-      <strong>${discountPercent}%</strong>.
-      Poți intra în pagina promovării pentru a vedea detaliile și pentru a decide dacă dorești să adaugi și o reducere proprie.
+      Artfest îți oferă gratuit promovarea pe homepage.
+      Poți alege, opțional, o reducere proprie de 5%, 10%, 15% sau 20% – reducerea este suportată integral de tine.
+      Dacă alegi 0%, promovarea rămâne activă la prețul normal.
     </p>
 
     ${
@@ -3301,9 +3295,10 @@ export async function sendHomepageFeatureSelectedEmail({
             : ""
         }`
       : "",
-    `Reducerea oferită de Artfest: ${discountPercent}%`,
     "",
-    "Intră în pagina promovării pentru a vedea detaliile și pentru a decide dacă adaugi o reducere proprie.",
+    "Artfest îți oferă gratuit promovarea pe homepage. Poți alege, opțional, o reducere proprie de 5%, 10%, 15% sau 20% - reducerea este suportată integral de tine.",
+    "Dacă alegi 0%, promovarea rămâne activă la prețul normal.",
+    "Intră în pagina promovării pentru a vedea detaliile și pentru a-ți alege reducerea.",
     promotionLink
       ? `Vezi promovarea: ${promotionLink}`
       : "",

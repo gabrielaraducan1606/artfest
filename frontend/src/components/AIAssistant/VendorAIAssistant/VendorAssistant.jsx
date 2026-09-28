@@ -47,6 +47,7 @@ import VendorProductWizard, {
 import VendorProductBatchWizard from "./components/VendorProductBatchWizard.jsx";
 import {
   detectVendorIntent,
+  detectVendorQuoteOfferIntent,
   VENDOR_INTENTS,
   detectVendorNavigationTarget,
   extractProductNameFromMessage,
@@ -1071,17 +1072,16 @@ export default function VendorAssistant({
   ] = useState(null);
 
   /*
-   * "Cereri primite" (audit 2026-09-23) - setter minim necesar de
+   * "Cereri primite" (audit 2026-09-23) - stare setată de
    * openVendorQuote()/handleQuoteChoice() (quotes/assistantQuotes.js),
    * reutilizate ca atare. NU e "o a doua sursă de adevăr" - e exact
-   * ce AiAssistant.jsx pasează deja acelorași funcții. Valoarea
-   * (quoteContext) nu e citită nicăieri în acest wiring minim (doar
-   * "Vezi cererea" -> deschidere/citire, fără continuare de
-   * ofertă/checkout aici) - nu o destructurăm ca să nu rămână
-   * nefolosită.
+   * ce AiAssistant.jsx pasează deja acelorași funcții. Citită DOAR de
+   * SEND_QUOTE (text liber „vreau să trimit o ofertă"), ca să știm
+   * dacă o cerere e deja deschisă în chat (quoteRequestId) și să
+   * deschidem direct formularul existent pentru ea.
    */
   const [
-    ,
+    quoteContext,
     setQuoteContext,
   ] = useState(null);
 
@@ -6365,6 +6365,34 @@ async function handleAction(
     }
 
     /*
+     * „Trimite ofertă" de pe cardul cererii (quote-vendor-summary) și
+     * „Vezi conversația" de după trimitere - ajungeau până acum în
+     * handleVendorChoice, care nu le cunoaște (handled: false), deci
+     * butonul nu făcea nimic aici. Le rutăm la handleQuoteChoice
+     * existent, EXACT ca AiAssistant.jsx: start-quote-offer afișează
+     * formularul existent (quote-offer-form, identic cu Mesaje); nimic
+     * nu se trimite până nu apasă vendorul „Trimite oferta".
+     */
+    if (
+      choice?.action === "start-quote-offer" ||
+      choice?.action === "reopen-vendor-quote-thread"
+    ) {
+      await handleQuoteChoice({
+        activeFlow,
+        choice,
+        sourceMessage,
+
+        addMessage,
+        createMessage,
+
+        setActiveFlow,
+        setQuoteContext,
+      });
+
+      return;
+    }
+
+    /*
      * "Comenzile magazinului" (audit 2026-09-23) - "Reîncearcă" de pe
      * cardul de eroare al fetch-ului.
      */
@@ -9443,6 +9471,80 @@ function handleResetBatch() {
         loading: false,
         error: "",
       });
+
+      return;
+    }
+
+    /*
+     * ===================================================
+     * SEND_QUOTE - „vreau să trimit o ofertă" / „vreau să răspund
+     * cererii" (vezi detectVendorQuoteOfferIntent). Doar scurtătură
+     * peste fluxul existent, niciodată trimitere automată:
+     * - cerere deja deschisă în chat și încă deschisă -> formularul
+     *   existent „Trimite ofertă" (start-quote-offer, exact ca
+     *   butonul de pe cardul cererii);
+     * - altfel -> lista existentă „Cereri primite", ca vendorul să
+     *   aleagă cererea.
+     * Verificat înaintea navigării/copilotului, ca să nu fie tratat
+     * ca întrebare de knowledge.
+     * ===================================================
+     */
+    if (
+      detectVendorQuoteOfferIntent(value)?.type ===
+      VENDOR_INTENTS.SEND_QUOTE
+    ) {
+      addMessage(
+        createMessage("user", value)
+      );
+
+      setInputValue("");
+
+      const activeQuoteId =
+        activeFlow ===
+          QUOTE_FLOWS.VENDOR_QUOTE_THREAD
+          ? quoteContext?.quoteRequestId || null
+          : null;
+
+      const activeQuoteStatus = String(
+        quoteContext?.status || ""
+      ).toUpperCase();
+
+      const activeQuoteClosed = [
+        "ACCEPTED",
+        "CANCELLED",
+        "REJECTED",
+        "EXPIRED",
+      ].includes(activeQuoteStatus);
+
+      if (activeQuoteId && !activeQuoteClosed) {
+        await handleQuoteChoice({
+          activeFlow,
+          choice: {
+            action: "start-quote-offer",
+            quoteId: activeQuoteId,
+            quote: quoteContext,
+          },
+
+          addMessage,
+          createMessage,
+
+          setActiveFlow,
+          setQuoteContext,
+        });
+
+        return;
+      }
+
+      addMessage(
+        createMessage(
+          "assistant",
+          activeQuoteId
+            ? "Cererea deschisă acum nu mai acceptă oferte. Alege din „Cereri primite” cererea căreia vrei să-i trimiți oferta."
+            : "Sigur. Alege din „Cereri primite” cererea căreia vrei să-i trimiți oferta, apoi apasă „Trimite ofertă” pe ea."
+        )
+      );
+
+      await openVendorQuoteLeads();
 
       return;
     }

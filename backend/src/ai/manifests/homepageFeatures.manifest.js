@@ -13,7 +13,7 @@ export const HOMEPAGE_FEATURES_MANIFEST = {
   status: "ACTIVE",
 
   description:
-    "Sistemul de promovare pe homepage: Produsul zilei (rotație zilnică) și Artizanul săptămânii (rotație săptămânală). Selecția este făcută automat de platformă (calendar generat periodic) sau manual de echipa Artfest - vânzătorii NU se pot înscrie sau aplica pentru a fi selectați. Odată selectat, vendorul primește notificare și poate accepta opțional o reducere suplimentară (0/5/10/15/20%) pe lângă reducerea finanțată de platformă, sau poate refuza/redeschide răspunsul.",
+    "Sistemul de promovare pe homepage: Produsul zilei (rotație zilnică) și Artizanul săptămânii (rotație săptămânală). Selecția este făcută automat de platformă (calendar generat periodic) sau manual de echipa Artfest - vânzătorii NU se pot înscrie sau aplica pentru a fi selectați. Odată selectat, vendorul primește notificare și poate alege opțional o reducere proprie (0/5/10/15/20%), suportată integral de vendor, sau poate refuza/redeschide răspunsul. Artfest oferă promovarea, nu reducerea; la 0% promovarea rămâne activă la prețul normal.",
 
   tags: [
     "produsul zilei",
@@ -66,20 +66,20 @@ export const HOMEPAGE_FEATURES_MANIFEST = {
     publicDisplay: { available: true },
 
     /*
-     * Confirmat direct în cod (BATCH D, 2026-09-07):
+     * Audit 2026-09-28: Artfest nu mai contribuie la reducere -
      * vendorHomepageFeatureRoutes.js, buildFeaturePayload -
-     * `Math.min(50, platformDiscountPercent + vendorDiscountPercent)`.
+     * totalDiscountPercent = vendorDiscountPercent (doar dacă ACCEPTED).
      */
     totalDiscountCap: {
       available: true,
       notes:
-        "Reducerea TOTALĂ afișată clientului (platformă + suplimentul tău) este plafonată la 50%, indiferent cât de mari sunt cele două reduceri însumate.",
+        "Reducerea afișată clientului este exclusiv reducerea aleasă de tine (maxim 20%), suportată integral de tine. Artfest nu adaugă nicio reducere proprie.",
     },
   },
 
   limitations: [
     "Vânzătorii nu pot aplica sau solicita să fie selectați ca Produsul zilei / Artizanul săptămânii - selecția este automată (calendar generat de platformă) sau manuală, făcută de echipa Artfest.",
-    "Reducerea 'de bază' (platformDiscountPercent) este finanțată/decisă de platformă; vendorul poate doar adăuga opțional o reducere suplimentară proprie din setul fix 0/5/10/15/20%.",
+    "Artfest oferă doar promovarea, NU și reducerea. Vendorul poate alege opțional o reducere proprie din setul fix 0/5/10/15/20%, suportată integral de vendor; la 0% produsul/magazinul rămâne promovat la prețul normal.",
   ],
 
   flows: [
@@ -88,7 +88,7 @@ export const HOMEPAGE_FEATURES_MANIFEST = {
       steps: [
         "Platforma selectează automat (rotație) sau manual un produs/serviciu pentru o perioadă (dateKey).",
         "Vendorul este notificat (in-app și, opțional, prin email).",
-        "Vendorul poate seta o reducere suplimentară proprie: 0, 5, 10, 15 sau 20%.",
+        "Vendorul poate seta o reducere proprie (suportată integral de vendor): 0, 5, 10, 15 sau 20%.",
         "0% = vendorDiscountStatus DECLINED; peste 0% = ACCEPTED.",
         "Vendorul poate redeschide (reopen) răspunsul dacă vrea să schimbe decizia, cât timp promovarea e încă activă.",
       ],
@@ -113,7 +113,7 @@ export const HOMEPAGE_FEATURES_MANIFEST = {
     vendorSetDiscount: {
       method: "PATCH",
       path: "/api/vendor/homepage-features/:id/discount",
-      purpose: "Vendorul setează reducerea suplimentară proprie (0/5/10/15/20%).",
+      purpose: "Vendorul setează reducerea proprie, suportată integral de vendor (0/5/10/15/20%).",
       audience: ["VENDOR"],
     },
     vendorReopen: {
@@ -163,7 +163,7 @@ export const HOMEPAGE_FEATURES_MANIFEST = {
   faq: [
     {
       q: "Ce este produsul zilei?",
-      a: "O secțiune de pe homepage-ul Artfest care afișează, prin rotație zilnică, un produs selectat automat de platformă sau manual de echipa Artfest - vânzătorii nu pot aplica pentru asta. Produsul selectat poate avea o reducere (finanțată de platformă și/sau opțional de vânzător).",
+      a: "O secțiune de pe homepage-ul Artfest care afișează, prin rotație zilnică, un produs selectat automat de platformă sau manual de echipa Artfest - vânzătorii nu pot aplica pentru asta. Artfest oferă promovarea; vânzătorul poate alege opțional o reducere, suportată integral de el.",
     },
     {
       q: "Cum găsesc produsul zilei?",
@@ -179,23 +179,23 @@ export const HOMEPAGE_FEATURES_MANIFEST = {
     },
     {
       q: "Cum devin Produsul zilei / Artizanul săptămânii?",
-      a: "Nu poți aplica direct. Selecția e făcută automat (rotație generată de platformă) sau manual de echipa Artfest. Când ești selectat, primești o notificare și poți alege opțional o reducere suplimentară (0-20%).",
+      a: "Nu poți aplica direct. Selecția e făcută automat (rotație generată de platformă) sau manual de echipa Artfest. Când ești selectat, primești o notificare și poți alege opțional o reducere proprie (0-20%), suportată integral de tine.",
     },
     {
       q: "Ce reduceri pot seta?",
-      a: "Doar când ești selectat pentru Produsul zilei sau Artizanul săptămânii, poți alege o reducere suplimentară proprie din setul fix: 0%, 5%, 10%, 15% sau 20%. Alegerea 0% înseamnă că refuzi reducerea suplimentară (rămâi doar cu reducerea platformei, dacă există una).",
+      a: "Doar când ești selectat pentru Produsul zilei sau Artizanul săptămânii, poți alege o reducere proprie din setul fix: 0%, 5%, 10%, 15% sau 20%, suportată integral de tine. Alegerea 0% înseamnă că nu oferi reducere - promovarea rămâne activă la prețul normal. Artfest nu oferă reducere proprie.",
     },
     {
       q: "Pot refuza produsul zilei?",
-      a: "Nu poți refuza să fii selectat/afișat - odată ales, apari pe homepage indiferent. Ce POȚI face e să refuzi reducerea suplimentară proprie, setând-o la 0% (rămâne doar reducerea finanțată de platformă, dacă există una). Nu există o opțiune reală de „nu vreau să fiu Produsul zilei”.",
+      a: "Nu poți refuza să fii selectat/afișat - odată ales, apari pe homepage indiferent. Ce POȚI face e să nu oferi reducere, setând-o la 0% (promovarea rămâne activă la prețul normal). Nu există o opțiune reală de „nu vreau să fiu Produsul zilei”.",
     },
     {
       q: "Cât e reducerea totală maximă?",
-      a: "50%, indiferent cât de mari sunt reducerea platformei și reducerea ta suplimentară însumate - suma e plafonată la acest total.",
+      a: "20% - reducerea este doar cea aleasă de tine (0/5/10/15/20%) și e suportată integral de tine. Artfest oferă promovarea, nu adaugă reducere.",
     },
     {
       q: "Primesc notificare când sunt ales produsul zilei?",
-      a: "Da - când unul din produsele tale e selectat ca Produsul zilei, primești o notificare (in-app și, opțional, prin email), ca să poți alege opțional o reducere suplimentară proprie.",
+      a: "Da - când unul din produsele tale e selectat ca Produsul zilei, primești o notificare (in-app și, opțional, prin email), ca să poți alege opțional o reducere proprie.",
     },
     {
       q: "Primesc notificare când sunt artizanul săptămânii?",

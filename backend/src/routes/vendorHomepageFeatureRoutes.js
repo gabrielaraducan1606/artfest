@@ -173,10 +173,12 @@ export function buildFeaturePayload(
     return null;
   }
 
-  const platformDiscountPercent =
-    clampPercent(
-      feature.platformDiscountPercent
-    );
+  /*
+   * Artfest oferă promovarea, NU reducerea (audit 2026-09-28):
+   * platformDiscountPercent e câmp legacy, expus mereu 0, iar
+   * reducerea efectivă e doar cea a vendorului, dacă a acceptat-o.
+   */
+  const platformDiscountPercent = 0;
 
   const vendorDiscountPercent =
     clampPercent(
@@ -184,11 +186,10 @@ export function buildFeaturePayload(
     );
 
   const totalDiscountPercent =
-    Math.min(
-      50,
-      platformDiscountPercent +
-        vendorDiscountPercent
-    );
+    feature.vendorDiscountStatus ===
+    "ACCEPTED"
+      ? vendorDiscountPercent
+      : 0;
 
   const now =
     new Date();
@@ -634,32 +635,6 @@ router.patch(
         });
       }
 
-      const platformDiscountPercent =
-        clampPercent(
-          existing.platformDiscountPercent
-        );
-
-      const totalDiscountPercent =
-        platformDiscountPercent +
-        vendorDiscountPercent;
-
-      if (
-        totalDiscountPercent >
-        50
-      ) {
-        return res.status(
-          400
-        ).json({
-          ok: false,
-
-          code:
-            "TOTAL_DISCOUNT_TOO_HIGH",
-
-          message:
-            "Reducerea totală nu poate depăși 50%.",
-        });
-      }
-
       const vendorDiscountStatus =
         vendorDiscountPercent > 0
           ? "ACCEPTED"
@@ -691,8 +666,8 @@ router.patch(
         message:
           vendorDiscountPercent >
           0
-            ? "Reducerea suplimentară a fost salvată."
-            : "Ai ales să nu oferi o reducere suplimentară.",
+            ? "Reducerea ta a fost salvată."
+            : "Ai ales să nu oferi reducere. Promovarea rămâne activă la prețul normal.",
 
         feature:
           buildFeaturePayload(

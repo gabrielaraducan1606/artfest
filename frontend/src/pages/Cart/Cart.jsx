@@ -460,7 +460,7 @@ promoLabel:
   hasDiscount
     ? p?.promoLabel ||
       p?.discount?.label ||
-      "Reducere Artfest"
+      "Reducere"
     : null,
 
 promoFundingSource:

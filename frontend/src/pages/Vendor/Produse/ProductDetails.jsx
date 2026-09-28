@@ -8,6 +8,10 @@ import React, {
   Suspense,
 } from "react";
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
+import {
+  QUOTE_REQUEST_INTENT_EVENT,
+  isQuoteIntentForEntity,
+} from "../../../components/AIAssistant/quotes/quoteRequestIntentEvent.js";
 import { api } from "../../../lib/api.js";
 import { SEO } from "../../../components/Seo/SeoProvider";
 import {
@@ -1579,6 +1583,39 @@ const onRequestQuote = useCallback(() => {
   customAnswers,
   repeatedGroupAnswers,
 ]);
+
+/*
+ * "vreau o ofertă" scris liber în AI Assistant pe această pagină ->
+ * ACELAȘI handler ca butonul „Cere ofertă" (onRequestQuote, neschimbat):
+ * aceleași verificări și același payload (productId, vendorId,
+ * quoteSchema). Preluăm intenția doar dacă butonul ar face ceva
+ * (produs încărcat, nu e owner) - altfel asistentul răspunde singur.
+ */
+useEffect(() => {
+  function handleQuoteRequestIntent(event) {
+    if (
+      !product ||
+      isOwner ||
+      !isQuoteIntentForEntity(event, "PRODUCT", [product.id, id])
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    onRequestQuote();
+  }
+
+  window.addEventListener(
+    QUOTE_REQUEST_INTENT_EVENT,
+    handleQuoteRequestIntent
+  );
+
+  return () =>
+    window.removeEventListener(
+      QUOTE_REQUEST_INTENT_EVENT,
+      handleQuoteRequestIntent
+    );
+}, [product, isOwner, id, onRequestQuote]);
 
 const onStartPersonalizationAssistant =
   useCallback(() => {

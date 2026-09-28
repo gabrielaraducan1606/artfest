@@ -383,35 +383,38 @@ export function calculateVendorLineFinancials({
     qty;
 
   /*
-   * Comisionul standard este calculat din
-   * valoarea inițială a produselor.
+   * REGULĂ NOUĂ (audit 2026-09-28, "Artfest nu mai contribuie
+   * financiar la promoții"): comisionul se calculează pe valoarea
+   * EFECTIV plătită de client (finalLineTotalCents, DUPĂ discount),
+   * niciodată pe prețul original - și NU se mai scade nicio "reducere
+   * Artfest" din el, indiferent de sursa discountului (own-sale 5%,
+   * campanie, cod de reducere sau orice altă promoție). Discountul e
+   * suportat integral de vendor prin prețul mai mic pe care îl
+   * încasează, nu prin comisionul Artfest.
    *
-   * Exemplu:
-   * 100 lei × 12% = 12 lei.
+   * Această funcție rezolvă azi DOAR calculatorul de preț recomandat
+   * din Costuri & Profit (costProfitService.js), care nu trimite
+   * niciodată platformDiscountAmountCents - formula veche (comision
+   * pe preț original, minus subvenție Artfest) era deci dormantă
+   * acolo, dar identică structural cu bug-ul găsit în
+   * commissionCalc.js (sursa unică folosită la comenzi reale COD/
+   * CARD) - corectată aici pentru consistență, deși fără impact pe
+   * comenzi reale existente.
+   *
+   * platformDiscountAmountLineCents rămâne calculat mai sus (folosit
+   * doar pentru raportare/afișare - vezi returnul de mai jos), dar nu
+   * mai influențează comisionul.
    */
   const standardCommissionCents =
     Math.round(
-      originalLineTotalCents *
+      finalLineTotalCents *
         normalizedCommissionBps /
         10000
     );
 
-  /*
-   * Reducerea Artfest se scade din comision.
-   *
-   * Comisionul nu poate deveni negativ.
-   */
   const finalCommissionCents =
-    Math.max(
-      0,
-      standardCommissionCents -
-        platformDiscountAmountLineCents
-    );
+    standardCommissionCents;
 
-  /*
-   * Clientul plătește prețul final.
-   * Din el se reține comisionul final Artfest.
-   */
   const vendorNetCents =
     Math.max(
       0,

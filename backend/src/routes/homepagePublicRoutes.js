@@ -50,24 +50,24 @@ function clampDiscountPercent(
 function buildDiscountPayload(
   feature
 ) {
-  const platformDiscountPercent =
-    clampDiscountPercent(
-      feature
-        ?.platformDiscountPercent
-    );
+  /*
+   * Artfest oferă promovarea, NU reducerea (audit 2026-09-28):
+   * platformDiscountPercent e legacy (mereu 0), iar prețul
+   * reflectă doar reducerea vendorului, și doar dacă e ACCEPTED.
+   */
+  const platformDiscountPercent = 0;
 
   const vendorDiscountPercent =
-    clampDiscountPercent(
-      feature
-        ?.vendorDiscountPercent
-    );
+    feature?.vendorDiscountStatus ===
+    "ACCEPTED"
+      ? clampDiscountPercent(
+          feature
+            ?.vendorDiscountPercent
+        )
+      : 0;
 
   const totalDiscountPercent =
-    Math.min(
-      50,
-      platformDiscountPercent +
-        vendorDiscountPercent
-    );
+    vendorDiscountPercent;
 
   const now =
     new Date();

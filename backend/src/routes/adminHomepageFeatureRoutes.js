@@ -43,13 +43,12 @@ const MIN_SCHEDULE_AHEAD_MS =
 const DEFAULT_TAKE = 50;
 const MAX_TAKE = 100;
 
-const ALLOWED_DISCOUNTS = new Set([
-  0,
-  5,
-  10,
-  15,
-  20,
-]);
+/*
+ * Artfest oferă promovarea, NU reducerea (audit 2026-09-28):
+ * platformDiscountPercent e câmp legacy. Orice valoare primită în
+ * request e ignorată; create/update manual persistă mereu 0.
+ */
+const LEGACY_PLATFORM_DISCOUNT_PERCENT = 0;
 
 router.use(
   authRequired,
@@ -143,22 +142,6 @@ function clampTake(value) {
       Math.round(numeric)
     )
   );
-}
-
-function normalizeDiscount(value) {
-  const numeric = Number(value);
-
-  if (!Number.isFinite(numeric)) {
-    return 0;
-  }
-
-  const rounded = Math.round(numeric);
-
-  if (!ALLOWED_DISCOUNTS.has(rounded)) {
-    return null;
-  }
-
-  return rounded;
 }
 
 function parseDateInput(value) {
@@ -464,9 +447,10 @@ router.get(
  *
  * {
  *   productDays: 14,
- *   artisanWeeks: 4,
- *   platformDiscountPercent: 5
+ *   artisanWeeks: 4
  * }
+ *
+ * platformDiscountPercent (legacy) e ignorat dacă e trimis.
  *
  * Completează numai perioadele lipsă.
  * Nu trimite notificări automat.
@@ -501,35 +485,8 @@ router.post(
         )
       );
 
-      const rawDiscount =
-        req.body
-          ?.platformDiscountPercent;
-
-      let platformDiscountPercent;
-
-      if (
-        rawDiscount !== undefined &&
-        rawDiscount !== null &&
-        rawDiscount !== ""
-      ) {
-        platformDiscountPercent =
-          normalizeDiscount(
-            rawDiscount
-          );
-
-        if (
-          platformDiscountPercent ===
-          null
-        ) {
-          return res.status(400).json({
-            ok: false,
-
-            message:
-              "Reducerea Artfest trebuie să fie 0%, 5%, 10%, 15% sau 20%.",
-          });
-        }
-      }
-
+      // platformDiscountPercent din body e ignorat - scheduler-ul
+      // scrie mereu 0 (audit 2026-09-28).
       const result =
         await generateHomepageSchedule({
           startDate:
@@ -537,13 +494,6 @@ router.post(
 
           productDays,
           artisanWeeks,
-
-          ...(platformDiscountPercent !==
-          undefined
-            ? {
-                platformDiscountPercent,
-              }
-            : {}),
         });
 
       return res.status(201).json({
@@ -857,7 +807,6 @@ router.post(
       const {
         date,
         productId,
-        platformDiscountPercent,
         force = false,
       } = req.body || {};
 
@@ -870,20 +819,6 @@ router.post(
 
           message:
             "Data promovării nu este validă.",
-        });
-      }
-
-      const discount =
-        normalizeDiscount(
-          platformDiscountPercent
-        );
-
-      if (discount === null) {
-        return res.status(400).json({
-          ok: false,
-
-          message:
-            "Reducerea Artfest trebuie să fie 0%, 5%, 10%, 15% sau 20%.",
         });
       }
 
@@ -978,7 +913,7 @@ router.post(
                 endsAt,
 
                 platformDiscountPercent:
-                  discount,
+                  LEGACY_PLATFORM_DISCOUNT_PERCENT,
 
                 ...(selectionChanged
                   ? resetVendorResponseData()
@@ -1010,7 +945,7 @@ router.post(
                 endsAt,
 
                 platformDiscountPercent:
-                  discount,
+                  LEGACY_PLATFORM_DISCOUNT_PERCENT,
 
                 ...resetVendorResponseData(),
               },
@@ -1067,7 +1002,6 @@ router.post(
       const {
         weekStartDate,
         serviceId,
-        platformDiscountPercent,
         force = false,
       } = req.body || {};
 
@@ -1082,20 +1016,6 @@ router.post(
 
           message:
             "Data de început nu este validă.",
-        });
-      }
-
-      const discount =
-        normalizeDiscount(
-          platformDiscountPercent
-        );
-
-      if (discount === null) {
-        return res.status(400).json({
-          ok: false,
-
-          message:
-            "Reducerea Artfest trebuie să fie 0%, 5%, 10%, 15% sau 20%.",
         });
       }
 
@@ -1186,7 +1106,7 @@ router.post(
                 endsAt,
 
                 platformDiscountPercent:
-                  discount,
+                  LEGACY_PLATFORM_DISCOUNT_PERCENT,
 
                 ...(selectionChanged
                   ? resetVendorResponseData()
@@ -1216,7 +1136,7 @@ router.post(
                 endsAt,
 
                 platformDiscountPercent:
-                  discount,
+                  LEGACY_PLATFORM_DISCOUNT_PERCENT,
 
                 ...resetVendorResponseData(),
               },
@@ -1286,21 +1206,6 @@ router.patch(
 
           message:
             "Promovarea nu există.",
-        });
-      }
-
-      const discount =
-        normalizeDiscount(
-          req.body
-            ?.platformDiscountPercent
-        );
-
-      if (discount === null) {
-        return res.status(400).json({
-          ok: false,
-
-          message:
-            "Reducerea Artfest trebuie să fie 0%, 5%, 10%, 15% sau 20%.",
         });
       }
 
@@ -1423,7 +1328,7 @@ router.patch(
               endsAt,
 
               platformDiscountPercent:
-                discount,
+                LEGACY_PLATFORM_DISCOUNT_PERCENT,
 
               ...(selectionChanged
                 ? resetVendorResponseData()
@@ -1563,7 +1468,7 @@ router.patch(
             endsAt,
 
             platformDiscountPercent:
-              discount,
+              LEGACY_PLATFORM_DISCOUNT_PERCENT,
 
             ...(selectionChanged
               ? resetVendorResponseData()
@@ -2018,18 +1923,8 @@ router.post(
        * a acceptat explicit (identic cu homepageFeatureToPromotion
        * din productPromotionPrice.js).
        */
-      const platformDiscountPercent =
-        Math.min(
-          100,
-          Math.max(
-            0,
-            Math.round(
-              Number(
-                feature.platformDiscountPercent
-              ) || 0
-            )
-          )
-        );
+      // Artfest nu mai contribuie la reducere (audit 2026-09-28).
+      const platformDiscountPercent = 0;
 
       const vendorDiscountPercent =
         feature.vendorDiscountStatus ===
@@ -2048,11 +1943,7 @@ router.post(
           : 0;
 
       const totalDiscountPercent =
-        Math.min(
-          100,
-          platformDiscountPercent +
-            vendorDiscountPercent
-        );
+        vendorDiscountPercent;
 
       const promotion =
         totalDiscountPercent > 0

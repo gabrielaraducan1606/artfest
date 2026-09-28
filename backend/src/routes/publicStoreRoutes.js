@@ -499,7 +499,7 @@ function mapPublicProduct(
       hasDiscount
         ? product
             ?.promoLabel ||
-          "Reducere Artfest"
+          "Reducere"
         : null,
 
     promoFundingSource:

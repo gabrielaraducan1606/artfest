@@ -164,7 +164,7 @@ export const VENDOR_CAMPAIGNS_MANIFEST = {
     },
     {
       q: "Care e diferența dintre o campanie și produsul zilei / artizanul săptămânii?",
-      a: "Campania e inițiată și controlată de TINE, oricând, prin propriul link - o creezi când vrei. Produsul zilei/Artizanul săptămânii sunt selecții făcute de PLATFORMĂ (automat, prin rotație, sau manual de echipa Artfest) - nu poți aplica sau cere să fii ales, doar poți accepta opțional o reducere suplimentară dacă ești selectat. Dacă un produs are ambele active simultan, câștigă discountul mai mare, fără să se cumuleze. Vezi manifestul homepage-features pentru detalii despre Produsul zilei/Artizanul săptămânii.",
+      a: "Campania e inițiată și controlată de TINE, oricând, prin propriul link - o creezi când vrei. Produsul zilei/Artizanul săptămânii sunt selecții făcute de PLATFORMĂ (automat, prin rotație, sau manual de echipa Artfest) - nu poți aplica sau cere să fii ales, doar poți alege opțional o reducere proprie (suportată integral de tine) dacă ești selectat - Artfest oferă promovarea, nu reducerea. Dacă un produs are ambele active simultan, câștigă discountul mai mare, fără să se cumuleze. Vezi manifestul homepage-features pentru detalii despre Produsul zilei/Artizanul săptămânii.",
     },
     {
       q: "De ce nu văd campania mea în profilul public al magazinului?",

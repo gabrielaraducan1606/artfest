@@ -787,7 +787,7 @@ router.get(
                     product
                       .discount
                       ?.label ||
-                    "Reducere Artfest"
+                    "Reducere"
                   : null,
 
               promoFundingSource:

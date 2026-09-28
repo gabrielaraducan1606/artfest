@@ -611,8 +611,8 @@ export default function VendorHomepagePromotions() {
         >
           Vezi când produsul sau magazinul
           tău este promovat pe homepage și
-          poți adăuga o reducere
-          suplimentară după ce primești
+          poți alege, opțional, o reducere
+          proprie după ce primești
           invitația de la Artfest.
         </p>
       </div>
@@ -994,27 +994,9 @@ function FeatureCard({
           }}
         >
           <span>
-            Artfest:{" "}
-            <strong>
-              {feature.platformDiscountPercent ||
-                0}
-              %
-            </strong>
-          </span>
-
-          <span>
             Reducerea ta:{" "}
             <strong>
               {feature.vendorDiscountPercent ||
-                0}
-              %
-            </strong>
-          </span>
-
-          <span>
-            Total:{" "}
-            <strong>
-              {feature.totalDiscountPercent ||
                 0}
               %
             </strong>
@@ -1119,23 +1101,15 @@ function DiscountModal({
   onSave,
   onClose,
 }) {
-  const platformDiscount =
-    Number(
-      feature.platformDiscountPercent ||
-        0
-    );
-
+  /*
+   * Artfest oferă doar promovarea, nu și reducerea: prețul
+   * reflectă exclusiv reducerea aleasă de vendor (suportată
+   * integral de vendor). platformDiscountPercent e ignorat.
+   */
   const vendorDiscount =
     Number(
       selectedDiscount ||
         0
-    );
-
-  const totalDiscount =
-    Math.min(
-      50,
-      platformDiscount +
-        vendorDiscount
     );
 
   const originalPrice =
@@ -1155,7 +1129,7 @@ function DiscountModal({
       ? calculateDiscountedPrice(
           feature.product
             ?.priceCents,
-          totalDiscount
+          vendorDiscount
         )
       : null;
 
@@ -1329,30 +1303,8 @@ function DiscountModal({
           )}.
         </p>
 
-        <div
-          style={{
-            padding:
-              14,
-
-            borderRadius:
-              12,
-
-            background:
-              "#f3f4f6",
-
-            marginBottom:
-              18,
-          }}
-        >
-          Artfest oferă deja o reducere de{" "}
-          <strong>
-            {platformDiscount}%
-          </strong>
-          .
-        </div>
-
         <h3>
-          Alege reducerea ta suplimentară
+          Alege reducerea ta
         </h3>
 
         <div
@@ -1461,27 +1413,26 @@ function DiscountModal({
           }}
         >
           <div>
-            Reducere Artfest:{" "}
-            <strong>
-              {platformDiscount}%
-            </strong>
-          </div>
-
-          <div>
             Reducerea ta:{" "}
             <strong>
               {vendorDiscount}%
             </strong>
           </div>
 
-          <div>
-            Reducere totală pentru client:{" "}
-            <strong>
-              {totalDiscount}%
-            </strong>
-          </div>
+          {vendorDiscount === 0 && (
+            <div
+              style={{
+                color:
+                  "#4b5563",
+              }}
+            >
+              Promovarea rămâne activă fără
+              reducere, la prețul normal.
+            </div>
+          )}
 
-          {originalPrice &&
+          {vendorDiscount > 0 &&
+            originalPrice &&
             discountedPrice && (
               <div
                 style={{
@@ -1499,9 +1450,7 @@ function DiscountModal({
                 <span
                   style={{
                     textDecoration:
-                      totalDiscount > 0
-                        ? "line-through"
-                        : "none",
+                      "line-through",
 
                     color:
                       "#6b7280",
@@ -1510,20 +1459,15 @@ function DiscountModal({
                   {originalPrice}
                 </span>
 
-                {totalDiscount >
-                  0 && (
-                  <strong
-                    style={{
-                      marginLeft:
-                        10,
-
-                      color:
-                        "#dc2626",
-                    }}
-                  >
-                    {discountedPrice}
-                  </strong>
-                )}
+                {" → "}
+                <strong
+                  style={{
+                    color:
+                      "#dc2626",
+                  }}
+                >
+                  {discountedPrice}
+                </strong>
               </div>
             )}
         </div>
@@ -1540,10 +1484,11 @@ function DiscountModal({
               1.5,
           }}
         >
-          Selectează 0% dacă nu dorești să
-          adaugi o reducere suplimentară.
-          Promovarea rămâne activă cu
-          reducerea oferită de Artfest.
+          Artfest oferă promovarea pe homepage;
+          reducerea este opțională și este
+          suportată integral de tine. Dacă
+          alegi 0%, promovarea rămâne activă
+          la prețul normal.
         </p>
 
         <div

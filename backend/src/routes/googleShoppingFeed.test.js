@@ -778,6 +778,14 @@ test("K16. consistență feed vs helper JSON-LD: aceleași valori pentru acelaș
 
 const HOUR = 3600 * 1000;
 
+/*
+ * REGULĂ NOUĂ (audit 2026-09-28, "Artfest nu mai contribuie financiar
+ * la promoții"): platformDiscountPercent e câmp legacy, complet
+ * ignorat de homepageFeatureToPromotion() - singurul discount real e
+ * cel acceptat de vendor. Fixture-ul implicit reflectă asta (ACCEPTED
+ * + 20%, echivalent ca valoare cu vechiul platformDiscountPercent:20,
+ * ca testele existente să rămână neschimbate ca AȘTEPTĂRI de preț).
+ */
 function homepageFeature(overrides = {}) {
   const now = Date.now();
   return {
@@ -787,9 +795,9 @@ function homepageFeature(overrides = {}) {
     serviceId: null,
     startsAt: new Date(now - 24 * HOUR),
     endsAt: new Date(now + 24 * HOUR),
-    platformDiscountPercent: 20,
-    vendorDiscountPercent: 0,
-    vendorDiscountStatus: "PENDING",
+    platformDiscountPercent: 0,
+    vendorDiscountPercent: 20,
+    vendorDiscountStatus: "ACCEPTED",
     ...overrides,
   };
 }
@@ -963,7 +971,7 @@ test("L8. artizanul săptămânii (promoție pe serviciu) => sale_price pe produ
     type: "ARTISAN_OF_WEEK",
     productId: null,
     serviceId: "svc-artisan",
-    platformDiscountPercent: 10,
+    vendorDiscountPercent: 10,
   });
   const p = baseProduct({
     id: "prod-l8-artisan",
@@ -1057,7 +1065,7 @@ test("N1. availability: feed și JSON-LD folosesc aceeași mapare pentru fiecare
 test("N2. price: prețul efectiv din feed = prețul din JSON-LD (cu și fără promoție)", async (t) => {
   const promoFeature = homepageFeature({
     productId: "prod-n2-promo",
-    platformDiscountPercent: 15,
+    vendorDiscountPercent: 15,
   });
   const withPromo = baseProduct({ id: "prod-n2-promo", priceCents: 12345 });
   const noPromo = baseProduct({ id: "prod-n2-plain", priceCents: 9990 });

@@ -1971,16 +1971,27 @@ router.post(
 
       const rawItems = Array.isArray(offer.items) ? offer.items : [];
 
-      const cartItems = rawItems
-        .filter((it) => it?.productId)
-        .map((it) => ({
-          product: {
-            id: it.productId,
-            priceCents: Math.round(Number(it.unitPrice || 0) * 100),
-            service: { vendorId: quote.vendorId },
-          },
-          qty: Math.max(1, Number.parseInt(it.quantity ?? 1, 10) || 1),
-        }));
+      /*
+       * audit 2026-09-28 (cod de reducere la cereri custom din
+       * customerRequestsRoutes.js): NU mai filtrăm liniile fără
+       * productId real (cereri personalizate, fără produs de catalog)
+       * - un cod ALL_PRODUCTS/VENDOR_ALL_PRODUCTS trebuie să poată
+       * funcționa și pe acestea. `lineKey` (NU un productId fals) e
+       * identificatorul generic de linie pentru validateDiscountCode
+       * (discountCodeValidation.js) - pentru scope-urile pe produse
+       * reale (SELECTED_PRODUCTS/colecții), `product.id: null` rămâne
+       * structural neeligibil (interogare DB pe FK reale), exact
+       * comportamentul cerut.
+       */
+      const cartItems = rawItems.map((it, index) => ({
+        lineKey: it?.productId || `custom-${index}`,
+        product: {
+          id: it?.productId || null,
+          priceCents: Math.round(Number(it?.unitPrice || 0) * 100),
+          service: { vendorId: quote.vendorId },
+        },
+        qty: Math.max(1, Number.parseInt(it?.quantity ?? 1, 10) || 1),
+      }));
 
       const validation = await validateDiscountCode({
         code,
@@ -3022,7 +3033,16 @@ router.post(
       let discountCodeTotalAmountCents = 0;
 
       if (rawDiscountCode) {
-        const discountCartItems = offerItems.map((item) => ({
+        /*
+         * audit 2026-09-28 (cod de reducere la cereri custom) -
+         * lineKey identic ca strategie cu discount-code/validate mai
+         * sus: `item.productId || custom-${index}`, NICIODATĂ un
+         * productId inventat. `index` e stabil (același array
+         * `offerItems`, aceeași ordine, reutilizat mai jos la filtrul
+         * `eligibleItems`).
+         */
+        const discountCartItems = offerItems.map((item, index) => ({
+          lineKey: item.productId || `custom-${index}`,
           product: {
             id: item.productId,
             priceCents: Math.round(item.finalUnitPrice * 100),
@@ -3054,9 +3074,8 @@ router.post(
           effectiveDiscountPercent,
         } = discountCodeValidationForAccept;
 
-        const eligibleItems = offerItems.filter(
-          (item) =>
-            item.productId && eligibleProductIds.has(item.productId)
+        const eligibleItems = offerItems.filter((item, index) =>
+          eligibleProductIds.has(item.productId || `custom-${index}`)
         );
 
         const eligibleSubtotalCents = eligibleItems.reduce(

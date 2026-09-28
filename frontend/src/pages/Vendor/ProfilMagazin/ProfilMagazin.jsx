@@ -24,6 +24,10 @@ import { buildProductPayload } from "./utils/productPayload";
 import { extractCode, extractHttpStatus } from "./utils/activationErrors";
 
 import { useAnnounceCurrentEntity } from "../../../components/AIAssistant/CurrentEntityContext.jsx";
+import {
+  QUOTE_REQUEST_INTENT_EVENT,
+  isQuoteIntentForEntity,
+} from "../../../components/AIAssistant/quotes/quoteRequestIntentEvent.js";
 
 /*
  * Instrumentare minimă de timing, doar în dev, doar în consolă - ca
@@ -401,7 +405,6 @@ useEffect(() => {
           feature?.totalDiscountPercent ??
             artisan?.discount
               ?.totalDiscountPercent ??
-            feature?.platformDiscountPercent ??
             0
         );
 
@@ -417,14 +420,8 @@ useEffect(() => {
         setArtisanWeekPromotion({
           totalDiscountPercent,
 
-          platformDiscountPercent:
-            Number(
-              feature
-                ?.platformDiscountPercent ??
-                artisan?.discount
-                  ?.platformDiscountPercent ??
-                0
-            ),
+          // Artfest nu mai contribuie la reducere (audit 2026-09-28).
+          platformDiscountPercent: 0,
 
           vendorDiscountPercent:
             Number(
@@ -652,6 +649,51 @@ function handleClosePublicCampaign() {
     )
   );
 }
+
+  /*
+   * "vreau o ofertă" scris liber în AI Assistant pe această pagină ->
+   * ACELAȘI handler ca butonul existent (handleVendorMessage,
+   * neschimbat), cu vendorId-ul REAL al magazinului (asistentul știe
+   * doar slug-ul din URL). Preluăm intenția doar dacă butonul ar face
+   * ceva (nu e owner, vendorId cunoscut) - altfel asistentul răspunde
+   * singur. Ref, pentru că handleVendorMessage se recreează la fiecare
+   * render.
+   */
+  const quoteIntentStateRef = useRef(null);
+
+  quoteIntentStateRef.current = {
+    canHandle: !isOwner && Boolean(vendorId),
+    slugs: [slug, sdSlug, storeSlug],
+    run: handleVendorMessage,
+  };
+
+  useEffect(() => {
+    function handleQuoteRequestIntent(event) {
+      const state = quoteIntentStateRef.current;
+
+      if (
+        !state?.canHandle ||
+        !isQuoteIntentForEntity(event, "STORE", state.slugs)
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      state.run();
+    }
+
+    window.addEventListener(
+      QUOTE_REQUEST_INTENT_EVENT,
+      handleQuoteRequestIntent
+    );
+
+    return () =>
+      window.removeEventListener(
+        QUOTE_REQUEST_INTENT_EVENT,
+        handleQuoteRequestIntent
+      );
+  }, []);
+
   const tabs = useStoreTabs({
     showAboutSection,
     ensureReviewsLoaded: reviews.ensureReviewsLoaded,

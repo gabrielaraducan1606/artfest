@@ -119,6 +119,14 @@ function makeFakeDbWithFeature(feature) {
   };
 }
 
+/*
+ * platformDiscountPercent: 0 - explicit, câmp legacy IGNORAT de
+ * homepageFeatureToPromotion() (audit 2026-09-28). Singura valoare
+ * care contează pentru discount e vendorDiscountPercent, condiționată
+ * de vendorDiscountStatus === "ACCEPTED". Fixture-ul nu mai lasă o
+ * valoare nenulă "moartă" pe platformDiscountPercent, ca să nu sugereze
+ * că ar mai avea vreun efect.
+ */
 const PRODUCT_OF_DAY_FEATURE = {
   id: "feature-1",
   type: "PRODUCT_OF_DAY",
@@ -126,7 +134,7 @@ const PRODUCT_OF_DAY_FEATURE = {
   serviceId: null,
   startsAt: new Date("2026-09-15T21:00:00.000Z"), // 2026-09-16 00:00 România
   endsAt: new Date("2026-09-16T21:00:00.000Z"), // 2026-09-17 00:00 România
-  platformDiscountPercent: 15,
+  platformDiscountPercent: 0,
   vendorDiscountPercent: 10,
   vendorDiscountStatus: "ACCEPTED",
 };
@@ -158,7 +166,7 @@ test("A. ÎNAINTE de startsAt: promoția Produsul zilei NU se aplică (preț nes
   assert.equal(pricing.finalPriceCents, 10000);
 });
 
-test("B. ÎN interval [startsAt, endsAt): promoția se aplică, reducere totală = platformă + vendor (dacă vendorul a acceptat)", async () => {
+test("B. ÎN interval [startsAt, endsAt): promoția se aplică, reducerea e STRICT cea a vendorului (audit 2026-09-28 - Artfest nu mai contribuie financiar)", async () => {
   const db = makeFakeDbWithFeature(PRODUCT_OF_DAY_FEATURE);
   const during = new Date("2026-09-16T10:00:00.000Z"); // în interval
 
@@ -175,8 +183,16 @@ test("B. ÎN interval [startsAt, endsAt): promoția se aplică, reducere totală
   );
 
   assert.equal(pricing.hasDiscount, true);
-  assert.equal(pricing.totalDiscountPercent, 25); // 15 + 10
-  assert.equal(pricing.finalPriceCents, 7500); // 10000 * 0.75
+
+  /*
+   * REGULĂ NOUĂ (audit 2026-09-28): platformDiscountPercent (0, în
+   * fixture) e câmp legacy, complet ignorat - discountul real e DOAR
+   * ce a acceptat vendorul (10%), 100% suportat de el.
+   */
+  assert.equal(pricing.totalDiscountPercent, 10);
+  assert.equal(pricing.platformDiscountPercent, 0);
+  assert.equal(pricing.vendorDiscountPercent, 10);
+  assert.equal(pricing.finalPriceCents, 9000); // 10000 * 0.90
 });
 
 test("C. DUPĂ endsAt: promoția NU mai se aplică (preț revine la normal)", async () => {
@@ -199,7 +215,7 @@ test("C. DUPĂ endsAt: promoția NU mai se aplică (preț revine la normal)", as
   assert.equal(pricing.finalPriceCents, 10000);
 });
 
-test("B2. vendor NU a acceptat reducerea (PENDING): se aplică DOAR reducerea de platformă", async () => {
+test("B2. vendor NU a acceptat reducerea (PENDING): NICIUN discount (audit 2026-09-28 - Artfest nu mai inventează un discount pe cheltuiala proprie)", async () => {
   const feature = {
     ...PRODUCT_OF_DAY_FEATURE,
     vendorDiscountStatus: "PENDING",
@@ -213,13 +229,21 @@ test("B2. vendor NU a acceptat reducerea (PENDING): se aplică DOAR reducerea de
     { db, now: during }
   );
 
+  /*
+   * REGULĂ NOUĂ: fără acceptul vendorului, NU mai există "doar
+   * reducerea de platformă" - platformDiscountPercent (legacy, 0 în
+   * fixture) e complet ignorat, deci promoția nu produce niciun discount.
+   */
+  assert.equal(promotions.size, 0);
+
   const pricing = calculateProductPromotionPricing(
     PRODUCT,
-    promotions.get(PRODUCT.id)
+    promotions.get(PRODUCT.id) || null
   );
 
-  assert.equal(pricing.totalDiscountPercent, 15); // doar platformă
-  assert.equal(pricing.finalPriceCents, 8500);
+  assert.equal(pricing.hasDiscount, false);
+  assert.equal(pricing.totalDiscountPercent, 0);
+  assert.equal(pricing.finalPriceCents, 10000);
 });
 
 /* =========================================================
@@ -326,7 +350,10 @@ function makeFeatureFixture(overrides = {}) {
     type: "PRODUCT_OF_DAY",
     startsAt: new Date("2026-09-16T00:00:00.000Z"),
     endsAt: new Date("2026-09-17T00:00:00.000Z"),
-    platformDiscountPercent: 15,
+    // legacy, ignorat de homepageFeatureToPromotion() - irelevant pentru
+    // aceste teste de notificare, dar 0 explicit ca să nu sugereze
+    // vreun efect financiar (audit 2026-09-28).
+    platformDiscountPercent: 0,
     vendorNotifiedAt: null,
     vendorEmailedAt: null,
     vendorEmailError: null,
@@ -552,7 +579,8 @@ test("F1. vendorul POATE seta reducerea imediat după ce a fost notificat (vendo
     type: "PRODUCT_OF_DAY",
     startsAt: new Date(Date.now() - 60_000),
     endsAt: new Date(Date.now() + 3600_000),
-    platformDiscountPercent: 15,
+    // legacy, ignorat - vezi PRODUCT_OF_DAY_FEATURE mai sus.
+    platformDiscountPercent: 0,
     vendorDiscountPercent: 0,
     vendorDiscountStatus: "PENDING",
     vendorNotifiedAt: new Date(), // notificat automat la creare
@@ -594,7 +622,8 @@ test("F2. vendorul NU poate seta reducerea dacă NU a fost încă notificat (ven
     type: "PRODUCT_OF_DAY",
     startsAt: new Date(Date.now() - 60_000),
     endsAt: new Date(Date.now() + 3600_000),
-    platformDiscountPercent: 15,
+    // legacy, ignorat - vezi PRODUCT_OF_DAY_FEATURE mai sus.
+    platformDiscountPercent: 0,
     vendorDiscountPercent: 0,
     vendorDiscountStatus: "PENDING",
     vendorNotifiedAt: null,

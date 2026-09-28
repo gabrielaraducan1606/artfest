@@ -1180,12 +1180,6 @@ export async function notifyVendorOnHomepageFeatureCreated(
         feature.service?.title ||
         "magazinul tău";
 
-  const platformDiscountPercent =
-    Number(
-      feature.platformDiscountPercent ||
-        0
-    );
-
   const title =
     isProduct
       ? "Produsul tău a fost ales Produsul zilei"
@@ -1193,8 +1187,8 @@ export async function notifyVendorOnHomepageFeatureCreated(
 
   const body =
     `Felicitări! „${promotionName}” a fost selectat pentru promovare. ` +
-    `Artfest oferă o reducere de ${platformDiscountPercent}%. ` +
-    `Poți adăuga și tu o reducere suplimentară.`;
+    `Artfest îți oferă promovarea. Poți alege, opțional, o reducere proprie (suportată integral de tine); ` +
+    `la 0% promovarea rămâne activă la prețul normal.`;
 
   const link =
     `/vendor/promovari?featureId=${encodeURIComponent(
@@ -1226,8 +1220,6 @@ export async function notifyVendorOnHomepageFeatureCreated(
 
       featureType:
         feature.type,
-
-      platformDiscountPercent,
     },
 
     /*

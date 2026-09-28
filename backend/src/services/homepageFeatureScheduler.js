@@ -67,26 +67,12 @@ const FEATURE_CANDIDATE_LIMIT =
   );
 
 /*
- * Reducerea Artfest implicită.
- *
- * Poți seta în Render:
- *
- * HOMEPAGE_PLATFORM_DISCOUNT_PERCENT=5
+ * Artfest oferă promovarea, NU reducerea (audit 2026-09-28):
+ * promovările noi se creează mereu cu platformDiscountPercent = 0.
+ * HOMEPAGE_PLATFORM_DISCOUNT_PERCENT nu mai este citit (env-ul
+ * poate rămâne setat în Render, e ignorat). Câmpul din DB e legacy.
  */
-const PLATFORM_DISCOUNT_PERCENT =
-  Math.min(
-    50,
-    Math.max(
-      0,
-      Math.round(
-        Number(
-          process.env
-            .HOMEPAGE_PLATFORM_DISCOUNT_PERCENT ||
-            5
-        )
-      )
-    )
-  );
+const PLATFORM_DISCOUNT_PERCENT = 0;
 
 /* =========================================================
    INCLUDE-URI PRISMA
@@ -1124,10 +1110,6 @@ export async function notifyVendorAboutFeatureCreated(
 
         endsAt:
           feature.endsAt,
-
-        platformDiscountPercent:
-          feature
-            .platformDiscountPercent,
       });
 
       emailSent =
@@ -1216,11 +1198,7 @@ export async function notifyVendorAboutFeatureCreated(
 ========================================================= */
 
 export async function generateProductFeatureForDate(
-  value,
-  {
-    platformDiscountPercent =
-      PLATFORM_DISCOUNT_PERCENT,
-  } = {}
+  value
 ) {
   const range =
     getDayRange(value);
@@ -1315,18 +1293,7 @@ export async function generateProductFeatureForDate(
           endsAt,
 
           platformDiscountPercent:
-            Math.min(
-              50,
-              Math.max(
-                0,
-                Math.round(
-                  Number(
-                    platformDiscountPercent ||
-                      0
-                  )
-                )
-              )
-            ),
+            PLATFORM_DISCOUNT_PERCENT,
 
           ...buildInitialVendorResponse(),
         },
@@ -1408,11 +1375,7 @@ export async function generateProductFeatureForDate(
 ========================================================= */
 
 export async function generateArtisanFeatureForDate(
-  value,
-  {
-    platformDiscountPercent =
-      PLATFORM_DISCOUNT_PERCENT,
-  } = {}
+  value
 ) {
   const range =
     getWeekRange(value);
@@ -1502,18 +1465,7 @@ export async function generateArtisanFeatureForDate(
           endsAt,
 
           platformDiscountPercent:
-            Math.min(
-              50,
-              Math.max(
-                0,
-                Math.round(
-                  Number(
-                    platformDiscountPercent ||
-                      0
-                  )
-                )
-              )
-            ),
+            PLATFORM_DISCOUNT_PERCENT,
 
           ...buildInitialVendorResponse(),
         },
@@ -1600,9 +1552,6 @@ export async function generateHomepageSchedule({
 
   artisanWeeks =
     4,
-
-  platformDiscountPercent =
-    PLATFORM_DISCOUNT_PERCENT,
 } = {}) {
   const normalizedStartDate =
     cloneDate(startDate);
@@ -1669,10 +1618,7 @@ export async function generateHomepageSchedule({
     try {
       const result =
         await generateArtisanFeatureForDate(
-          targetDate,
-          {
-            platformDiscountPercent,
-          }
+          targetDate
         );
 
       artisanResults.push({
@@ -1727,10 +1673,7 @@ export async function generateHomepageSchedule({
     try {
       const result =
         await generateProductFeatureForDate(
-          targetDate,
-          {
-            platformDiscountPercent,
-          }
+          targetDate
         );
 
       productResults.push({
@@ -1839,18 +1782,7 @@ export async function generateHomepageSchedule({
         normalizedArtisanWeeks,
 
       platformDiscountPercent:
-        Math.min(
-          50,
-          Math.max(
-            0,
-            Math.round(
-              Number(
-                platformDiscountPercent ||
-                  0
-              )
-            )
-          )
-        ),
+        PLATFORM_DISCOUNT_PERCENT,
     },
 
     summary: {

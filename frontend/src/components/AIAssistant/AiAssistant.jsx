@@ -131,6 +131,7 @@ import {
   submitQuoteMessage,
   detectQuoteRequestIntent,
 } from "./quotes/assistantQuotes.js";
+import { dispatchQuoteRequestIntent } from "./quotes/quoteRequestIntentEvent.js";
 import {
   sendQuoteAttachment,
   sendVendorQuoteAttachment,
@@ -2702,84 +2703,25 @@ if (
   }
 
   /*
-   * BUGFIX (audit) - "cere ofertă pentru produsul acesta" / "vreau
-   * ofertă de la vânzătorul acesta" pornite din TEXT LIBER, nu doar
-   * din butonul dedicat de pe pagina de produs/magazin (care
-   * declanșează "artfest:quote-request", vezi useEffect mai sus).
-   * Reutilizează ACELAȘI flow real (activeFlow "quote-from-product"/
-   * "quote-from-store" + createQuoteRequest, în submitQuoteMessage),
-   * NU un flow nou - doar un al doilea punct de pornire, cu
-   * addMessage (nu setMessages, ca să nu șteargă conversația
-   * existentă) și fără să deschidă/repoziționeze widget-ul (e deja
-   * deschis, userul tocmai a scris în el).
-   *
-   * quoteSchema rămâne [] aici (spre deosebire de butonul dedicat,
-   * care are acces la produsul complet încărcat) - flow-ul
-   * funcționează oricum cu schema goală (doar cantitate), doar fără
-   * întrebările custom ale vendorului pentru acel produs.
+   * "cere ofertă pentru produsul acesta" / "vreau o ofertă" pornite
+   * din TEXT LIBER pe pagina unui produs/magazin. NU mai construim
+   * aici payload-ul cererii (înainte: quoteSchema [] și, pe magazin,
+   * slug-ul din URL trimis greșit ca vendorId -> 404 la submit) -
+   * anunțăm intenția, iar pagina o preia și apelează EXACT handler-ul
+   * butonului „Cere ofertă" (vezi quoteRequestIntentEvent.js), care
+   * emite "artfest:quote-request" -> handleQuoteRequest, ca la click.
+   * Aceleași verificări (login/owner), același productId/vendorId real
+   * și aceleași întrebări quoteSchema.
    */
-  async function startDirectVendorQuoteFlow({
-    productId = null,
-    productTitle = null,
-    vendorId = null,
-    vendorName = null,
-    fromStore = false,
-  }) {
-    setQuoteContext({
-      productId,
-      productTitle,
-      vendorId,
-      vendorName,
-      fromStore,
-      quoteSchema: [],
-    });
-
-    setCurrentMenu("personalization");
-    setShowMenu(false);
-
-    if (fromStore) {
-      setQuoteDraft({
-        step: "photo",
-        quantity: null,
-        currentFieldIndex: 0,
-        answers: {},
-      });
-
-      setActiveFlow("quote-from-store");
-
-      addMessage(
-        createMessage(
-          "assistant",
-          `Te ajut să pregătești cererea de ofertă pentru ${vendorName || "acest magazin"}.
-
-Înainte să începem, te rog să încarci o fotografie cu produsul sau modelul pe care îl dorești.
-
-Dacă nu ai o fotografie, poți continua și fără ea.`
-        )
-      );
-
+  function startDirectVendorQuoteFlow(entity) {
+    if (dispatchQuoteRequestIntent(entity)) {
       return;
     }
-
-    setQuoteDraft({
-      step: "quantity",
-      quantity: null,
-      currentFieldIndex: 0,
-      answers: {},
-    });
-
-    setActiveFlow("quote-from-product");
 
     addMessage(
       createMessage(
         "assistant",
-        productTitle
-          ? `Te ajut să pregătești cererea de ofertă pentru „${productTitle}”.
-
-Pentru început, de câte bucăți ai nevoie?`
-          : `Te ajut să pregătești cererea de ofertă direct către vânzător.
-
-Pentru început, de câte bucăți ai nevoie?`
+        "Nu pot porni cererea de ofertă de aici. Folosește butonul „Cere ofertă” de pe pagina produsului sau a magazinului (nu poți cere ofertă pentru propriul produs/magazin)."
       )
     );
   }
@@ -3378,24 +3320,7 @@ Poți ajunge acolo din meniul principal, secțiunea Cereri, sau direct la /cerer
           return;
         }
 
-        const isStoreEntity =
-          entityFromUrl.type === "STORE";
-
-        await startDirectVendorQuoteFlow({
-          productId:
-            entityFromUrl.type === "PRODUCT"
-              ? entityFromUrl.id
-              : null,
-
-          productTitle:
-            entityFromUrl.type === "PRODUCT"
-              ? entityFromUrl.name || null
-              : null,
-
-          vendorId: isStoreEntity ? entityFromUrl.id : null,
-          vendorName: isStoreEntity ? entityFromUrl.name || null : null,
-          fromStore: isStoreEntity,
-        });
+        startDirectVendorQuoteFlow(entityFromUrl);
 
         return;
       }
@@ -5083,24 +5008,7 @@ if (isSwitchingFlow) {
       return;
     }
 
-    const isStoreEntity =
-      entityFromUrl.type === "STORE";
-
-    await startDirectVendorQuoteFlow({
-      productId:
-        entityFromUrl.type === "PRODUCT"
-          ? entityFromUrl.id
-          : null,
-
-      productTitle:
-        entityFromUrl.type === "PRODUCT"
-          ? entityFromUrl.name || null
-          : null,
-
-      vendorId: isStoreEntity ? entityFromUrl.id : null,
-      vendorName: isStoreEntity ? entityFromUrl.name || null : null,
-      fromStore: isStoreEntity,
-    });
+    startDirectVendorQuoteFlow(entityFromUrl);
 
     return;
   }

@@ -44,8 +44,43 @@ function normalizeEmailForMatch(raw = "") {
 }
 
 /**
- * Produsele eligibile din cart-ul curent, în funcție de scope.
- * `cartItems` - [{ product: { id, service: { vendorId } }, qty }].
+ * Identificatorul de LINIE al unui item din cart - implicit product.id
+ * (comportament NESCHIMBAT pentru orice apelant existent, care nu
+ * trimite niciodată `lineKey`: checkout normal, guest checkout,
+ * cereri de ofertă pe produs real). Un apelant NOU poate trimite
+ * explicit `lineKey` pentru o linie FĂRĂ produs de catalog (cerere
+ * personalizată, fără productId real) - NU inventăm un productId
+ * fals, folosim un identificator de linie distinct (ex. "custom-0"),
+ * niciodată confundabil cu un cuid real de Product.
+ *
+ * audit 2026-09-28 (cod de reducere la cereri custom din
+ * customerRequestsRoutes.js): fără asta, un item cu product.id=null
+ * era exclus din ORICE calcul de eligibilitate/subtotal, chiar și
+ * pentru coduri ALL_PRODUCTS/VENDOR_ALL_PRODUCTS care nu au nevoie
+ * de un productId real ca să decidă eligibilitatea.
+ */
+function lineKeyOf(item) {
+  if (item?.lineKey != null) {
+    const key = String(item.lineKey).trim();
+    return key || null;
+  }
+
+  return item?.product?.id ?? null;
+}
+
+/**
+ * Produsele/liniile eligibile din cart-ul curent, în funcție de scope.
+ * `cartItems` - [{ product: { id, service: { vendorId } }, qty, lineKey? }].
+ *
+ * ALL_PRODUCTS/VENDOR_ALL_PRODUCTS întorc chei de LINIE (lineKeyOf) -
+ * nu au nevoie de un productId real, decid strict pe baza cart-ului
+ * curent. SELECTED_PRODUCTS/INFLUENCER_COLLECTION/VENDOR_COLLECTION
+ * rămân STRICT pe productId real (interogare DB pe FK reale) - un
+ * item fără productId real (cerere custom) nu poate fi niciodată
+ * eligibil pentru aceste scope-uri, exact cerința "codurile limitate
+ * strict la anumite produse NU se aplică unei cereri custom fără
+ * produs asociat" - comportament GARANTAT structural, nu printr-un
+ * if separat.
  */
 async function resolveEligibleProductIds({
   discountCode,
@@ -57,19 +92,20 @@ async function resolveEligibleProductIds({
   );
 
   if (discountCode.scope === "ALL_PRODUCTS") {
-    return cartProductIds;
+    return new Set(cartItems.map(lineKeyOf).filter(Boolean));
   }
 
   if (discountCode.scope === "VENDOR_ALL_PRODUCTS") {
     const eligible = new Set();
     for (const it of cartItems) {
       const vendorId = it.product?.service?.vendorId;
+      const key = lineKeyOf(it);
       if (
-        it.product?.id &&
+        key &&
         vendorId &&
         String(vendorId) === String(discountCode.vendorId)
       ) {
-        eligible.add(it.product.id);
+        eligible.add(key);
       }
     }
     return eligible;
@@ -258,7 +294,8 @@ export async function validateDiscountCode({
 
   let eligibleSubtotalCents = 0;
   for (const it of cartItems) {
-    if (!it.product?.id || !eligibleProductIds.has(it.product.id)) continue;
+    const key = lineKeyOf(it);
+    if (!key || !eligibleProductIds.has(key)) continue;
     const priceCents = Number(it.product?.priceCents || 0);
     const qty = Number(it.qty || 0);
     eligibleSubtotalCents += priceCents * qty;

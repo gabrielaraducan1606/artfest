@@ -560,17 +560,39 @@ export async function getActiveCollectionPromotionsForProducts(
    HOMEPAGE FEATURES
 ========================================================= */
 
-function homepageFeatureToPromotion(
+/*
+ * REGULĂ NOUĂ (audit 2026-09-28, "Artfest nu mai contribuie financiar
+ * la promoții" - Produsul zilei / Artizanul săptămânii): înainte,
+ * feature.platformDiscountPercent (setat de Artfest, independent de
+ * vendor) se aduna la vendorDiscountPercent, iar diferența era
+ * "subvenționată" de Artfest din propriul comision - vezi
+ * commissionCalc.js, platformSubsidyAmount. Din acest audit,
+ * platformDiscountPercent NU mai intră deloc în discountul real -
+ * rămâne în DB (câmp/valori istorice, poate fi în continuare setat de
+ * admin) doar pentru compatibilitate, dar e complet ignorat aici.
+ *
+ * Reducerea Produsului zilei/Artizanului săptămânii e STRICT ce
+ * acceptă vendorul (vendorDiscountPercent, doar dacă
+ * vendorDiscountStatus === "ACCEPTED") - 100% suportată de vendor. Cu
+ * platformDiscountPercent=0 trimis mai departe, commissionCalc.js
+ * aplică automat comisionul standard integral pe prețul redus, fără
+ * nicio subvenție (formula lui producea deja 0 subvenție când
+ * platformDiscountAmount=0 - demonstrat și acoperit de test în
+ * commissionCalc.test.js) - nu a fost nevoie să se modifice
+ * commissionCalc.js, doar sursa care alimenta platformDiscountAmount
+ * cu o valoare nenulă pentru acest tip de promoție.
+ *
+ * NU am atins collectionToPromotion() mai jos (Colecțiile rămân,
+ * explicit, 100% finanțate de Artfest ca până acum - decizie
+ * business separată, cerută explicit să rămână neschimbată în acest
+ * audit).
+ */
+export function homepageFeatureToPromotion(
   feature
 ) {
   if (!feature) {
     return null;
   }
-
-  const platformDiscountPercent =
-    clampPercent(
-      feature.platformDiscountPercent
-    );
 
   /*
    * Reducerea vendorului contează numai dacă
@@ -585,11 +607,7 @@ function homepageFeatureToPromotion(
       : 0;
 
   const totalDiscountPercent =
-    Math.min(
-      100,
-      platformDiscountPercent +
-        vendorDiscountPercent
-    );
+    vendorDiscountPercent;
 
   if (
     totalDiscountPercent <=
@@ -618,7 +636,15 @@ function homepageFeatureToPromotion(
     label,
 
     totalDiscountPercent,
-    platformDiscountPercent,
+
+    /*
+     * Artfest nu mai contribuie financiar - vezi comentariul de la
+     * începutul funcției. Rămâne 0 mereu, indiferent de
+     * feature.platformDiscountPercent (câmp legacy, ignorat aici).
+     */
+    platformDiscountPercent:
+      0,
+
     vendorDiscountPercent,
 
     startsAt:

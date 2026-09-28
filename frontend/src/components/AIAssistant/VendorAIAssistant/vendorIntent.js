@@ -3,6 +3,7 @@
 import {
   normalizeForIntentDetection,
   isExplainIntentMessage,
+  isLikelyExplainQuestion,
 } from "../explainIntent.js";
 
 export const VENDOR_INTENTS = {
@@ -11,7 +12,59 @@ export const VENDOR_INTENTS = {
   UPDATE_PRICE: "UPDATE_PRICE",
   UPDATE_STOCK: "UPDATE_STOCK",
   PRODUCT_HELP: "PRODUCT_HELP",
+  SEND_QUOTE: "SEND_QUOTE",
 };
+
+/* =========================================================
+   SEND_QUOTE - vendorul vrea să TRIMITĂ o ofertă unui client
+
+   Doar recunoaștere de intenție: VendorAssistant.jsx deschide apoi
+   formularul EXISTENT „Trimite ofertă" (start-quote-offer ->
+   handleQuoteChoice, quote-offer-form) sau lista „Cereri primite" -
+   nimic nu se trimite automat, vendorul completează și apasă
+   manual „Trimite oferta".
+
+   Pentru un vendor, „trimit o cerere de ofertă" e aproape sigur o
+   formulare greșită pentru „trimit o ofertă" (vendorul nu cere
+   oferte în acest widget) - tratat tot ca SEND_QUOTE.
+
+   Întrebările explicative („cum trimit o ofertă?", „pot trimite mai
+   multe oferte?") NU sunt acțiune - rămân la copilot (knowledge).
+   Timpul trecut („am trimis oferta") nu se potrivește intenționat.
+========================================================= */
+
+const SEND_QUOTE_PATTERNS = [
+  // „vreau să trimit o ofertă", „trimite oferta clientului",
+  // „vreau să trimit o cerere de ofertă"
+  /\btrimi(t|te|tem)\b.{0,25}\bofert/,
+  // „vreau să răspund cererii", „răspund la cererea de ofertă"
+  /\braspun(d|de|dem)\b.{0,20}\bcerer/,
+  // „vreau să-i fac o ofertă clientului", „fac o ofertă"
+  /\bfac(em)?\b.{0,20}\bofert/,
+  // „vreau să ofertez clientul"
+  /\boferte(z|ze|zi|zam)\b/,
+];
+
+export function detectVendorQuoteOfferIntent(text = "") {
+  const normalized = normalizeForIntentDetection(text);
+
+  if (!normalized) return null;
+
+  if (
+    isExplainIntentMessage(normalized) ||
+    isLikelyExplainQuestion(text)
+  ) {
+    return null;
+  }
+
+  const matches = SEND_QUOTE_PATTERNS.some((pattern) =>
+    pattern.test(normalized)
+  );
+
+  return matches
+    ? { type: VENDOR_INTENTS.SEND_QUOTE, confidence: 1 }
+    : null;
+}
 
 /* =========================================================
    NAVIGARE VENDOR (audit - acțiuni/navigare pentru toate rolurile)

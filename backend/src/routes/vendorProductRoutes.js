@@ -142,7 +142,7 @@ function mapProduct(p) {
 
     promoLabel:
       hasDiscount
-        ? p.promoLabel || "Reducere Artfest"
+        ? p.promoLabel || "Reducere"
         : null,
 
     promoFundingSource:

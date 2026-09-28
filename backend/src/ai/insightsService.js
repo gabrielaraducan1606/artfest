@@ -360,8 +360,8 @@ async function buildHomepageFeatureInsight(vendorId) {
     title: "Promovare homepage fără răspuns",
 
     message: single
-      ? "Ai o promovare activă (Produsul zilei / Artizanul săptămânii) la care nu ai răspuns încă dacă vrei reducere suplimentară."
-      : `Ai ${features.length} promovări active la care nu ai răspuns încă dacă vrei reducere suplimentară.`,
+      ? "Ai o promovare activă (Produsul zilei / Artizanul săptămânii) la care nu ai răspuns încă dacă vrei să oferi o reducere proprie."
+      : `Ai ${features.length} promovări active la care nu ai răspuns încă dacă vrei să oferi o reducere proprie.`,
 
     /*
      * BUGFIX (audit): entityType era setat la "PRODUCT" chiar

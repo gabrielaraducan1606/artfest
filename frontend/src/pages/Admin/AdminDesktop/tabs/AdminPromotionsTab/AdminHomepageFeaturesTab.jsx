@@ -23,14 +23,6 @@ const FEATURE_TYPES = {
     "ARTISAN_OF_WEEK",
 };
 
-const DISCOUNT_OPTIONS = [
-  0,
-  5,
-  10,
-  15,
-  20,
-];
-
 function formatDate(value) {
   if (!value) {
     return "—";
@@ -386,8 +378,13 @@ export default function AdminHomepageFeaturesTab() {
     selectionId:
       "",
 
+    /*
+     * audit 2026-09-28: fix, nu mai e configurabil din UI - Artfest
+     * nu mai finanțează reducerea Produsului zilei/Artizanului
+     * săptămânii (vezi EditFeatureModal). Trimis mereu 0 la salvare.
+     */
     platformDiscountPercent:
-      "5",
+      "0",
 
     force:
       false,
@@ -752,7 +749,7 @@ const upcomingFeatures =
         "",
 
       platformDiscountPercent:
-        "5",
+        "0",
 
       force:
         false,
@@ -798,12 +795,12 @@ const upcomingFeatures =
             feature.service?.id ||
             "",
 
+      /*
+       * audit 2026-09-28: mereu "0" la salvare, indiferent de valoarea
+       * legacy existentă pe feature (nu mai e configurabilă din UI).
+       */
       platformDiscountPercent:
-        String(
-          feature
-            .platformDiscountPercent ??
-            0
-        ),
+        "0",
 
       force,
     });
@@ -1748,26 +1745,22 @@ function FeatureCard({
       feature
     );
 
-  const platformPercent =
-    Number(
-      feature
-        .platformDiscountPercent ||
-        0
-    );
-
+  /*
+   * audit 2026-09-28 ("Artfest nu mai contribuie financiar la
+   * promoții"): platformDiscountPercent e câmp legacy, IGNORAT la
+   * calculul prețului real (vezi productPromotionPrice.js) - nu-l mai
+   * afișăm ca parte a reducerii aici, ca să nu sugereze că Artfest
+   * mai contribuie. Reducerea reală = STRICT ce a acceptat vendorul.
+   */
   const vendorPercent =
-    Number(
-      feature
-        .vendorDiscountPercent ||
-        0
-    );
-
-  const totalPercent =
-    Math.min(
-      50,
-      platformPercent +
-        vendorPercent
-    );
+    feature.vendorDiscountStatus ===
+    "ACCEPTED"
+      ? Number(
+          feature
+            .vendorDiscountPercent ||
+            0
+        )
+      : 0;
 
   const notified =
     Boolean(
@@ -1930,25 +1923,22 @@ function FeatureCard({
         }}
       >
         <span>
-          Artfest:{" "}
-          <strong>
-            {platformPercent}%
-          </strong>
-        </span>
-
-        <span>
-          Vendor:{" "}
+          Reducere ofertă vendor:{" "}
           <strong>
             {vendorPercent}%
           </strong>
         </span>
 
-        <span>
-          Total:{" "}
-          <strong>
-            {totalPercent}%
-          </strong>
-        </span>
+        {feature.vendorDiscountStatus !==
+          "ACCEPTED" && (
+          <span
+            className={
+              styles.subtle
+            }
+          >
+            (neacceptată încă de vendor - fără reducere de preț)
+          </span>
+        )}
       </div>
 
       <div
@@ -2540,55 +2530,30 @@ function EditFeatureModal({
           </div>
         )}
 
-        <label>
-          Reducere oferită de Artfest
-
-          <select
-            value={
-              form.platformDiscountPercent
-            }
-            onChange={(
-              event
-            ) =>
-              setForm(
-                (
-                  current
-                ) => ({
-                  ...current,
-
-                  platformDiscountPercent:
-                    event.target
-                      .value,
-                })
-              )
-            }
-            style={{
-              width:
-                "100%",
-
-              marginTop:
-                6,
-            }}
-          >
-            {DISCOUNT_OPTIONS.map(
-              (discount) => (
-                <option
-                  key={
-                    discount
-                  }
-                  value={
-                    discount
-                  }
-                >
-                  {discount ===
-                  0
-                    ? "Fără reducere"
-                    : `${discount}%`}
-                </option>
-              )
-            )}
-          </select>
-        </label>
+        {/*
+          audit 2026-09-28 ("Artfest nu mai contribuie financiar la
+          promoții"): inputul de "reducere oferită de Artfest" a fost
+          eliminat - platformDiscountPercent nu mai are niciun efect
+          la calculul prețului/comisionului (rămâne 0, trimis fix mai
+          jos la salvare). Reducerea reală a Produsului zilei/
+          Artizanului săptămânii e STRICT cea acceptată de vendor -
+          vezi vendorDiscountPercent/vendorDiscountStatus, afișate în
+          FeatureCard.
+        */}
+        <div
+          style={{
+            padding: 10,
+            borderRadius: 8,
+            background: "#f3f4f6",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          Artfest nu mai finanțează reducerea Produsului zilei/
+          Artizanului săptămânii. Reducerea afișată clientului este
+          strict cea oferită de vendor — dacă vendorul nu o acceptă,
+          produsul apare promovat, dar fără nicio reducere de preț.
+        </div>
 
         <label>
           <input

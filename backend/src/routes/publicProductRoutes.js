@@ -531,7 +531,7 @@ hasActiveHomepageDiscount:
 promoLabel:
   hasDiscount
     ? p?.promoLabel ||
-      "Reducere Artfest"
+      "Reducere"
     : null,
 
 promoFundingSource:
@@ -1226,7 +1226,7 @@ function mapPublicProductCard(p) {
       ? Number(p?.discountPercent || p?.totalDiscountPercent || 0)
       : 0,
     promoLabel: hasDiscount
-      ? p?.promoLabel || p?.discount?.label || "Reducere Artfest"
+      ? p?.promoLabel || p?.discount?.label || "Reducere"
       : null,
 
     category: p.category || null,
