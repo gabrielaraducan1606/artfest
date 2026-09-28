@@ -25,6 +25,7 @@ export default function ProductModal({
   uploadFile,
   storeSlug,
   vendorPreview,
+  initialStep = "images",
 }) {
   const controller = useProductEditorController({
     open,
@@ -36,6 +37,7 @@ export default function ProductModal({
     onSave,
     uploadFile,
     storeSlug,
+    initialStep,
   });
 
   const {

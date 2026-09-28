@@ -43,6 +43,8 @@ import {
 
 import { getPlatformManifests } from "./manifests/index.js";
 
+import { answerAdminModerationQuestion } from "../services/adminAssistantModeration.js";
+
 import {
   buildPrompt as buildVendorAssistantPrompt,
   dispatchCommand,
@@ -2775,6 +2777,30 @@ export async function routeCopilotMessage({
 
   if (!safeMessage) {
     return { handled: false, reason: "empty_message" };
+  }
+
+  /*
+   * ASISTENT ADMIN - întrebări despre moderarea produselor (câte am de
+   * verificat, de ce a ajuns X la verificare, ce e GPSR incomplet...).
+   * STRICT read-only, doar pentru ADMIN (rol reverificat din DB în
+   * serviciu). Orice alt mesaj -> null -> rutarea de mai jos,
+   * neschimbată; celelalte roluri nu trec deloc pe aici.
+   */
+  if (audience === "ADMIN") {
+    const adminResult = await answerAdminModerationQuestion({
+      message: safeMessage,
+      userSub,
+      currentEntity,
+    });
+
+    if (adminResult) {
+      return {
+        handled: true,
+        category: "ADMIN_MODERATION",
+        confidence: 1,
+        ...adminResult,
+      };
+    }
   }
 
   /*

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../Auth/Context/context.js";
 import styles from "./AdminDesktop.module.css";
@@ -35,6 +36,20 @@ export default function AdminDesktop() {
   const { me, loading: authLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState(TAB_IDS.adminAllUsers);
+
+  /*
+   * Link direct la un tab (ex. clopoțelul / Asistentul Admin ->
+   * /admin?tab=products&moderation=PENDING). Fără param -> comportamentul
+   * de dinainte (tab-ul implicit / cel ales manual).
+   */
+  const [searchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
+
+  useEffect(() => {
+    if (tabFromUrl && TAB_IDS[tabFromUrl]) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [tabFromUrl, searchParams]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 

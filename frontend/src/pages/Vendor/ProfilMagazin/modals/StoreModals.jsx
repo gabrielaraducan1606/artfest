@@ -18,6 +18,7 @@ export default function StoreModals({
   handleSaveProduct,
   storeSlug,
   sellerData,
+  productModalStep = "images",
 }) {
   const vendorPreview = {
     displayName: sellerData?.displayName || "",
@@ -65,6 +66,7 @@ export default function StoreModals({
         }}
         storeSlug={storeSlug}
         vendorPreview={vendorPreview}
+        initialStep={productModalStep}
       />
     </Suspense>
   );

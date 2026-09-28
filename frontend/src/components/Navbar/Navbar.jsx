@@ -40,6 +40,7 @@ import {
   UserPlus,
   Wrench,
   AlertTriangle,
+  Bot,
 } from "lucide-react";
 
 import { api } from "../../lib/api";
@@ -51,6 +52,14 @@ import Login from "../../pages/Auth/Login/Login";
 import { getGuestCartCount } from "../../utils/guestCart";
 import NotificationsPopover from "./NotificationsPopover";
 import MessagesPopover from "./MessagesPopover";
+import AdminAssistantDrawer from "../AIAssistant/AdminAssistant/AdminAssistantDrawer.jsx";
+import {
+  ADMIN_REVIEW_LIST_HREF,
+  computeAdminBadgeCount,
+  fetchAdminReviewQueue,
+  formatBadge,
+  formatReviewTimestamp,
+} from "./adminReviewQueue.js";
 import { useImageSearch } from "../../hooks/useImageSearch";
 import { useUnreadMessagesCount } from "../../features/messages/hooks/useUnreadMessagesCount";
 import {
@@ -988,6 +997,49 @@ useEffect(() => {
     };
   }, [me, fetchSupportUnread]);
 
+  /* ===== ADMIN: clopoțel (produse de verificat + notificări) =====
+   * Doar pentru ADMIN pe rutele /admin. Reutilizează endpointurile
+   * existente (vezi adminReviewQueue.js) - nicio coadă nouă.
+   */
+  const isAdminOnAdminRoute =
+    me?.role === "ADMIN" && location.pathname.startsWith("/admin");
+
+  const [adminReview, setAdminReview] = useState({ total: 0, items: [] });
+  const [adminAssistantOpen, setAdminAssistantOpen] = useState(false);
+
+  const refreshAdminBell = useCallback(async () => {
+    const [queue, notif] = await Promise.all([
+      fetchAdminReviewQueue(api),
+      api("/api/notifications/unread-count").catch(() => ({ count: 0 })),
+    ]);
+
+    setAdminReview({ total: queue.total, items: queue.items });
+    setUnreadNotif(notif?.count || 0);
+  }, []);
+
+  useEffect(() => {
+    if (!isAdminOnAdminRoute) return undefined;
+
+    refreshAdminBell();
+
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") refreshAdminBell();
+    }, 60000);
+
+    return () => clearInterval(id);
+  }, [isAdminOnAdminRoute, refreshAdminBell, location.search]);
+
+  useEffect(() => {
+    if (notifOpen && isAdminOnAdminRoute) refreshAdminBell();
+  }, [notifOpen, isAdminOnAdminRoute, refreshAdminBell]);
+
+  const adminBadge = formatBadge(
+    computeAdminBadgeCount({
+      pendingProducts: adminReview.total,
+      unreadNotifications: unreadNotif,
+    })
+  );
+
   /* ===== scroll lock pt burger ===== */
   useEffect(() => {
     if (!burgerOpen) return;
@@ -1647,6 +1699,33 @@ const isAdminRoute = location.pathname.startsWith("/admin");
               {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
             </button>
 
+            <button
+              type="button"
+              className={styles.iconWrapper}
+              onClick={() => setAdminAssistantOpen(true)}
+              title="Asistent Admin"
+              aria-label="Deschide Asistentul Admin"
+            >
+              <Bot size={22} />
+            </button>
+
+            <button
+              type="button"
+              ref={notifBtnDesktopRef}
+              className={styles.iconWrapper}
+              onClick={() => setNotifOpen((v) => !v)}
+              title="Notificări și produse de verificat"
+              aria-label={
+                adminBadge
+                  ? `Notificări: ${adminBadge} elemente necesită acțiune`
+                  : "Notificări"
+              }
+              aria-expanded={notifOpen ? "true" : "false"}
+            >
+              <Bell size={22} />
+              {adminBadge && <span className={styles.badge}>{adminBadge}</span>}
+            </button>
+
             <Link
               className={styles.iconWrapper}
               to={supportHref}
@@ -1742,9 +1821,102 @@ const isAdminRoute = location.pathname.startsWith("/admin");
               >
                 <Menu size={22} />
               </button>
+
+              <button
+                type="button"
+                className={styles.iconWrapper}
+                onClick={() => setAdminAssistantOpen(true)}
+                title="Asistent Admin"
+                aria-label="Deschide Asistentul Admin"
+              >
+                <Bot size={22} />
+              </button>
+
+              <button
+                type="button"
+                ref={notifBtnMobileRef}
+                className={styles.iconWrapper}
+                onClick={() => setNotifOpen((v) => !v)}
+                title="Notificări și produse de verificat"
+                aria-label="Notificări"
+                aria-expanded={notifOpen ? "true" : "false"}
+              >
+                <Bell size={22} />
+                {adminBadge && <span className={styles.badge}>{adminBadge}</span>}
+              </button>
             </div>
           </div>
         </div>
+
+        <NotificationsPopover
+          open={notifOpen}
+          onClose={() => setNotifOpen(false)}
+          me={me}
+          anchorRef={
+            notifBtnDesktopRef.current?.offsetParent
+              ? notifBtnDesktopRef
+              : notifBtnMobileRef
+          }
+          navigate={navigate}
+          fullPageHref="/notificari"
+          limit={5}
+          onChanged={refreshAdminBell}
+          emptyText="Nicio notificare nouă."
+          topSlot={
+            <div
+              style={{
+                display: "grid",
+                gap: 6,
+                paddingBottom: 10,
+                marginBottom: 10,
+                borderBottom: "1px solid var(--color-border)",
+              }}
+            >
+              <button
+                type="button"
+                className={styles.notifFullBtn}
+                onClick={() => {
+                  setNotifOpen(false);
+                  navigate(ADMIN_REVIEW_LIST_HREF);
+                }}
+              >
+                Produse de verificat: {adminReview.total}
+              </button>
+
+              {adminReview.items.map((item) => (
+                <div
+                  key={item.id}
+                  className={styles.notifRow}
+                  style={{ display: "grid", gap: 2 }}
+                >
+                  <div className={styles.notifRowTitle}>{item.title}</div>
+                  <div className={styles.notifRowText}>
+                    {item.reason}
+                    {item.timestamp
+                      ? ` · ${formatReviewTimestamp(item.timestamp)}`
+                      : ""}
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.notifActionBtn}
+                    style={{ justifySelf: "start", width: "auto", padding: "2px 8px" }}
+                    onClick={() => {
+                      setNotifOpen(false);
+                      navigate(item.href);
+                    }}
+                  >
+                    Verifică produsul
+                  </button>
+                </div>
+              ))}
+            </div>
+          }
+        />
+
+        <AdminAssistantDrawer
+          open={adminAssistantOpen}
+          onClose={() => setAdminAssistantOpen(false)}
+        />
 
         <VendorDrawer
           open={burgerOpen}

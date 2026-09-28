@@ -177,6 +177,10 @@ function mapAdminProduct(p) {
   return {
     ...mapProduct(p),
 
+    // verdict complet al moderării AI (per imagine, clasificare, motive
+    // interne) - doar pentru admin, vezi services/productAiModeration.js
+    aiModeration: p.aiModeration || null,
+
     service: {
       id: service?.id || null,
       vendorId: service?.vendorId || null,

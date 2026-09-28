@@ -13,8 +13,42 @@ import {
   isGpsrComplete,
   getGpsrMissingFields,
 } from "../lib/gpsrCompliance.js";
+import { openai } from "../lib/openai.js";
+import {
+  moderateSavedProduct,
+  buildVendorModerationReport,
+  hasActualContentChange,
+  isAdminReviewRequired,
+  needsGpsrReevaluation,
+} from "../services/productAiModeration.js";
 
 const router = Router();
+
+/*
+ * Câmpurile de conținut care, dacă se schimbă EFECTIV, retrimit produsul
+ * la moderare (AI, cu cache - vezi productAiModeration.js). Stocul,
+ * disponibilitatea, GPSR, isActive/isHidden nu sunt aici.
+ */
+const MODERATED_CONTENT_FIELDS = [
+  "title",
+  "description",
+  "priceCents",
+  "images",
+  "category",
+  "color",
+  "materialMain",
+  "technique",
+  "styleTags",
+  "occasionTags",
+  "dimensions",
+  "careInstructions",
+  "specialNotes",
+  "orderMode",
+  "optionsSchema",
+  "customSchema",
+  "repeatedGroups",
+  "quoteSchema",
+];
 
 /* ================= Helpers comune ================= */
 
@@ -264,6 +298,16 @@ quoteSchema:
 
     moderationMessage:
       p.moderationMessage || null,
+
+    // raport moderare AI pentru vendor (doar produse ne-aprobate, fără
+    // coduri tehnice) - null pentru produsele aprobate/publice
+    moderationReport:
+      buildVendorModerationReport(
+        p.aiModeration,
+        p.moderationStatus,
+        p.reviewedByUserId,
+        p
+      ),
 
     submittedAt:
       p.submittedAt || null,
@@ -1544,10 +1588,23 @@ async function createProduct(req, res) {
         },
       });
 
+    /*
+     * Moderare AI automată: produsul e deja salvat (PENDING, nepublic);
+     * aici primește verdictul (APPROVED / rămâne PENDING pentru admin /
+     * CHANGES_REQUESTED cu imaginile problematice). Orice eroare AI ->
+     * rămâne PENDING, ca înainte.
+     */
+    const moderated =
+      await moderateSavedProduct({
+        prisma,
+        product: created,
+        client: openai,
+      });
+
     return res
       .status(201)
       .json(
-        mapProduct(created)
+        mapProduct(moderated)
       );
   } catch (e) {
     console.error(
@@ -2130,8 +2187,33 @@ async function updateProduct(
       req.body.quoteSchema !==
         undefined;
 
+    /*
+     * Frontendul retrimite des tot payload-ul (inclusiv câmpuri
+     * neschimbate, ex. la o modificare de stoc). Un produs deja APPROVED
+     * nu mai e retrimis la verificare dacă niciun câmp de conținut nu
+     * s-a schimbat efectiv. Altfel -> moderare (AI cu cache).
+     */
+    const keepExistingApproval =
+      contentFieldsChanged &&
+      product.moderationStatus ===
+        "APPROVED" &&
+      !hasActualContentChange(
+        product,
+        patch,
+        MODERATED_CONTENT_FIELDS
+      );
+
+    const shouldModerate =
+      contentFieldsChanged &&
+      !keepExistingApproval;
+
+    // un produs respins / cu modificări cerute de un ADMIN nu se poate
+    // auto-aproba la nicio retrimitere până nu îl aprobă un admin
+    const previouslyRejectedByAdmin =
+      isAdminReviewRequired(product);
+
     if (
-      contentFieldsChanged
+      shouldModerate
     ) {
       patch.moderationStatus =
         "PENDING";
@@ -2182,8 +2264,40 @@ async function updateProduct(
         }
       );
 
+    /*
+     * Moderare AI doar dacă s-a schimbat conținut relevant. Imaginile
+     * deja analizate (același URL) și clasificarea (același text +
+     * aceeași imagine principală) sunt reutilizate din aiModeration,
+     * fără apel AI nou.
+     *
+     * + reevaluare LOCALĂ când vendorul completează GPSR-ul unui produs
+     * PENDING oprit exclusiv de GPSR (cache AI -> 0 apeluri OpenAI;
+     * dacă acum e complet, devine APPROVED automat).
+     */
+    const gpsrReevaluation =
+      !shouldModerate &&
+      needsGpsrReevaluation(
+        product,
+        pickGpsrPatchFromBody(
+          req.body || {}
+        )
+      );
+
+    const moderated =
+      shouldModerate ||
+      gpsrReevaluation
+        ? await moderateSavedProduct({
+            prisma,
+            product: updated,
+            previous:
+              product.aiModeration,
+            previouslyRejectedByAdmin,
+            client: openai,
+          })
+        : updated;
+
     return res.json(
-      mapProduct(updated)
+      mapProduct(moderated)
     );
   } catch (e) {
     console.error(

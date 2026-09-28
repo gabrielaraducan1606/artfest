@@ -13,6 +13,10 @@ export default function NotificationsPopover({
   onChanged, // optional: () => window.dispatchEvent(...)
   fullPageHref = "/notificari",
   limit = 8,
+  // opțional: conținut afișat deasupra listei (ex. Admin: produse de
+  // verificat) - utilizatorii/vendorii nu îl primesc, deci nu se schimbă
+  topSlot = null,
+  emptyText = "Nu ai notificări.",
 }) {
   const panelRef = useRef(null);
 
@@ -153,11 +157,13 @@ left = Math.max(12, Math.min(left, window.innerWidth - width - 12));
       </div>
 
       <div className={styles.notifBody}>
+        {topSlot}
+
         {loading && <div className={styles.notifInfo}>Se încarcă…</div>}
         {error && <div className={styles.notifError}>{error}</div>}
 
         {!loading && !error && items.length === 0 && (
-          <div className={styles.notifInfo}>Nu ai notificări.</div>
+          <div className={styles.notifInfo}>{emptyText}</div>
         )}
 
         {!loading && !error && items.length > 0 && (

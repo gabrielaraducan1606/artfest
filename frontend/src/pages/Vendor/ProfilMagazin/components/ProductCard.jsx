@@ -309,6 +309,7 @@ promoLabel:
       isHidden: !!p?.isHidden,
       moderationStatus: String(p?.moderationStatus || "PENDING").toUpperCase(),
       moderationMessage: p?.moderationMessage || null,
+      moderationReport: p?.moderationReport || null,
       availability,
       leadTimeDays: Number.isFinite(Number(p?.leadTimeDays))
         ? Number(p.leadTimeDays)
@@ -763,6 +764,23 @@ const handleCart = useCallback(
     [safe.id, onEditProduct, onEdit, p]
   );
 
+  // „Completează informațiile de siguranță" -> editorul direct la pasul
+  // cu secțiunea GPSR ("details")
+  const handleEditGpsr = useCallback(
+    (e) => {
+      e?.stopPropagation?.();
+      if (!safe.id) return;
+      if (typeof onEditProduct === "function") {
+        onEditProduct(p, { step: "details" });
+        return;
+      }
+      if (typeof onEdit === "function") {
+        onEdit(p);
+      }
+    },
+    [safe.id, onEditProduct, onEdit, p]
+  );
+
   const handleDelete = useCallback(
     async (e) => {
       e?.stopPropagation?.();
@@ -1022,17 +1040,88 @@ const handleCart = useCallback(
           )}
         </h4>
 
-        {viewMode === "vendor" && safe.moderationMessage && (
-          <p className={styles.moderationMessage}>
-            Mesaj admin: {safe.moderationMessage}
-          </p>
-        )}
+        {/*
+         * Verificare automată (AI): la blocare, vendorul vede exact
+         * imaginea și ce trebuie corectat; la verificare suplimentară,
+         * doar un mesaj neutru. Mesajele unui admin rămân ca înainte.
+         */}
+        {viewMode === "vendor" &&
+          safe.moderationReport?.decision === "BLOCK_PUBLICATION" && (
+            <div className={styles.moderationMessage} role="alert">
+              <p style={{ margin: 0 }}>{safe.moderationReport.message}</p>
+
+              {(safe.moderationReport.images || []).map((image) => (
+                <div
+                  key={`${image.index}-${image.url}`}
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "flex-start",
+                    marginTop: 6,
+                  }}
+                >
+                  {image.url && (
+                    <img
+                      src={image.url}
+                      alt={`Imaginea ${image.position}`}
+                      width={40}
+                      height={40}
+                      style={{
+                        objectFit: "cover",
+                        borderRadius: 6,
+                        flexShrink: 0,
+                        outline: "2px solid #dc2626",
+                      }}
+                    />
+                  )}
+
+                  <span>
+                    <strong>Imaginea {image.position}:</strong>{" "}
+                    {(image.messages || []).join(" ")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+        {/* Oprit doar de GPSR: mesaj acționabil + ce lipsește
+            (butonul de completare e cel existent, imediat dedesubt) */}
+        {viewMode === "vendor" &&
+          safe.moderationReport?.action === "COMPLETE_GPSR" && (
+            <div className={styles.moderationMessage}>
+              <p style={{ margin: 0 }}>{safe.moderationReport.message}</p>
+
+              {safe.moderationReport.missing?.length ? (
+                <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                  {safe.moderationReport.missing.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          )}
+
+        {viewMode === "vendor" &&
+          safe.moderationReport?.decision === "NEEDS_ADMIN_REVIEW" &&
+          safe.moderationReport?.action !== "COMPLETE_GPSR" && (
+            <p className={styles.moderationMessage}>
+              {safe.moderationReport.message}
+            </p>
+          )}
+
+        {viewMode === "vendor" &&
+          !safe.moderationReport &&
+          safe.moderationMessage && (
+            <p className={styles.moderationMessage}>
+              Mesaj admin: {safe.moderationMessage}
+            </p>
+          )}
 
         {viewMode === "vendor" && p?.gpsrComplete === false && (
           <button
             type="button"
             className={styles.catPill}
-            onClick={handleEdit}
+            onClick={handleEditGpsr}
           >
             Completează informațiile de siguranță
           </button>

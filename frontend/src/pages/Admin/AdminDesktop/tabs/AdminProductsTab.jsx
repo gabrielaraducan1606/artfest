@@ -1,5 +1,6 @@
 // src/pages/Admin/AdminDesktop/tabs/AdminProductsTab.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../../../lib/api";
 import styles from "../css/AdminProductsTab.module.css";
 import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
@@ -97,6 +98,42 @@ export default function AdminProductsTab() {
   const [moderationFilter, setModerationFilter] = useState("");
   const [gpsrIncompleteFilter, setGpsrIncompleteFilter] = useState(false);
 
+  /*
+   * Link direct (clopoțel / Asistent Admin), reutilizând filtrele
+   * existente: ?moderation=PENDING | ?gpsr=1 | ?productId=<id> (caută
+   * produsul după id și îi deschide fereastra de verificare). Aplicat
+   * doar când URL-ul se schimbă - filtrele alese manual rămân ale tale.
+   */
+  const [searchParams] = useSearchParams();
+  const pendingOpenProductIdRef = useRef(null);
+
+  useEffect(() => {
+    const moderation = String(searchParams.get("moderation") || "").toUpperCase();
+    const gpsr = searchParams.get("gpsr");
+    const productId = String(searchParams.get("productId") || "").trim();
+
+    if (productId) {
+      pendingOpenProductIdRef.current = productId;
+      setModerationFilter("");
+      setGpsrIncompleteFilter(false);
+      setQuery(productId);
+      return;
+    }
+
+    if (["PENDING", "APPROVED", "REJECTED", "CHANGES_REQUESTED"].includes(moderation)) {
+      setModerationFilter(moderation);
+      setGpsrIncompleteFilter(false);
+      setQuery("");
+      return;
+    }
+
+    if (gpsr === "1" || gpsr === "true") {
+      setModerationFilter("");
+      setGpsrIncompleteFilter(true);
+      setQuery("");
+    }
+  }, [searchParams]);
+
  const shouldFetchOwnData = true;
 
   async function fetchJson(path, options = {}) {
@@ -142,6 +179,17 @@ console.log("ADMIN PRODUCTS RESPONSE", data);
 console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?.take);
         setProductsState(pageProducts);
         setTotalProducts(Number(data?.total || pageProducts.length || 0));
+
+        // link direct la un produs -> deschidem fereastra lui de verificare
+        const openId = pendingOpenProductIdRef.current;
+        if (openId) {
+          const match = pageProducts.find((p) => String(p.id) === openId);
+          if (match) {
+            pendingOpenProductIdRef.current = null;
+            setSelectedProduct(match);
+            setModerationMessage("");
+          }
+        }
       } catch (e) {
         if (!alive) return;
 
@@ -631,6 +679,17 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
                           {getModerationLabel(moderationStatus)}
                         </StatusBadge>
 
+                        {p.aiModeration?.decision ? (
+                          <span className={styles.inlineMeta}>
+                            {AI_DECISION_LABELS[p.aiModeration.decision]?.label ||
+                              p.aiModeration.decision}
+                            {p.aiModeration.decision !== "AUTO_APPROVE" &&
+                            p.aiModeration.reasons?.length
+                              ? ` (${issueList(p.aiModeration.reasons.slice(0, 3))})`
+                              : ""}
+                          </span>
+                        ) : null}
+
                         {p.moderationMessage ? (
                           <span className={styles.inlineMeta}>
                             {String(p.moderationMessage).slice(0, 80)}
@@ -984,6 +1043,12 @@ function ProductReviewModal({
                   : "Aprobă produsul"}
               </button>
             </div>
+
+            <AiModerationPanel
+              aiModeration={
+                product.aiModeration
+              }
+            />
 
             {/* =========================
                 MODERARE
@@ -1714,6 +1779,168 @@ function Detail({ label, value }) {
     <div className={styles.detailRow}>
       <span>{label}</span>
       <b>{value}</b>
+    </div>
+  );
+}
+
+/* =========================================================
+   Verdict moderare AI (backend: services/productAiModeration.js)
+========================================================= */
+
+const AI_DECISION_LABELS = {
+  AUTO_APPROVE: { label: "AI: conform - aprobat automat", color: "#166534" },
+  NEEDS_ADMIN_REVIEW: { label: "AI: necesită verificare", color: "#92400e" },
+  BLOCK_PUBLICATION: { label: "AI: publicare blocată", color: "#b91c1c" },
+};
+
+const AI_ISSUE_LABELS = {
+  PHONE_NUMBER: "număr de telefon",
+  EMAIL: "adresă de email",
+  URL: "website / link",
+  SOCIAL_HANDLE: "cont social media",
+  QR_CODE: "cod QR",
+  PROMOTIONAL_MATERIAL: "material promoțional",
+  POSSIBLE_PROMOTIONAL_MATERIAL: "posibil material promoțional",
+  LOGO: "logo",
+  WATERMARK: "watermark",
+  PROMOTIONAL_TEXT: "text promoțional suprapus",
+  PRODUCT_NOT_VISIBLE: "produsul nu e vizibil clar",
+  POSSIBLE_STOCK_PHOTO: "posibilă poză de catalog/stoc",
+  LOW_CONFIDENCE: "AI nesigur",
+  AI_ANALYSIS_UNAVAILABLE: "analiză AI indisponibilă",
+  POSSIBLE_RESELL: "posibil resell",
+  POSSIBLE_INDUSTRIAL: "posibil produs de serie",
+  DIGITAL_PRODUCT: "produs digital",
+  UNCLEAR_PRODUCT_TYPE: "tip de produs neclar",
+  UNCLEAR_HANDMADE: "handmade neclar",
+  TEXT_CONTACT_INFO: "date de contact în text",
+  PREVIOUSLY_REJECTED_BY_ADMIN: "respins anterior de admin",
+  GPSR_INCOMPLETE: "GPSR incomplet (vendorul a fost rugat să completeze)",
+  NO_IMAGES: "fără imagini",
+};
+
+const AI_TYPE_LABELS = {
+  HANDMADE: "Handmade / artizanal",
+  PERSONALIZED: "Personalizat",
+  DIGITAL: "Digital",
+  INDUSTRIAL: "Industrial / de serie",
+  POSSIBLE_RESELL: "Posibil resell",
+  UNKNOWN: "Neclar",
+};
+
+function formatPercent(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `${Math.round(numeric * 100)}%` : "-";
+}
+
+function issueList(codes) {
+  return (Array.isArray(codes) ? codes : [])
+    .map((code) => AI_ISSUE_LABELS[code] || code)
+    .join(", ");
+}
+
+function AiModerationPanel({ aiModeration }) {
+  if (!aiModeration || !aiModeration.decision) {
+    return null;
+  }
+
+  const decision =
+    AI_DECISION_LABELS[aiModeration.decision] ||
+    { label: aiModeration.decision, color: "#374151" };
+
+  const classification = aiModeration.classification || {};
+
+  const images = Array.isArray(aiModeration.images)
+    ? aiModeration.images
+    : [];
+
+  return (
+    <div
+      style={{
+        border: "1px solid #e5e7eb",
+        borderRadius: 10,
+        padding: 12,
+        margin: "12px 0",
+        display: "grid",
+        gap: 8,
+        fontSize: 14,
+      }}
+    >
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
+        <strong style={{ color: decision.color }}>{decision.label}</strong>
+        <span>Încredere: {formatPercent(aiModeration.confidence)}</span>
+        {aiModeration.analyzedAt ? (
+          <span style={{ color: "#6b7280" }}>
+            {formatDate(aiModeration.analyzedAt)}
+          </span>
+        ) : null}
+      </div>
+
+      {aiModeration.reasons?.length ? (
+        <div>Motive: {issueList(aiModeration.reasons)}</div>
+      ) : null}
+
+      {classification.analyzed ? (
+        <div>
+          Clasificare:{" "}
+          <b>{AI_TYPE_LABELS[classification.type] || classification.type}</b>{" "}
+          (handmade {formatPercent(classification.handmadeConfidence)}, încredere{" "}
+          {formatPercent(classification.confidence)}
+          {classification.possibleResell ? ", posibil resell" : ""})
+          {classification.reasons?.length ? (
+            <div style={{ color: "#4b5563" }}>
+              {classification.reasons.join(" · ")}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div style={{ color: "#6b7280" }}>Clasificare: indisponibilă</div>
+      )}
+
+      {images.length ? (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {images.map((image) => {
+            const problem =
+              image.decision && image.decision !== "AUTO_APPROVE";
+
+            return (
+              <div
+                key={`${image.index}-${image.url}`}
+                style={{ width: 120, display: "grid", gap: 4 }}
+              >
+                <img
+                  src={image.url}
+                  alt={`Imaginea ${Number(image.index) + 1}`}
+                  style={{
+                    width: 120,
+                    height: 120,
+                    objectFit: "cover",
+                    borderRadius: 8,
+                    outline: problem
+                      ? `3px solid ${
+                          image.decision === "BLOCK_PUBLICATION"
+                            ? "#dc2626"
+                            : "#d97706"
+                        }`
+                      : "1px solid #e5e7eb",
+                  }}
+                />
+                <span style={{ fontSize: 12 }}>
+                  #{Number(image.index) + 1} ·{" "}
+                  {image.analyzed === false
+                    ? "neanalizată"
+                    : formatPercent(image.confidence)}
+                </span>
+                {image.issues?.length ? (
+                  <span style={{ fontSize: 12, color: "#b45309" }}>
+                    {issueList(image.issues)}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }

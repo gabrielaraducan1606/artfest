@@ -255,6 +255,9 @@ const heroActionsRef = useRef(null);
 
   const [profilePatch, setProfilePatch] = useState({});
   const [editingOverride, setEditingOverride] = useState(null);
+  // pasul la care se deschide editorul ("details" = include secțiunea
+  // GPSR, pentru butonul „Completează informațiile de siguranță")
+  const [productModalStep, setProductModalStep] = useState("images");
   const saveProductLockRef = useRef(false);
 const [campaignsModalOpen, setCampaignsModalOpen] = useState(false);
 const [campaigns, setCampaigns] = useState([]);
@@ -886,7 +889,7 @@ async function handleAcceptGate() {
   openNewProduct();
 }
 
-  async function openEditProduct(p) {
+  async function openEditProduct(p, options = {}) {
     if (!p) return;
 
     const id = p.id || p._id;
@@ -983,6 +986,7 @@ quoteSchema: Array.isArray(full.quoteSchema)
       });
 
       setEditingOverride(full);
+      setProductModalStep(options?.step || "images");
       setProdModalOpen(true);
     } catch (er) {
       console.error("Nu am putut încărca produsul pentru editare:", er);
@@ -994,6 +998,7 @@ quoteSchema: Array.isArray(full.quoteSchema)
     saveProductLockRef.current = false;
     setProdModalOpen(false);
     setEditingOverride(null);
+    setProductModalStep("images");
   }
 
   async function handleSaveProduct(e) {
@@ -1049,6 +1054,39 @@ quoteSchema: Array.isArray(full.quoteSchema)
       }
 
       closeProductModal();
+
+      /*
+       * Verificarea automată a blocat publicarea (ex. telefon/link/QR
+       * într-o imagine) -> vendorul află imediat ce imagine și ce are de
+       * corectat. Produsul e salvat; după înlocuirea imaginii se
+       * reverifică automat. „Verificare suplimentară" nu declanșează
+       * nicio alertă (apare discret pe cardul produsului).
+       */
+      const report = saved?.moderationReport;
+
+      if (report?.decision === "BLOCK_PUBLICATION") {
+        alert(
+          [
+            report.message,
+            "",
+            ...(report.images || []).map(
+              (image) =>
+                `Imaginea ${image.position}: ${(image.messages || []).join(" ")}`
+            ),
+          ].join("\n")
+        );
+      } else if (report?.action === "COMPLETE_GPSR") {
+        // acționabil, nu alarmant: vendorul poate rezolva imediat, din
+        // butonul „Completează informațiile de siguranță” de pe produs
+        alert(
+          [
+            report.message,
+            "",
+            "Mai lipsesc:",
+            ...(report.missing || []).map((item) => `• ${item}`),
+          ].join("\n")
+        );
+      }
     } catch (er) {
       const status = extractHttpStatus(er);
       const code = extractCode(er);
@@ -1294,6 +1332,7 @@ quoteSchema: Array.isArray(full.quoteSchema)
         handleSaveProduct={handleSaveProduct}
         storeSlug={storeSlug}
         sellerData={_sellerData}
+        productModalStep={productModalStep}
       />
 <StoreCampaignsModal
   open={campaignsModalOpen}

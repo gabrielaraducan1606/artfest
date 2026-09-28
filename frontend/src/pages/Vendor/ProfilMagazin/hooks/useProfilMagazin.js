@@ -1033,6 +1033,11 @@ if (owner) {
               privateProduct?.moderationMessage ??
               publicProduct.moderationMessage,
 
+            moderationReport:
+              privateProduct?.moderationReport ??
+              publicProduct.moderationReport ??
+              null,
+
             isHidden:
               privateProduct?.isHidden ??
               publicProduct.isHidden,

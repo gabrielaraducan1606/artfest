@@ -797,6 +797,11 @@ model Product {
   aiVisionAnalysis Json?
   aiOrderAnalysis  Json?
 
+  // Rezultatul moderării AI automate (server-side, NU trimis de client):
+  // verdict per imagine + clasificare handmade/resell + cache pe URL de
+  // imagine. Vezi src/services/productAiModeration.js.
+  aiModeration Json?
+
   aiGeneratedFields String[] @default([])
   aiSourceImages    String[] @default([])
 
