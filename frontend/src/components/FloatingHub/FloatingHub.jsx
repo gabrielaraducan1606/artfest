@@ -30,6 +30,10 @@ import MiniMessages from "../../features/messages/components/MiniMessages";
 import { useDraggableLauncher } from "./useDraggableLauncher";
 import { getSafeAreaInsets } from "./safeArea";
 import { createAssistantPromptScheduler } from "./assistantPromptScheduler.js";
+import {
+  VENDOR_ASSISTANT_TASK_EVENT,
+  buildTaskFromDeepLink,
+} from "../AIAssistant/contactInfo/contactInfoFixFlow.js";
 import styles from "./FloatingHub.module.css";
 
 // Identic cu URL-ul construit de MiniMessages (`apiBase`/`scope=all`) -
@@ -259,6 +263,51 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
     useCallback(() => {
       setPendingAssistantEvent(null);
     }, []);
+
+  /*
+   * Task pentru Asistentul VENDORULUI (ex. „Corectează cu ajutorul
+   * asistentului” - date de contact externe, vezi
+   * AIAssistant/contactInfo/). Spre deosebire de evenimentele de
+   * cumpărător de mai jos, NU forțăm AiAssistant: deschidem
+   * VendorAssistant, care primește task-ul ca prop (același tipar
+   * anti-race ca pendingAssistantEvent).
+   */
+  const [pendingVendorTask, setPendingVendorTask] = useState(null);
+
+  const handlePendingVendorTaskHandled = useCallback(() => {
+    setPendingVendorTask(null);
+  }, []);
+
+  useEffect(() => {
+    function openVendorAssistantTask(event) {
+      if (!isVendor || !event?.detail) return;
+
+      setForceUserAssistant(false);
+      setOpen(true);
+      setActivePanel("assistant");
+      setHasOpenedAssistant(true);
+      setPendingVendorTask(event.detail);
+    }
+
+    window.addEventListener(VENDOR_ASSISTANT_TASK_EVENT, openVendorAssistantTask);
+
+    return () =>
+      window.removeEventListener(VENDOR_ASSISTANT_TASK_EVENT, openVendorAssistantTask);
+  }, [isVendor]);
+
+  // Link din notificarea agregată: ?assistant=contact-info
+  useEffect(() => {
+    if (!isVendor) return;
+
+    const params = new URLSearchParams(location.search);
+    if (params.get("assistant") !== "contact-info") return;
+
+    setForceUserAssistant(false);
+    setOpen(true);
+    setActivePanel("assistant");
+    setHasOpenedAssistant(true);
+    setPendingVendorTask(buildTaskFromDeepLink());
+  }, [isVendor, location.search]);
 
   useEffect(() => {
     // eslint-disable-next-line no-console
@@ -738,6 +787,8 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
                   <VendorAssistant
                     embedded
                     onClose={handleAssistantClose}
+                    pendingTask={pendingVendorTask}
+                    onPendingTaskHandled={handlePendingVendorTaskHandled}
                   />
                 ) : (
                   <AiAssistant

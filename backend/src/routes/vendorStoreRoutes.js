@@ -5,6 +5,11 @@ import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 import {
   applyPromotionsToProducts,
 } from "../services/productPromotionPrice.js";
+import {
+  buildContactInfoErrorBody,
+  checkPublicFields,
+  pickChangedGuardedFields,
+} from "../lib/contactInfoGuard.js";
 /* Utils */
 const error = (res, code, status = 400, extra = {}) =>
   res.status(status).json({ error: code, message: code, ...extra });
@@ -316,6 +321,19 @@ router.put("/store/:slug", async (req, res) => {
     ...(logoUrl !== undefined ? { logoUrl: cleanOrNull(logoUrl) } : {}),
     ...(Array.isArray(delivery) ? { delivery } : {}),
   };
+
+  // Contact info guard (lib/contactInfoGuard.js) - textele publice ale
+  // magazinului, doar câmpurile care se schimbă; nimic nu se salvează
+  // dacă există date de contact externe.
+  const contactIssues = checkPublicFields({
+    entityType: "STORE",
+    entityId: profile.serviceId,
+    fields: pickChangedGuardedFields("STORE", data, profile),
+  });
+
+  if (contactIssues.length) {
+    return res.status(422).json(buildContactInfoErrorBody(contactIssues));
+  }
 
   if (typeof nextSlug === "string" && nextSlug.trim()) {
     const s = slugify(nextSlug);

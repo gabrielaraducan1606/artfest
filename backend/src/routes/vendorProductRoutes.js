@@ -21,6 +21,13 @@ import {
   isAdminReviewRequired,
   needsGpsrReevaluation,
 } from "../services/productAiModeration.js";
+import {
+  GUARDED_FIELDS,
+  buildContactInfoErrorBody,
+  checkPublicFields,
+  pickChangedGuardedFields,
+} from "../lib/contactInfoGuard.js";
+import { scanVendorContactIssues } from "../services/contactInfoAudit.js";
 
 const router = Router();
 
@@ -1448,6 +1455,31 @@ async function createProduct(req, res) {
       }
     );
 
+    /*
+     * Contact info guard (lib/contactInfoGuard.js): date de contact
+     * externe în textele publice -> 422 structurat, NIMIC salvat.
+     */
+    const contactIssues = checkPublicFields({
+      entityType: "PRODUCT",
+      entityId: null,
+      fields: Object.fromEntries(
+        GUARDED_FIELDS.PRODUCT.map((field) => [
+          field,
+          req.body?.[field],
+        ])
+      ),
+    });
+
+    if (contactIssues.length) {
+      return res
+        .status(422)
+        .json(
+          buildContactInfoErrorBody(
+            contactIssues
+          )
+        );
+    }
+
     const created =
       await prisma.product.create({
         data: {
@@ -2256,6 +2288,31 @@ async function updateProduct(
       }
     );
 
+    /*
+     * Contact info guard - doar câmpurile care CHIAR se schimbă (un
+     * text vechi retrimis neschimbat nu blochează, ex., o editare de
+     * stoc; conținutul vechi e tratat prin audit + notificare).
+     */
+    const contactIssues = checkPublicFields({
+      entityType: "PRODUCT",
+      entityId: id,
+      fields: pickChangedGuardedFields(
+        "PRODUCT",
+        req.body || {},
+        product
+      ),
+    });
+
+    if (contactIssues.length) {
+      return res
+        .status(422)
+        .json(
+          buildContactInfoErrorBody(
+            contactIssues
+          )
+        );
+    }
+
     const updated =
       await prisma.product.update(
         {
@@ -2348,6 +2405,33 @@ async function deleteProduct(req, res) {
   }
 }
 
+/*
+ * GET /api/vendor(s)/contact-info/issues - READ-ONLY. Lista LIVE a
+ * textelor publice ale vendorului AUTENTIFICAT (magazine + produse) care
+ * conțin date de contact externe - folosită de Asistent ca să le
+ * parcurgă pe rând. Vendorul se deduce din sesiune, niciodată din
+ * request. Nu modifică nimic.
+ */
+async function listContactInfoIssues(req, res) {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user.sub },
+      select: { id: true },
+    });
+
+    if (!vendor) {
+      return res.status(404).json({ error: "vendor_profile_missing" });
+    }
+
+    const issues = await scanVendorContactIssues({ vendorId: vendor.id });
+
+    return res.json({ ok: true, vendorId: vendor.id, issues });
+  } catch (e) {
+    console.error("GET /vendors/contact-info/issues error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
 /* ================= Mount routes ================= */
 
 router.get("/public/store/:slug/products", publicListProducts);
@@ -2362,6 +2446,14 @@ function registerProductRoutes(prefix) {
   );
 
   router.get(`/${prefix}/products/:id`, authRequired, enforceTokenVersion, vendorAccessRequired, getProduct);
+
+  router.get(
+    `/${prefix}/contact-info/issues`,
+    authRequired,
+    enforceTokenVersion,
+    vendorAccessRequired,
+    listContactInfoIssues
+  );
 
   router.post(`/${prefix}/store/:slug/products`, authRequired, enforceTokenVersion, vendorAccessRequired, createProduct);
 

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { omitPrivateStoreContact } from "../lib/publicStoreContact.js";
 
 import {
   CATEGORIES,
@@ -1444,7 +1445,9 @@ router.get(
         "public, max-age=5, stale-while-revalidate=30"
       );
 
-      return res.json({
+      // fără phone/email/website/socials, inclusiv din `profile` imbricat
+      // (profilul brut + service.vendor) - vezi lib/publicStoreContact.js
+      return res.json(omitPrivateStoreContact({
         serviceId:
           service.id,
 
@@ -1501,25 +1504,7 @@ router.get(
           vendor.address ||
           "",
 
-        publicEmail:
-          profile.email ||
-          vendor.email ||
-          "",
-
-        email:
-          profile.email ||
-          vendor.email ||
-          "",
-
-        phone:
-          profile.phone ||
-          vendor.phone ||
-          "",
-
-        website:
-          profile.website ||
-          vendor.website ||
-          "",
+        // phone/email/website NU se expun public (lib/publicStoreContact.js)
 
         delivery:
           Array.isArray(
@@ -1569,7 +1554,7 @@ router.get(
           profile.updatedAt,
 
         profile,
-      });
+      }));
     } catch (error) {
       return next(
         error
@@ -1731,7 +1716,8 @@ router.get(
       );
 
       return res.json({
-        shop: {
+        // fără phone/email/website/socials - vezi lib/publicStoreContact.js
+        shop: omitPrivateStoreContact({
           serviceId:
             service.id,
 
@@ -1788,25 +1774,7 @@ router.get(
             vendor.address ||
             "",
 
-          publicEmail:
-            profile.email ||
-            vendor.email ||
-            "",
-
-          email:
-            profile.email ||
-            vendor.email ||
-            "",
-
-          phone:
-            profile.phone ||
-            vendor.phone ||
-            "",
-
-          website:
-            profile.website ||
-            vendor.website ||
-            "",
+          // phone/email/website NU se expun public (lib/publicStoreContact.js)
 
           delivery:
             Array.isArray(
@@ -1854,7 +1822,7 @@ router.get(
 
           updatedAt:
             profile.updatedAt,
-        },
+        }),
 
         products:
           promotedProducts.map(

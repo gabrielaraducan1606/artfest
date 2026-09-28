@@ -78,6 +78,14 @@ import {
 import { sendPriceCalculatorTurn } from "./services/vendorPriceCalculatorApi.js";
 
 import { api } from "../../../lib/api.js";
+import {
+  CONTACT_FIX_CHOICES,
+  CONTACT_FIX_TASK,
+  buildApplyRequest,
+  buildTaskFromIssues,
+  describeItem,
+  proposeFix,
+} from "../contactInfo/contactInfoFixFlow.js";
 
 import VendorProductPicker from "../../../pages/Vendor/CostsProfit/components/VendorProductPicker.jsx";
 import PricingBreakdownCard from "../../../pages/Vendor/CostsProfit/components/PricingBreakdownCard.jsx";
@@ -955,6 +963,14 @@ export default function VendorAssistant({
    * fără efect vizibil. `onClose` anunță explicit părintele.
    */
   onClose = null,
+
+  /*
+   * Task trimis din FloatingHub (ex. CONTACT_INFO_FIX - „Corectează cu
+   * ajutorul asistentului”), livrat o singură dată; vezi
+   * AIAssistant/contactInfo/contactInfoFixFlow.js.
+   */
+  pendingTask = null,
+  onPendingTaskHandled = null,
 } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -1084,6 +1100,29 @@ export default function VendorAssistant({
     quoteContext,
     setQuoteContext,
   ] = useState(null);
+
+  /*
+   * „Corectează cu ajutorul asistentului” - date de contact externe în
+   * textele publice. Starea pasului curent (lista de texte + indexul +
+   * propunerea) - ref, citită din handleChoice. Nimic nu se salvează
+   * fără click-ul explicit pe „Aplică varianta propusă”.
+   */
+  const contactFixRef = useRef(null);
+  const processedTaskRef = useRef(null);
+
+  useEffect(() => {
+    if (!pendingTask || processedTaskRef.current === pendingTask) {
+      return;
+    }
+
+    processedTaskRef.current = pendingTask;
+    onPendingTaskHandled?.();
+
+    if (pendingTask.task === CONTACT_FIX_TASK) {
+      startContactFix(pendingTask);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingTask]);
 
   const [
     currentMenu,
@@ -6292,6 +6331,181 @@ async function handleAction(
      Alegeri din mesaje
   ======================================================= */
 
+  /* =======================================================
+     „Corectează cu ajutorul asistentului” - date de contact
+     externe (vezi contactInfo/contactInfoFixFlow.js)
+  ======================================================= */
+
+  async function startContactFix(task) {
+    setShowMenu(false);
+
+    let items = Array.isArray(task?.items) ? task.items : [];
+
+    if (task?.fetchIssues) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Verific textele publice ale magazinului și ale produselor tale..."
+        )
+      );
+
+      try {
+        const result = await api("/api/vendors/contact-info/issues");
+        items = buildTaskFromIssues(result?.issues).items;
+      } catch {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Nu am putut încărca lista acum. Încearcă din nou peste câteva momente."
+          )
+        );
+        return;
+      }
+    }
+
+    if (!items.length) {
+      contactFixRef.current = null;
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu am găsit date de contact externe în textele tale publice. Totul e în regulă!"
+        )
+      );
+      return;
+    }
+
+    addMessage(
+      createMessage(
+        "assistant",
+        items.length === 1
+          ? "Te ajut să elimini datele de contact externe dintr-un text public, păstrând mesajul comercial."
+          : `Te ajut să elimini datele de contact externe din ${items.length} texte publice - le luăm pe rând.`
+      )
+    );
+
+    showContactFixStep(items, 0);
+  }
+
+  function showContactFixStep(items, index) {
+    if (index >= items.length) {
+      contactFixRef.current = null;
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Gata - am parcurs toate textele. Mulțumim că păstrezi comunicarea cu clienții în Artfest!"
+        )
+      );
+      return;
+    }
+
+    const item = items[index];
+    const proposal = proposeFix(item);
+
+    contactFixRef.current = { items, index, proposal };
+
+    addMessage(
+      createMessage(
+        "assistant",
+        describeItem(item, proposal, index + 1, items.length),
+        {
+          type: "choices",
+          choiceStep: "contact-fix",
+          choices: [
+            CONTACT_FIX_CHOICES.APPLY,
+            CONTACT_FIX_CHOICES.MANUAL,
+            CONTACT_FIX_CHOICES.SKIP,
+          ],
+        }
+      )
+    );
+  }
+
+  async function handleContactFixChoice(choice) {
+    const state = contactFixRef.current;
+
+    if (!state) {
+      return;
+    }
+
+    const { items, index, proposal } = state;
+    const item = items[index];
+    const label = getChoiceLabel(choice);
+
+    if (label === CONTACT_FIX_CHOICES.APPLY) {
+      // click-ul explicit al vendorului = confirmarea
+      const request = buildApplyRequest(item, proposal.suggestion, {
+        confirmed: true,
+      });
+
+      if (!request) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Varianta propusă nu poate fi aplicată automat. Te rog să editezi manual textul."
+          )
+        );
+        showContactFixStep(items, index + 1);
+        return;
+      }
+
+      if (request.kind === "APPLY_TO_FORM") {
+        window.dispatchEvent(
+          new CustomEvent(request.event, { detail: request.detail })
+        );
+
+        addMessage(
+          createMessage(
+            "assistant",
+            `Am pus varianta propusă în formular, la ${item.fieldLabel}. Verific-o și apasă Salvează.`
+          )
+        );
+      } else {
+        try {
+          await api(request.url, {
+            method: request.method,
+            body: request.body,
+          });
+
+          addMessage(
+            createMessage(
+              "assistant",
+              `Am salvat varianta nouă pentru ${item.fieldLabel}.`
+            )
+          );
+        } catch (error) {
+          addMessage(
+            createMessage(
+              "assistant",
+              error?.data?.message ||
+                error?.message ||
+                "Nu am putut salva textul. Încearcă din nou sau editează-l manual."
+            )
+          );
+        }
+      }
+
+      showContactFixStep(items, index + 1);
+      return;
+    }
+
+    if (label === CONTACT_FIX_CHOICES.MANUAL) {
+      addMessage(
+        createMessage(
+          "assistant",
+          item.source === "FORM"
+            ? `Editează ${item.fieldLabel} direct în formular, elimină datele de contact și salvează din nou.`
+            : item.entityType === "STORE"
+              ? `Editează ${item.fieldLabel} din pagina magazinului tău și elimină datele de contact.`
+              : `Deschide produsul „${item.entityName || ""}” din magazinul tău și editează ${item.fieldLabel}.`
+        )
+      );
+    }
+
+    showContactFixStep(items, index + 1);
+  }
+
   async function handleChoice(
     choice,
     sourceMessage = null
@@ -6307,6 +6521,14 @@ async function handleAction(
         label
       )
     );
+
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep === "contact-fix"
+    ) {
+      await handleContactFixChoice(choice);
+      return;
+    }
 
     /*
      * ACTIONABLE RECOMMENDATIONS - CTA de pe o recomandare

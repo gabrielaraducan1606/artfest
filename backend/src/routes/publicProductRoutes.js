@@ -2591,9 +2591,7 @@ router.get("/store/:slug/initial", async (req, res, next) => {
       coverImageUrl: profile.coverUrl || "",
       profileImageUrl: profile.logoUrl || "",
       tags: [],
-      publicEmail: profile.email || vendor.email || "",
-      phone: profile.phone || vendor.phone || "",
-      website: profile.website || "",
+      // phone/email/website NU se expun public (lib/publicStoreContact.js)
       status: isActive ? "active" : "inactive",
       onboardingStep: isActive ? 3 : 1,
       updatedAt: profile.updatedAt,
@@ -2716,9 +2714,7 @@ router.get("/store/:slug", async (req, res) => {
     coverImageUrl: profile.coverUrl || "",
     profileImageUrl: profile.logoUrl || "",
     tags: [],
-    publicEmail: profile.email || vendor.email || "",
-    phone: profile.phone || vendor.phone || "",
-    website: profile.website || "",
+    // phone/email/website NU se expun public (lib/publicStoreContact.js)
     status: isActive ? "active" : "inactive",
     onboardingStep: isActive ? 3 : 1,
     updatedAt: profile.updatedAt,

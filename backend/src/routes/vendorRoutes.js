@@ -15,6 +15,11 @@ import {
   listVendorReferralAttributedOrders,
   listVendorOwnSaleAttributedOrders,
 } from "../services/vendorReferralEarnings.js";
+import {
+  buildContactInfoErrorBody,
+  checkPublicFields,
+  pickChangedGuardedFields,
+} from "../lib/contactInfoGuard.js";
 
 const router = Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
@@ -1421,6 +1426,27 @@ if (payload.email && !isEmail(payload.email)) {
     message: "Emailul pentru retururi este invalid.",
   });
 }
+
+      /*
+       * Contact info guard (lib/contactInfoGuard.js) pe textele publice
+       * ale magazinului (about / shortDescription / tagline) - doar
+       * câmpurile care se schimbă. Câmpurile dedicate phone/email (date
+       * pentru retururi, validate mai sus) NU sunt afectate.
+       */
+      const storedProfile = await prisma.serviceProfile.findUnique({
+        where: { serviceId: id },
+        select: { about: true, shortDescription: true, tagline: true },
+      });
+
+      const contactIssues = checkPublicFields({
+        entityType: "STORE",
+        entityId: id,
+        fields: pickChangedGuardedFields("STORE", payload, storedProfile || {}),
+      });
+
+      if (contactIssues.length) {
+        return res.status(422).json(buildContactInfoErrorBody(contactIssues));
+      }
 
       const saved = await prisma.serviceProfile.upsert({
         where: { serviceId: id },

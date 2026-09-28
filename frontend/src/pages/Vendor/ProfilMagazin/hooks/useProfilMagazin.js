@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { api } from "../../../../lib/api.js";
+import { mergeOwnerContactFields } from "../utils/ownerStoreContact.js";
 
 /* ================= Fallback categorii ================= */
 
@@ -960,6 +961,28 @@ export default function useProfilMagazin(slug, opts = {}) {
           // Billing indisponibil.
         }
       }
+
+/*
+ * Proprietarul: telefon / email / website nu mai vin din ruta publică -
+ * le luăm din ruta privată (ownership verificat server-side), ca editorul
+ * (inclusiv previzualizarea GPSR „datele tale ca producător”) să le vadă
+ * în continuare. Vizitatorii nu le primesc deloc.
+ */
+if (owner) {
+  try {
+    const privateShop = await api(
+      `/api/vendors/store/${encodeURIComponent(currentSlug)}`
+    );
+
+    if (!isCurrent()) {
+      return;
+    }
+
+    normalizedShop = mergeOwnerContactFields(normalizedShop, privateShop);
+  } catch {
+    // Ruta privată indisponibilă - pagina publică funcționează oricum.
+  }
+}
 
 if (owner) {
   try {

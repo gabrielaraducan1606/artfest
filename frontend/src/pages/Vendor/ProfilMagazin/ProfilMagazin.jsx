@@ -28,6 +28,8 @@ import {
   QUOTE_REQUEST_INTENT_EVENT,
   isQuoteIntentForEntity,
 } from "../../../components/AIAssistant/quotes/quoteRequestIntentEvent.js";
+import { CONTACT_FIX_APPLY_EVENT } from "../../../components/AIAssistant/contactInfo/contactInfoFixFlow.js";
+import { showContactInfoFix } from "../../../components/AIAssistant/contactInfo/contactInfoFixToast.jsx";
 
 /*
  * Instrumentare minimă de timing, doar în dev, doar în consolă - ca
@@ -533,6 +535,9 @@ useEffect(() => {
       setLocalCacheT(Date.now());
       broadcastProfileUpdated(sdSlug || slug);
     } catch (er) {
+      // date de contact externe -> mesaj + „Corectează cu ajutorul asistentului”
+      if (showContactInfoFix(er)) return;
+
       alert(er?.message || "Nu am putut salva descrierea magazinului.");
     } finally {
       setSavingAbout(false);
@@ -1088,6 +1093,10 @@ quoteSchema: Array.isArray(full.quoteSchema)
         );
       }
     } catch (er) {
+      // date de contact externe -> nimic salvat; formularul rămâne
+      // deschis, cu mesaj + „Corectează cu ajutorul asistentului”
+      if (showContactInfoFix(er)) return;
+
       const status = extractHttpStatus(er);
       const code = extractCode(er);
 
@@ -1104,6 +1113,47 @@ quoteSchema: Array.isArray(full.quoteSchema)
       saveProductLockRef.current = false;
     }
   }
+
+  /*
+   * „Aplică varianta propusă” din Asistent pentru o salvare blocată
+   * (date de contact externe): textul corectat intră ÎNAPOI în formularul
+   * deschis - vendorul verifică și salvează din nou (celelalte modificări
+   * nesalvate din formular nu se pierd). Ref, pentru valorile curente.
+   */
+  const contactFixApplyRef = useRef(null);
+
+  contactFixApplyRef.current = {
+    prodModalOpen,
+    editingId: editingOverride?.id || editingOverride?._id || null,
+  };
+
+  useEffect(() => {
+    function handleContactFixApply(event) {
+      const detail = event?.detail || {};
+      const state = contactFixApplyRef.current || {};
+
+      if (detail.entityType === "PRODUCT" && state.prodModalOpen) {
+        const sameProduct =
+          !detail.entityId || String(detail.entityId) === String(state.editingId);
+
+        if (sameProduct && detail.field) {
+          setProdForm((form) => ({ ...form, [detail.field]: detail.text }));
+        }
+        return;
+      }
+
+      if (detail.entityType === "STORE" && detail.field === "about") {
+        setAboutDraft(detail.text);
+        setEditAbout(true);
+      }
+    }
+
+    window.addEventListener(CONTACT_FIX_APPLY_EVENT, handleContactFixApply);
+
+    return () =>
+      window.removeEventListener(CONTACT_FIX_APPLY_EVENT, handleContactFixApply);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const hasData = !!(
     _sellerData?.slug ||
