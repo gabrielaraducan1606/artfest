@@ -407,7 +407,9 @@ model Vendor {
   productImports        ProductImport[]
 
   // ==================== Costuri & Profit ====================
-  costItems VendorCostItem[]
+  costItems           VendorCostItem[]
+  CourierAccount      CourierAccount[]
+  VendorPickupAddress VendorPickupAddress[]
 
   @@index([isActive], map: "vendor_isActive_idx")
   @@index([citySlug], map: "vendor_citySlug_idx")
@@ -709,6 +711,25 @@ enum VendorCampaignCreativeType {
   TIKTOK_CAPTION
   WHATSAPP_MESSAGE
   GENERIC
+}
+
+enum CourierProvider {
+  SAMEDAY
+  FAN_COURIER
+  DPD
+  CARGUS
+  GLS
+}
+
+enum CourierAccountOwner {
+  VENDOR
+  PLATFORM
+}
+
+enum CourierAccountStatus {
+  ACTIVE
+  INVALID_CREDENTIALS
+  DISABLED
 }
 
 model Product {
@@ -1704,8 +1725,8 @@ model Shipment {
   influencerEarningEntry     InfluencerEarningEntry?
   vendorReferralEarningEntry VendorReferralEarningEntry?
 
-  items ShipmentItem[]
-
+  items                  ShipmentItem[]
+  courierAwbs            CourierAwb[]
   returnRequest          ReturnRequest?  @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
   originalReturnRequests ReturnRequest[] @relation("ReturnOriginalShipment")
 
@@ -4041,4 +4062,262 @@ model InfluencerCommissionAgreement {
   @@index([influencerId, proposedAt])
   @@index([proposedByUserId])
   @@index([status, proposedAt])
+}
+
+enum CourierAwbStatus {
+  REQUESTED
+  CREATED
+  FAILED
+  UNKNOWN
+  CANCELLED
+}
+
+model CourierAccount {
+  id String @id @default(cuid())
+
+  /**
+   * VENDOR = contractul propriu al vânzătorului.
+   * PLATFORM = contract Artfest, pentru etapa viitoare
+   * în care Artfest poate negocia tarife cu un curier.
+   */
+  ownerType CourierAccountOwner @default(VENDOR)
+
+  /**
+   * Pentru ownerType = VENDOR trebuie să existe vendorId.
+   * Pentru ownerType = PLATFORM poate fi null.
+   * Regula VENDOR => vendorId obligatoriu va fi impusă
+   * și în backend.
+   */
+  vendorId String?
+
+  provider CourierProvider
+
+  /**
+   * Nume afișat vendorului.
+   * Exemple:
+   * "Sameday - Atelier principal"
+   * "FAN Courier - contract firmă"
+   */
+  label String @db.VarChar(160)
+
+  status CourierAccountStatus @default(ACTIVE)
+
+  /**
+   * Contul implicit folosit pentru acest vendor.
+   * Backend-ul trebuie să garanteze că nu rămân
+   * accidental mai multe conturi default în același context.
+   */
+  isDefault Boolean @default(false)
+
+  /**
+   * Credentialele criptate server-side.
+   * Aici NU se salvează JSON/plaintext cu user/parolă.
+   * Backend-ul va salva rezultatul criptării AES-256-GCM.
+   */
+  credentialsCipher Bytes
+
+  /**
+   * Versiunea cheii cu care au fost criptate credentialele.
+   * Permite rotația cheilor ulterior.
+   */
+  credentialsKeyVersion Int @default(1)
+
+  /**
+   * Informație sigură pentru UI.
+   * Exemplu:
+   * "gab***"
+   * Nu se pune niciodată parola sau tokenul aici.
+   */
+  credentialsHint String? @db.VarChar(160)
+
+  /**
+   * Configurație care NU este secretă.
+   * Exemple:
+   * clientId
+   * pickupPointId
+   * serviceCode implicit
+   * alte ID-uri tehnice publicabile.
+   */
+  publicConfig Json?
+
+  /**
+   * Adresa de ridicare asociată implicit acestui cont.
+   */
+  pickupAddressId String?
+
+  /**
+   * Ultimul test al conexiunii la API-ul curierului.
+   */
+  lastTestedAt DateTime?
+  lastTestOk   Boolean?
+
+  /**
+   * Mesaj sanitizat.
+   * Nu trebuie să conțină:
+   * - parole
+   * - token-uri
+   * - Authorization headers
+   * - credentiale API
+   */
+  lastError String? @db.Text
+
+  disabledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor        Vendor?              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  pickupAddress VendorPickupAddress? @relation(fields: [pickupAddressId], references: [id], onDelete: SetNull)
+
+  awbs CourierAwb[]
+
+  @@index([vendorId, provider])
+  @@index([vendorId, status])
+  @@index([provider, status])
+  @@index([ownerType, provider])
+  @@index([pickupAddressId])
+}
+
+model CourierAwb {
+  id String @id @default(cuid())
+
+  shipmentId       String
+  courierAccountId String?
+
+  provider CourierProvider
+  status   CourierAwbStatus @default(REQUESTED)
+
+  /**
+   * Cât timp AWB-ul este activ / în curs / incert,
+   * conține shipmentId.
+   * Fiind @unique, garantează la nivel DB
+   * maximum un AWB activ pentru același Shipment.
+   * La FAILED sau CANCELLED se setează null.
+   */
+  activeShipmentId String? @unique
+
+  /**
+   * Protecție pentru retry/dublu click.
+   */
+  idempotencyKey String @unique @db.VarChar(100)
+
+  /**
+   * Referință stabilă trimisă curierului.
+   * Exemplu: ART-<orderNumber>-<shipmentId scurt>
+   */
+  clientReference String @db.VarChar(160)
+
+  /**
+   * Numărul AWB real primit de la curier.
+   */
+  awbNumber String? @db.VarChar(120)
+
+  /**
+   * Serviciul folosit:
+   * standard, locker etc.
+   */
+  courierService String? @db.VarChar(120)
+
+  /**
+   * Snapshot-ul coletelor trimise curierului.
+   */
+  parcels Json?
+
+  weightKg Decimal? @db.Decimal(7, 2)
+
+  /**
+   * Rambursul calculat server-side în momentul
+   * generării AWB.
+   */
+  codAmount Decimal @default(0) @db.Decimal(10, 2)
+
+  /**
+   * Doar mesaj sanitizat.
+   */
+  errorMessage String? @db.Text
+
+  /**
+   * Metadata non-secret întoarsă de provider.
+   */
+  providerMeta Json?
+
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  courierAccount CourierAccount? @relation(fields: [courierAccountId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, awbNumber])
+  @@index([shipmentId, createdAt])
+  @@index([courierAccountId])
+  @@index([status, updatedAt])
+}
+
+model VendorPickupAddress {
+  id String @id @default(cuid())
+
+  vendorId String
+
+  /**
+   * Îl păstrăm opțional pentru viitor.
+   * Poate permite o adresă de ridicare diferită
+   * pentru anumite magazine/servicii ale vendorului.
+   * Momentan NU introducem relație Prisma cu VendorService,
+   * ca să păstrăm această migrare simplă și aditivă.
+   */
+  serviceId String?
+
+  contactName String  @db.VarChar(160)
+  phone       String  @db.VarChar(40)
+  email       String? @db.VarChar(320)
+
+  county String @db.VarChar(120)
+  city   String @db.VarChar(160)
+
+  /**
+   * Unele adrese/provideri pot furniza codul poștal ulterior,
+   * de aceea îl lăsăm nullable.
+   */
+  postalCode String? @db.VarChar(20)
+
+  street   String @db.VarChar(255)
+  streetNo String @db.VarChar(40)
+
+  /**
+   * Bloc, scară, etaj, apartament, reper etc.
+   */
+  details String? @db.VarChar(500)
+
+  /**
+   * Referințe specifice fiecărui provider.
+   * Exemple:
+   * {
+   * "SAMEDAY": {
+   * "countyId": 12,
+   * "cityId": 345,
+   * "pickupPointId": 678
+   * }
+   * }
+   * Nu se stochează secrete aici.
+   */
+  providerRefs Json?
+
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  /**
+   * Conturile de curier care folosesc această adresă.
+   */
+  courierAccounts CourierAccount[]
+
+  @@index([vendorId])
+  @@index([vendorId, isDefault])
+  @@index([serviceId])
 }

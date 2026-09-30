@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { FaTimes } from "react-icons/fa";
 import styles from "../ProfilMagazin.module.css";
-import { storeCampaignAttribution } from "../../../../utils/campaignAttribution.js";
+import { offerCampaignAttribution } from "../../../../utils/campaignAttributionCapture.js";
 import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
 
 function money(value) {
@@ -79,7 +79,9 @@ export default function PublicCampaignModal({
         setDetails(data);
 
         if (data?.campaign?.attributionToken && data?.vendor?.id) {
-          storeCampaignAttribution({
+          // salvat imediat cu consimțământ „Atribuire”, altfel ținut în memorie
+          // până la cookie:consent (vezi utils/campaignAttributionCapture.js)
+          offerCampaignAttribution({
             vendorId: data.vendor.id,
             token: data.campaign.attributionToken,
             campaignId: data.campaign.id,

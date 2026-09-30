@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import styles from "./Orders.module.css";
+import CourierConnectCta from "./components/CourierConnectCta.jsx";
 import SubscriptionBanner from "../Onboarding/OnBoardingDetails/tabs/SubscriptionBanner/SubscriptionBanner.jsx";
 import { useSmartPrefetchItem } from "../../../hooks/useSmartPrefetch.js";
 
@@ -752,20 +753,8 @@ const [filtersOpen, setFiltersOpen] = useState(false);
     };
   }, [query, isVendor, activeTab]);
 
-  if (!isVendor) {
-    return (
-      <main className={styles.page}>
-        <div className={styles.card}>
-          <h1 className={styles.h1}>Comenzile mele</h1>
-          <p className={styles.muted}>
-            Această pagină este disponibilă doar pentru conturile de tip
-            vânzător.
-          </p>
-        </div>
-      </main>
-    );
-  }
-
+  // Hook-urile trebuie apelate înaintea return-ului condiționat de mai jos
+  // (rules-of-hooks) - altfel ordinea lor se schimbă când se schimbă isVendor.
   const handleRowClick = useCallback(
     (order) => {
       if (!order?.id) return;
@@ -786,6 +775,20 @@ const [filtersOpen, setFiltersOpen] = useState(false);
       ),
     }));
   }, []);
+
+  if (!isVendor) {
+    return (
+      <main className={styles.page}>
+        <div className={styles.card}>
+          <h1 className={styles.h1}>Comenzile mele</h1>
+          <p className={styles.muted}>
+            Această pagină este disponibilă doar pentru conturile de tip
+            vânzător.
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   const hasActiveFilters = !!(status || from || to);
   const activeFiltersLabel = [
@@ -943,6 +946,8 @@ const [filtersOpen, setFiltersOpen] = useState(false);
               )}
             </div>
           </div>
+
+         {!billingGate && <CourierConnectCta />}
 
          {billingGate ? (
   <div className={styles.card}>

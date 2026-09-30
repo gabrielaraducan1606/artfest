@@ -55,6 +55,9 @@ function isExpired(entry, now = Date.now()) {
  * confirmă referralCode-ul valid și întoarce un attributionToken.
  * Last-click-wins global - un link de vendor nou accesat suprascrie
  * atribuirea anterioară.
+ *
+ * Întoarce true DOAR dacă tokenul a fost efectiv scris (captura îl
+ * marchează ca procesat abia atunci).
  */
 export function storeVendorReferralAttribution({
   token,
@@ -62,14 +65,14 @@ export function storeVendorReferralAttribution({
   referralCode,
   attributionWindowHours,
 }) {
-  if (!token) return;
+  if (!token) return false;
 
   /*
    * BUGFIX (Cookies v2 §11.2 / audit legal) - token-ul de
    * atribuire NU se scrie în localStorage fără consimțământul
    * categoriei "Atribuire recomandări".
    */
-  if (!hasAttributionConsent()) return;
+  if (!hasAttributionConsent()) return false;
 
   const windowHours = Math.max(1, Number(attributionWindowHours) || 168);
 
@@ -84,6 +87,9 @@ export function storeVendorReferralAttribution({
     capturedAt: new Date().toISOString(),
     expiresAt,
   });
+
+  // localStorage poate fi indisponibil (mod privat) - verificăm scrierea
+  return readEntry()?.token === token;
 }
 
 /**

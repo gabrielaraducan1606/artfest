@@ -1,5 +1,7 @@
 // src/config/vendorNavigation.js
 
+import { VENDOR_COURIERS_ENABLED } from "./features.js";
+
 /*
  * Configurația STATICĂ a meniului de administrare vendor (drawer-ul
  * deschis din burger în Navbar.jsx). Doar rute reale, deja folosite
@@ -14,6 +16,14 @@
  * din Navbar.jsx) - nu o referință la componentă, ca fișierul să rămână
  * configurație pură.
  */
+
+/*
+ * Secțiunea „Curieri conectați” (CourierSettings) din Setări > Livrare și
+ * retururi - folosit de meniul vendor, dropdown-ul avatarului și CTA-ul din
+ * Comenzi, ca toate să ducă exact în același loc. #couriers = ancora
+ * secțiunii (scroll + highlight la montare).
+ */
+export const VENDOR_COURIERS_SETTINGS_URL = "/setari?tab=shipping#couriers";
 
 export const VENDOR_DASHBOARD_LINK = {
   label: "Dashboard",
@@ -84,6 +94,10 @@ export const VENDOR_NAV_SECTIONS = [
         to: "/vendor/orders/planning",
         icon: "CalendarDays",
       },
+      // conturile de curier ale vendorului (nu o pagină separată - secțiunea din Setări)
+      ...(VENDOR_COURIERS_ENABLED
+        ? [{ label: "Curieri", to: VENDOR_COURIERS_SETTINGS_URL, icon: "Truck" }]
+        : []),
       { label: "Mesaje", to: "/mesaje", icon: "MessageSquare" },
     ],
   },

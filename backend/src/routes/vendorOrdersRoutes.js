@@ -50,6 +50,8 @@ import {
   applyVendorReturnAction,
   listReturnRequestsForOrder,
 } from "../services/returnRequestService.js";
+// mutat neschimbat în services/ (refolosit și de generarea AWB)
+import { computeVendorOrderPaymentState } from "../services/vendorOrderPaymentState.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -1342,98 +1344,6 @@ function shipmentToUserUiStatus(st) {
   return "new";
 }
 
-/* ----------------------------------------------------
-   Helper: status plată pentru vendor
-
-   Important:
-   - comenzile manuale CARD create de vendor nu sunt
-     confundate automat cu plățile Stripe;
-   - considerăm CARD online dacă există user/guest
-     sau identificatori Stripe.
------------------------------------------------------ */
-
-function computeVendorOrderPaymentState(
-  order
-) {
-  const paymentMethod =
-    String(
-      order?.paymentMethod ||
-        ""
-    )
-      .trim()
-      .toUpperCase();
-
-  const orderStatus =
-    String(
-      order?.status ||
-        ""
-    )
-      .trim()
-      .toUpperCase();
-
-  const isCard =
-    paymentMethod ===
-    "CARD";
-
-  const isOnlineCard =
-    isCard &&
-    (
-      Boolean(
-        order?.userId
-      ) ||
-      order?.isGuestOrder ===
-        true ||
-      Boolean(
-        order?.stripeCheckoutSessionId
-      ) ||
-      Boolean(
-        order?.stripePaymentIntentId
-      ) ||
-      Boolean(
-        order?.paidAt
-      )
-    );
-
-  const isPaid =
-    isOnlineCard &&
-    (
-      orderStatus ===
-        "PAID" ||
-      Boolean(
-        order?.paidAt
-      )
-    );
-
-  const paymentStatus =
-    paymentMethod ===
-    "COD"
-      ? "COD"
-      : !isOnlineCard
-        ? "CARD"
-        : isPaid
-          ? "PAID"
-          : "PENDING";
-
-  const waitingForCardPayment =
-    isOnlineCard &&
-    !isPaid;
-
-  return {
-    paymentMethod,
-
-    paymentStatus,
-
-    isOnlineCard,
-
-    paid:
-      isPaid,
-
-    waitingForCardPayment,
-
-    canProcess:
-      !waitingForCardPayment,
-  };
-}
 
 /* ----------------------------------------------------
    🎫 Zod schema pentru facturi

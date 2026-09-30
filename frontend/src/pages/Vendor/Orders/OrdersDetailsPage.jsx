@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import styles from "./Orders.module.css";
 import VendorReturnRequestsSection from "./VendorReturnRequestsSection.jsx";
+import AwbPanel from "./components/AwbPanel.jsx";
 
 const COURIER_ENABLED = false;
 const INVOICE_ENABLED = false;
@@ -945,6 +946,13 @@ const contactPerson =
           )}
         </div>
       </div>
+
+      {/*
+        Zona de curier (AwbPanel): fără cont de curier activ -> CTA
+        „Conectează un curier” (CourierConnectCta); cu cont activ ->
+        „Generează AWB”; cu AWB -> număr AWB + „Descarcă eticheta”.
+      */}
+      <AwbPanel shipment={ship} orderStatus={order.status} onChanged={load} />
 
       <div className={styles.grid2}>
         {/* Client + facturare */}

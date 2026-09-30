@@ -1,5 +1,6 @@
 // src/pages/Vendor/Settings/SettingsPage.jsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { api } from "../../../lib/api";
 import {
   User as UserIcon,
@@ -23,6 +24,7 @@ import PaymentTab from "../Onboarding/OnBoardingDetails/tabs/PaymentTab.jsx";
 import ConnectPayoutsTab from "../Onboarding/OnBoardingDetails/tabs/ConnectPayoutsTab.jsx";
 
 import MarketingPreferences from "../../User/MarketingPreferences/MarketingPreferences.jsx";
+import CourierSettings from "./couriers/CourierSettings.jsx";
 
 const VANITY_BASE = "www.artfest.ro";
 const FORGOT_PASSWORD_URL = "/reset-parola";
@@ -881,9 +883,7 @@ export default function SettingsPage() {
     "danger",
   ];
 
-  const [active, setActive] = useState(() => {
-    const t = new URLSearchParams(window.location.search).get("tab");
-
+  const resolveTab = (t) => {
     if (t === "facturare") return "billing";
     if (t === "plata" || t === "abonament") return "subscription";
     if (t === "incasari" || t === "stripe") return "payouts";
@@ -891,7 +891,26 @@ export default function SettingsPage() {
     if (t && allowedTabs.includes(t)) return t;
 
     return "profile";
-  });
+  };
+
+  const [active, setActive] = useState(() =>
+    resolveTab(new URLSearchParams(window.location.search).get("tab"))
+  );
+
+  /*
+   * Navigare către /setari?tab=... când pagina e DEJA montată (ex. „Curieri”
+   * din meniu, pe /setari?tab=profile) - componenta nu se remontează, deci
+   * tab-ul se sincronizează din locația router-ului. location.key acoperă și
+   * click-ul repetat pe același link (setTab folosește replaceState, pe care
+   * router-ul nu îl vede).
+   */
+  const location = useLocation();
+  useEffect(() => {
+    const t = new URLSearchParams(location.search).get("tab");
+    if (t) setActive(resolveTab(t));
+    // resolveTab/allowedTabs sunt constante în practică
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search, location.key]);
 
   const setTab = useCallback((key) => {
     setActive(key);
@@ -1188,7 +1207,14 @@ export default function SettingsPage() {
           </>
         )}
 
-        {!loading && active === "shipping" && <ShippingSettings />}
+        {!loading && active === "shipping" && (
+          <div className={settingsStyles.grid1}>
+            <ShippingSettings />
+            {/* Curieri conectați + adrese de ridicare (componentă separată,
+                nu atinge costurile de transport / datele de retur de mai sus) */}
+            <CourierSettings />
+          </div>
+        )}
 
         {!loading && active === "notifications" && (
           <Section

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../../lib/api.js";
-import { storeCampaignAttribution } from "../../utils/campaignAttribution.js";
+import { offerCampaignAttribution } from "../../utils/campaignAttributionCapture.js";
 import ProductCard from "../Vendor/ProfilMagazin/components/ProductCard";
 import { SEO } from "../../components/Seo/SeoProvider";
 import styles from "../Products/Products.module.css";
@@ -54,7 +54,9 @@ export default function PublicCampaignPage() {
         setData(res);
 
         if (res?.campaign?.attributionToken && res?.vendor?.id) {
-          storeCampaignAttribution({
+          // salvat imediat cu consimțământ „Atribuire”, altfel ținut în memorie
+          // până la cookie:consent (vezi utils/campaignAttributionCapture.js)
+          offerCampaignAttribution({
             vendorId: res.vendor.id,
             token: res.campaign.attributionToken,
             campaignId: res.campaign.id,

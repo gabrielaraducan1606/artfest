@@ -41,6 +41,7 @@ import {
   Wrench,
   AlertTriangle,
   Bot,
+  Truck,
 } from "lucide-react";
 
 import { api } from "../../lib/api";
@@ -65,7 +66,9 @@ import { useUnreadMessagesCount } from "../../features/messages/hooks/useUnreadM
 import {
   VENDOR_DASHBOARD_LINK,
   VENDOR_NAV_SECTIONS,
+  VENDOR_COURIERS_SETTINGS_URL,
 } from "../../config/vendorNavigation.js";
+import { VENDOR_COURIERS_ENABLED } from "../../config/features.js";
 import {
   USER_DASHBOARD_LINK,
   USER_NAV_SECTIONS,
@@ -117,6 +120,7 @@ const VENDOR_DRAWER_ICONS = {
   UserIcon,
   Wrench,
   AlertTriangle,
+  Truck,
 };
 
 function VendorDrawerIcon({ name, size = 18 }) {
@@ -157,7 +161,8 @@ function prefetchInfluencerDashboard() {
  * acum de orice rol care are drawer (nu doar vendor).
  */
 function isVendorNavItemActive(item, location) {
-  const [itemPath, itemQuery] = (item?.to || "").split("?");
+  // ancora (#couriers etc.) nu face parte din potrivire
+  const [itemPath, itemQuery] = (item?.to || "").split("#")[0].split("?");
   if (!itemPath) return false;
 
   const pathname = location.pathname;
@@ -2420,6 +2425,13 @@ const isAdminRoute = location.pathname.startsWith("/admin");
         Setări
       </NavLink>
     </li>
+    {VENDOR_COURIERS_ENABLED && (
+      <li>
+        <Link to={VENDOR_COURIERS_SETTINGS_URL}>
+          Curieri
+        </Link>
+      </li>
+    )}
   </>
 ) : isInfluencer ? (
   <>

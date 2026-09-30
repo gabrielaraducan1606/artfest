@@ -30,7 +30,9 @@ import vendorVisitorsRoutes from "./src/routes/vendorVisitorsRoutes.js";
 import vendorVisitorsPublicRoutes from "./src/routes/vendorVisitorsPublicRoutes.js";
 import checkoutRoutes from "./src/routes/chekoutRoutes.js";
 import samedayRoutes from "./src/routes/samedayRoutes.js";
-import samedayWebhookRoutes from "./src/routes/samedayWebhookRoutes.js";
+// import samedayWebhookRoutes from "./src/routes/samedayWebhookRoutes.js"; // dezactivat, vezi montarea de mai jos
+import vendorCourierRoutes from "./src/routes/vendorCourierRoutes.js";
+import vendorShipmentAwbRoutes from "./src/routes/vendorShipmentAwbRoutes.js";
 import notificationsRoutes from "./src/routes/vendorNotificationsRoutes.js";
 import geoRoutes from "./src/routes/geoRoutes.js";
 import shareRoutes from "./src/routes/shareRoutes.js";
@@ -673,7 +675,18 @@ app.get("/api/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOS
 
 app.use("/api", checkoutRoutes);
 app.use("/api", samedayRoutes);
-app.use("/api", samedayWebhookRoutes);
+/*
+ * DEZACTIVAT TEMPORAR (audit multi-curier 2026-09-30): webhook-ul Sameday
+ * era neautentificat și defect (scria în câmpul inexistent `awbNumber`,
+ * fără mapare de status și fără ledger). Va fi înlocuit de webhook-ul
+ * generic, autentificat per cont, în etapa de tracking.
+ */
+// app.use("/api", samedayWebhookRoutes);
+
+// Conturi de curier + adrese de ridicare ale vendorului (/api/vendor/couriers, /api/vendor/pickup-addresses)
+app.use("/api/vendor", vendorCourierRoutes);
+// AWB (preview / creare / etichetă) - ÎNAINTEA vendorOrdersRoutes, care are GET /shipments/:id/label legacy
+app.use("/api/vendor", vendorShipmentAwbRoutes);
 
 app.use("/api/auth", authRouter);
 app.use("/api/vendors", vendorsRouter);

@@ -47,7 +47,11 @@ function isExpired(entry, now = Date.now()) {
 
 /**
  * Apelat la accesarea /c/:slug (după ce backend-ul confirmă
- * campania validă și întoarce un attributionToken).
+ * campania validă și întoarce un attributionToken) - prin
+ * utils/campaignAttributionCapture.js, care amână salvarea până la
+ * consimțământul „Atribuire”.
+ *
+ * Întoarce true DOAR dacă tokenul a fost efectiv scris.
  */
 export function storeCampaignAttribution({
   vendorId,
@@ -56,14 +60,14 @@ export function storeCampaignAttribution({
   slug,
   attributionWindowHours,
 }) {
-  if (!vendorId || !token) return;
+  if (!vendorId || !token) return false;
 
   /*
    * BUGFIX (Cookies v2 §11.2 / audit legal) - token-ul de
    * atribuire NU se scrie în localStorage fără consimțământul
    * categoriei "Atribuire recomandări".
    */
-  if (!hasAttributionConsent()) return;
+  if (!hasAttributionConsent()) return false;
 
   const windowHours = Math.max(1, Number(attributionWindowHours) || 168);
   const expiresAt = new Date(
@@ -81,6 +85,9 @@ export function storeCampaignAttribution({
   };
 
   writeMap(map);
+
+  // localStorage poate fi indisponibil (mod privat) - verificăm scrierea
+  return readMap()[String(vendorId)]?.token === token;
 }
 
 /**
