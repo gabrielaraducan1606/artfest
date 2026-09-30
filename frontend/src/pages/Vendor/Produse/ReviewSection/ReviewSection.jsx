@@ -247,11 +247,11 @@ export default function ReviewSection({
     }
   };
 
-  // ===== Vendor reply actions (în burger) =====
+  // ===== Răspuns oficial vânzător (unul per recenzie) =====
   const startReply = (review) => {
-  setReplyingToId(review.id);
-  setReplyText(review.reply?.text || "");
-};
+    setReplyingToId(review.id);
+    setReplyText(review.reply?.text || "");
+  };
 
   const cancelReply = () => {
     if (replySubmitting) return;
@@ -269,14 +269,18 @@ export default function ReviewSection({
     try {
       setReplySubmitting(true);
 
+      // POST = primul răspuns (notifică clientul), PATCH = editare
       const res = await api(
         `/api/vendor/reviews/${encodeURIComponent(review.id)}/reply`,
-        { method: "POST", body: { text } }
+        { method: review.reply ? "PATCH" : "POST", body: { text } }
       );
 
+      const now = new Date().toISOString();
       const newReply = {
         text: res?.reply?.text ?? text,
-        createdAt: res?.reply?.createdAt ?? new Date().toISOString(),
+        createdAt: res?.reply?.createdAt ?? review.reply?.createdAt ?? now,
+        updatedAt: res?.reply?.updatedAt ?? now,
+        vendorName: res?.reply?.vendorName ?? review.reply?.vendorName ?? null,
       };
 
       setLocalReviews((prev) =>
@@ -311,8 +315,6 @@ export default function ReviewSection({
     } catch (e) {
       console.error(e);
       alert(e?.message || "Nu am putut șterge răspunsul.");
-    } finally {
-      setActiveMenuId(null);
     }
   };
 
@@ -341,8 +343,13 @@ export default function ReviewSection({
       {hasReviews && (
         <ul className={styles.list}>
           {localReviews.map((r) => {
-            const isVendorBurgerEnabled = isLoggedIn && isOwner; // vendor pe propriul produs
-            const canReply = isVendorBurgerEnabled; // dacă vrei: && !isMyReview(r) etc.
+            // vendor pe propriul produs - răspuns oficial (unul per recenzie)
+            const canReply = isLoggedIn && isOwner;
+            // autorul și vendorul produsului nu pot vota "Utilă" (regula
+            // e impusă și în backend); vizitatorii văd butonul și primesc
+            // mesajul de autentificare.
+            const canVoteHelpful = !isOwner && !isMyReview(r);
+            const isEditingReply = canReply && replyingToId === r.id;
 
             return (
               <li key={r.id} id={`rev-${r.id}`} className={styles.item}>
@@ -412,45 +419,6 @@ export default function ReviewSection({
                             </>
                           )}
 
-                          {/* Vendor reply actions în burger */}
-                          {canReply && (
-                            <>
-                              <div className={styles.itemMenuDivider} />
-                              {!r.reply ? (
-                                <button
-                                  type="button"
-                                  className={styles.itemMenuItem}
-                                  onClick={() => {
-                                    startReply(r);
-                                    setActiveMenuId(null);
-                                  }}
-                                >
-                                  <FaReply /> <span>Răspunde</span>
-                                </button>
-                              ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    className={styles.itemMenuItem}
-                                    onClick={() => {
-                                      startReply(r);
-                                      setActiveMenuId(null);
-                                    }}
-                                  >
-                                    <FaEdit /> <span>Editează răspunsul</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className={styles.itemMenuItemDanger}
-                                    onClick={() => deleteReply(r)}
-                                  >
-                                    <FaTrash /> <span>Șterge răspunsul</span>
-                                  </button>
-                                </>
-                              )}
-                            </>
-                          )}
-
                           {/* Report */}
                           <button
                             type="button"
@@ -483,19 +451,91 @@ export default function ReviewSection({
                   </div>
                 )}
 
-                {/* reply existent */}
-                {r.reply && (
+                <div className={styles.actionsRow}>
+                  {canVoteHelpful ? (
+                    <button
+                      type="button"
+                      className={`${styles.actionBtn} ${
+                        r.likedByMe ? styles.actionBtnActive : ""
+                      }`}
+                      onClick={() => handleHelpful(r)}
+                      title="Marchează recenzia ca utilă"
+                      aria-pressed={!!r.likedByMe}
+                    >
+                      {r.likedByMe ? <FaThumbsUp /> : <FaRegThumbsUp />}{" "}
+                      <span>
+                        Utilă{" "}
+                        {r.helpfulCount != null && r.helpfulCount > 0
+                          ? `(${r.helpfulCount})`
+                          : ""}
+                      </span>
+                    </button>
+                  ) : (
+                    r.helpfulCount > 0 && (
+                      <span className={styles.helpfulInfo}>
+                        <FaRegThumbsUp aria-hidden="true" />{" "}
+                        {r.helpfulCount === 1
+                          ? "1 persoană a considerat utilă această recenzie"
+                          : `${r.helpfulCount} au considerat utilă această recenzie`}
+                      </span>
+                    )
+                  )}
+
+                  {canReply && !r.reply && !isEditingReply && (
+                    <button
+                      type="button"
+                      className={styles.actionBtn}
+                      onClick={() => startReply(r)}
+                    >
+                      <FaReply /> <span>Răspunde la recenzie</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* răspuns oficial al vânzătorului */}
+                {r.reply && !isEditingReply && (
                   <div className={styles.replyBox}>
                     <div className={styles.replyLabel}>Răspuns de la vânzător</div>
-                    <div className={styles.replyText}>{r.reply.text}</div>
-                    <div className={styles.replyDate}>
-                      {formatDate(r.reply.createdAt)}
+                    <div className={styles.replyMeta}>
+                      <span className={styles.replyAuthor}>
+                        {r.reply.vendorName || "Magazin"}
+                      </span>
+                      <span className={styles.badgeSeller}>Vânzător</span>
+                      <span className={styles.replyDate}>
+                        {formatDate(r.reply.createdAt)}
+                        {r.reply.updatedAt &&
+                        new Date(r.reply.updatedAt).getTime() -
+                          new Date(r.reply.createdAt).getTime() >
+                          1000
+                          ? " · editat"
+                          : ""}
+                      </span>
                     </div>
+                    <div className={styles.replyText}>{r.reply.text}</div>
+
+                    {canReply && (
+                      <div className={styles.replyActions}>
+                        <button
+                          type="button"
+                          className={styles.replyActionBtn}
+                          onClick={() => startReply(r)}
+                        >
+                          <FaEdit /> <span>Editează</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.replyActionBtnDanger}
+                          onClick={() => deleteReply(r)}
+                        >
+                          <FaTrash /> <span>Șterge</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* editor răspuns (NU în burger, doar când e activ) */}
-                {isOwner && isLoggedIn && replyingToId === r.id && (
+                {/* editor răspuns - doar când e activ */}
+                {isEditingReply && (
                   <div className={styles.vendorReplyEditor}>
                     <textarea
                       className={styles.textarea}
@@ -530,25 +570,6 @@ export default function ReviewSection({
                     </div>
                   </div>
                 )}
-
-                <div className={styles.actionsRow}>
-                  <button
-                    type="button"
-                    className={`${styles.actionBtn} ${
-                      r.likedByMe ? styles.actionBtnActive : ""
-                    }`}
-                    onClick={() => handleHelpful(r)}
-                    title="Marchează recenzia ca utilă"
-                  >
-                    {r.likedByMe ? <FaThumbsUp /> : <FaRegThumbsUp />}{" "}
-                    <span>
-                      Utilă{" "}
-                      {r.helpfulCount != null && r.helpfulCount > 0
-                        ? `(${r.helpfulCount})`
-                        : ""}
-                    </span>
-                  </button>
-                </div>
               </li>
             );
           })}

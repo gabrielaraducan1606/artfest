@@ -1,5 +1,6 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../../../lib/api.js";
 import styles from "../AdminDesktop.module.css";
 
@@ -130,7 +131,12 @@ function createDefaultFilters() {
 }
 
 export default function AdminOrdersTab({ orders, forcedUserId, forcedVendorId }) {
-  const [filters, setFilters] = useState(createDefaultFilters);
+  // link direct la o comandă (ex. din tab-ul Retururi: /admin?tab=orders&q=AF-123)
+  const [searchParams] = useSearchParams();
+  const [filters, setFilters] = useState(() => ({
+    ...createDefaultFilters(),
+    q: searchParams.get("q") || "",
+  }));
   const [page, setPage] = useState(1);
   const [selectedOrder, setSelectedOrder] = useState(null);
 
@@ -607,6 +613,60 @@ function DepositBadge({ order }) {
   );
 }
 /* ----------------------------------------------------
+   Retururi (read-only: ReturnRequest.status + ledger)
+----------------------------------------------------- */
+
+const RETURN_BADGE_COLORS = {
+  REQUESTED: { background: "#fef3c7", color: "#92400e" },
+  ACCEPTED: { background: "#dbeafe", color: "#1e40af" },
+  RECEIVED_PENDING_REFUND: { background: "#ffedd5", color: "#9a3412" },
+  REFUNDED: { background: "#dcfce7", color: "#166534" },
+  REJECTED: { background: "#f3f4f6", color: "#374151" },
+};
+
+const RETURN_REFUND_REASONS = {
+  no_returns: "Comanda nu are retururi.",
+  card_charge_missing: "Comanda nu are o plată Stripe confirmată.",
+  already_refunded: "Comanda a fost deja rambursată.",
+  return_not_full_order:
+    "Returul nu acoperă întreaga comandă (toate coletele și produsele, primite de vânzător). Refundul parțial nu este disponibil.",
+  already_corrected: "Comisionul a fost deja corectat.",
+  return_not_full_shipment:
+    "Returul nu acoperă întreg coletul sau produsul nu a fost încă primit de vânzător.",
+  no_sale_to_correct: "Nu există vânzare în ledger pentru acest colet.",
+};
+
+function ReturnBadges({ returns }) {
+  if (!returns?.length) {
+    return <span className={styles.subtle}>—</span>;
+  }
+
+  // o etichetă per stare distinctă (o comandă multi-vendor poate avea mai multe retururi)
+  const distinct = [...new Map(returns.map((r) => [r.badge, r])).values()];
+
+  return (
+    <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 4 }}>
+      {distinct.map((r) => (
+        <span
+          key={r.badge}
+          style={{
+            display: "inline-flex",
+            padding: "4px 8px",
+            borderRadius: 999,
+            fontSize: 12,
+            fontWeight: 700,
+            whiteSpace: "nowrap",
+            ...(RETURN_BADGE_COLORS[r.badge] || {}),
+          }}
+        >
+          {r.badgeLabel}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/* ----------------------------------------------------
    Tabel comenzi
 ----------------------------------------------------- */
 
@@ -631,6 +691,7 @@ function OrdersTable({ rows, onRowClick, totalItems }) {
             <th>Status</th>
             <th>Metodă plată</th>
 <th>Avans</th>
+<th>Retur</th>
 <th>Total</th>
 <th># Shipments</th>
             <th>Vendori</th>
@@ -674,6 +735,10 @@ function OrdersTable({ rows, onRowClick, totalItems }) {
 
 <td>
   <DepositBadge order={o} />
+</td>
+
+<td>
+  <ReturnBadges returns={o.returns} />
 </td>
 
 <td>
@@ -802,6 +867,7 @@ function OrderDetailsDrawer({ order, onClose }) {
   // siguranța reală (fără dublu refund) vine din idempotența backend-ului.
   const [refundResult, setRefundResult] = useState(null);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const resendInFlightRef = useRef(false);
 
   useEffect(() => {
     setLocalOrder(order);
@@ -1083,23 +1149,42 @@ const appliedDiscountCodes = Object.values(
   };
 
   const handleResendConfirmation = async () => {
+    // gardă sincronă: un dublu-click rapid nu trimite două emailuri
+    if (resendInFlightRef.current) return;
+
+    const isGuest = localOrder.isGuestOrder === true || !localOrder.userId;
+
+    const confirmed = window.confirm(
+      `Retrimiți emailul comenzii ${localOrder.orderNumber || localOrder.id}?` +
+        (isGuest
+          ? "\n\nRetrimiterea va genera un link securizat nou. Linkurile guest din emailurile anterioare nu vor mai fi valabile."
+          : "")
+    );
+    if (!confirmed) return;
+
+    resendInFlightRef.current = true;
     setActionLoading(true);
     setActionError("");
     setActionMessage("");
 
     try {
-      await api(`/api/admin/orders/${localOrder.id}/resend-confirmation`, {
-        method: "POST",
-      });
+      const result = await api(
+        `/api/admin/orders/${encodeURIComponent(localOrder.id)}/resend-confirmation`,
+        { method: "POST" }
+      );
 
-      setActionMessage("Email de confirmare comandă a fost retrimis.");
+      setActionMessage(
+        result?.message || "Emailul de confirmare a comenzii a fost retrimis."
+      );
     } catch (e) {
       const msg =
         e?.response?.data?.message ||
+        e?.data?.message ||
         e?.message ||
         "Nu am putut retrimite emailul de confirmare.";
       setActionError(msg);
     } finally {
+      resendInFlightRef.current = false;
       setActionLoading(false);
     }
   };
@@ -1229,6 +1314,83 @@ const appliedDiscountCodes = Object.values(
         "Nu am putut rambursa avansul.";
 
       setActionError(msg);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  /*
+   * Retur INTEGRAL - eligibilitatea vine din backend (returnRefunds) și e
+   * reverificată pe server la apel; fără refund parțial.
+   */
+  const returnRefunds = localOrder.returnRefunds || null;
+
+  const shipmentVendorName = (shipmentId) =>
+    shipments.find((s) => s.id === shipmentId)?.vendor?.displayName ||
+    "Vânzător";
+
+  const handleReturnCardRefund = async () => {
+    const confirmed = window.confirm(
+      `Refund INTEGRAL pentru comanda ${
+        localOrder.orderNumber || localOrder.id
+      }?\n\nReturul acoperă întreaga comandă. Clientul primește înapoi toată plata cu cardul, iar transferurile către vânzători și comisioanele sunt reversate.`
+    );
+    if (!confirmed) return;
+
+    setActionLoading(true);
+    setActionError("");
+    setActionMessage("");
+
+    try {
+      const result = await api(
+        `/api/admin/orders/${encodeURIComponent(localOrder.id)}/return-refund`,
+        { method: "POST" }
+      );
+      setRefundResult(result);
+      setActionMessage(result?.message || "Rambursarea a fost efectuată.");
+      await reloadOrderDetail();
+    } catch (e) {
+      console.error("Admin return refund failed:", e);
+      setActionError(
+        e?.response?.data?.message ||
+          e?.data?.message ||
+          e?.message ||
+          "Nu am putut rambursa comanda."
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReturnCodCorrection = async (shipmentId) => {
+    const confirmed = window.confirm(
+      `Corectezi integral comisionul pentru coletul ${shipmentVendorName(
+        shipmentId
+      )}?\n\nBanii către client îi rambursează vânzătorul (plată ramburs).`
+    );
+    if (!confirmed) return;
+
+    setActionLoading(true);
+    setActionError("");
+    setActionMessage("");
+
+    try {
+      const result = await api(
+        `/api/admin/orders/${encodeURIComponent(
+          localOrder.id
+        )}/return-cod-correction`,
+        { method: "POST", body: { shipmentId } }
+      );
+      setActionMessage(result?.message || "Comisionul a fost corectat.");
+      await reloadOrderDetail();
+    } catch (e) {
+      console.error("Admin COD return correction failed:", e);
+      setActionError(
+        e?.response?.data?.message ||
+          e?.data?.message ||
+          e?.message ||
+          "Nu am putut corecta comisionul."
+      );
     } finally {
       setActionLoading(false);
     }
@@ -2067,6 +2229,77 @@ const appliedDiscountCodes = Object.values(
             )}
           </section>
 
+          {/* Retururi (read-only) + retur integral */}
+          {returnRefunds?.returns?.length > 0 && (
+            <section className={styles.drawerSection}>
+              <h4>Retururi</h4>
+
+              {returnRefunds.returns.map((r) => (
+                <div key={r.returnRequestId} className={styles.drawerField}>
+                  <span>
+                    {shipmentVendorName(r.originalShipmentId)} ·{" "}
+                    <code>{r.returnRequestId}</code>
+                  </span>
+                  <ReturnBadges returns={[r]} />
+                </div>
+              ))}
+
+              {isCardOrder && (
+                <div className={styles.drawerActions}>
+                  <button
+                    type="button"
+                    className={styles.adminActionBtnDanger}
+                    onClick={handleReturnCardRefund}
+                    disabled={actionLoading || !returnRefunds.cardFullRefund?.eligible}
+                    title={
+                      returnRefunds.cardFullRefund?.eligible
+                        ? "Refund integral al comenzii (fluxul existent de refund CARD)"
+                        : RETURN_REFUND_REASONS[returnRefunds.cardFullRefund?.reason] ||
+                          "Nu este eligibil"
+                    }
+                  >
+                    Refund integral din retur
+                  </button>
+                </div>
+              )}
+              {isCardOrder && !returnRefunds.cardFullRefund?.eligible && (
+                <p className={styles.subtle} style={{ fontSize: 12 }}>
+                  {RETURN_REFUND_REASONS[returnRefunds.cardFullRefund?.reason] ||
+                    "Refundul integral nu este disponibil."}
+                </p>
+              )}
+
+              {(returnRefunds.codCorrections || []).map((c) => (
+                <div key={c.shipmentId} className={styles.drawerActions}>
+                  <button
+                    type="button"
+                    className={styles.adminActionBtnDanger}
+                    onClick={() => handleReturnCodCorrection(c.shipmentId)}
+                    disabled={actionLoading || !c.eligible}
+                    title={
+                      c.eligible
+                        ? "Corecție integrală de comision pe colet (fără Stripe)"
+                        : RETURN_REFUND_REASONS[c.reason] || "Nu este eligibil"
+                    }
+                  >
+                    Corectează comisionul · {shipmentVendorName(c.shipmentId)}
+                  </button>
+                  {!c.eligible && (
+                    <span className={styles.subtle} style={{ fontSize: 12 }}>
+                      {RETURN_REFUND_REASONS[c.reason] || c.reason}
+                    </span>
+                  )}
+                </div>
+              ))}
+              {returnRefunds.codCorrections?.length > 0 && (
+                <p className={styles.subtle} style={{ fontSize: 12 }}>
+                  Plată ramburs: banii către client îi returnează vânzătorul,
+                  în afara platformei. Aici se corectează doar comisionul.
+                </p>
+              )}
+            </section>
+          )}
+
           {/* Note interne admin */}
           <section className={styles.drawerSection}>
             <h4>Note interne admin</h4>
@@ -2102,7 +2335,7 @@ const appliedDiscountCodes = Object.values(
                 onClick={handleResendConfirmation}
                 disabled={actionLoading}
               >
-                Retrimite email confirmare
+                {actionLoading ? "Se procesează..." : "Retrimite emailul comenzii"}
               </button>
 
               <button

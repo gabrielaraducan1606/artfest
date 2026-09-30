@@ -7,6 +7,8 @@ import {
 } from "react-router-dom";
 import { api } from "../../../lib/api";
 import WithdrawalButton from "../../../components/Withdrawal/WithdrawalButton.jsx";
+import UserReturnRequestsSection from "./UserReturnRequestsSection.jsx";
+import ReturnRequestModal from "./ReturnRequestModal/ReturnRequestModal";
 import { humanizeOptionValue } from "../../../utils/optionLabels";
 import {
   ArrowLeft,
@@ -657,6 +659,10 @@ export default function MyOrderDetailsPage() {
   const { id } =
     useParams();
 
+  // formularul de retur (același ca în lista de comenzi)
+  const [returnOpen, setReturnOpen] =
+    useState(false);
+
   const nav =
     useNavigate();
 
@@ -803,6 +809,15 @@ export default function MyOrderDetailsPage() {
   }, [
     load,
   ]);
+
+  // link din email: /comanda/:id#retur -> derulăm la secțiunea de retur
+  // după ce comanda s-a încărcat (secțiunea nu există înainte)
+  useEffect(() => {
+    if (!order || window.location.hash !== "#retur") return;
+    document
+      .getElementById("retur")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [order]);
 
   const items =
     useMemo(
@@ -1614,6 +1629,51 @@ export default function MyOrderDetailsPage() {
           </div>
         </div>
       </div>
+
+      {/*
+       * Retur (ținta linkului din emailul „predat curierului”: /comanda/:id#retur).
+       * Eligibilitatea vine din backend (returnEligible = livrată) și e
+       * reverificată la trimiterea cererii; înainte de livrare doar informăm.
+       */}
+      {order &&
+        (order.returnEligible ||
+          ["PENDING", "PROCESSING", "SHIPPED"].includes(order.status)) && (
+          <section id="retur" className={styles.card}>
+            <h3 style={{ margin: "0 0 8px" }}>Retur</h3>
+
+            {order.returnEligible ? (
+              <>
+                <p style={{ margin: "0 0 10px" }}>
+                  Ai o problemă cu un produs sau vrei să îl returnezi? Trimite
+                  cererea de aici și urmărește-o mai jos.
+                </p>
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  onClick={() => setReturnOpen(true)}
+                >
+                  Solicită retur
+                </button>
+              </>
+            ) : (
+              <p style={{ margin: 0 }}>
+                Returul poate fi solicitat după livrarea comenzii.
+              </p>
+            )}
+          </section>
+        )}
+
+      {order?.returnEligible && (
+        <ReturnRequestModal
+          open={returnOpen}
+          onClose={() => setReturnOpen(false)}
+          orderId={order.id}
+          onSubmitted={() => load()}
+        />
+      )}
+
+      {/* Cererile de retur ale clientului - status + răspunsul vânzătorului */}
+      <UserReturnRequestsSection order={order} className={styles.card} />
 
       {paymentResult ===
         "cancelled" &&

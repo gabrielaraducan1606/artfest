@@ -373,10 +373,12 @@ export async function notifyUserOnProductReviewReply(reviewId) {
   const text = String(review.reply.text || "").trim();
   const preview = text.length > 140 ? text.slice(0, 137).trimEnd() + "..." : text;
 
-  const title = `${vendorName} ți-a răspuns la recenzia ta`;
-  const body = preview || `Ai primit un răspuns la recenzia ta pentru „${productTitle}”.`;
+  const title = `Vânzătorul a răspuns recenziei tale pentru «${productTitle}».`;
+  const body = preview ? `${vendorName}: ${preview}` : null;
 
-  const link = `/produs/${review.productId}#review-${review.id}`;
+  // #rev-<id> = ancora din ReviewSection.jsx; ProductDetails deschide
+  // automat secțiunea de recenzii pentru acest hash.
+  const link = `/produs/${review.productId}#rev-${review.id}`;
 
   // ✅ dedupe atomic
   const dedupeKey = `product_review_reply:${review.userId}:${review.id}`;
@@ -674,8 +676,8 @@ export async function notifyVendorOnProductCommentCreated(commentId) {
   const preview = trimPreview(c.text);
 
   const productTitle = c.product?.title || "produsul tău";
-  const title = `Comentariu nou la produs`;
-  let body = `Ai primit un comentariu nou pentru „${productTitle}”${author}.`;
+  const title = `Întrebare nouă pentru «${productTitle}»`;
+  let body = `Ai primit o întrebare nouă${author}.`;
   if (preview) body += `\n\n„${preview}”`;
 
   const link = `/produs/${c.productId}#comment-${c.id}`;
@@ -740,15 +742,13 @@ export async function notifyUserOnProductCommentReply(commentId) {
   if (parentUserId === c.userId) return null;
 
   const productTitle = c.product?.title || "produs";
-  const replierName =
-    (c.user?.name ||
-      [c.user?.firstName, c.user?.lastName].filter(Boolean).join(" "))?.trim() ||
-    (c.user?.email ? c.user.email.split("@")[0] : "");
+  // numele MAGAZINULUI (ca în UI), nu numele personal al userului vendor
+  const shopName = c.product?.service?.vendor?.displayName || "Vânzătorul";
 
   const preview = trimPreview(c.text, 140);
 
-  const title = `Răspuns nou la comentariul tău`;
-  let body = `${replierName || "Cineva"} ți-a răspuns la comentariul pentru „${productTitle}”.`;
+  const title = `Vânzătorul a răspuns întrebării tale pentru «${productTitle}».`;
+  let body = `${shopName} ți-a răspuns.`;
   if (preview) body += `\n\n„${preview}”`;
 
   const link = `/produs/${c.productId}#comment-${c.id}`;

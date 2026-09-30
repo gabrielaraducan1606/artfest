@@ -13,6 +13,18 @@ import {
   ensureVendorReferralRefundLedgerEntry,
 } from "./vendorOrdersRoutes.js";
 import { notifyVendorOnAwbAssigned } from "../services/notifications.js";
+import { RETURN_REASONS, returnReasonLabel } from "../services/returnRequestRules.js";
+import { notifyAdminReturnStatusChange } from "../services/returnRequestService.js";
+
+// Clientul e anunțat cu aceleași texte / mecanisme ca la acțiunile
+// vânzătorului (best-effort: statusul e deja salvat).
+async function notifyClientOfAdminReturnChange(args) {
+  try {
+    await notifyAdminReturnStatusChange({ db: prisma, ...args });
+  } catch (error) {
+    console.error("[admin returns] client notification failed:", error?.message || error);
+  }
+}
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -544,13 +556,17 @@ router.patch("/pickups/:shipmentId/delivered", requireAdmin, async (req, res) =>
 
     const existing = await prisma.shipment.findUnique({
       where: { id: shipmentId },
-      select: { id: true, status: true, vendorId: true, orderId: true },
+      select: { id: true, status: true, vendorId: true, orderId: true, direction: true },
     });
     if (!existing) return res.status(404).json({ error: "not_found" });
 
     if (!["AWB", "IN_TRANSIT", "PICKUP_SCHEDULED", "READY_FOR_PICKUP"].includes(existing.status)) {
       return res.status(409).json({ error: "invalid_status" });
     }
+
+    // Colet RETURN (client -> vendor) livrat: NU e vânzare - fără SALE,
+    // fără comision, fără finalizarea comenzii (vezi isReturnShipment).
+    const isReturn = existing.direction === "RETURN";
 
     const updated = await prisma.shipment.update({
       where: { id: shipmentId },
@@ -563,12 +579,13 @@ router.patch("/pickups/:shipmentId/delivered", requireAdmin, async (req, res) =>
       select: { id: true, status: true, orderId: true, vendorId: true, deliveredAt: true },
     });
 
+    // FULFILLED se decide doar pe coletele de vânzare (OUTBOUND)
     const all = await prisma.shipment.findMany({
-      where: { orderId: updated.orderId },
+      where: { orderId: updated.orderId, direction: "OUTBOUND" },
       select: { status: true },
     });
     const allDelivered = all.length > 0 && all.every((s) => s.status === "DELIVERED");
-    if (allDelivered) {
+    if (!isReturn && allDelivered) {
       await prisma.order.update({
         where: { id: updated.orderId },
         data: { status: "FULFILLED" },
@@ -587,8 +604,9 @@ router.patch("/pickups/:shipmentId/delivered", requireAdmin, async (req, res) =>
      * scris rămâne (nu-l rulăm într-o tranzacție comună cu ledger-ul -
      * helper-ele nu acceptă `db`/tx, la fel ca în vendorOrdersRoutes.js),
      * dar eroarea e logată clar pentru reconciliere manuală.
+     * Coletul RETURN sare complet peste ledger (helper-ele au și ele gardă).
      */
-    try {
+    if (!isReturn) try {
       await ensureSaleLedgerEntry({
         vendorId: updated.vendorId,
         shipmentId: updated.id,
@@ -806,10 +824,13 @@ router.get("/returns", requireAdmin, async (req, res) => {
         : {}),
     };
 
-    const [rows, total] = await Promise.all([
+    // cele mai vechi cereri NEW primele (vânzător care nu răspunde)
+    const orderBy = status === "NEW" ? { createdAt: "asc" } : { createdAt: "desc" };
+
+    const [rows, total, statusGroups] = await Promise.all([
       prisma.returnRequest.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
         select: {
@@ -829,12 +850,42 @@ router.get("/returns", requireAdmin, async (req, res) => {
           vendor: { select: { id: true, displayName: true, email: true, user: { select: { email: true } } } },
           user: { select: { id: true, email: true, name: true } },
 
+          photos: true,
+          notesUser: true,
+          items: { select: { id: true, title: true, qty: true } },
+
           originalShipmentId: true,
           returnShipments: { select: { id: true, direction: true, status: true, awb: true, pickupScheduledAt: true } },
         },
       }),
       prisma.returnRequest.count({ where }),
+      // numărătoare pe status (toate cererile, fără filtre) pentru tab-ul Admin
+      prisma.returnRequest.groupBy({ by: ["status"], _count: { _all: true } }),
     ]);
+
+    const counts = { ALL: 0 };
+
+    for (const group of statusGroups) {
+      counts[group.status] = group._count._all;
+      counts.ALL += group._count._all;
+    }
+
+    // ultimul mesaj legat de retur (etichetat return:<id>:... în threadul comenzii)
+    const ids = rows.map((r) => r.id);
+    const returnMessages = ids.length
+      ? await prisma.message.findMany({
+          where: { OR: ids.map((rid) => ({ clientMessageId: { startsWith: `return:${rid}:` } })) },
+          orderBy: { createdAt: "desc" },
+          select: { body: true, createdAt: true, authorType: true, threadId: true, clientMessageId: true },
+        })
+      : [];
+
+    const lastMessageById = new Map();
+
+    for (const m of returnMessages) {
+      const rid = String(m.clientMessageId).split(":")[1];
+      if (!lastMessageById.has(rid)) lastMessageById.set(rid, m);
+    }
 
     const items = rows.map((r) => {
       const addr = r.order?.shippingAddress || {};
@@ -857,7 +908,21 @@ router.get("/returns", requireAdmin, async (req, res) => {
         customerName: addr?.name || r.user?.name || "",
 
         reasonCode: r.reasonCode,
+        reasonLabel: returnReasonLabel(r.reasonCode),
+        reasonKind: RETURN_REASONS[r.reasonCode]?.kind || null,
         reasonText: r.reasonText || null,
+        notesUser: r.notesUser || null,
+        photos: r.photos || [],
+        items: r.items || [],
+
+        guest: !r.userId,
+        updatedAt: r.updatedAt,
+        lastMessage: (() => {
+          const m = lastMessageById.get(r.id);
+          return m
+            ? { body: m.body, createdAt: m.createdAt, from: m.authorType === "VENDOR" ? "VENDOR" : "CLIENT", threadId: m.threadId }
+            : null;
+        })(),
 
         originalShipmentId: r.originalShipmentId,
         returnShipments: r.returnShipments || [],
@@ -865,7 +930,7 @@ router.get("/returns", requireAdmin, async (req, res) => {
       };
     });
 
-    return res.json({ total, items });
+    return res.json({ total, counts, items });
   } catch (err) {
     console.error("GET /api/admin/returns FAILED:", err);
     return res.status(500).json({ error: "server_error" });
@@ -945,12 +1010,14 @@ router.get("/returns/:id", requireAdmin, async (req, res) => {
 ------------------------------------------- */
 const SetReturnStatusPayload = z.object({
   status: z.enum(["NEW", "IN_REVIEW", "APPROVED", "REJECTED", "PICKUP_REQUESTED", "CLOSED"]),
+  // opțional: mesaj pentru client (motiv / informații cerute / instrucțiuni)
+  message: z.string().trim().max(2000).optional().nullable(),
 });
 
 router.patch("/returns/:id/status", requireAdmin, async (req, res) => {
   try {
     const id = String(req.params.id);
-    const { status } = SetReturnStatusPayload.parse(req.body || {});
+    const { status, message } = SetReturnStatusPayload.parse(req.body || {});
 
     const rr = await prisma.returnRequest.findUnique({
       where: { id },
@@ -962,6 +1029,13 @@ router.patch("/returns/:id/status", requireAdmin, async (req, res) => {
       where: { id },
       data: { status },
       select: { id: true, status: true, updatedAt: true },
+    });
+
+    await notifyClientOfAdminReturnChange({
+      returnRequestId: id,
+      previousStatus: rr.status,
+      status,
+      message,
     });
 
     return res.json({ ok: true, returnRequest: updated });
@@ -1047,6 +1121,12 @@ router.post("/returns/:id/create-shipment", requireAdmin, async (req, res) => {
       where: { id: rr.id },
       data: { status: "PICKUP_REQUESTED" },
       select: { id: true, status: true, updatedAt: true },
+    });
+
+    await notifyClientOfAdminReturnChange({
+      returnRequestId: rr.id,
+      previousStatus: rr.status,
+      status: "PICKUP_REQUESTED",
     });
 
     return res.json({ ok: true, shipment: created, returnRequest: rrUpdated });

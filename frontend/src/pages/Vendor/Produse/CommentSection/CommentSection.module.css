@@ -1,102 +1,272 @@
 /* src/pages/ProductDetails/CommentSection/CommentSection.module.css */
+/* Doar variabile de temă (styles/variables.css) - funcționează și în dark mode. */
 
 /* ---- container ---- */
 .section {
-  margin-top: 28px;
-  background: var(--surface);
-  border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius) + 6px);
-  padding: 18px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.04);
+  display: grid;
+  gap: 12px;
 }
 
 /* ---- list ---- */
 .list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: grid;
-  gap: 12px;
-  margin: 0 0 14px;
+  gap: 8px;
 }
 
 .item {
   border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius) + 4px);
-  padding: 12px 12px 10px;
-  background: var(--color-bg);
-  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--surface);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .item:hover {
-  border-color: rgba(0, 0, 0, 0.08);
-  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.05);
-  transform: translateY(-1px);
+  border-color: var(--border-strong);
 }
 
-/* top row: name + date + menu */
+/* mesajul țintă dintr-un link #comment-<id> */
+.itemHighlight {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+/* top row: nume · dată + meniu */
 .itemTop {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
 .itemHead {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 6px;
+  row-gap: 2px;
   min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
-.itemHead strong {
-  font-weight: 700;
-  font-size: 14px;
+.author {
+  font-weight: 600;
   color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 220px;
+  overflow-wrap: anywhere;
+}
+
+.dot,
+.date,
+.edited {
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 
 .date {
-  color: rgba(0, 0, 0, 0.55);
-  font-size: 12px;
+  white-space: nowrap;
+}
+
+.edited {
+  font-style: italic;
+}
+
+.vendorBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
   white-space: nowrap;
 }
 
 /* content */
 .text {
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   color: var(--color-text);
   line-height: 1.5;
   font-size: 14px;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
-/* ---- empty ---- */
+/* ---- răspunsuri (un singur nivel, indentat, bordură laterală) ---- */
+.replies {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.replyItem {
+  margin-left: 12px;
+  padding: 6px 10px 6px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+
+/* ---- acțiuni inline ---- */
+.inlineActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.linkBtn,
+.linkBtnDanger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.linkBtn svg,
+.linkBtnDanger svg {
+  font-size: 11px;
+}
+
+.linkBtn:hover {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.linkBtnDanger {
+  color: var(--color-danger);
+}
+
+.linkBtnDanger:hover {
+  text-decoration: underline;
+}
+
+.replyBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
+  background: transparent;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.replyBtn svg {
+  font-size: 12px;
+}
+
+.replyBtn:hover {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border-color: var(--color-primary);
+}
+
+/* ---- editor inline (răspuns / editare) ---- */
+.inlineEditor {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.editorActions,
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---- stări: loading / eroare / gol ---- */
+.stateBox,
+.stateBoxError,
 .empty {
-  padding: 14px;
-  border: 1px dashed var(--color-border);
-  border-radius: calc(var(--radius) + 4px);
+  padding: 12px;
+  border-radius: var(--radius);
+  font-size: 14px;
   text-align: center;
-  color: rgba(0, 0, 0, 0.55);
-  background: rgba(0, 0, 0, 0.02);
 }
 
-/* ---- subtle texts ---- */
-.muted {
-  color: rgba(0, 0, 0, 0.62);
+.stateBox {
+  color: var(--color-text-muted);
+  background: var(--surface-muted);
+}
+
+.stateBoxError {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--color-danger);
+  background: var(--danger-bg-soft);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+}
+
+.empty {
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-border);
+}
+
+.loadMoreRow {
+  display: flex;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+/* ---- mesaje (eroare / succes) ---- */
+.noticeError,
+.noticeSuccess {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-radius: var(--radius);
   font-size: 13px;
 }
 
+.noticeError {
+  color: var(--color-danger);
+  background: var(--danger-bg-soft);
+}
+
+.noticeSuccess {
+  color: var(--color-success);
+  background: var(--success-bg-soft);
+}
+
+/* ---- texte informative ---- */
+.ownerNote {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
 .loginPrompt {
-  margin-top: 10px;
-  color: rgba(0, 0, 0, 0.72);
+  margin: 0;
+  color: var(--color-text-muted);
   font-size: 14px;
 }
 
 .loginPrompt a {
   color: var(--color-primary);
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
 }
 
@@ -104,197 +274,181 @@
   text-decoration: underline;
 }
 
-/* ---- form ---- */
+/* ---- formular întrebare nouă ---- */
 .form {
   display: grid;
-  gap: 10px;
-  margin-top: 12px;
+  gap: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--color-border);
 }
 
-.formHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .label {
-  font-weight: 800;
+  font-weight: 600;
   font-size: 14px;
   margin: 0;
-}
-
-.editHint {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: calc(var(--radius) + 4px);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(0, 0, 0, 0.03);
-  color: rgba(0, 0, 0, 0.72);
-  font-size: 13px;
+  color: var(--color-text);
 }
 
 .textarea {
-  border-radius: calc(var(--radius) + 4px);
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: var(--radius);
   font-family: var(--font-body);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
+  font-size: 14px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
   color: var(--color-text);
-  padding: 10px 12px;
-  outline: none;
+  padding: 8px 10px;
   resize: vertical;
-  min-height: 84px;
+  min-height: 72px;
   line-height: 1.45;
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
-.textarea:focus {
-  border-color: rgba(0, 0, 0, 0.18);
-  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.06);
+.textarea::placeholder {
+  color: var(--text-disabled);
 }
 
-/* buttons */
+.textarea:focus {
+  outline: none;
+}
+
+.textarea:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
+.textarea:disabled {
+  opacity: 0.7;
+}
+
+/* ---- butoane ---- */
 .primaryBtn {
-  border-radius: calc(var(--radius) + 999px);
+  border-radius: 999px;
   font-family: var(--font-body);
+  font-size: 14px;
   background: var(--color-primary);
-  color: white;
-  border: none;
-  padding: 10px 14px;
+  color: var(--on-primary);
+  border: 1px solid var(--color-primary);
+  padding: 7px 14px;
   cursor: pointer;
-  font-weight: 800;
-  letter-spacing: 0.2px;
-  transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;
+  font-weight: 600;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
 }
 
 .primaryBtn:hover {
-  filter: brightness(0.96);
-  transform: translateY(-1px);
+  background: var(--color-hover);
+  border-color: var(--color-hover);
 }
 
-.primaryBtn:active {
-  transform: translateY(0px);
-}
-
-.primaryBtn:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.cancelEditBtn {
+.ghostBtn {
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 14px;
   border: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text);
-  padding: 8px 12px;
-  border-radius: calc(var(--radius) + 999px);
+  padding: 7px 14px;
   cursor: pointer;
-  font-weight: 700;
-  transition: background 120ms ease, transform 120ms ease, opacity 120ms ease;
+  font-weight: 600;
+  transition: background 120ms ease;
 }
 
-.cancelEditBtn:hover {
-  background: rgba(0, 0, 0, 0.04);
+.ghostBtn:hover {
+  background: var(--hover-bg);
 }
 
-.cancelEditBtn:active {
-  transform: translateY(1px);
+.primaryBtn:disabled,
+.ghostBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
-/* ---- menu (ellipsis + dropdown) ---- */
+/* focus vizibil, coerent pentru toate controalele */
+.primaryBtn:focus-visible,
+.ghostBtn:focus-visible,
+.replyBtn:focus-visible,
+.linkBtn:focus-visible,
+.linkBtnDanger:focus-visible,
+.menuToggleBtn:focus-visible,
+.itemMenuItem:focus-visible,
+.loginPrompt a:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ---- meniu 3 puncte (acțiuni secundare) ---- */
 .itemMenuWrap {
   position: relative;
   flex: 0 0 auto;
 }
 
 .menuToggleBtn {
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
-  color: rgba(0, 0, 0, 0.72);
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  font-size: 13px;
+  transition: background 120ms ease, color 120ms ease;
 }
 
-.menuToggleBtn:hover {
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.menuToggleBtn:active {
-  transform: translateY(1px);
-}
-
-.menuToggleBtn:focus {
-  outline: none;
-  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.08);
+.menuToggleBtn:hover,
+.menuToggleBtn[aria-expanded="true"] {
+  background: var(--hover-bg);
+  color: var(--color-text);
 }
 
 .itemMenu {
   position: absolute;
   right: 0;
-  top: 40px;
+  top: 32px;
   z-index: 30;
-  min-width: 190px;
-  border: 1px solid rgba(0, 0, 0, 0.10);
-  border-radius: 14px;
-  background: var(--surface);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);
-  padding: 6px;
+  min-width: 170px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
-.itemMenuItem,
-.itemMenuItemDanger {
+.itemMenuItem {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   border: 0;
   background: transparent;
-  padding: 10px 10px;
-  border-radius: 12px;
+  padding: 7px 10px;
+  border-radius: calc(var(--radius) - 2px);
   cursor: pointer;
-  font-weight: 700;
-  font-size: 14px;
+  font-family: var(--font-body);
+  font-size: 13px;
   color: var(--color-text);
-  transition: background 120ms ease, transform 120ms ease;
+  text-align: left;
 }
 
 .itemMenuItem:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--hover-bg);
 }
 
-.itemMenuItemDanger {
-  color: #b91c1c;
-}
-
-.itemMenuItemDanger:hover {
-  background: rgba(185, 28, 28, 0.08);
-}
-
-.itemMenuItem:active,
-.itemMenuItemDanger:active {
-  transform: translateY(1px);
-}
-
-.itemMenuItem svg,
-.itemMenuItemDanger svg {
+.itemMenuItem svg {
   flex: 0 0 auto;
-  opacity: 0.9;
+  font-size: 12px;
+  color: var(--color-text-muted);
 }
 
-/* ---- report dialog ---- */
+/* ---- dialog raportare ---- */
 .reportOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.55); /* slate-ish */
+  background: var(--overlay-bg);
   display: grid;
   place-items: center;
   z-index: 1000;
@@ -302,131 +456,108 @@
 }
 
 .reportCard {
-  width: min(560px, 100%);
-  background: var(--surface);
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+  width: min(520px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--surface-elevated);
+  color: var(--color-text);
+  border-radius: calc(var(--radius) + 4px);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
   padding: 16px;
 }
 
 .reportTitle {
   margin: 0 0 6px;
-  font-size: 18px;
-  font-weight: 900;
+  font-size: 17px;
+  font-weight: 700;
 }
 
 .reportTextMuted {
-  margin: 0 0 12px;
-  color: rgba(0, 0, 0, 0.68);
+  margin: 0 0 10px;
+  color: var(--color-text-muted);
   font-size: 13px;
   line-height: 1.45;
 }
 
 .reportOptions {
   display: grid;
-  gap: 8px;
-  margin: 10px 0 12px;
+  gap: 6px;
+  margin: 8px 0 10px;
 }
 
 .reportOption {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 10px 10px;
-  border-radius: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(0, 0, 0, 0.02);
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--surface-muted);
   cursor: pointer;
   user-select: none;
-}
-
-.reportOption input {
-  margin-top: 2px;
-}
-
-.reportOption span {
   font-size: 14px;
   line-height: 1.35;
 }
 
+.reportOption input {
+  margin-top: 2px;
+  accent-color: var(--color-primary);
+}
+
 .reportTextarea {
   width: 100%;
-  border-radius: 14px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
+  box-sizing: border-box;
+  border-radius: var(--radius);
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
   color: var(--color-text);
-  padding: 10px 12px;
-  min-height: 90px;
+  font-family: var(--font-body);
+  padding: 8px 10px;
+  min-height: 80px;
   resize: vertical;
-  outline: none;
-  transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .reportTextarea:focus {
-  border-color: rgba(0, 0, 0, 0.18);
-  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.06);
+  outline: none;
+}
+
+.reportTextarea:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
 
 .reportActions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
   margin-top: 12px;
 }
 
-.reportCancelBtn {
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text);
-  padding: 10px 14px;
-  border-radius: calc(var(--radius) + 999px);
-  cursor: pointer;
-  font-weight: 800;
+/* ---- tabletă ---- */
+@media (max-width: 1024px) {
+  .item {
+    padding: 10px;
+  }
 }
 
-.reportCancelBtn:hover {
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.reportSubmitBtn {
-  border: none;
-  background: #111827; /* almost black */
-  color: #fff;
-  padding: 10px 14px;
-  border-radius: calc(var(--radius) + 999px);
-  cursor: pointer;
-  font-weight: 900;
-  transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;
-}
-
-.reportSubmitBtn:hover {
-  filter: brightness(0.98);
-  transform: translateY(-1px);
-}
-
-.reportSubmitBtn:active {
-  transform: translateY(0px);
-}
-
-.reportSubmitBtn:disabled,
-.reportCancelBtn:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-
-/* ---- small screens ---- */
+/* ---- mobil ---- */
 @media (max-width: 520px) {
-  .section {
-    padding: 14px;
+  .replyItem {
+    margin-left: 6px;
+    padding-left: 10px;
   }
 
-  .itemHead strong {
-    max-width: 160px;
+  .editorActions,
+  .formActions,
+  .reportActions {
+    justify-content: stretch;
   }
 
-  .itemMenu {
-    min-width: 170px;
+  .editorActions > button,
+  .formActions > button,
+  .reportActions > button {
+    flex: 1 1 auto;
   }
 
   .reportCard {

@@ -18,6 +18,7 @@ import {
 } from "./emailTemplates.js";
 
 import { signUnsubToken } from "./unsubscribe.js";
+import { createGuestOrderAccessToken } from "./guestOrderAccessToken.js";
 
 const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
 const BRAND_NAME = process.env.BRAND_NAME || "Artfest";
@@ -677,6 +678,12 @@ export async function sendOrderConfirmationEmail({
   actionUrl = null,
 
   /*
+   * Guest: link securizat către pagina de retur a comenzii
+   * (/retur-guest/:id?token=...). Fără token -> fără CTA.
+   */
+  returnUrl = null,
+
+  /*
    * Guest / user normal.
    */
   isGuest = false,
@@ -765,6 +772,10 @@ const isGuestCardPending =
   paymentPending === true &&
   Boolean(orderLink);
 
+// CTA retur doar pentru guest și doar cu link securizat (token) disponibil
+const guestReturnUrl =
+  isGuest === true && returnUrl ? returnUrl : null;
+
 const orderButtonLabel =
   isGuestCardPending
     ? "Vezi comanda / Finalizează plata"
@@ -835,7 +846,9 @@ const orderButtonLabel =
 `;
 
   /* =========================================================
-     Adrese retur magazine
+     Adrese magazine - identificarea vânzătorului în confirmarea
+     comenzii (informare OUG 34/2014), NU instrucțiuni de retur: adresa
+     de retur se comunică doar după acceptarea returului.
   ========================================================= */
 
   const safeStoreAddresses =
@@ -1338,6 +1351,55 @@ ${
     }
 
     ${
+      guestReturnUrl
+        ? `
+          <p
+            style="
+              text-align:center;
+              margin:16px 0 8px;
+            "
+          >
+            <a
+              href="${guestReturnUrl}"
+              style="
+                background:#ffffff;
+                color:#6f4e43;
+                border:1px solid #6f4e43;
+                padding:11px 20px;
+                border-radius:10px;
+                text-decoration:none;
+                font-weight:700;
+                display:inline-block;
+              "
+            >
+              Solicită / urmărește returul
+            </a>
+          </p>
+
+          <p
+            style="
+              color:#6b7280;
+              font-size:12px;
+              margin:0 0 8px;
+              text-align:center;
+              word-break:break-all;
+            "
+          >
+            Retur pentru această comandă:
+            <a
+              href="${guestReturnUrl}"
+              style="
+                color:#6f4e43;
+              "
+            >
+              ${guestReturnUrl}
+            </a>
+          </p>
+        `
+        : ""
+    }
+
+    ${
       isGuest
         ? `
           <p
@@ -1458,6 +1520,10 @@ ${
             ? "Vezi comanda"
             : "Poți vedea comanda aici"
         }: ${orderLink}`
+      : "",
+
+    guestReturnUrl
+      ? `Solicită / urmărește returul: ${guestReturnUrl}`
       : "",
 
     isGuest
@@ -1894,6 +1960,251 @@ export async function sendWithdrawalForwardedToVendorEmail({
 }
 
 /* ============================================================
+   RETURURI (ReturnRequest) - emailuri tranzacționale
+   - vânzător: cerere nouă (fără adresa clientului, fără adresa de retur);
+   - client (cont sau guest): cerere primită + schimbare de status.
+   Adresa de retur apare DOAR după acceptare (textul vine din mesajul
+   vânzătorului, construit în returnRequestService.js).
+============================================================ */
+
+function returnItemsHtml(items = []) {
+  if (!items.length) return "";
+
+  return `
+  <ul style="color:#374151;margin:0 0 16px;padding-left:20px;line-height:1.6;">
+    ${items
+      .map((i) => `<li>${escapeEmailHtml(i.title)} × ${escapeEmailHtml(String(i.qty))}</li>`)
+      .join("")}
+  </ul>`;
+}
+
+function returnEmailLayout({ title, paragraphs = [], itemsHtml = "", boxText = "", cta = null }) {
+  const ctaUrl = cta?.url ? absolutePolicyUrl(cta.url) : "";
+
+  return `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" style="display:block;margin:0 auto;border:0;">
+  </div>
+  <h2 style="color:#111827;margin:0 0 12px;">${escapeEmailHtml(title)}</h2>
+  ${paragraphs
+    .map((p) => `<p style="color:#374151;margin:0 0 12px;line-height:1.5;">${p}</p>`)
+    .join("")}
+  ${itemsHtml}
+  ${
+    boxText
+      ? `<div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin:0 0 16px;">
+    <p style="color:#111827;margin:0;line-height:1.5;white-space:pre-line;">${escapeEmailHtml(boxText)}</p>
+  </div>`
+      : ""
+  }
+  ${
+    ctaUrl
+      ? `<p style="text-align:center;margin:20px 0;">
+    <a href="${escapeEmailHtml(ctaUrl)}" style="display:inline-block;background:#8b5cf6;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600;">${escapeEmailHtml(cta.label)}</a>
+  </p>`
+      : ""
+  }
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>`.trim();
+}
+
+function sendReturnEmail({ to, subject, template, orderId, toName, userId = null, html, text }) {
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template,
+    orderId,
+    userId,
+    toName: toName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
+export async function sendVendorReturnRequestedEmail({
+  to,
+  vendorName,
+  orderNumber,
+  items = [],
+  reasonLabel,
+  reasonKindLabel,
+  link,
+  orderId = null,
+  // reminder trimis de jobs/returnVendorReminderJob.js (cerere fără răspuns 48h)
+  reminder = false,
+}) {
+  if (!to) return;
+
+  const subject = reminder
+    ? `Reminder: ai o cerere de retur fără răspuns pe ${BRAND_NAME}`
+    : `Ai primit o cerere de retur pe ${BRAND_NAME}`;
+
+  const html = returnEmailLayout({
+    title: reminder ? "Cerere de retur fără răspuns" : "Cerere de retur nouă",
+    paragraphs: [
+      `Bună, <strong>${escapeEmailHtml(vendorName || "vânzător")}</strong>,`,
+      reminder
+        ? `Clientul așteaptă de peste 48 de ore răspunsul tău la cererea de retur pentru comanda <strong>#${escapeEmailHtml(orderNumber)}</strong>.`
+        : `Un client a trimis o cerere de retur pentru comanda <strong>#${escapeEmailHtml(orderNumber)}</strong>.`,
+      `Motiv: <strong>${escapeEmailHtml(reasonKindLabel ? `${reasonKindLabel} - ` : "")}${escapeEmailHtml(reasonLabel)}</strong>`,
+      "Produse:",
+    ],
+    itemsHtml: returnItemsHtml(items),
+    boxText:
+      "Intră în Artfest pentru a accepta returul, a cere informații suplimentare sau a-l respinge. Clientul nu va expedia produsul până nu accepți cererea.",
+    cta: { label: "Vezi cererea de retur", url: link },
+  });
+
+  const text = [
+    `Bună, ${vendorName || "vânzător"},`,
+    "",
+    `Un client a trimis o cerere de retur pentru comanda #${orderNumber}.`,
+    `Motiv: ${reasonKindLabel ? `${reasonKindLabel} - ` : ""}${reasonLabel}`,
+    "",
+    "Produse:",
+    ...items.map((i) => `- ${i.title} × ${i.qty}`),
+    "",
+    "Intră în Artfest pentru a accepta returul, a cere informații suplimentare sau a-l respinge.",
+    `Vezi cererea de retur: ${absolutePolicyUrl(link)}`,
+  ].join("\n");
+
+  return sendReturnEmail({
+    to,
+    subject,
+    template: reminder ? "return_reminder_vendor" : "return_requested_vendor",
+    orderId,
+    toName: vendorName,
+    html,
+    text,
+  });
+}
+
+export async function sendReturnRequestReceivedEmail({
+  to,
+  clientName,
+  orderNumber,
+  items = [],
+  link,
+  orderId = null,
+  userId = null,
+}) {
+  if (!to) return;
+
+  const subject = `Am primit cererea ta de retur - comanda #${orderNumber}`;
+
+  const html = returnEmailLayout({
+    title: "Cererea ta de retur a fost trimisă",
+    paragraphs: [
+      `Bună${clientName ? `, <strong>${escapeEmailHtml(clientName)}</strong>` : ""},`,
+      `Am transmis vânzătorului cererea ta de retur pentru comanda <strong>#${escapeEmailHtml(orderNumber)}</strong>.`,
+    ],
+    itemsHtml: returnItemsHtml(items),
+    boxText:
+      "Așteaptă răspunsul vânzătorului înainte să expediezi produsul. Îți vom scrie imediat ce cererea este acceptată, împreună cu instrucțiunile de retur.",
+    cta: link ? { label: "Urmărește cererea de retur", url: link } : null,
+  });
+
+  const text = [
+    `Am transmis vânzătorului cererea ta de retur pentru comanda #${orderNumber}.`,
+    ...items.map((i) => `- ${i.title} × ${i.qty}`),
+    "",
+    "Așteaptă răspunsul vânzătorului înainte să expediezi produsul.",
+    link ? `Urmărește cererea: ${absolutePolicyUrl(link)}` : "",
+  ].join("\n");
+
+  return sendReturnEmail({
+    to,
+    subject,
+    template: "return_received_client",
+    orderId,
+    userId,
+    toName: clientName,
+    html,
+    text,
+  });
+}
+
+const RETURN_STATUS_EMAIL = {
+  APPROVED: {
+    subject: "Returul a fost acceptat",
+    lead: "Returul a fost acceptat. Acum poți pregăti produsul pentru expediere folosind instrucțiunile de mai jos.",
+  },
+  IN_REVIEW: {
+    subject: "Vânzătorul are nevoie de informații pentru retur",
+    lead: "Vânzătorul are nevoie de informații suplimentare. Te rugăm să nu expediezi încă produsul - răspunde mai întâi la întrebare.",
+  },
+  REJECTED: {
+    subject: "Cererea de retur a fost respinsă",
+    lead: "Vânzătorul a respins cererea de retur. Motivul este mai jos; dacă nu ești de acord, poți răspunde în conversație sau contacta echipa Artfest.",
+  },
+  CLOSED: {
+    subject: "Vânzătorul a primit produsul returnat",
+    lead: "Vânzătorul a confirmat primirea produsului. Rambursarea se procesează separat.",
+  },
+  // setate doar din Admin
+  PICKUP_REQUESTED: {
+    subject: "Coletul de retur este preluat prin curier",
+    lead: "Returul a fost acceptat, iar coletul este preluat prin curier. Vei fi contactat pentru ridicare.",
+  },
+  NEW: {
+    subject: "Cererea de retur a fost redeschisă",
+    lead: "Cererea ta de retur a fost redeschisă și așteaptă răspunsul vânzătorului. Te rugăm să nu expediezi încă produsul.",
+  },
+};
+
+export async function sendReturnStatusEmail({
+  to,
+  clientName,
+  orderNumber,
+  status,
+  messageBody = "",
+  link,
+  orderId = null,
+  userId = null,
+}) {
+  const info = RETURN_STATUS_EMAIL[status];
+  if (!to || !info) return;
+
+  const subject = `${info.subject} - comanda #${orderNumber}`;
+
+  const html = returnEmailLayout({
+    title: info.subject,
+    paragraphs: [
+      `Bună${clientName ? `, <strong>${escapeEmailHtml(clientName)}</strong>` : ""},`,
+      escapeEmailHtml(info.lead),
+    ],
+    boxText: messageBody,
+    cta: link ? { label: "Vezi cererea de retur", url: link } : null,
+  });
+
+  const text = [info.lead, "", messageBody, "", link ? `Vezi cererea: ${absolutePolicyUrl(link)}` : ""].join(
+    "\n"
+  );
+
+  return sendReturnEmail({
+    to,
+    subject,
+    template: `return_status_${String(status).toLowerCase()}`,
+    orderId,
+    userId,
+    toName: clientName,
+    html,
+    text,
+  });
+}
+
+/* ============================================================
    ACTUALIZARE DOCUMENTE JURIDICE - cerere de reacceptare
    Email TRANZACȚIONAL / LEGAL (nu marketing): nu depinde de opt-in-ul de
    marketing și nu conține link de dezabonare de marketing.
@@ -2174,12 +2485,42 @@ export async function sendShipmentPickupEmail({ to, orderId, awb, trackingUrl, e
   if (!to) return;
 const order = await prisma.order.findUnique({
   where: { id: orderId },
-  select: { id: true, orderNumber: true },
+  select: { id: true, orderNumber: true, userId: true, isGuestOrder: true, guestAccessExpiresAt: true },
 });
 const displayNo = order?.orderNumber || orderId;
 
   const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
-  const orderLink = baseUrl ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}` : null;
+  const encodedOrderId = encodeURIComponent(orderId);
+  const isGuestOrder = order?.isGuestOrder === true && !order?.userId;
+
+  /*
+   * Linkuri „Vezi comanda” + „Solicită / urmărește returul”:
+   *  - cont: pagina normală a comenzii din cont (fără token);
+   *  - guest: token stateless dedicat (guestOrderAccessToken) - nu atinge
+   *    guestAccessTokenHash, deci linkurile din emailurile anterioare
+   *    rămân valabile. Fără token (acces expirat) -> fără linkuri.
+   * Eligibilitatea returului (DELIVERED etc.) rămâne verificată în backend.
+   */
+  let orderLink = null;
+  let returnLink = null;
+
+  if (baseUrl && order) {
+    if (isGuestOrder) {
+      const orderToken = createGuestOrderAccessToken({
+        orderId: order.id,
+        expiresAt: order.guestAccessExpiresAt,
+      });
+
+      if (orderToken) {
+        const q = `?orderToken=${encodeURIComponent(orderToken)}`;
+        orderLink = `${baseUrl}/comanda-guest/${encodedOrderId}${q}`;
+        returnLink = `${baseUrl}/retur-guest/${encodedOrderId}${q}`;
+      }
+    } else {
+      orderLink = `${baseUrl}/comanda/${encodedOrderId}`;
+      returnLink = `${baseUrl}/comanda/${encodedOrderId}#retur`;
+    }
+  }
 
   const subject = `Comanda ta a fost predată curierului - ${BRAND_NAME}`;
 
@@ -2215,10 +2556,37 @@ const displayNo = order?.orderNumber || orderId;
   }
 
   ${
-    orderLink
-      ? `<p style="color:#6b7280;font-size:13px;margin:16px 0 0;text-align:center;">
-           Poți vedea detaliile comenzii aici: <a href="${orderLink}" style="color:#4b5563;">${orderLink}</a>
-         </p>`
+    orderLink || returnLink
+      ? `<p style="text-align:center;margin:18px 0 8px;">
+           ${
+             orderLink
+               ? `<a href="${orderLink}" style="background:#6f4e43;color:#fff;padding:11px 18px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;margin:4px;">
+                    Vezi comanda
+                  </a>`
+               : ""
+           }
+           ${
+             returnLink
+               ? `<a href="${returnLink}" style="background:#fff;color:#6f4e43;border:1px solid #6f4e43;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;margin:4px;">
+                    Solicită / urmărește returul
+                  </a>`
+               : ""
+           }
+         </p>
+         ${
+           returnLink
+             ? `<p style="color:#6b7280;font-size:12px;margin:0 0 8px;text-align:center;">
+                  Returul poate fi solicitat după livrarea comenzii.
+                </p>`
+             : ""
+         }
+         ${
+           orderLink
+             ? `<p style="color:#6b7280;font-size:13px;margin:8px 0 0;text-align:center;word-break:break-all;">
+                  Poți vedea detaliile comenzii aici: <a href="${orderLink}" style="color:#4b5563;">${orderLink}</a>
+                </p>`
+             : ""
+         }`
       : ""
   }
 
@@ -2234,7 +2602,8 @@ const displayNo = order?.orderNumber || orderId;
     awb ? `AWB: ${awb}` : "",
     etaLabel || slotLabel ? `Livrare estimată: ${etaLabel || ""} în intervalul ${(slotLabel || "").trim()}`.trim() : "",
     trackingUrl ? `Poți urmări coletul aici: ${trackingUrl}` : "",
-    orderLink ? `Detalii comandă: ${orderLink}` : "",
+    orderLink ? `Vezi comanda: ${orderLink}` : "",
+    returnLink ? `Solicită / urmărește returul (după livrare): ${returnLink}` : "",
   ]
     .filter(Boolean)
     .join("\n");

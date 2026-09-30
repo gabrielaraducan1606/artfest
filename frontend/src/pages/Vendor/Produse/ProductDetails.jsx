@@ -91,6 +91,8 @@ function buildProductCanonicalUrl(rawProductId) {
 
 const ReviewsSection = lazy(() => import("./ReviewSection/ReviewSection"));
 const CommentsSection = lazy(() => import("./CommentSection/CommentSection"));
+// Întrebări & comentarii: câte întrebări principale per pagină
+const COMMENTS_PAGE_SIZE = 20;
 const ProductModal = lazy(() =>
   import("../ProfilMagazin/modals/ProductModal.jsx")
 );
@@ -523,9 +525,16 @@ useEffect(() => {
   const [revText, setRevText] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
 
-  const [commentText, setCommentText] = useState("");
-  const [submittingComment, setSubmittingComment] = useState(false);
-  const [editingCommentId, setEditingCommentId] = useState(null);
+  // Întrebări & comentarii: `comments` = fire (întrebare + replies),
+  // paginate pe întrebări principale. Crearea/editarea/ștergerea se fac
+  // inline în CommentSection, care actualizează direct această stare.
+  const [commentsTotal, setCommentsTotal] = useState(0);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsError, setCommentsError] = useState(false);
+  const [commentsLoadingMore, setCommentsLoadingMore] = useState(false);
+  const [commentsAcceptNew, setCommentsAcceptNew] = useState(true);
+  // câte întrebări din listă provin din paginare (fără firul țintă #comment-)
+  const [commentsPagedCount, setCommentsPagedCount] = useState(0);
 
   const [openAccordions, setOpenAccordions] = useState({
     details: false,
@@ -608,8 +617,10 @@ setFavorites(new Set());
     setProdForm(emptyProdForm);
 
     setComments([]);
-    setCommentText("");
-    setEditingCommentId(null);
+    setCommentsTotal(0);
+    setCommentsError(false);
+    setCommentsAcceptNew(true);
+    setCommentsPagedCount(0);
 
     setReviews([]);
     setAvg({ average: 0, count: 0 });
@@ -2199,13 +2210,19 @@ alert(
     }
   }, [product?.title]);
 
-  const loadReviewsForProduct = useCallback(async (prodId) => {
+  const loadReviewsForProduct = useCallback(async (prodId, targetReviewId) => {
     try {
+      // include=<id>: recenzia țintă dintr-un link #rev-<id>, întoarsă
+      // separat (`target`) dacă nu e printre primele 50.
+      const includeParam = targetReviewId
+        ? `&include=${encodeURIComponent(targetReviewId)}`
+        : "";
+
       const [list, stats] = await Promise.all([
         api(
           `/api/public/product/${encodeURIComponent(
             prodId
-          )}/reviews?sort=recent&skip=0&take=50`
+          )}/reviews?sort=recent&skip=0&take=50${includeParam}`
         ),
         api(
           `/api/public/product/${encodeURIComponent(
@@ -2215,6 +2232,11 @@ alert(
       ]);
 
       const items = Array.isArray(list?.items) ? list.items : [];
+      const target = list?.target;
+      if (target?.id && !items.some((r) => r.id === target.id)) {
+        // mai veche decât primele 50 (sort=recent) -> la finalul listei
+        items.push(target);
+      }
 
       if (!mountedRef.current) return;
 
@@ -2230,23 +2252,77 @@ alert(
     }
   }, []);
 
-  const loadCommentsForProduct = useCallback(async (prodId) => {
+  /*
+   * Prima pagină de întrebări (cele mai noi primele, cu răspunsurile lor).
+   * targetCommentId: link direct #comment-<id> - backend-ul întoarce firul
+   * țintă separat (`target`) dacă nu e în prima pagină; îl adăugăm la
+   * finalul listei.
+   */
+  const loadCommentsForProduct = useCallback(async (prodId, targetCommentId) => {
+    setCommentsLoading(true);
+    setCommentsError(false);
     try {
+      const includeParam = targetCommentId
+        ? `&include=${encodeURIComponent(targetCommentId)}`
+        : "";
       const res = await api(
         `/api/public/product/${encodeURIComponent(
           prodId
-        )}/comments?skip=0&take=50`
+        )}/comments?skip=0&take=${COMMENTS_PAGE_SIZE}${includeParam}`
       );
 
       const items = Array.isArray(res?.items) ? res.items : [];
+      const pagedCount = items.length;
+      if (res?.target?.id && !items.some((q) => q.id === res.target.id)) {
+        items.push(res.target);
+      }
       if (!mountedRef.current) return;
 
       setComments(items);
+      setCommentsPagedCount(pagedCount);
+      setCommentsTotal(Number(res?.total) || 0);
+      setCommentsAcceptNew(res?.acceptsNewComments !== false);
     } catch (e) {
       console.error("loadCommentsForProduct error", e);
       if (!mountedRef.current) return;
       setComments([]);
+      setCommentsError(true);
+    } finally {
+      if (mountedRef.current) setCommentsLoading(false);
     }
+  }, []);
+
+  const loadMoreComments = useCallback(async () => {
+    if (!product?.id) return;
+    setCommentsLoadingMore(true);
+    try {
+      const skip = commentsPagedCount;
+      const res = await api(
+        `/api/public/product/${encodeURIComponent(
+          product.id
+        )}/comments?skip=${skip}&take=${COMMENTS_PAGE_SIZE}`
+      );
+      const items = Array.isArray(res?.items) ? res.items : [];
+      if (!mountedRef.current) return;
+
+      setCommentsPagedCount(skip + items.length);
+      setComments((prev) => {
+        const known = new Set(prev.map((q) => q.id));
+        return [...prev, ...items.filter((q) => !known.has(q.id))];
+      });
+      setCommentsTotal(Number(res?.total) || 0);
+    } catch (e) {
+      console.error("loadMoreComments error", e);
+    } finally {
+      if (mountedRef.current) setCommentsLoadingMore(false);
+    }
+  }, [product?.id, commentsPagedCount]);
+
+  // întrebare nouă (+1) / ștearsă (-1) local, fără reîncărcare - ajustăm și
+  // offset-ul paginării, ca "Mai multe întrebări" să nu sară/dubleze mesaje
+  const handleQuestionCountChange = useCallback((delta) => {
+    setCommentsPagedCount((c) => Math.max(0, c + delta));
+    setCommentsTotal((t) => Math.max(0, (Number(t) || 0) + delta));
   }, []);
 
   /*
@@ -2534,6 +2610,37 @@ useEffect(() => {
     };
   }, [product, deferredSections, loadStoreProducts, loadSimilarCandidates]);
 
+  /*
+   * Link direct către o recenzie (ex. notificarea "Vânzătorul a răspuns
+   * recenziei tale" -> /produs/:id#rev-<reviewId>): deschide automat
+   * secțiunea de recenzii; ReviewSection face apoi scroll la #rev-<id>.
+   */
+  const reviewHashTargetId = useMemo(() => {
+    const hash = String(location.hash || "");
+    if (!hash.startsWith("#rev-")) return null;
+    try {
+      return decodeURIComponent(hash.slice(5)) || null;
+    } catch {
+      return null;
+    }
+  }, [location.hash]);
+
+  // "<productId>:<reviewId>" deja cerut cu include= - evită cereri repetate
+  // când recenzia țintă nu (mai) există / nu e aprobată.
+  const requestedReviewTargetRef = useRef(null);
+
+  useEffect(() => {
+    if (!product?.id || !reviewHashTargetId) return;
+
+    if (isMobile) {
+      setActiveMobileTab("recenzii");
+    } else {
+      setOpenAccordions((prev) =>
+        prev.reviews ? prev : { ...prev, reviews: true }
+      );
+    }
+  }, [product?.id, reviewHashTargetId, isMobile]);
+
   useEffect(() => {
     if (!product?.id || reviewsLoaded) return;
 
@@ -2543,8 +2650,12 @@ useEffect(() => {
       if (!openAccordions.reviews) return;
     }
 
+    if (reviewHashTargetId) {
+      requestedReviewTargetRef.current = `${product.id}:${reviewHashTargetId}`;
+    }
+
     setReviewsLoaded(true);
-    loadReviewsForProduct(product.id);
+    loadReviewsForProduct(product.id, reviewHashTargetId);
   }, [
     product?.id,
     reviewsLoaded,
@@ -2552,7 +2663,64 @@ useEffect(() => {
     activeMobileTab,
     openAccordions.reviews,
     loadReviewsForProduct,
+    reviewHashTargetId,
   ]);
+
+  /*
+   * Recenziile erau deja încărcate și apoi se schimbă hash-ul pe aceeași
+   * pagină (ex. click pe notificare din popover) către o recenzie care nu
+   * e în listă -> reîncărcăm o singură dată cu include=<id>.
+   */
+  useEffect(() => {
+    if (!product?.id || !reviewsLoaded || !reviewHashTargetId) return;
+    if (reviews.some((r) => r.id === reviewHashTargetId)) return;
+
+    const key = `${product.id}:${reviewHashTargetId}`;
+    if (requestedReviewTargetRef.current === key) return;
+    requestedReviewTargetRef.current = key;
+
+    loadReviewsForProduct(product.id, reviewHashTargetId);
+  }, [
+    product?.id,
+    reviewsLoaded,
+    reviewHashTargetId,
+    reviews,
+    loadReviewsForProduct,
+  ]);
+
+  /*
+   * Link direct către un mesaj din "Întrebări & comentarii" (ex. notificările
+   * "Întrebare nouă..." / "Vânzătorul a răspuns..." -> #comment-<id>):
+   * deschide automat secțiunea; CommentSection face scroll la mesaj.
+   */
+  const commentHashTargetId = useMemo(() => {
+    const hash = String(location.hash || "");
+    if (!hash.startsWith("#comment-")) return null;
+    try {
+      return decodeURIComponent(hash.slice("#comment-".length)) || null;
+    } catch {
+      return null;
+    }
+  }, [location.hash]);
+
+  // "<productId>:<commentId>" deja cerut cu include= - fără cereri repetate
+  const requestedCommentTargetRef = useRef(null);
+
+  const retryLoadComments = useCallback(() => {
+    if (product?.id) loadCommentsForProduct(product.id, commentHashTargetId);
+  }, [product?.id, loadCommentsForProduct, commentHashTargetId]);
+
+  useEffect(() => {
+    if (!product?.id || !commentHashTargetId) return;
+
+    if (isMobile) {
+      setActiveMobileTab("intrebari");
+    } else {
+      setOpenAccordions((prev) =>
+        prev.comments ? prev : { ...prev, comments: true }
+      );
+    }
+  }, [product?.id, commentHashTargetId, isMobile]);
 
   useEffect(() => {
     if (!product?.id || commentsLoaded) return;
@@ -2563,8 +2731,12 @@ useEffect(() => {
       if (!openAccordions.comments) return;
     }
 
+    if (commentHashTargetId) {
+      requestedCommentTargetRef.current = `${product.id}:${commentHashTargetId}`;
+    }
+
     setCommentsLoaded(true);
-    loadCommentsForProduct(product.id);
+    loadCommentsForProduct(product.id, commentHashTargetId);
   }, [
     product?.id,
     commentsLoaded,
@@ -2572,7 +2744,57 @@ useEffect(() => {
     activeMobileTab,
     openAccordions.comments,
     loadCommentsForProduct,
+    commentHashTargetId,
   ]);
+
+  /*
+   * Lista era deja încărcată și hash-ul se schimbă pe aceeași pagină către
+   * un mesaj (întrebare sau răspuns) care nu e în listă -> reîncărcăm o
+   * singură dată cu include=<id>.
+   */
+  useEffect(() => {
+    if (!product?.id || !commentsLoaded || commentsLoading) return;
+    if (!commentHashTargetId) return;
+
+    const inList = comments.some(
+      (q) =>
+        q.id === commentHashTargetId ||
+        (q.replies || []).some((r) => r.id === commentHashTargetId)
+    );
+    if (inList) return;
+
+    const key = `${product.id}:${commentHashTargetId}`;
+    if (requestedCommentTargetRef.current === key) return;
+    requestedCommentTargetRef.current = key;
+
+    loadCommentsForProduct(product.id, commentHashTargetId);
+  }, [
+    product?.id,
+    commentsLoaded,
+    commentsLoading,
+    commentHashTargetId,
+    comments,
+    loadCommentsForProduct,
+  ]);
+
+  // aceleași props pentru tabul mobil și acordeonul desktop
+  const commentsSectionProps = {
+    productId: product?.id,
+    comments,
+    onCommentsChange: setComments,
+    total: commentsTotal,
+    onQuestionCountChange: handleQuestionCountChange,
+    loading: commentsLoading,
+    error: commentsError,
+    onRetry: retryLoadComments,
+    hasMore: commentsPagedCount < commentsTotal,
+    loadingMore: commentsLoadingMore,
+    onLoadMore: loadMoreComments,
+    acceptsNewComments: commentsAcceptNew,
+    isOwner,
+    isLoggedIn: !!me,
+    currentUserId: myUserId,
+  };
 
   const submitReview = useCallback(
     async ({ rating, comment, images: reviewImages }) => {
@@ -2638,78 +2860,6 @@ useEffect(() => {
     [isOwner, me, navigate, product?.id, loadReviewsForProduct]
   );
 
-  const startEditComment = useCallback((comment) => {
-    setEditingCommentId(comment.id);
-    setCommentText(comment.text || "");
-
-    const formTextarea = document.querySelector(
-      "#tab-intrebari textarea, .commentsSection textarea"
-    );
-
-    if (formTextarea) {
-      formTextarea.scrollIntoView({ behavior: "smooth", block: "start" });
-      formTextarea.focus();
-    }
-  }, []);
-
-  const cancelEditComment = useCallback(() => {
-    setEditingCommentId(null);
-    setCommentText("");
-  }, []);
-
-  const submitComment = useCallback(
-    async (e) => {
-      e?.preventDefault?.();
-
-      if (isOwner && !editingCommentId) return;
-
-      if (!me) {
-        return navigate(
-          `/autentificare?redirect=${encodeURIComponent(
-            window.location.pathname + window.location.search
-          )}`
-        );
-      }
-
-      const text = commentText.trim();
-      if (!text) return;
-
-      try {
-        setSubmittingComment(true);
-
-        if (editingCommentId) {
-          await api(`/api/comments/${encodeURIComponent(editingCommentId)}`, {
-            method: "PATCH",
-            body: { text },
-          });
-          setEditingCommentId(null);
-          setCommentText("");
-        } else {
-          await api("/api/comments", {
-            method: "POST",
-            body: { productId: product.id, text },
-          });
-          setCommentText("");
-        }
-
-        setCommentsLoaded(true);
-        await loadCommentsForProduct(product.id);
-      } catch (e2) {
-        alert(e2?.message || "Nu am putut trimite comentariul.");
-      } finally {
-        setSubmittingComment(false);
-      }
-    },
-    [
-      isOwner,
-      editingCommentId,
-      me,
-      navigate,
-      commentText,
-      product?.id,
-      loadCommentsForProduct,
-    ]
-  );
 
   const hasDescription =
     typeof product?.description === "string" &&
@@ -5210,22 +5360,7 @@ const isUploading =
                   {activeMobileTab === "intrebari" && (
                     <div className={styles.mobileTabPanel}>
                       <Suspense fallback={<div>Se încarcă comentariile…</div>}>
-                        <CommentsSection
-                          comments={comments}
-                          isOwner={isOwner}
-                          isLoggedIn={!!me}
-                          onSubmit={submitComment}
-                          submitting={submittingComment}
-                          commentText={commentText}
-                          setCommentText={setCommentText}
-                          currentUserId={myUserId}
-                          editingCommentId={editingCommentId}
-                          onStartEditComment={startEditComment}
-                          onCancelEditComment={cancelEditComment}
-                          onAfterChange={() =>
-                            loadCommentsForProduct(product.id)
-                          }
-                        />
+                        <CommentsSection {...commentsSectionProps} />
                       </Suspense>
                     </div>
                   )}
@@ -5339,20 +5474,7 @@ const isUploading =
             {openAccordions.comments && (
               <div className={styles.accordionBody}>
                 <Suspense fallback={<div>Se încarcă comentariile…</div>}>
-                  <CommentsSection
-                    comments={comments}
-                    isOwner={isOwner}
-                    isLoggedIn={!!me}
-                    onSubmit={submitComment}
-                    submitting={submittingComment}
-                    commentText={commentText}
-                    setCommentText={setCommentText}
-                    currentUserId={myUserId}
-                    editingCommentId={editingCommentId}
-                    onStartEditComment={startEditComment}
-                    onCancelEditComment={cancelEditComment}
-                    onAfterChange={() => loadCommentsForProduct(product.id)}
-                  />
+                  <CommentsSection {...commentsSectionProps} />
                 </Suspense>
               </div>
             )}

@@ -5,7 +5,7 @@ import { sendOrderCancelledEmail } from "../lib/mailer.js";
 /**
  * Creează / recuperează thread user ↔ vendor (opțional legat de o comandă)
  */
-async function ensureUserVendorThread({ userId, vendorId, orderId, shippingAddress }) {
+export async function ensureUserVendorThread({ userId, vendorId, orderId, shippingAddress }) {
   if (!userId || !vendorId) {
     throw new Error("Missing userId or vendorId pentru ensureUserVendorThread");
   }

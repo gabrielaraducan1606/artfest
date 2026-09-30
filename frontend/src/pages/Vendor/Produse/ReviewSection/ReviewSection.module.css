@@ -252,16 +252,14 @@
 
 /* ===== Răspuns vânzător ===== */
 
+/* Răspunsul oficial al vânzătorului - separat vizual de textul
+   clientului, dar discret (indentat, bordură stânga). */
 .replyBox {
-  margin-top: 8px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: linear-gradient(
-    135deg,
-    rgba(129, 140, 248, 0.06),
-    rgba(59, 130, 246, 0.04)
-  );
-  border: 1px solid rgba(129, 140, 248, 0.35);
+  margin: 10px 0 0 12px;
+  padding: 8px 12px;
+  border-left: 3px solid rgba(79, 70, 229, 0.45);
+  border-radius: 0 10px 10px 0;
+  background: rgba(79, 70, 229, 0.04);
 }
 
 .replyLabel {
@@ -273,14 +271,96 @@
   letter-spacing: 0.08em;
 }
 
+.replyMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.replyAuthor {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.badgeSeller {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  font-size: 11px;
+  border-radius: 999px;
+  background: rgba(79, 70, 229, 0.08);
+  color: #4f46e5;
+  border: 1px solid rgba(79, 70, 229, 0.25);
+  white-space: nowrap;
+}
+
 .replyText {
   font-size: 14px;
-  margin-bottom: 4px;
-  color: #111827;
+  line-height: 1.5;
+  color: var(--color-text);
+  /* păstrează rândurile/paragrafele din răspunsul vânzătorului */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .replyDate {
   font-size: 11px;
+  color: #6b7280;
+}
+
+.replyActions {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.replyActionBtn,
+.replyActionBtnDanger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  color: #4b5563;
+}
+
+.replyActionBtn svg,
+.replyActionBtnDanger svg {
+  font-size: 11px;
+}
+
+.replyActionBtn:hover {
+  color: #4f46e5;
+  text-decoration: underline;
+}
+
+.replyActionBtnDanger {
+  color: #b91c1c;
+}
+
+.replyActionBtnDanger:hover {
+  color: #991b1b;
+  text-decoration: underline;
+}
+
+.replyActionBtn:focus-visible,
+.replyActionBtnDanger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* "Utilă" doar informativ (autor / vânzătorul produsului) */
+.helpfulInfo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
   color: #6b7280;
 }
 

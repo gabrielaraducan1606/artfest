@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   Trash2,
   X,
+  FileText,
 } from "lucide-react";
 import styles from "./UserMessages.module.css";
 import { useMessageThreads } from "../../../features/messages/hooks/useMessageThreads";

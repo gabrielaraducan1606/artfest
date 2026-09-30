@@ -16,21 +16,55 @@ import {
   Send,
 } from "lucide-react";
 import styles from "./Orders.module.css";
+import VendorReturnRequestsSection from "./VendorReturnRequestsSection.jsx";
 
 const COURIER_ENABLED = false;
 const INVOICE_ENABLED = false;
 
 /*
- * Identic cu PROMOTION_SOURCE_LABELS din AdminOrdersTab.jsx - doar
- * etichete de afișare, nicio logică financiară.
+ * Etichete de afișare pentru promoția câștigătoare pe linie
+ * (ShipmentItem.discountSource) - nicio logică financiară.
  */
 const PROMOTION_SOURCE_LABELS = {
   PRODUCT_OF_DAY: "Produsul zilei",
   ARTISAN_OF_WEEK: "Artizanul săptămânii",
-  COLLECTION: "Collection",
-  CAMPAIGN: "VendorCampaign",
+  COLLECTION: "Colecție Artfest",
+  CAMPAIGN: "Campanie magazin",
   DISCOUNT_CODE: "Cod de reducere",
 };
+
+/*
+ * Sursa reală a reducerii pe o linie, din snapshot-ul stocat la
+ * comandă (discountSource + discountCodeText) - ex. "Cod de reducere
+ * EU9". Doar afișare.
+ */
+function formatPromotionSource(item) {
+  const src = item?.discountSource;
+  if (!src) return null;
+
+  const label = PROMOTION_SOURCE_LABELS[src] || src;
+
+  if (src === "DISCOUNT_CODE" && item.discountCodeText) {
+    return `${label} ${item.discountCodeText}`;
+  }
+
+  return label;
+}
+
+/*
+ * Sursele distincte ale reducerii, separat pe cine o finanțează
+ * (platformDiscountAmount / vendorDiscountAmount stocate pe linie).
+ */
+function collectPromotionSources(items, amountField) {
+  return [
+    ...new Set(
+      (items || [])
+        .filter((it) => Number(it?.[amountField] || 0) > 0)
+        .map(formatPromotionSource)
+        .filter(Boolean)
+    ),
+  ];
+}
 
 function formatMoney(n) {
   const v = Number(n || 0);
@@ -643,13 +677,23 @@ const contactPerson =
   const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
 
   /*
-   * Promoția câștigătoare pe linii - DOAR pentru afișare (aceleași
-   * discountSource deja stocate pe ShipmentItem, folosite și de
-   * Admin Order Details/PROMOTION_SOURCE_LABELS) - niciun calcul nou.
+   * Promoția câștigătoare pe linii - DOAR pentru afișare (snapshot-ul
+   * discountSource/discountCodeText deja stocat pe ShipmentItem) -
+   * niciun calcul nou.
    */
   const winningPromotionSources = [
-    ...new Set(items.map((it) => it.discountSource).filter(Boolean)),
+    ...new Set(items.map(formatPromotionSource).filter(Boolean)),
   ];
+  const platformFundedSources = collectPromotionSources(
+    items,
+    "platformDiscountAmount"
+  );
+  const vendorFundedSources = collectPromotionSources(
+    items,
+    "vendorDiscountAmount"
+  );
+  const hasPlatformPromotionCost =
+    Number(vf?.platformSubsidyAmount || 0) > 0;
 
  const isCompany =
   order.customerType === "PJ" ||
@@ -1230,6 +1274,9 @@ const contactPerson =
               </div>
             )}
 
+          {/* Cereri de retur (ReturnRequest) - gestionate de vânzător */}
+          <VendorReturnRequestsSection order={order} onChanged={load} />
+
           {primaryThread && primaryThread.internalNote && (
             <div className={styles.kv}>
               <span>
@@ -1658,11 +1705,33 @@ const contactPerson =
               {winningPromotionSources.length > 0 && (
                 <div>
                   Promoție:{" "}
-                  <strong>
-                    {winningPromotionSources
-                      .map((src) => PROMOTION_SOURCE_LABELS[src] || src)
-                      .join(", ")}
-                  </strong>
+                  <strong>{winningPromotionSources.join(", ")}</strong>
+                </div>
+              )}
+
+              {Number(vf.platformDiscountGross) > 0 && (
+                <div>
+                  Reducere finanțată de Artfest:{" "}
+                  <strong>{formatMoney(vf.platformDiscountGross)}</strong>
+                  <div className={styles.muted}>
+                    {platformFundedSources.length > 0
+                      ? `Sursă: ${platformFundedSources.join(", ")}. `
+                      : ""}
+                    Cost de marketing suportat de Artfest - nu modifică
+                    procentul de comision.
+                  </div>
+                </div>
+              )}
+
+              {Number(vf.vendorDiscountGross) > 0 && (
+                <div>
+                  Reducere suportată de magazin:{" "}
+                  <strong>{formatMoney(vf.vendorDiscountGross)}</strong>
+                  {vendorFundedSources.length > 0 && (
+                    <div className={styles.muted}>
+                      Sursă: {vendorFundedSources.join(", ")}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1673,53 +1742,12 @@ const contactPerson =
               </div>
 
               {!vf.isMixedCommission && vf.commissionSource === "plan" && (
-                <>
-                  <div>
-                    Comision standard Artfest:{" "}
-                    <strong>
-                      {((vf.baseCommissionBps || 0) / 100).toFixed(2)}%
-                    </strong>
-                  </div>
-
-                  {Number(vf.platformDiscountGross) > 0 &&
-                    Number(vf.commissionBaseGross) > 0 && (
-                      <div>
-                        Reducere Artfest:{" "}
-                        <strong>
-                          {(
-                            (Number(vf.platformDiscountGross) /
-                              Number(vf.commissionBaseGross)) *
-                            100
-                          ).toFixed(2)}
-                          %
-                        </strong>{" "}
-                        ({formatMoney(vf.platformDiscountGross)})
-                        <div className={styles.muted}>
-                          Reducere finanțată de Artfest (Produsul zilei /
-                          Artizanul săptămânii) - nu schimbă procentul de
-                          comision, doar prețul plătit de client.
-                        </div>
-                      </div>
-                    )}
-
-                  {Number(vf.commissionBaseGross) > 0 && (
-                    <div>
-                      Comision Artfest efectiv:{" "}
-                      <strong>
-                        {(
-                          (Number(vf.commissionNet) /
-                            Number(vf.commissionBaseGross)) *
-                          100
-                        ).toFixed(2)}
-                        %
-                      </strong>
-                      <div className={styles.muted}>
-                        Comision standard 12% minus reducerea suportată de
-                        Artfest.
-                      </div>
-                    </div>
-                  )}
-                </>
+                <div>
+                  Comision standard Artfest:{" "}
+                  <strong>
+                    {((vf.baseCommissionBps || 0) / 100).toFixed(2)}%
+                  </strong>
+                </div>
               )}
 
               {!vf.isMixedCommission && vf.commissionSource !== "plan" && (
@@ -1747,28 +1775,6 @@ const contactPerson =
                 </div>
               )}
 
-              {!vf.isMixedCommission &&
-                (vf.commissionSource === "vendor_referral_own_sale" ||
-                  vf.commissionSource === "vendor_collection_own_sale") &&
-                (Number(vf.platformDiscountGross) > 0 ||
-                  Number(vf.vendorDiscountGross) > 0) && (
-                  <>
-                    {Number(vf.platformDiscountGross) > 0 && (
-                      <div>
-                        Reducere Artfest:{" "}
-                        <strong>{formatMoney(vf.platformDiscountGross)}</strong>
-                      </div>
-                    )}
-
-                    {Number(vf.vendorDiscountGross) > 0 && (
-                      <div>
-                        Magazinul suportă:{" "}
-                        <strong>{formatMoney(vf.vendorDiscountGross)}</strong>
-                      </div>
-                    )}
-                  </>
-                )}
-
               {vf.isMixedCommission && Array.isArray(vf.commissionGroups) && (
                 <div>
                   Procent comision Artfest: <strong>mixt</strong>
@@ -1791,50 +1797,32 @@ const contactPerson =
 
               {vf.commissionAmount != null && (
                 <div>
-                  Comision Artfest brut:{" "}
+                  Comision Artfest calculat:{" "}
                   <strong>{formatMoney(vf.commissionAmount)}</strong>
                   <div className={styles.muted}>
-                    înainte de subvenția Artfest
+                    Procentul de comision × baza de calcul (fără TVA)
                   </div>
                 </div>
               )}
 
-              {Number(vf.platformSubsidyAmount || 0) > 0 && (
+              {hasPlatformPromotionCost && (
                 <div>
-                  Subvenție Artfest:{" "}
+                  Parte din costul promoției dedusă din comision:{" "}
                   <strong>{formatMoney(vf.platformSubsidyAmount)}</strong>
                   <div className={styles.muted}>
-                    Artfest absoarbe din propriul comision partea de
-                    reducere pe care o susține - magazinul tău nu suportă
-                    această reducere.
+                    Partea din reducerea finanțată de Artfest pe care
+                    Artfest o acoperă din comisionul calculat (sumă fără
+                    TVA; restul reducerii e deja reflectat în baza de
+                    calcul redusă).
                   </div>
                 </div>
               )}
 
               <div>
-                Valoare comision Artfest:{" "}
+                {hasPlatformPromotionCost
+                  ? "Comision net Artfest: "
+                  : "Valoare comision Artfest: "}
                 <strong>{formatMoney(vf.commissionNet)}</strong>
-                {vf.commissionSource !== "plan" && (
-                  <div className={styles.muted}>
-                    {Number(vf.commissionBaseGross) > 0
-                      ? `${(
-                          (Number(vf.commissionNet) /
-                            Number(vf.commissionBaseGross)) *
-                          100
-                        ).toFixed(2)}% din prețul inițial`
-                      : vf.isMixedCommission
-                      ? "mixt"
-                      : `${((vf.commissionBps || 0) / 100).toFixed(2)}%`}
-                    {!vf.isMixedCommission &&
-                      Number(vf.platformDiscountGross) > 0 && (
-                        <>
-                          {" "}
-                          (standard {((vf.commissionBps || 0) / 100).toFixed(2)}%,
-                          redus prin reducerea suportată de Artfest)
-                        </>
-                      )}
-                  </div>
-                )}
               </div>
 
               <div>

@@ -83,6 +83,7 @@ import GuestSupportPage from "./pages/Guest/GuestSupport/GuestSupportPage.jsx";
 import AdminSupportPage from "./pages/Admin/AdminSupport/AdminSupportPage.jsx";
 
 import GuestOrderPage from "./pages/Guest/GuestOrder/GuestOrder.jsx";
+import GuestReturnsPage from "./pages/Guest/GuestReturns/GuestReturnsPage.jsx";
 
 import SettingsPage from "./pages/Vendor/Settings/Settings";
 import ConfirmDeactivateVendor from "./pages/Vendor/Settings/ConfirmDeactivateVendor.jsx";
@@ -661,6 +662,14 @@ export default function App() {
               path="/comanda-guest/:id"
               element={
                 <GuestOrderPage />
+              }
+            />
+
+            {/* Retururi guest (token comandă / token de urmărire retur) */}
+            <Route
+              path="/retur-guest/:id"
+              element={
+                <GuestReturnsPage />
               }
             />
 

@@ -4997,6 +4997,17 @@ configurationKey:
       guestAccess.token
     )}`;
 
+  /*
+   * Pagina securizată de retur guest (formular + urmărire), cu
+   * ACELAȘI token original al comenzii. Fără token -> fără CTA.
+   */
+  const guestReturnUrl =
+    guestAccess?.token
+      ? `${frontendUrl}/retur-guest/${encodeURIComponent(
+          created.id
+        )}?token=${encodeURIComponent(guestAccess.token)}`
+      : null;
+
   await sendOrderConfirmationEmail({
     to:
       customerEmail,
@@ -5028,6 +5039,9 @@ configurationKey:
      */
     actionUrl:
       guestOrderUrl,
+
+    returnUrl:
+      guestReturnUrl,
 
     /*
      * =================================================

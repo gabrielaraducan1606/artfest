@@ -44,6 +44,7 @@ import changePassword from "./src/routes/changePasswordRoutes.js";
 import accountDeleteRoutes from "./src/routes/accountDeleteRoutes.js";
 import userOrdersRoutes from "./src/routes/userOrdersRoutes.js";
 import userReturnsRoutes from "./src/routes/userReturnsRoutes.js";
+import guestReturnsRoutes from "./src/routes/guestReturnsRoutes.js";
 import {
   userWithdrawalRouter,
   guestWithdrawalRouter,
@@ -128,6 +129,7 @@ import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
 import { runQuotePriceReminderJob } from "./src/jobs/quotePriceReminderJob.js";
 // 🔔 JOB: reminder plată CARD neterminată (comenzi guest)
 import { runGuestPaymentReminderJob } from "./src/jobs/guestPaymentReminderJob.js";
+import { runReturnVendorReminderJob } from "./src/jobs/returnVendorReminderJob.js";
 // 🔔 JOB: notificare vendor/influencer la expirarea unui cod de reducere
 import { runDiscountCodeExpiryJob } from "./src/jobs/discountCodeExpiryJob.js";
 import vendorCatalogProductsRoutes
@@ -634,6 +636,11 @@ app.use("/api", unsubscribeRouter);
 app.use("/api/vendors/me/visitors", vendorVisitorsRoutes);
 app.use("/api/visitors", vendorVisitorsPublicRoutes);
 app.use("/api", productCommentsRouter);
+// Retururi guest (prin tokenul comenzii / token de urmărire) - /:id/returns*.
+app.use(
+  "/api/guest/orders",
+  guestReturnsRoutes
+);
 // Retragere online (guest, prin token) - /:id/withdrawal.
 app.use(
   "/api/guest/orders",
@@ -828,6 +835,23 @@ setInterval(() => {
     console.error("guestPaymentReminderJob (interval) failed:", err)
   );
 }, guestPaymentReminderIntervalMs);
+
+/*
+ * Retururi NEW fără răspuns: reminder vânzător la 48h, Admin la 72h.
+ * dedupeKey pe cerere -> o singură notificare fiecare; rulare orară e
+ * suficientă (pragurile sunt în ore). NU acceptă / respinge nimic.
+ */
+runReturnVendorReminderJob().catch((err) =>
+  console.error("returnVendorReminderJob (startup) failed:", err)
+);
+
+const returnVendorReminderIntervalMs = 60 * 60 * 1000;
+
+setInterval(() => {
+  runReturnVendorReminderJob().catch((err) =>
+    console.error("returnVendorReminderJob (interval) failed:", err)
+  );
+}, returnVendorReminderIntervalMs);
 
 /*
  * Notificare vendor/influencer la expirarea unui cod de reducere

@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import {
+  Link,
   useParams,
   useSearchParams,
 } from "react-router-dom";
@@ -664,6 +665,18 @@ export default function GuestOrderPage() {
       ) || ""
     ).trim();
 
+  /*
+   * Token din emailul „predat curierului”: vizualizare comandă +
+   * retur (cerere după livrare, urmărire). NU deblochează plata,
+   * avansul sau retragerea - pentru acestea e nevoie de `token`.
+   */
+  const orderToken =
+    String(
+      searchParams.get(
+        "orderToken"
+      ) || ""
+    ).trim();
+
     const paymentResult =
   String(
     searchParams.get(
@@ -697,6 +710,13 @@ export default function GuestOrderPage() {
           "depositToken",
           depositToken
         );
+      } else if (
+        orderToken
+      ) {
+        params.set(
+          "orderToken",
+          orderToken
+        );
       }
 
       return params.toString();
@@ -704,6 +724,7 @@ export default function GuestOrderPage() {
       guestToken,
       paymentToken,
       depositToken,
+      orderToken,
     ]);
 
   useEffect(() => {
@@ -770,7 +791,8 @@ export default function GuestOrderPage() {
         if (
           !guestToken &&
           !paymentToken &&
-          !depositToken
+          !depositToken &&
+          !orderToken
         ) {
           setError(
             "Linkul acestei comenzi nu este valid sau este incomplet."
@@ -843,6 +865,7 @@ export default function GuestOrderPage() {
         guestToken,
         paymentToken,
         depositToken,
+        orderToken,
         accessQuery,
       ]
     );
@@ -1739,6 +1762,32 @@ const canRetryPayment =
           mode="guest"
           token={guestToken}
         />
+      </div>
+    </section>
+  )}
+
+{/* =================================================
+    RETUR / PROBLEMĂ CU PRODUSUL (fără cont)
+================================================= */}
+
+{(guestToken || orderToken) &&
+  order.status !== "CANCELLED" && (
+    <section style={cardStyle}>
+      <div style={subtleStyle}>
+        Ai o problemă cu un produs livrat sau vrei să îl returnezi? Solicită
+        și urmărește returul direct de aici, fără cont.
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <Link
+          to={
+            guestToken
+              ? `/retur-guest/${encodeURIComponent(id)}?token=${encodeURIComponent(guestToken)}`
+              : `/retur-guest/${encodeURIComponent(id)}?orderToken=${encodeURIComponent(orderToken)}`
+          }
+        >
+          Solicită / urmărește returul →
+        </Link>
       </div>
     </section>
   )}

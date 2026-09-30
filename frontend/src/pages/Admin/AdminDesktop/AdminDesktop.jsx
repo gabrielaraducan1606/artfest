@@ -13,6 +13,7 @@ import AdminCollectionsTab from "./tabs/AdminCollectionsTab.jsx";
 import AdminPoliciesTab from "./tabs/AdminPoliciesTab.jsx";
 import AdminEmailLogsTab from "./tabs/AdminEmailLogsTab.jsx";
 import AdminWithdrawalsTab from "./tabs/AdminWithdrawalsTab.jsx";
+import AdminReturnsTab from "./tabs/AdminReturnsTab.jsx";
 
 const TABS = [
   { id: "adminAllUsers", label: "Toate conturile" },
@@ -20,6 +21,7 @@ const TABS = [
   { id: "vendors", label: "Vendori" },
   { id: "vendorPlans", label: "Abonamente (Vendori)" },
   { id: "orders", label: "Comenzi" },
+  { id: "returns", label: "Retururi" },
   { id: "products", label: "Produse" },
   { id: "collections", label: "Colecții" },
   { id: "policies", label: "Politici / consimțăminte" },
@@ -76,6 +78,7 @@ export default function AdminDesktop() {
     policies: false,
     emails: false,
     withdrawals: false,
+    returns: false,
   });
 
   const [stats, setStats] = useState({
@@ -168,6 +171,12 @@ export default function AdminDesktop() {
 
       if (tabId === TAB_IDS.withdrawals) {
         setLoadedTabs((prev) => ({ ...prev, withdrawals: true }));
+        return;
+      }
+
+      // AdminReturnsTab își încarcă singur datele
+      if (tabId === TAB_IDS.returns) {
+        setLoadedTabs((prev) => ({ ...prev, returns: true }));
         return;
       }
 
@@ -365,6 +374,10 @@ export default function AdminDesktop() {
 
     if (activeTab === TAB_IDS.withdrawals) {
       return <AdminWithdrawalsTab />;
+    }
+
+    if (activeTab === TAB_IDS.returns) {
+      return <AdminReturnsTab />;
     }
 
     return null;

@@ -45,6 +45,11 @@ import {
   autoCloseUnambiguousWithdrawalRequests,
   closeWithdrawalRequestForVendor,
 } from "../services/withdrawalService.js";
+import {
+  ReturnFlowError,
+  applyVendorReturnAction,
+  listReturnRequestsForOrder,
+} from "../services/returnRequestService.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -637,10 +642,31 @@ export async function computeVendorEarningForShipment({
   };
 }
 
+/*
+ * Protecție RETURN (audit financiar retururi): un shipment cu
+ * direction = RETURN e coletul care vine ÎNAPOI de la client la vendor -
+ * nu e niciodată o vânzare. Nu creăm SALE (vendor / influencer /
+ * referral), deci nici comision nou, indiferent din ce rută se ajunge
+ * aici. vendorEarningEntry e unic pe shipmentId, iar coletul RETURN are
+ * id propriu, deci fără această gardă vânzarea s-ar dubla.
+ */
+export async function isReturnShipment(shipmentId, db = prisma) {
+  if (!shipmentId) return false;
+
+  const shipment = await db.shipment.findUnique({
+    where: { id: shipmentId },
+    select: { direction: true },
+  });
+
+  return String(shipment?.direction || "OUTBOUND") === "RETURN";
+}
+
 export async function ensureSaleLedgerEntry({
   vendorId,
   shipmentId,
 }) {
+  if (await isReturnShipment(shipmentId)) return null;
+
   const earning =
     await computeVendorEarningForShipment({
       vendorId,
@@ -873,10 +899,14 @@ export async function ensureInfluencerSaleLedgerEntry({ shipmentId }) {
       orderId: true,
       influencerId: true,
       influencerCommissionBpsSnapshot: true,
+      direction: true,
     },
   });
 
   if (!shipment?.influencerId) return null;
+
+  // coletul RETURN nu e vânzare (vezi isReturnShipment)
+  if (shipment.direction === "RETURN") return null;
 
   const commissionBpsSnapshot = Number(
     shipment.influencerCommissionBpsSnapshot || 0
@@ -1029,10 +1059,14 @@ export async function ensureVendorReferralSaleLedgerEntry({ shipmentId }) {
       orderId: true,
       referrerVendorId: true,
       referrerVendorCommissionBpsSnapshot: true,
+      direction: true,
     },
   });
 
   if (!shipment?.referrerVendorId) return null;
+
+  // coletul RETURN nu e vânzare (vezi isReturnShipment)
+  if (shipment.direction === "RETURN") return null;
 
   const commissionBpsSnapshot = Number(
     shipment.referrerVendorCommissionBpsSnapshot || 0
@@ -1497,6 +1531,9 @@ async function findShipmentByOrderRef({ vendorId, orderRef, include, select }) {
     relationLoadStrategy: "query",
     where: {
       vendorId,
+      // doar coletul de vânzare: coletul RETURN are același orderId/vendorId
+      // și nu trebuie să fie ținta acțiunilor de comandă (status, livrare)
+      direction: "OUTBOUND",
       OR: [{ orderId: orderRef }, { order: { orderNumber: orderRef } }],
     },
     include,
@@ -3066,6 +3103,24 @@ router.get(
           })
         : [];
 
+    /*
+     * Secțiunea "Cereri de retur" - doar cererile ACESTUI vânzător, cu
+     * acțiunile permise de statusul curent (services/returnRequestService.js).
+     * Doar citire; eșecul nu blochează pagina comenzii.
+     */
+    const returnRequests =
+      await listReturnRequestsForOrder({
+        orderId: order.id,
+        vendorId,
+        audience: "VENDOR",
+      }).catch((error) => {
+        console.error(
+          "GET /api/vendor/orders/:id returnRequests failed:",
+          error
+        );
+        return [];
+      });
+
     return res.json({
       id:
         order.id,
@@ -3517,7 +3572,56 @@ router.get(
       messageThreads,
 
       withdrawalRequests,
+
+      returnRequests,
     });
+  }
+);
+
+/* ----------------------------------------------------
+   POST /api/vendor/orders/:id/returns/:returnId/:action
+   action: accept | request_info | reject | received
+
+   Gestionarea cererii de retur de către vânzător, STRICT pe statusurile
+   existente (NEW -> IN_REVIEW / APPROVED / REJECTED, APPROVED |
+   PICKUP_REQUESTED -> CLOSED). Mesaj automat în conversația comenzii +
+   notificare client. NU face refund și NU atinge Order / Shipment /
+   ledger - la "received", adminul e notificat pentru rambursare.
+----------------------------------------------------- */
+router.post(
+  "/orders/:id/returns/:returnId/:action",
+  requireVendor,
+  async (req, res) => {
+    try {
+      const result = await applyVendorReturnAction({
+        returnRequestId: String(req.params.returnId || "").trim(),
+        orderId: String(req.params.id || "").trim(),
+        vendorId: req.user.vendorId,
+        action: String(req.params.action || "").trim(),
+        message: req.body?.message,
+      });
+
+      return res.json({ ok: true, returnRequest: result });
+    } catch (error) {
+      if (error instanceof ReturnFlowError) {
+        return res.status(error.status).json({
+          ok: false,
+          error: error.code,
+          message: error.message,
+        });
+      }
+
+      console.error(
+        "POST /api/vendor/orders/:id/returns/:returnId/:action FAILED:",
+        error
+      );
+
+      return res.status(500).json({
+        ok: false,
+        error: "return_action_failed",
+        message: "Acțiunea pe cererea de retur nu a putut fi salvată.",
+      });
+    }
   }
 );
 

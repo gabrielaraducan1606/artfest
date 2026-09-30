@@ -4,7 +4,7 @@ import multer from "multer";
 import crypto from "crypto";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "../db.js";
-import { authRequired } from "../api/auth.js";
+import { authRequired, optionalAuth } from "../api/auth.js";
 import {
   notifyVendorOnProductReviewCreated,
   notifyUserOnProductReviewReply, // notifică clientul când vendor răspunde la review produs
@@ -71,6 +71,27 @@ const upload = multer({
 /* ===== Helpers ===== */
 function sanitizeText(s, max = 2000) {
   return (s || "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+/*
+ * Ca sanitizeText, dar păstrează rândurile/paragrafele (folosit pentru
+ * răspunsul vânzătorului, afișat cu white-space: pre-wrap): normalizează
+ * CRLF, elimină caracterele de control, comprimă spațiile din interiorul
+ * rândului și maxim o linie goală între paragrafe. Textul e afișat de
+ * React ca text simplu (escapat), nu ca HTML.
+ */
+function sanitizeMultilineText(s, max = 2000) {
+  return String(s || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, max)
+    .trim();
 }
 
 function requireRole(roleOrRoles) {
@@ -168,9 +189,66 @@ async function recalcProductStats(productId) {
 
 /* ===== Public – recenzii de PRODUS ===== */
 
-// GET /api/public/product/:id/reviews?sort=&skip=&take=&verified=&star=
-router.get("/public/product/:id/reviews", async (req, res) => {
+const PUBLIC_REVIEW_INCLUDE = {
+  user: {
+    select: {
+      firstName: true,
+      lastName: true,
+      name: true,
+      email: true,
+    },
+  },
+  _count: { select: { helpful: true } },
+  reply: {
+    select: {
+      text: true,
+      createdAt: true,
+      updatedAt: true,
+      vendor: { select: { displayName: true } },
+    },
+  },
+  images: { select: { id: true, url: true } },
+};
+
+function serializePublicReview(r, likedIds) {
+  return {
+    id: r.id,
+    rating: r.rating,
+    comment: r.comment || "",
+    createdAt: r.createdAt,
+    helpfulCount: r._count.helpful,
+    verified: r.verified,
+    likedByMe: likedIds.has(r.id),
+    reply: r.reply
+      ? {
+          text: r.reply.text,
+          createdAt: r.reply.createdAt,
+          updatedAt: r.reply.updatedAt,
+          vendorName: r.reply.vendor?.displayName || null,
+        }
+      : null,
+    images:
+      r.images?.map((img) => ({
+        id: img.id,
+        url: img.url,
+      })) || [],
+    userName:
+      r.user.firstName || r.user.lastName
+        ? [r.user.firstName, r.user.lastName].filter(Boolean).join(" ")
+        : r.user.name || r.user.email.split("@")[0],
+    userId: r.userId,
+  };
+}
+
+// GET /api/public/product/:id/reviews?sort=&skip=&take=&verified=&star=&include=
+//
+// include=<reviewId> (opțional): link direct către o recenzie (ex. notificarea
+// "Vânzătorul a răspuns...", /produs/:id#rev-<id>). Dacă recenzia nu e în
+// pagina curentă, e întoarsă separat în `target` (doar dacă aparține acestui
+// produs și e APPROVED) - paginarea, `items` și `total` rămân neschimbate.
+router.get("/public/product/:id/reviews", optionalAuth, async (req, res) => {
   const { id } = req.params;
+  const includeId = String(req.query.include || "").trim().slice(0, 64);
   const sort = String(req.query.sort || "relevant");
   const skip = Math.max(parseInt(req.query.skip || "0", 10), 0);
   const take = Math.min(Math.max(parseInt(req.query.take || "20", 10), 1), 50);
@@ -199,46 +277,40 @@ router.get("/public/product/:id/reviews", async (req, res) => {
       orderBy,
       skip,
       take,
-      include: {
-        user: {
-          select: {
-            firstName: true,
-            lastName: true,
-            name: true,
-            email: true,
-          },
-        },
-        _count: { select: { helpful: true } },
-        reply: { select: { text: true, createdAt: true } },
-        images: { select: { id: true, url: true } },
-      },
+      include: PUBLIC_REVIEW_INCLUDE,
     }),
     prisma.review.count({ where }),
     prisma.productRatingStats.findUnique({ where: { productId: id } }),
   ]);
 
+  // Recenzia țintă, doar dacă nu e deja în pagina curentă. Filtrele de
+  // listă (verified/star) nu se aplică - linkul cere explicit acea recenzie.
+  let target = null;
+  if (includeId && !items.some((r) => r.id === includeId)) {
+    target = await prisma.review.findFirst({
+      where: { id: includeId, productId: id, status: "APPROVED" },
+      include: PUBLIC_REVIEW_INCLUDE,
+    });
+  }
+
+  // likedByMe - calculat pe server pentru userul autentificat, ca starea
+  // butonului "Utilă" să rămână corectă după refresh.
+  const viewerId = req.user?.sub || null;
+  const likedIds = new Set();
+  const reviewIds = [...items, ...(target ? [target] : [])].map((r) => r.id);
+  if (viewerId && reviewIds.length) {
+    const liked = await prisma.reviewHelpful.findMany({
+      where: { userId: viewerId, reviewId: { in: reviewIds } },
+      select: { reviewId: true },
+    });
+    for (const l of liked) likedIds.add(l.reviewId);
+  }
+
   res.json({
     total,
     stats: stats || { avg: "0.00", c1: 0, c2: 0, c3: 0, c4: 0, c5: 0 },
-    items: items.map((r) => ({
-      id: r.id,
-      rating: r.rating,
-      comment: r.comment || "",
-      createdAt: r.createdAt,
-      helpfulCount: r._count.helpful,
-      verified: r.verified,
-      reply: r.reply || null,
-      images:
-        r.images?.map((img) => ({
-          id: img.id,
-          url: img.url,
-        })) || [],
-      userName:
-        r.user.firstName || r.user.lastName
-          ? [r.user.firstName, r.user.lastName].filter(Boolean).join(" ")
-          : r.user.name || r.user.email.split("@")[0],
-      userId: r.userId,
-    })),
+    items: items.map((r) => serializePublicReview(r, likedIds)),
+    target: target ? serializePublicReview(target, likedIds) : null,
   });
 });
 
@@ -481,16 +553,55 @@ router.post(
 );
 
 // POST /api/reviews/:id/helpful
+// Autorul recenziei și vendorul produsului NU pot vota "Utilă" (verificat
+// aici, nu doar ascuns în UI). Voturile existente rămân neatinse.
 router.post("/reviews/:id/helpful", authRequired, async (req, res) => {
-  const { id } = req.params;
   try {
-    await prisma.reviewHelpful.create({
-      data: { reviewId: id, userId: req.user.sub },
+    const id = String(req.params.id || "").trim();
+    const userId = req.user.sub;
+
+    const review = await prisma.review.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        product: { select: { service: { select: { vendorId: true } } } },
+      },
     });
-  } catch {
-    // ignore duplicate
+
+    if (!review || review.status !== "APPROVED") {
+      return res.status(404).json({ error: "review_not_found" });
+    }
+
+    if (review.userId === userId) {
+      return res.status(403).json({ error: "cannot_vote_own_review" });
+    }
+
+    const meVendor = await prisma.vendor.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    const productVendorId = review.product?.service?.vendorId || null;
+
+    if (meVendor && productVendorId && meVendor.id === productVendorId) {
+      return res.status(403).json({ error: "vendor_cannot_vote_own_product" });
+    }
+
+    try {
+      await prisma.reviewHelpful.create({
+        data: { reviewId: id, userId },
+      });
+    } catch (e) {
+      // vot duplicat - ignorăm
+      if (e?.code !== "P2002") throw e;
+    }
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("POST /api/reviews/:id/helpful error", e);
+    return res.status(500).json({ error: "helpful_create_failed" });
   }
-  res.json({ ok: true });
 });
 
 // DELETE /api/reviews/:id/helpful
@@ -570,37 +681,90 @@ router.delete("/reviews/:id", authRequired, async (req, res) => {
 
 /* ===== Vendor actions – reply la recenzie PRODUS ===== */
 
+/*
+ * Un singur răspuns oficial per recenzie (ReviewReply.reviewId @unique),
+ * separat complet de ProductComment (Întrebări & comentarii).
+ *
+ * Verifică: review existent, produs existent, vendorul logat e
+ * proprietarul produsului. Întoarce { review } sau { status, error }.
+ */
+async function loadReviewForVendorReply(reviewId, vendorId) {
+  const review = await prisma.review.findUnique({
+    where: { id: reviewId },
+    select: {
+      id: true,
+      status: true,
+      product: { select: { id: true, service: { select: { vendorId: true } } } },
+      reply: { select: { id: true, vendorId: true } },
+    },
+  });
+
+  if (!review) return { status: 404, error: "not_found" };
+  if (!review.product) return { status: 404, error: "product_not_found" };
+  if (review.product.service?.vendorId !== vendorId) {
+    return { status: 403, error: "not_vendor_owner" };
+  }
+
+  return { review };
+}
+
+const REPLY_VENDOR_INCLUDE = { vendor: { select: { displayName: true } } };
+
+// Aceeași formă ca `reply` din GET /public/product/:id/reviews.
+function serializeReply(reply) {
+  return {
+    text: reply.text,
+    createdAt: reply.createdAt,
+    updatedAt: reply.updatedAt,
+    vendorName: reply.vendor?.displayName || null,
+  };
+}
+
 // POST /api/vendor/reviews/:id/reply
 router.post(
   "/vendor/reviews/:id/reply",
   authRequired,
   requireVendor(true),
   async (req, res) => {
-    const { id } = req.params;
-    const text = sanitizeText(req.body?.text || "", 1000);
-    if (!text) return res.status(400).json({ error: "invalid_input" });
+    try {
+      const id = String(req.params.id || "").trim();
+      const text = sanitizeMultilineText(req.body?.text || "", 1000);
+      if (!text) return res.status(400).json({ error: "invalid_input" });
 
-    const review = await prisma.review.findUnique({
-      where: { id },
-      include: { product: { include: { service: true } }, reply: true },
-    });
-    if (!review) return res.status(404).json({ error: "not_found" });
-    if (review.product.service.vendorId !== req.vendorId) {
-      return res.status(403).json({ error: "not_vendor_owner" });
+      const { review, status, error } = await loadReviewForVendorReply(
+        id,
+        req.vendorId
+      );
+      if (error) return res.status(status).json({ error });
+
+      if (review.status !== "APPROVED") {
+        return res.status(409).json({ error: "review_not_approved" });
+      }
+
+      if (review.reply && review.reply.vendorId !== req.vendorId) {
+        return res.status(403).json({ error: "not_reply_owner" });
+      }
+
+      const reply = await prisma.reviewReply.upsert({
+        where: { reviewId: id },
+        update: { text },
+        create: { reviewId: id, vendorId: req.vendorId, text },
+        include: REPLY_VENDOR_INCLUDE,
+      });
+
+      // 🔔 notifică CLIENTUL - doar la primul răspuns (dedupeKey per
+      // review în notifyUserOnProductReviewReply), nu la editări.
+      if (!review.reply) {
+        notifyUserOnProductReviewReply(review.id).catch((e) => {
+          console.warn("[notifyUserOnProductReviewReply] failed:", e);
+        });
+      }
+
+      res.json({ ok: true, reply: serializeReply(reply) });
+    } catch (e) {
+      console.error("POST /api/vendor/reviews/:id/reply error", e);
+      res.status(500).json({ error: "review_reply_failed" });
     }
-
-    const reply = await prisma.reviewReply.upsert({
-      where: { reviewId: id },
-      update: { text },
-      create: { reviewId: id, vendorId: req.vendorId, text },
-    });
-
-    // 🔔 notifică CLIENTUL că vendorul a răspuns la recenzia lui de produs
-    notifyUserOnProductReviewReply(review.id).catch((e) => {
-      console.warn("[notifyUserOnProductReviewReply] failed:", e);
-    });
-
-    res.json({ ok: true, reply });
   }
 );
 
@@ -610,19 +774,28 @@ router.delete(
   authRequired,
   requireVendor(true),
   async (req, res) => {
-    const { id } = req.params;
+    try {
+      const id = String(req.params.id || "").trim();
 
-    const review = await prisma.review.findUnique({
-      where: { id },
-      include: { product: { include: { service: true } } },
-    });
-    if (!review) return res.status(404).json({ error: "not_found" });
-    if (review.product.service.vendorId !== req.vendorId) {
-      return res.status(403).json({ error: "not_vendor_owner" });
+      const { review, status, error } = await loadReviewForVendorReply(
+        id,
+        req.vendorId
+      );
+      if (error) return res.status(status).json({ error });
+
+      if (!review.reply) {
+        return res.status(404).json({ error: "reply_not_found" });
+      }
+      if (review.reply.vendorId !== req.vendorId) {
+        return res.status(403).json({ error: "not_reply_owner" });
+      }
+
+      await prisma.reviewReply.delete({ where: { reviewId: id } });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("DELETE /api/vendor/reviews/:id/reply error", e);
+      res.status(500).json({ error: "review_reply_delete_failed" });
     }
-
-    await prisma.reviewReply.delete({ where: { reviewId: id } });
-    res.json({ ok: true });
   }
 );
 
@@ -808,25 +981,36 @@ router.patch(
   authRequired,
   requireVendor(true),
   async (req, res) => {
-    const { id } = req.params;
-    const text = sanitizeText(req.body?.text || "", 1000);
-    if (!text) return res.status(400).json({ error: "invalid_input" });
+    try {
+      const id = String(req.params.id || "").trim();
+      const text = sanitizeMultilineText(req.body?.text || "", 1000);
+      if (!text) return res.status(400).json({ error: "invalid_input" });
 
-    const review = await prisma.review.findUnique({
-      where: { id },
-      include: { product: { include: { service: true } } },
-    });
-    if (!review) return res.status(404).json({ error: "not_found" });
-    if (review.product.service.vendorId !== req.vendorId) {
-      return res.status(403).json({ error: "not_vendor_owner" });
+      const { review, status, error } = await loadReviewForVendorReply(
+        id,
+        req.vendorId
+      );
+      if (error) return res.status(status).json({ error });
+
+      if (!review.reply) {
+        return res.status(404).json({ error: "reply_not_found" });
+      }
+      if (review.reply.vendorId !== req.vendorId) {
+        return res.status(403).json({ error: "not_reply_owner" });
+      }
+
+      // editare - fără notificare nouă către client
+      const reply = await prisma.reviewReply.update({
+        where: { reviewId: id },
+        data: { text },
+        include: REPLY_VENDOR_INCLUDE,
+      });
+
+      res.json({ ok: true, reply: serializeReply(reply) });
+    } catch (e) {
+      console.error("PATCH /api/vendor/reviews/:id/reply error", e);
+      res.status(500).json({ error: "review_reply_update_failed" });
     }
-
-    const reply = await prisma.reviewReply.update({
-      where: { reviewId: id },
-      data: { text },
-    });
-
-    res.json({ ok: true, reply });
   }
 );
 // GET /api/product-comments/my

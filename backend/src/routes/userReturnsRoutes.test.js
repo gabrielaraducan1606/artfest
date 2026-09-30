@@ -19,8 +19,21 @@ let orderRow;
 let previousItems;
 let createdReturns;
 let notifications;
+let userNotifications;
+let products;
+let emails;
 
 const fakeDb = {
+  product: {
+    findMany: async ({ where }) => products.filter((p) => where.id.in.includes(p.id)),
+  },
+  user: {
+    findMany: async () => [{ id: "admin-1" }],
+    findUnique: async () => ({ email: "client@example.com", firstName: "Ana" }),
+  },
+  vendor: {
+    findUnique: async () => ({ displayName: "Atelier", email: "vendor@example.com", user: null }),
+  },
   order: {
     findFirst: async ({ where }) => {
       if (!orderRow || where.userId !== orderRow.userId) return null;
@@ -59,9 +72,23 @@ before(async () => {
           notifications.push({ vendorId, data });
           return {};
         },
+        createUserNotification: async (userId, data) => {
+          userNotifications.push({ userId, data });
+          return {};
+        },
       },
     }),
   ];
+
+  mocks.push(
+    mock.module("../lib/mailer.js", {
+      namedExports: {
+        sendVendorReturnRequestedEmail: async (args) => emails.push({ kind: "vendor", ...args }),
+        sendReturnRequestReceivedEmail: async (args) => emails.push({ kind: "client", ...args }),
+        sendReturnStatusEmail: async (args) => emails.push({ kind: "status", ...args }),
+      },
+    })
+  );
 
   restoreAll = () => mocks.forEach((m) => m.restore());
 
@@ -88,7 +115,20 @@ function daysAgo(n) {
 beforeEach(() => {
   createdReturns = [];
   notifications = [];
+  userNotifications = [];
+  emails = [];
   previousItems = [];
+  products = [
+    {
+      id: "prod-1",
+      optionsSchema: [{ key: "marime", label: "Mărime", options: ["S", "M"] }],
+      customSchema: [
+        { key: "nume", label: "Nume gravat", type: "text" },
+        { key: "culoare", label: "Culoare", options: ["Roșu", "Alb"] },
+      ],
+      repeatedGroups: [],
+    },
+  ];
   orderRow = {
     id: "order-1",
     orderNumber: "AF-1001",
@@ -162,6 +202,34 @@ test("cerere validă: 201, ReturnRequest + items create, vendorId din shipment (
   assert.equal(notifications[0].vendorId, "vendor-1");
 });
 
+test("email vânzător la cerere nouă: comandă, produse, motiv, CTA - fără adresa clientului / adresa de retur", async () => {
+  orderRow.shippingAddress = { name: "Ana Pop", street: "Str. Secretă 9", city: "Cluj", email: "ana@example.com" };
+
+  await post(payload());
+
+  const vendorEmail = emails.find((e) => e.kind === "vendor");
+  assert.equal(vendorEmail.to, "vendor@example.com");
+  assert.equal(vendorEmail.orderNumber, "AF-1001");
+  assert.deepEqual(vendorEmail.items, [{ title: "Lumânare", qty: 1 }]);
+  assert.equal(vendorEmail.reasonLabel, "M-am răzgândit");
+  assert.equal(vendorEmail.link, "/vendor/orders/order-1");
+  assert.doesNotMatch(JSON.stringify(vendorEmail), /Str. Secretă|Cluj/);
+
+  const clientEmail = emails.find((e) => e.kind === "client");
+  assert.equal(clientEmail.to, "client@example.com");
+  assert.doesNotMatch(JSON.stringify(clientEmail), /adres/i);
+});
+
+test("politica de retur: versiunea confirmată de client e păstrată în meta notificării (audit)", async () => {
+  await post(payload({ policyAck: { accepted: true, key: "returns_policy_ack", version: 2, acceptedAt: "2026-09-28T10:00:00Z" } }));
+
+  assert.deepEqual(notifications[0].data.meta.policyAck, {
+    key: "returns_policy_ack",
+    version: 2,
+    acceptedAt: "2026-09-28T10:00:00Z",
+  });
+});
+
 test("comanda altui user -> 404, nimic creat", async () => {
   orderRow.userId = "user-2";
 
@@ -230,6 +298,88 @@ test("motiv 'Alt motiv' fără text -> 400", async () => {
 
   assert.equal(status, 400);
   assert.equal(body.error, "reason_text_required");
+});
+
+test("produs personalizat (nume gravat) + retragere fără motiv -> 409, fără formulare de tip «interzis»", async () => {
+  orderRow.shipments[0].items[0].customAnswers = { nume: "Ana" };
+
+  for (const reasonCode of ["CHANGED_MIND", "NO_LONGER_WANTED", "SIZE_COLOR"]) {
+    const { status, body } = await post(payload({ reasonCode }));
+    assert.equal(status, 409, reasonCode);
+    assert.equal(body.error, "personalized_withdrawal_excluded");
+    assert.match(body.message, /Poți solicita în continuare soluționarea/);
+    assert.doesNotMatch(body.message, /interzis/i);
+  }
+
+  const other = await post(payload({ reasonCode: "OTHER_WITHDRAWAL", reasonText: "Nu îmi mai trebuie" }));
+  assert.equal(other.status, 409);
+
+  assert.equal(createdReturns.length, 0);
+});
+
+test("produs personalizat + neconformitate (defect, personalizare greșită, lipsă elemente) -> 201", async () => {
+  orderRow.shipments[0].items[0].customAnswers = { nume: "Ana" };
+
+  for (const reasonCode of ["DEFECT", "PERSONALIZATION_MISMATCH", "MISSING_PARTS", "DAMAGED"]) {
+    const { status } = await post(payload({ reasonCode, photos: ["https://cdn.example.com/p.jpg"] }));
+    assert.equal(status, 201, reasonCode);
+  }
+
+  const other = await post(payload({ reasonCode: "OTHER_CONFORMITY", reasonText: "Gravura e ștearsă" }));
+  assert.equal(other.status, 201);
+});
+
+test("culoare / mărime aleasă din listă NU face produsul personalizat -> retragerea e permisă", async () => {
+  orderRow.shipments[0].items[0].selectedOptions = { marime: "M" };
+  orderRow.shipments[0].items[0].customAnswers = { culoare: "Roșu" };
+
+  const { status, body } = await post(payload({ reasonCode: "CHANGED_MIND" }));
+
+  assert.equal(status, 201);
+  assert.equal(body.review, undefined);
+  assert.equal(userNotifications.length, 0);
+});
+
+test("personalizare neclară (produs șters) + retragere -> NU e respinsă, merge la verificare admin", async () => {
+  orderRow.shipments[0].items[0].customAnswers = { nume: "Ana" };
+  products = [];
+
+  const { status, body } = await post(payload({ reasonCode: "CHANGED_MIND" }));
+
+  assert.equal(status, 201);
+  assert.equal(body.review, "UNCLEAR");
+  assert.equal(createdReturns.length, 1);
+  assert.equal(userNotifications.length, 1);
+  assert.equal(userNotifications[0].userId, "admin-1");
+  assert.equal(userNotifications[0].data.meta.kind, "return_personalization_review");
+  assert.equal(notifications[0].data.meta.personalizationReview, true);
+});
+
+test("comandă din ofertă, fără date de personalizare -> verificare, nu respingere", async () => {
+  orderRow.quoteRequest = { id: "q-1" };
+
+  const { status, body } = await post(payload({ reasonCode: "CHANGED_MIND" }));
+
+  assert.equal(status, 201);
+  assert.equal(body.review, "UNCLEAR");
+});
+
+test("retragere după 14 zile -> 409 chiar și cu motivul nou NO_LONGER_WANTED; neconformitatea nouă trece", async () => {
+  orderRow.shipments[0].deliveredAt = daysAgo(30);
+
+  const late = await post(payload({ reasonCode: "NO_LONGER_WANTED" }));
+  assert.equal(late.status, 409);
+  assert.equal(late.body.error, "return_window_expired");
+
+  const missing = await post(payload({ reasonCode: "MISSING_PARTS", photos: ["https://cdn.example.com/p.jpg"] }));
+  assert.equal(missing.status, 201);
+});
+
+test("motiv necunoscut -> 400 invalid_payload", async () => {
+  const { status, body } = await post(payload({ reasonCode: "NU_EXISTA" }));
+
+  assert.equal(status, 400);
+  assert.equal(body.error, "invalid_payload");
 });
 
 test("fără acceptarea politicii (policyAck.accepted != true) -> 400 invalid_payload", async () => {

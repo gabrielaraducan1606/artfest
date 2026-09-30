@@ -1,5 +1,6 @@
 // src/routes/adminOrdersRoutes.js
 import { Router } from "express";
+import crypto from "node:crypto";
 import { prisma } from "../db.js";
 import { stripe } from "../lib/stripe.js";
 import {
@@ -12,7 +13,14 @@ import {
 import {
   computeVendorEarningForShipment,
   buildAttributionCommissionPreview,
+  ensureRefundLedgerEntry,
+  ensureInfluencerRefundLedgerEntry,
+  ensureVendorReferralRefundLedgerEntry,
 } from "./vendorOrdersRoutes.js";
+import {
+  loadReturnLedgerState,
+  evaluateReturnRefunds,
+} from "../services/returnRefundStatus.js";
 import {
   restoreStockFromItems,
 } from "../services/stockRestore.js";
@@ -935,6 +943,10 @@ router.post(
                 orderId:
                   order.id,
 
+                // coletul RETURN nu e livrare de vânzare
+                direction:
+                  "OUTBOUND",
+
                 status: {
                   notIn: [
                     "DELIVERED",
@@ -992,15 +1004,47 @@ router.post(
    POST /api/admin/orders/:id/resend-confirmation
 
    Funcționează pentru:
-   - user autentificat
-   - guest
+   - user autentificat (email normal, fără tokenuri)
+   - guest (token rotit -> link comandă + retur noi)
 ----------------------------------------------------- */
+
+// Același mecanism ca generateGuestAccessToken din chekoutRoutes.js:
+// 32 bytes aleatori (hex) în email, sha256 în guestAccessTokenHash.
+function generateGuestAccessTokenForResend() {
+  const token = crypto.randomBytes(32).toString("hex");
+
+  const tokenHash = crypto
+    .createHash("sha256")
+    .update(token)
+    .digest("hex");
+
+  return { token, tokenHash };
+}
+
+// aceeași definiție ca accesul guest din guestReturnsRoutes.js
+function isGuestOrderForResend(order) {
+  return order?.isGuestOrder === true && !order?.userId;
+}
+
+// anti-duplicat: o singură retrimitere în curs per comandă
+const resendConfirmationInFlight = new Set();
+
 router.post(
   "/orders/:id/resend-confirmation",
   async (req, res) => {
     const id = normalizeText(
       req.params.id
     );
+
+    if (resendConfirmationInFlight.has(id)) {
+      return res.status(409).json({
+        error: "resend_in_progress",
+        message:
+          "Emailul acestei comenzi este deja în curs de retrimitere.",
+      });
+    }
+
+    resendConfirmationInFlight.add(id);
 
     try {
       const order =
@@ -1084,14 +1128,128 @@ router.post(
       )
   );
 
-      await sendOrderConfirmationEmail({
-        to: customer.email,
-        order,
-        items,
+      /*
+       * Comandă CU CONT: fluxul existent, fără tokenuri.
+       */
+      if (!isGuestOrderForResend(order)) {
+        await sendOrderConfirmationEmail({
+          to: customer.email,
+          order,
+          items,
+        });
+
+        return res.json({
+          ok: true,
+          guest: false,
+        });
+      }
+
+      /*
+       * Comandă GUEST: tokenul original nu poate fi recuperat (în DB e
+       * doar hash-ul), deci ROTIM tokenul - același mecanism ca la
+       * checkout - și retrimitem emailul cu linkuri noi, cu acces complet
+       * (comandă, plată, retur nou + urmărire). Linkurile din emailurile
+       * anterioare devin invalide. Expirarea existentă NU se modifică.
+       */
+      if (
+        order.guestAccessExpiresAt &&
+        new Date(order.guestAccessExpiresAt) <= new Date()
+      ) {
+        return res.status(409).json({
+          error: "guest_access_expired",
+          message:
+            "Accesul securizat al acestei comenzi guest a expirat. Emailul nu a fost retrimis.",
+        });
+      }
+
+      const previousHash =
+        order.guestAccessTokenHash || null;
+
+      const guestAccess =
+        generateGuestAccessTokenForResend();
+
+      // doar hash-ul tokenului - statusul, plata și expirarea rămân neatinse
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          guestAccessTokenHash:
+            guestAccess.tokenHash,
+        },
+        select: { id: true },
       });
+
+      const frontendUrl = (
+        process.env.APP_URL ||
+        process.env.FRONTEND_URL ||
+        "http://localhost:5173"
+      ).replace(/\/+$/, "");
+
+      const tokenQuery =
+        `?token=${encodeURIComponent(guestAccess.token)}`;
+
+      const guestOrderUrl =
+        `${frontendUrl}/comanda-guest/${encodeURIComponent(order.id)}${tokenQuery}`;
+
+      const guestReturnUrl =
+        `${frontendUrl}/retur-guest/${encodeURIComponent(order.id)}${tokenQuery}`;
+
+      const paymentMethod =
+        String(order.paymentMethod || "").toUpperCase();
+
+      try {
+        // aceeași formă de apel ca în checkout-ul guest (chekoutRoutes.js)
+        await sendOrderConfirmationEmail({
+          to: customer.email,
+          order,
+          items,
+          userId: null,
+          isGuest: true,
+          actionUrl: guestOrderUrl,
+          returnUrl: guestReturnUrl,
+          paymentMethod,
+          // la checkout: CARD = plată în așteptare; la retrimitere doar dacă
+          // plata nu a fost încă confirmată
+          paymentPending:
+            paymentMethod === "CARD" &&
+            !order.paidAt &&
+            order.status !== "PAID" &&
+            order.status !== "CANCELLED",
+        });
+      } catch (sendError) {
+        /*
+         * Emailul nu a plecat: restaurăm hash-ul anterior (doar dacă nu
+         * a fost schimbat între timp), ca linkurile vechi să rămână
+         * valabile - altfel clientul ar rămâne fără niciun link valid.
+         */
+        await prisma.order
+          .updateMany({
+            where: {
+              id: order.id,
+              guestAccessTokenHash:
+                guestAccess.tokenHash,
+            },
+            data: {
+              guestAccessTokenHash:
+                previousHash,
+            },
+          })
+          .catch((restoreError) =>
+            console.error(
+              "ADMIN resend-confirmation: restore guest token hash failed",
+              order.id,
+              restoreError
+            )
+          );
+
+        throw sendError;
+      }
 
       return res.json({
         ok: true,
+        guest: true,
+        tokenRotated: true,
+        message:
+          "Emailul a fost retrimis cu un link securizat nou. Linkurile guest din emailurile anterioare nu mai sunt valabile.",
       });
     } catch (error) {
       console.error(
@@ -1106,6 +1264,8 @@ router.post(
         message:
           "Emailul de confirmare nu a putut fi retrimis.",
       });
+    } finally {
+      resendConfirmationInFlight.delete(id);
     }
   }
 );
@@ -1330,6 +1490,27 @@ const depositSummary =
     safeOrder.shipments || []
   );
 
+/*
+ * Retururi (read-only) + eligibilitate retur INTEGRAL (CARD / COD).
+ * Un eșec aici nu blochează detaliile comenzii.
+ */
+let returnRefunds = null;
+
+try {
+  const returnState =
+    await loadReturnLedgerState({ db: prisma, orderIds: [order.id] });
+
+  returnRefunds = evaluateReturnRefunds({
+    order,
+    ...returnState.get(order.id),
+  });
+} catch (returnError) {
+  console.error(
+    "ADMIN GET /orders/:id return state failed",
+    returnError
+  );
+}
+
 return res.json({
   ...safeOrder,
 
@@ -1352,6 +1533,8 @@ return res.json({
     ),
 
   depositSummary,
+
+  returnRefunds,
 });
     } catch (error) {
       console.error(
@@ -2042,6 +2225,200 @@ router.post(
             error?.message ||
             "Rambursarea nu a putut fi procesată.",
         });
+    }
+  }
+);
+
+/* ----------------------------------------------------
+   Retururi INTEGRALE (fără refund parțial)
+
+   Eligibilitatea e recalculată pe server din ReturnRequest + ledger
+   (evaluateReturnRefunds) - butoanele din UI sunt doar o oglindă.
+----------------------------------------------------- */
+async function loadOrderForReturnRefund(orderId) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      shipments: {
+        include: {
+          vendor: { select: { id: true, displayName: true } },
+          items: { select: { id: true, qty: true } },
+        },
+      },
+    },
+  });
+
+  if (!order) return { order: null, evaluation: null };
+
+  const returnState = await loadReturnLedgerState({ db: prisma, orderIds: [order.id] });
+
+  return {
+    order,
+    evaluation: evaluateReturnRefunds({ order, ...returnState.get(order.id) }),
+  };
+}
+
+/*
+   POST /api/admin/orders/:id/return-refund
+
+   CARD: refund integral al comenzii, DOAR dacă retururile primite
+   acoperă toate coletele de vânzare, integral. Reutilizează STRICT
+   refundCardOrderFully (aceleași chei de idempotență ca refundul admin).
+*/
+router.post(
+  "/orders/:id/return-refund",
+  async (req, res) => {
+    const orderId = normalizeText(req.params.id);
+
+    try {
+      const { order, evaluation } = await loadOrderForReturnRefund(orderId);
+
+      if (!order) {
+        return res.status(404).json({
+          error: "order_not_found",
+          message: "Comanda nu a fost găsită.",
+        });
+      }
+
+      if (!evaluation.cardFullRefund.eligible) {
+        return res.status(409).json({
+          error: "return_refund_not_eligible",
+          reason: evaluation.cardFullRefund.reason,
+          message:
+            evaluation.cardFullRefund.reason === "return_not_full_order"
+              ? "Returul nu acoperă întreaga comandă (toate coletele, toate produsele, primite de vânzător). Refundul parțial nu este disponibil."
+              : "Comanda nu este eligibilă pentru refund integral din retur.",
+        });
+      }
+
+      const who =
+        req.user?.email ||
+        req.user?.id ||
+        req.user?.sub ||
+        "admin";
+
+      const result = await refundCardOrderFully({
+        order,
+        actor: who,
+        prisma,
+        stripe,
+      });
+
+      return res.status(result.status).json(result.body);
+    } catch (error) {
+      console.error("ADMIN /orders/:id/return-refund error", error);
+
+      if (error?.code === "balance_insufficient") {
+        return res.status(409).json({
+          error: "stripe_reversal_failed",
+          message:
+            "Nu am putut recupera suma de la vendor în Stripe. Rambursarea clientului NU a fost efectuată. Verifică soldul contului Stripe Connect al vendorului.",
+        });
+      }
+
+      return res.status(500).json({
+        error: "admin_return_refund_failed",
+        message: error?.message || "Rambursarea nu a putut fi procesată.",
+      });
+    }
+  }
+);
+
+/*
+   POST /api/admin/orders/:id/return-cod-correction  { shipmentId }
+
+   COD: corecție INTEGRALĂ de comision pe UN colet, DOAR dacă retururile
+   primite acoperă tot coletul. Aceiași pași ca PATCH
+   /api/admin/pickups/:id/returned (status RETURNED + REFUND vendor /
+   influencer / referral, helper-e existente, idempotente). Fără Stripe:
+   banii către client îi rambursează vânzătorul, în afara platformei.
+*/
+router.post(
+  "/orders/:id/return-cod-correction",
+  async (req, res) => {
+    const orderId = normalizeText(req.params.id);
+    const shipmentId = normalizeText(req.body?.shipmentId);
+
+    if (!shipmentId) {
+      return res.status(400).json({
+        error: "shipment_id_required",
+        message: "Lipsește coletul.",
+      });
+    }
+
+    try {
+      const { order, evaluation } = await loadOrderForReturnRefund(orderId);
+
+      if (!order) {
+        return res.status(404).json({
+          error: "order_not_found",
+          message: "Comanda nu a fost găsită.",
+        });
+      }
+
+      const correction = evaluation.codCorrections.find(
+        (c) => c.shipmentId === shipmentId
+      );
+
+      if (!correction?.eligible) {
+        return res.status(409).json({
+          error: "cod_correction_not_eligible",
+          reason: correction?.reason || "not_cod_return_shipment",
+          message:
+            correction?.reason === "return_not_full_shipment"
+              ? "Returul nu acoperă întreg coletul (toate produsele, primite de vânzător). Corecția parțială nu este disponibilă."
+              : correction?.reason === "already_corrected"
+              ? "Comisionul acestui colet a fost deja corectat."
+              : "Coletul nu este eligibil pentru corecția integrală de comision.",
+        });
+      }
+
+      const shipment = order.shipments.find((s) => s.id === shipmentId);
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const current = await tx.shipment.findUnique({
+          where: { id: shipmentId },
+          select: { id: true, status: true, vendorId: true },
+        });
+
+        // livrat -> returnat (ca la refundul CARD); alte statusuri rămân
+        const row =
+          current.status === "DELIVERED"
+            ? await tx.shipment.update({
+                where: { id: shipmentId },
+                data: { status: "RETURNED", returnedAt: new Date() },
+                select: { id: true, status: true, vendorId: true },
+              })
+            : current;
+
+        const refund = await ensureRefundLedgerEntry({
+          vendorId: row.vendorId,
+          shipmentId: row.id,
+          db: tx,
+        });
+        await ensureInfluencerRefundLedgerEntry({ shipmentId: row.id, db: tx });
+        await ensureVendorReferralRefundLedgerEntry({ shipmentId: row.id, db: tx });
+
+        return { shipment: row, refundEntryId: refund?.id || null };
+      });
+
+      return res.json({
+        ok: true,
+        type: "COD_FULL_COMMISSION_CORRECTION",
+        shipmentId,
+        vendor: shipment?.vendor || null,
+        shipmentStatus: updated.shipment.status,
+        refundEntryId: updated.refundEntryId,
+        message:
+          "Comisionul coletului a fost corectat integral în ledger. Rambursarea banilor către client rămâne în grija vânzătorului (plată ramburs).",
+      });
+    } catch (error) {
+      console.error("ADMIN /orders/:id/return-cod-correction error", error);
+
+      return res.status(500).json({
+        error: "admin_cod_correction_failed",
+        message: error?.message || "Corecția nu a putut fi procesată.",
+      });
     }
   }
 );

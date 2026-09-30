@@ -5,6 +5,7 @@ import Stripe from "stripe";
 import { prisma } from "../db.js";
 import { authRequired, requireRole } from "../api/auth.js";
 import { sendPasswordResetEmail } from "../lib/mailer.js";
+import { loadReturnLedgerState, evaluateReturnRefunds } from "../services/returnRefundStatus.js";
 
 const router = Router();
 
@@ -1101,7 +1102,23 @@ router.get("/orders", async (req, res) => {
       },
     });
 
-    res.json({ orders });
+    // badge-uri de retur (read-only: ReturnRequest.status + ledger REFUND);
+    // un eșec aici nu blochează lista de comenzi
+    let returnState = new Map();
+    try {
+      returnState = await loadReturnLedgerState({ db: prisma, orderIds: orders.map((o) => o.id) });
+    } catch (returnError) {
+      console.error("ADMIN /orders return state failed", returnError);
+    }
+
+    const withReturns = orders.map((order) => {
+      const state = returnState.get(order.id);
+      if (!state?.returns.length) return { ...order, returns: [] };
+
+      return { ...order, returns: evaluateReturnRefunds({ order, ...state }).returns };
+    });
+
+    res.json({ orders: withReturns });
   } catch (e) {
     console.error("ADMIN /orders error", e);
     res.status(500).json({ error: "admin_orders_failed" });

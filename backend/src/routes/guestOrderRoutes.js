@@ -17,6 +17,7 @@ import {
   getDepositBlockReason,
 } from "../payments/depositGuards.js";
 import { verifyGuestPaymentAccessToken } from "../lib/guestPaymentAccessToken.js";
+import { verifyGuestOrderAccessToken } from "../lib/guestOrderAccessToken.js";
 
 const router = Router();
 
@@ -711,6 +712,52 @@ async function findGuestOrderByPaymentToken({
 }
 
 /* =========================================================
+   Găsește guest order folosind orderToken
+
+   Token JWT stateless (guest_order_return) din emailul „predat
+   curierului” - vezi src/lib/guestOrderAccessToken.js. DOAR citire
+   (GET /:id); plata și avansul NU îl acceptă.
+========================================================= */
+
+async function findGuestOrderByOrderToken({
+  orderReference,
+  orderToken,
+}) {
+  const payload =
+    verifyGuestOrderAccessToken(
+      orderToken
+    );
+
+  if (!payload) {
+    return null;
+  }
+
+  // acces DOAR la comanda din JWT
+  if (
+    String(payload.orderId) !==
+    String(orderReference)
+  ) {
+    return null;
+  }
+
+  return prisma.order.findFirst({
+    where: {
+      id:
+        payload.orderId,
+
+      isGuestOrder:
+        true,
+
+      userId:
+        null,
+    },
+
+    include:
+      guestOrderInclude,
+  });
+}
+
+/* =========================================================
    Resolve acces
 
    Acceptăm:
@@ -725,6 +772,7 @@ async function resolveGuestOrderAccess({
   token,
   depositToken,
   paymentToken,
+  orderToken,
 }) {
   if (token) {
     const order =
@@ -787,6 +835,25 @@ async function resolveGuestOrderAccess({
     }
   }
 
+  if (orderToken) {
+    const order =
+      await findGuestOrderByOrderToken({
+        orderReference,
+        orderToken,
+      });
+
+    if (order) {
+      return {
+        order,
+        accessType:
+          "order_token",
+
+        depositPayload:
+          null,
+      };
+    }
+  }
+
   return null;
 }
 
@@ -834,6 +901,14 @@ router.get(
             ""
         ).trim();
 
+      // din emailul „predat curierului” (doar citire + retur)
+      const orderToken =
+        String(
+          req.query
+            .orderToken ||
+            ""
+        ).trim();
+
       /*
        * Trebuie să avem:
        * - ID / orderNumber
@@ -844,7 +919,8 @@ router.get(
         (
           !token &&
           !depositToken &&
-          !paymentToken
+          !paymentToken &&
+          !orderToken
         )
       ) {
         return res
@@ -863,6 +939,7 @@ router.get(
        * - guestAccessToken normal
        * - depositToken temporar (avans)
        * - paymentToken temporar (reminder plată CARD)
+       * - orderToken (email „predat curierului”)
        */
       const access =
         await resolveGuestOrderAccess({
@@ -870,6 +947,7 @@ router.get(
           token,
           depositToken,
           paymentToken,
+          orderToken,
         });
 
       if (!access) {

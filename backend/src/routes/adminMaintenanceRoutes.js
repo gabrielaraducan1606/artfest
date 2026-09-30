@@ -7,6 +7,7 @@ import {
   sendSuspiciousLoginWarningEmail,
 } from "../lib/mailer.js";
 import { deleteOrAnonymizeAccount } from "../services/accountDeletionService.js";
+import { deleteProductCommentWithReplies } from "../services/productCommentDelete.js";
 
 const router = Router();
 
@@ -1096,12 +1097,13 @@ router.delete("/comments/:commentId", async (req, res) => {
     const existing = await prisma.comment.findUnique({ where: { id: commentId } });
     if (!existing) return res.status(404).json({ error: "comment_not_found" });
 
-    await prisma.$transaction([
-      prisma.commentReport.deleteMany({ where: { commentId } }),
-      prisma.comment.delete({ where: { id: commentId } }),
-    ]);
+    // ștergerea unei întrebări principale șterge și răspunsurile ei
+    const { deletedReplies } = await deleteProductCommentWithReplies(
+      prisma,
+      existing
+    );
 
-    res.json({ ok: true });
+    res.json({ ok: true, deletedReplies });
   } catch (e) {
     console.error("ADMIN maintenance DELETE /comments/:id error", e);
     res.status(500).json({ error: "maintenance_comment_delete_failed" });

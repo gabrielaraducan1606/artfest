@@ -4,6 +4,8 @@ import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { sendOrderCancelledByUserNotifications } from "../services/orderMessaging.js";
 import { sendOrderCancelledByUserEmail } from "../lib/mailer.js";
+import { listReturnRequestsForOrder } from "../services/returnRequestService.js";
+import { classifyPersonalization } from "../services/returnRequestRules.js";
 import {
   createDepositPaymentForShipment,
   createPaymentForOrder,
@@ -1296,6 +1298,13 @@ router.get(
                 },
               },
             },
+
+            // comandă dintr-o ofertă -> clasificare de retur neclară
+            quoteRequest: {
+              select: {
+                id: true,
+              },
+            },
           },
         });
 
@@ -1443,6 +1452,9 @@ router.get(
       let imageMap =
         new Map();
 
+      let productById =
+        new Map();
+
       if (
         productIdSet.size
       ) {
@@ -1463,8 +1475,28 @@ router.get(
 
               images:
                 true,
+
+              // definiția câmpurilor -> clasificarea de retur (personalizat?)
+              optionsSchema:
+                true,
+
+              customSchema:
+                true,
+
+              repeatedGroups:
+                true,
             },
           });
+
+        productById =
+          new Map(
+            products.map(
+              (product) => [
+                product.id,
+                product,
+              ]
+            )
+          );
 
         imageMap =
           new Map(
@@ -1614,6 +1646,26 @@ router.get(
 
                   shipmentId:
                     shipment.id,
+
+                  /*
+                   * STANDARD | PERSONALIZED | UNCLEAR - ce motive de
+                   * retur vede clientul în formular (OUG 34/2014, art.
+                   * 16 lit. c). Aceeași regulă e validată în
+                   * POST /api/user/returns.
+                   */
+                  returnPersonalization:
+                    classifyPersonalization(
+                      item,
+                      productById.get(
+                        item.productId
+                      ) || null,
+                      {
+                        fromQuote:
+                          Boolean(
+                            order.quoteRequest
+                          ),
+                      }
+                    ),
                 };
               }
             )
@@ -1636,6 +1688,25 @@ router.get(
         );
 
       /*
+       * Cererile de retur ale CLIENTULUI pentru această comandă (status,
+       * produse, ultimul răspuns al vânzătorului, conversația) - doar
+       * citire, vezi services/returnRequestService.js. Eșecul nu blochează
+       * pagina comenzii.
+       */
+      const returnRequests =
+        await listReturnRequestsForOrder({
+          orderId: order.id,
+          userId,
+          audience: "USER",
+        }).catch((error) => {
+          console.error(
+            "GET /api/user/orders/:id returnRequests failed:",
+            error
+          );
+          return [];
+        });
+
+      /*
        * =====================================================
        * RESPONSE
        * =====================================================
@@ -1644,6 +1715,8 @@ router.get(
       return res.json({
         id:
           order.id,
+
+        returnRequests,
 
         orderNumber:
           order.orderNumber ||
