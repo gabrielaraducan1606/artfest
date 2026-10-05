@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
+import { productCategoryWhere } from "../constants/categories.js";
 
 const router = Router();
 
@@ -265,10 +266,14 @@ function buildProductWhereFromRules(rules = {}) {
     },
   };
 
+  // categoria PRINCIPALĂ sau una SUPLIMENTARĂ - aceeași semantică precum
+  // pagina publică (services/collectionProducts.js)
   if (Array.isArray(rules.categories) && rules.categories.length) {
-    where.category = {
-      in: rules.categories.map((x) => String(x || "").trim()).filter(Boolean),
-    };
+    const keys = rules.categories.map((x) => String(x || "").trim()).filter(Boolean);
+    where.OR = [
+      { category: { in: keys } },
+      { additionalCategories: { some: { category: { in: keys } } } },
+    ];
   }
 
   if (rules.acceptsCustom === true) where.acceptsCustom = true;
@@ -312,7 +317,9 @@ function buildAdminProductPickerWhere(query = {}) {
   const hiddenBool = parseBooleanQuery(isHidden);
   if (hiddenBool !== undefined) where.isHidden = hiddenBool;
 
-  if (category) where.category = { equals: String(category), mode: "insensitive" };
+  // principală SAU suplimentară (AND, ca să nu se ciocnească cu OR-ul din q)
+  const categoryCond = productCategoryWhere(category, { insensitive: true });
+  if (categoryCond) where.AND = [...(where.AND || []), categoryCond];
   if (moderationStatus) where.moderationStatus = String(moderationStatus).toUpperCase();
   if (serviceId) where.serviceId = String(serviceId);
 

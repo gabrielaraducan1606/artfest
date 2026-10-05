@@ -9,6 +9,12 @@ import {
 } from "../api/auth.js";
 
 import {
+  CATEGORY_SET,
+  additionalCategoryKeys,
+  planAdditionalCategoriesWrite,
+} from "../constants/categories.js";
+
+import {
   pickGpsrPatchFromBody,
   validateGpsrConsistency,
 } from "../lib/gpsrCompliance.js";
@@ -146,6 +152,7 @@ router.patch(
           },
 
           include: {
+            additionalCategories: true,
             service: {
               include: {
                 type: true,
@@ -377,10 +384,68 @@ router.patch(
         body.category !==
         undefined
       ) {
-        data.category =
+        const nextCategory =
           normalizeNullableText(
             body.category
           );
+
+        // categoria PRINCIPALĂ e obligatorie și la editare
+        if (!nextCategory) {
+          return res.status(400).json({
+            error: "category_required",
+            message:
+              "Alege categoria principală a produsului.",
+          });
+        }
+
+        // o categorie NOUĂ trebuie să fie din catalog (cea existentă,
+        // chiar legacy, poate fi retrimisă neschimbată)
+        if (
+          nextCategory !== existing.category &&
+          !CATEGORY_SET.has(nextCategory)
+        ) {
+          return res.status(400).json({
+            error: "invalid_category",
+          });
+        }
+
+        data.category =
+          nextCategory;
+      }
+
+      /* =================================================
+         CATEGORII SUPLIMENTARE (max 3, fără principala)
+      ================================================= */
+
+      const effectivePrimary =
+        data.category !== undefined
+          ? data.category
+          : existing.category;
+
+      // aceeași logică ca la vendor: absent = păstrăm; [] = golim;
+      // identic = nicio scriere; principala nouă era suplimentară = o scoatem
+      const additionalPlan =
+        planAdditionalCategoriesWrite({
+          input:
+            body.additionalCategories,
+          primaryCategory:
+            effectivePrimary,
+          newPrimaryCategory:
+            data.category,
+          existingKeys:
+            additionalCategoryKeys(existing),
+        });
+
+      if (!additionalPlan.ok) {
+        return res.status(400).json({
+          error: additionalPlan.error,
+          detail: additionalPlan.detail,
+        });
+      }
+
+      if (additionalPlan.write) {
+        data.additionalCategories =
+          additionalPlan.write;
       }
 
       /* =================================================
@@ -998,6 +1063,7 @@ if (
           data,
 
           include: {
+            additionalCategories: true,
             service: {
               include: {
                 type: true,
@@ -1038,6 +1104,10 @@ if (
 
         product: {
           ...updated,
+
+          // chei simple, ca în celelalte răspunsuri de produs
+          additionalCategories:
+            additionalCategoryKeys(updated),
 
           /*
            * Pentru formularul frontend

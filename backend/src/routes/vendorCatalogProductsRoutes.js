@@ -878,13 +878,17 @@ router.patch(
           });
       }
 
-      const result =
-        await prisma.product.updateMany({
+      const ownedWhere =
+        ownedProductWhere(
+          req.user.sub,
+          ids
+        );
+
+      const [result] =
+        await prisma.$transaction([
+        prisma.product.updateMany({
           where:
-            ownedProductWhere(
-              req.user.sub,
-              ids
-            ),
+            ownedWhere,
 
           data: {
             category,
@@ -913,7 +917,19 @@ router.patch(
             approvedAt:
               null,
           },
-        });
+        }),
+
+        /*
+         * Noua categorie PRINCIPALĂ nu poate
+         * rămâne și SUPLIMENTARĂ.
+         */
+        prisma.productAdditionalCategory.deleteMany({
+          where: {
+            category,
+            product: ownedWhere,
+          },
+        }),
+      ]);
 
       return res.json({
         ok: true,
@@ -1023,6 +1039,13 @@ router.post(
             images: true,
 
             category: true,
+
+            additionalCategories: {
+              select: {
+                category: true,
+                position: true,
+              },
+            },
 
             color: true,
 
@@ -1139,6 +1162,17 @@ router.post(
 
             category:
               source.category,
+
+            // copia păstrează și categoriile suplimentare
+            additionalCategories: {
+              create:
+                (source.additionalCategories || []).map(
+                  (row) => ({
+                    category: row.category,
+                    position: row.position,
+                  })
+                ),
+            },
 
             color:
               source.color,

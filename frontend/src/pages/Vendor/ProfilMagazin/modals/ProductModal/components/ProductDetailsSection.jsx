@@ -3,6 +3,12 @@ import { useState } from "react";
 import styles from "../../../components/css/ProductModal.module.css";
 import TagComboField from "./TagComboField";
 import SingleTagComboField from "./SingleTagComboField";
+import AdditionalCategoriesField from "./AdditionalCategoriesField";
+import MultiCategoryNewsBanner from "./MultiCategoryNewsBanner";
+
+const ADDITIONAL_CATEGORIES_INPUT_ID =
+  "product-additional-categories";
+import { normalizeAdditionalCategoryKeys } from "../../../../../../utils/additionalCategories.js";
 
 export default function ProductDetailsSection({
   form,
@@ -15,7 +21,28 @@ export default function ProductDetailsSection({
   careOptions,
   colorOptions,
   categoryProps,
+  isExistingProduct = false,
 }) {
+  const aiPrimary =
+    form.aiSuggestedCategory || "";
+
+  const aiPrimaryLabel =
+    categoryProps?.options?.find(
+      (o) => o.key === aiPrimary
+    )?.label || "";
+
+  const focusAdditionalCategories = () => {
+    const input =
+      document.getElementById(
+        ADDITIONAL_CATEGORIES_INPUT_ID
+      );
+    input?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    input?.focus({ preventScroll: true });
+  };
+
   const [
     detailsHelpOpen,
     setDetailsHelpOpen,
@@ -217,6 +244,16 @@ export default function ProductDetailsSection({
 
         {categoryProps && (
           <>
+            {/* noutatea - doar la produs NOU; la produs existent, doar
+                invitația discretă din câmpul de suplimentare */}
+            {!isExistingProduct && (
+              <MultiCategoryNewsBanner
+                onAction={
+                  focusAdditionalCategories
+                }
+              />
+            )}
+
             <label
               className={styles.label}
               htmlFor="category-combobox-input"
@@ -235,6 +272,19 @@ export default function ProductDetailsSection({
                   ...s,
                   category:
                     e.target.value,
+                  // principala nu poate fi și suplimentară; o listă
+                  // ABSENTĂ rămâne absentă (nu devine [] implicit)
+                  ...(Array.isArray(
+                    s.additionalCategories
+                  )
+                    ? {
+                        additionalCategories:
+                          normalizeAdditionalCategoryKeys(
+                            s.additionalCategories,
+                            e.target.value
+                          ),
+                      }
+                    : {}),
                 }))
               }
               required
@@ -254,6 +304,82 @@ export default function ProductDetailsSection({
                 )
               )}
             </select>
+
+            {/* sugestia AI pentru categoria PRINCIPALĂ - separat; se
+                aplică doar la click (nu suprascrie alegerea vendorului) */}
+            {aiPrimaryLabel && (
+              <div
+                className={
+                  styles.aiPrimarySuggestion
+                }
+              >
+                <span>
+                  Categorie principală
+                  sugerată de AI:{" "}
+                  <strong>
+                    {aiPrimaryLabel}
+                  </strong>
+                </span>
+
+                {form.category !==
+                  aiPrimary && (
+                  <button
+                    type="button"
+                    className={
+                      styles.aiPrimarySuggestionUse
+                    }
+                    onClick={() =>
+                      setForm((s) => ({
+                        ...s,
+                        category:
+                          aiPrimary,
+                        ...(Array.isArray(
+                          s.additionalCategories
+                        )
+                          ? {
+                              additionalCategories:
+                                normalizeAdditionalCategoryKeys(
+                                  s.additionalCategories,
+                                  aiPrimary
+                                ),
+                            }
+                          : {}),
+                      }))
+                    }
+                  >
+                    Folosește
+                  </button>
+                )}
+              </div>
+            )}
+
+            <AdditionalCategoriesField
+              inputId={
+                ADDITIONAL_CATEGORIES_INPUT_ID
+              }
+              showInvite={
+                isExistingProduct
+              }
+              value={
+                form.additionalCategories
+              }
+              onChange={(next) =>
+                setForm((s) => ({
+                  ...s,
+                  additionalCategories:
+                    next,
+                }))
+              }
+              options={
+                categoryProps.options
+              }
+              primaryCategory={
+                form.category || ""
+              }
+              suggestions={
+                form.aiSuggestedAdditionalCategories
+              }
+            />
           </>
         )}
 

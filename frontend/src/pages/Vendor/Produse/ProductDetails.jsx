@@ -70,6 +70,7 @@ import {
 import {
   MagicIcon,
 } from "../../../components/AIAssistant/Personalization/PersonalizationIcons.jsx";
+import { additionalCategoriesPayload } from "../../../utils/additionalCategories.js";
 
 const PRODUCT_CANONICAL_BASE_URL = "https://www.artfest.ro";
 
@@ -3287,6 +3288,19 @@ const uploadCustomizationFile = useCallback(
       category:
         full.category || "",
 
+      // absent în API => absent în formular (backend-ul păstrează lista)
+      ...(Array.isArray(
+        full.additionalCategories
+      )
+        ? {
+            additionalCategories:
+              full.additionalCategories,
+          }
+        : {}),
+
+      aiSuggestedCategory: "",
+      aiSuggestedAdditionalCategories: [],
+
       currency:
         full.currency || "RON",
 
@@ -3604,6 +3618,12 @@ const uploadCustomizationFile = useCallback(
           price,
           images: imagesArr,
           category,
+
+          // max 3, fără duplicate, fără principala (validat și în backend)
+          ...additionalCategoriesPayload(
+            prodForm,
+            category
+          ),
 
           currency:
             prodForm.currency ||

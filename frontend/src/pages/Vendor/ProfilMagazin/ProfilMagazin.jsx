@@ -858,6 +858,12 @@ async function handleAcceptGate() {
         videoUrl: full.videoUrl || null,
         videoMuted: !!full.videoMuted,
         category: full.category || "",
+        // absent în API => absent în formular (backend-ul păstrează lista)
+        ...(Array.isArray(full.additionalCategories)
+          ? { additionalCategories: full.additionalCategories }
+          : {}),
+        aiSuggestedCategory: "",
+        aiSuggestedAdditionalCategories: [],
         currency: full.currency || "RON",
         isActive: full.isActive !== false,
         availability: (full.availability || "READY").toUpperCase(),

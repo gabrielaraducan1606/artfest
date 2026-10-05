@@ -1,7 +1,11 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
-import { CATEGORY_SET } from "../constants/categories.js";
+import {
+  CATEGORY_SET,
+  additionalCategoryKeys,
+  productCategoryWhere,
+} from "../constants/categories.js";
 import { COLOR_SET } from "../constants/colors.js";
 import { notifyVendorOnProductModeration } from "../services/notifications.js";
 import {
@@ -177,6 +181,11 @@ function mapAdminProduct(p) {
   return {
     ...mapProduct(p),
 
+    // categoriile suplimentare (doar când relația e încărcată)
+    ...(Array.isArray(p.additionalCategories)
+      ? { additionalCategories: additionalCategoryKeys(p) }
+      : {}),
+
     // verdict complet al moderării AI (per imagine, clasificare, motive
     // interne) - doar pentru admin, vezi services/productAiModeration.js
     aiModeration: p.aiModeration || null,
@@ -257,7 +266,9 @@ function applyProductFilters(where, query = {}) {
     moderationStatus = "",
   } = query;
 
-  if (category) where.category = String(category).trim();
+  // principală SAU suplimentară (AND, ca să nu se ciocnească cu OR-ul din q)
+  const categoryCond = productCategoryWhere(category);
+  if (categoryCond) where.AND = [...(where.AND || []), categoryCond];
 
   const av = String(availability || "").trim().toUpperCase();
   if (av) where.availability = av;
@@ -1103,6 +1114,7 @@ async function adminListProducts(req, res) {
         skip: offset,
         take: pageSize,
         include: {
+          additionalCategories: true,
           service: {
             include: {
               vendor: true,
@@ -1299,6 +1311,7 @@ async function adminGetProduct(req, res) {
     const p = await prisma.product.findUnique({
       where: { id },
       include: {
+        additionalCategories: true,
         service: {
           include: {
             vendor: true,

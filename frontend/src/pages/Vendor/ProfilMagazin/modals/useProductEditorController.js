@@ -408,6 +408,27 @@ const updateField = useCallback(
                 ? result.category
                 : previous.category,
 
+            /*
+             * Categorii suplimentare propuse de AI: DOAR
+             * sugestii afișate în formular (butoane „+”),
+             * nu se adaugă în additionalCategories fără
+             * click-ul vendorului.
+             */
+            // categoria PRINCIPALĂ propusă de AI - afișată separat;
+            // înlocuiește alegerea vendorului doar la click „Folosește”
+            aiSuggestedCategory:
+              result.category &&
+              result.category !== "alte"
+                ? result.category
+                : "",
+
+            aiSuggestedAdditionalCategories:
+              Array.isArray(
+                result.suggestedAdditionalCategories
+              )
+                ? result.suggestedAdditionalCategories
+                : [],
+
             materialMain:
               result.materialMain ||
               previous.materialMain,
@@ -1884,6 +1905,9 @@ quoteSchema: [],
               price: "",
               images: [],
               category: "",
+              additionalCategories: [],
+              aiSuggestedCategory: "",
+              aiSuggestedAdditionalCategories: [],
               color: "",
               materialMain: "",
               technique: "",

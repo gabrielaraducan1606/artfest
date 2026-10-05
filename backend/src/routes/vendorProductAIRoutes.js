@@ -3,7 +3,10 @@
 import { Router } from "express";
 import { authRequired, enforceTokenVersion } from "../api/auth.js";
 
-import { CATEGORY_SET } from "../constants/categories.js";
+import {
+  CATEGORY_SET,
+  pickSuggestedAdditionalCategories,
+} from "../constants/categories.js";
 import { COLORS_DETAILED } from "../constants/colors.js";
 import { MATERIALS_DETAILED } from "../constants/materials.js";
 
@@ -494,8 +497,21 @@ function normalizeProductAiAnalysis(
           )
       : [];
 
+  /*
+   * Categorii SUPLIMENTARE sugerate: doar chei din catalog, fără duplicate,
+   * fără categoria principală, max MAX_ADDITIONAL_CATEGORIES. Sunt DOAR
+   * sugestii - nu intră în generatedFields și nu se salvează fără
+   * confirmarea vendorului.
+   */
+  const suggestedAdditionalCategories =
+    pickSuggestedAdditionalCategories(
+      raw?.additionalCategories,
+      category
+    );
+
   return {
     category,
+    suggestedAdditionalCategories,
     colors,
     materialMain,
     imageGroups,
@@ -760,6 +776,13 @@ async function analyzeProductVariants(
        */
       category:
         normalized.category,
+
+      /*
+       * Categorii suplimentare propuse (max 3) - doar sugestii afișate
+       * vendorului, NU aplicate automat în formular.
+       */
+      suggestedAdditionalCategories:
+        normalized.suggestedAdditionalCategories,
 
       materialMain:
         normalized.materialMain,

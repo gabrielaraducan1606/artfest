@@ -8,6 +8,8 @@
  * ecranul "Produsele mele" cât și de flow-ul de chat EDIT_PRODUCT -
  * fără să dubleze cele ~80 de linii de mapare a câmpurilor.
  */
+
+import { additionalCategoriesPayload } from "../../../../utils/additionalCategories.js";
 export function mapFullProductToEditDraft(full) {
   return {
     id: full.id || full._id || "",
@@ -24,6 +26,12 @@ export function mapFullProductToEditDraft(full) {
     videoUrl: full.videoUrl || null,
     videoMuted: !!full.videoMuted,
     category: full.category || "",
+    // absent în API => absent în draft (backend-ul păstrează lista)
+    ...(Array.isArray(full.additionalCategories)
+      ? { additionalCategories: full.additionalCategories }
+      : {}),
+    aiSuggestedCategory: "",
+    aiSuggestedAdditionalCategories: [],
     color: full.color || "",
     isActive: full.isActive !== false,
     isHidden: !!full.isHidden,
@@ -171,6 +179,12 @@ export function buildProductSavePayload(
     category: String(
       prodFormValue.category || ""
     ).trim(),
+
+    // max 3, fără duplicate, fără principala (validat și în backend)
+    ...additionalCategoriesPayload(
+      prodFormValue,
+      String(prodFormValue.category || "").trim()
+    ),
 
     color:
       String(prodFormValue.color || "").trim() || null,

@@ -25,7 +25,15 @@ import {
   GOOGLE_PRODUCT_CATEGORY_BY_CATEGORY,
   getGoogleProductCategoryId,
 } from "./googleProductCategories.js";
-import { CATEGORIES } from "./categories.js";
+import {
+  CATEGORIES,
+  MAX_ADDITIONAL_CATEGORIES,
+  additionalCategoryKeys,
+  normalizeAdditionalCategories,
+  pickSuggestedAdditionalCategories,
+  planAdditionalCategoriesWrite,
+  productCategoryWhere,
+} from "./categories.js";
 import { COLORS } from "./colors.js";
 import { MATERIALS, MATERIAL_LABELS } from "./materials.js";
 
@@ -313,4 +321,174 @@ test("buildMerchantPrice: moneda produsului; fallback RON", () => {
     "4.00 EUR"
   );
   assert.equal(buildMerchantPrice({ priceCents: 500 }).price, "5.00 RON");
+});
+
+/* ---------- multi-categorie: principală + suplimentare ---------- */
+
+test("Anime & Manga: în catalog, cu label ierarhic, FĂRĂ mapping Google", () => {
+  assert.ok(CATEGORIES.includes("cadouri_anime-manga"));
+  assert.equal(
+    getCategoryLabel("cadouri_anime-manga"),
+    "Cadouri & personalizate > Anime & Manga"
+  );
+  assert.equal(getGoogleProductCategoryId("cadouri_anime-manga"), null);
+});
+
+test("feed/JSON-LD: doar categoria PRINCIPALĂ, suplimentarele sunt ignorate", () => {
+  const attrs = buildProductMerchantAttributes(
+    {
+      category: "bijuterii_coliere",
+      additionalCategories: [
+        { category: "cadouri_anime-manga" },
+        "cadouri_rame-foto",
+      ],
+    },
+    { resolveUrl: (u) => u }
+  );
+
+  assert.equal(attrs.productType, "Bijuterii & accesorii > Coliere");
+  assert.equal(attrs.googleProductCategory, 196);
+});
+
+test("normalizeAdditionalCategories: max 3, fără duplicate, fără principală, doar catalog", () => {
+  assert.deepEqual(normalizeAdditionalCategories(undefined, "x"), {
+    ok: true,
+    value: [],
+  });
+
+  // principala e scoasă automat, duplicatele și golurile ignorate
+  assert.deepEqual(
+    normalizeAdditionalCategories(
+      ["cadouri_anime-manga", "party_figurine-tort", "cadouri_anime-manga", " ", "cadouri_rame-foto"],
+      "party_figurine-tort"
+    ),
+    { ok: true, value: ["cadouri_anime-manga", "cadouri_rame-foto"] }
+  );
+
+  assert.equal(
+    normalizeAdditionalCategories(["nu-exista"], "party_figurine-tort").error,
+    "invalid_additional_category"
+  );
+  assert.equal(
+    normalizeAdditionalCategories("cadouri_anime-manga", "x").error,
+    "invalid_additional_categories"
+  );
+  assert.equal(
+    normalizeAdditionalCategories(
+      ["cadouri_anime-manga", "cadouri_rame-foto", "arta_tablouri", "cadouri_caricaturi"],
+      "party_figurine-tort"
+    ).error,
+    "too_many_additional_categories"
+  );
+  assert.equal(MAX_ADDITIONAL_CATEGORIES, 3);
+});
+
+test("productCategoryWhere: principală SAU suplimentară (o interogare pe Product, fără duplicate)", () => {
+  assert.equal(productCategoryWhere(""), null);
+  assert.deepEqual(productCategoryWhere("cadouri_anime-manga"), {
+    OR: [
+      { category: "cadouri_anime-manga" },
+      { additionalCategories: { some: { category: "cadouri_anime-manga" } } },
+    ],
+  });
+  assert.deepEqual(
+    productCategoryWhere("cadouri_anime-manga", { insensitive: true }).OR[1],
+    {
+      additionalCategories: {
+        some: {
+          category: { equals: "cadouri_anime-manga", mode: "insensitive" },
+        },
+      },
+    }
+  );
+});
+
+test("sugestii AI: doar catalog, fără principală/duplicate, max 3 (nesalvate automat)", () => {
+  assert.deepEqual(
+    pickSuggestedAdditionalCategories(
+      ["cadouri_anime-manga", "inventata", "party_figurine-tort", "cadouri_anime-manga", "cadouri_rame-foto", "arta_tablouri", "cadouri_caricaturi"],
+      "party_figurine-tort"
+    ),
+    ["cadouri_anime-manga", "cadouri_rame-foto", "arta_tablouri"]
+  );
+  assert.deepEqual(pickSuggestedAdditionalCategories(null, "x"), []);
+});
+
+test("additionalCategoryKeys: ordonat după position, acceptă rânduri", () => {
+  assert.deepEqual(
+    additionalCategoryKeys({
+      additionalCategories: [
+        { category: "b", position: 1 },
+        { category: "a", position: 0 },
+      ],
+    }),
+    ["a", "b"]
+  );
+  assert.deepEqual(additionalCategoryKeys({}), []);
+});
+
+test("planAdditionalCategoriesWrite: absent = păstrează, [] = golește, identic = fără write, diferit = update", () => {
+  const existingKeys = ["cadouri_anime-manga", "cadouri_rame-foto"];
+  const base = { primaryCategory: "party_figurine-tort", existingKeys };
+
+  // câmp absent -> nicio scriere
+  assert.deepEqual(planAdditionalCategoriesWrite({ ...base, input: undefined }), { ok: true });
+
+  // [] explicit -> golește
+  assert.deepEqual(planAdditionalCategoriesWrite({ ...base, input: [] }), {
+    ok: true,
+    write: { deleteMany: {}, create: [] },
+  });
+
+  // aceeași listă (chiar cu duplicat / principala inclusă) -> nicio scriere
+  assert.deepEqual(
+    planAdditionalCategoriesWrite({
+      ...base,
+      input: ["cadouri_anime-manga", "party_figurine-tort", "cadouri_rame-foto", "cadouri_anime-manga"],
+    }),
+    { ok: true }
+  );
+
+  // listă diferită (inclusiv altă ordine) -> înlocuire
+  assert.deepEqual(
+    planAdditionalCategoriesWrite({ ...base, input: ["cadouri_rame-foto", "cadouri_anime-manga"] }).write,
+    {
+      deleteMany: {},
+      create: [
+        { category: "cadouri_rame-foto", position: 0 },
+        { category: "cadouri_anime-manga", position: 1 },
+      ],
+    }
+  );
+
+  // input invalid -> eroare, fără write
+  assert.equal(planAdditionalCategoriesWrite({ ...base, input: ["nu-exista"] }).error, "invalid_additional_category");
+
+  // fără relație încărcată și fără input -> nimic
+  assert.deepEqual(planAdditionalCategoriesWrite({ input: undefined, primaryCategory: "x" }), { ok: true });
+});
+
+test("planAdditionalCategoriesWrite: principala nouă = fostă suplimentară -> scoate DOAR pe ea", () => {
+  const existingKeys = ["cadouri_anime-manga", "cadouri_rame-foto"];
+
+  assert.deepEqual(
+    planAdditionalCategoriesWrite({
+      input: undefined,
+      primaryCategory: "cadouri_anime-manga",
+      newPrimaryCategory: "cadouri_anime-manga",
+      existingKeys,
+    }),
+    { ok: true, write: { deleteMany: { category: "cadouri_anime-manga" } } }
+  );
+
+  // principala nouă NU era suplimentară -> nimic
+  assert.deepEqual(
+    planAdditionalCategoriesWrite({
+      input: undefined,
+      primaryCategory: "arta_tablouri",
+      newPrimaryCategory: "arta_tablouri",
+      existingKeys,
+    }),
+    { ok: true }
+  );
 });

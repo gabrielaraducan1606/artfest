@@ -1,7 +1,10 @@
 // server/routes/publicProductRoutes.js
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { CATEGORIES_DETAILED } from "../constants/categories.js";
+import {
+  CATEGORIES_DETAILED,
+  productCategoryWhere,
+} from "../constants/categories.js";
 import { smartSearchFromQueryBackend } from "../constants/smartSrc.js";
 import { uploadSearchImage } from "../middleware/imageSearchUpload.js";
 import { imageToEmbedding, toPgVectorLiteral } from "../lib/embeddings.js";
@@ -992,7 +995,11 @@ router.get("/products", async (req, res, next) => {
       const whereIds = { ...baseWhere, id: { in: idsList } };
 
       if (effectiveCategory) {
-        whereIds.category = { equals: effectiveCategory, mode: "insensitive" };
+        // principală SAU suplimentară (o singură dată per produs)
+        whereIds.AND = [
+          ...(whereIds.AND || []),
+          productCategoryWhere(effectiveCategory, { insensitive: true }),
+        ];
       }
 
       if (effectiveColors.length === 1) {
@@ -1036,7 +1043,11 @@ router.get("/products", async (req, res, next) => {
     const whereMain = { ...baseWhere };
 
     if (effectiveCategory) {
-      whereMain.category = { equals: effectiveCategory, mode: "insensitive" };
+      // principală SAU suplimentară (o singură dată per produs)
+      whereMain.AND = [
+        ...(whereMain.AND || []),
+        productCategoryWhere(effectiveCategory, { insensitive: true }),
+      ];
     }
 
     if (effectiveColors.length === 1) {
@@ -1466,7 +1477,11 @@ router.get("/product-cards", async (req, res, next) => {
     const whereMain = { ...baseWhere };
 
     if (effectiveCategory) {
-      whereMain.category = { equals: effectiveCategory, mode: "insensitive" };
+      // principală SAU suplimentară (o singură dată per produs)
+      whereMain.AND = [
+        ...(whereMain.AND || []),
+        productCategoryWhere(effectiveCategory, { insensitive: true }),
+      ];
     }
 
     if (effectiveColors.length === 1) {

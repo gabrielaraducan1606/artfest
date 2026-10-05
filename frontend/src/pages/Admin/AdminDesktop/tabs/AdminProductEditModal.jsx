@@ -7,6 +7,9 @@ import {
 import { api } from "../../../../lib/api";
 import ProductGpsrSection from "../../../Vendor/ProfilMagazin/modals/ProductModal/components/ProductGpsrSection.jsx";
 import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
+import AdditionalCategoriesField from "../../../Vendor/ProfilMagazin/modals/ProductModal/components/AdditionalCategoriesField.jsx";
+import { normalizeAdditionalCategoryKeys } from "../../../../utils/additionalCategories.js";
+import { CATEGORIES_DETAILED } from "../../../../constants/productscategories.js";
 
 /* =========================================================
    Helpers
@@ -752,6 +755,19 @@ export default function AdminProductEditForm({
         product.category ||
         "",
 
+      // doar dacă API-ul a trimis lista (altfel nu o atingem la salvare)
+      ...(Array.isArray(
+        product.additionalCategories
+      )
+        ? {
+            additionalCategories:
+              normalizeAdditionalCategoryKeys(
+                product.additionalCategories,
+                product.category
+              ),
+          }
+        : {}),
+
       images:
         asArray(
           product.images
@@ -1314,6 +1330,28 @@ export default function AdminProductEditForm({
               </span>
             )}
           </label>
+
+          {Array.isArray(
+            form.additionalCategories
+          ) && (
+            <AdditionalCategoriesField
+              value={
+                form.additionalCategories
+              }
+              onChange={(next) =>
+                patch({
+                  additionalCategories:
+                    next,
+                })
+              }
+              options={
+                CATEGORIES_DETAILED
+              }
+              primaryCategory={
+                form.category || ""
+              }
+            />
+          )}
         </div>
 
         <div

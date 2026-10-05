@@ -102,6 +102,7 @@ export const CATEGORIES = [
   "cadouri_harta-razuibila",
   "cadouri_boxa-muzicala",
   "cadouri_obiecte-cu-nume",
+  "cadouri_anime-manga",
 
   "arta_tablouri",
   "arta_ilustratii-digitale",
@@ -240,6 +241,7 @@ export const CATEGORY_LABELS = {
   "cadouri_harta-razuibila": "Hartă răzuibilă",
   "cadouri_boxa-muzicala": "Boxă muzicală personalizată",
   "cadouri_obiecte-cu-nume": "Obiecte cu nume/mesaj",
+  "cadouri_anime-manga": "Anime & Manga",
 
   "arta_tablouri": "Tablouri",
   "arta_ilustratii-digitale": "Ilustrații digitale",

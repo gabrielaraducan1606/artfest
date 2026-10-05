@@ -60,7 +60,11 @@ test("toate regulile se traduc în clauze (comportament neschimbat față de var
   assert.deepEqual(where, {
     ...PUBLIC_BASE,
     id: { notIn: ["x", "y"] },
-    category: { in: ["a", "b"] },
+    // categoria principală SAU una suplimentară
+    OR: [
+      { category: { in: ["a", "b"] } },
+      { additionalCategories: { some: { category: { in: ["a", "b"] } } } },
+    ],
     acceptsCustom: true,
     priceCents: { gte: 100, lte: 900 },
     occasionTags: { hasSome: ["nunta"] },
@@ -76,18 +80,23 @@ test("productMatchesRulesClause dă EXACT același rezultat ca aplicarea clauzei
   const tagSets = [[], ["nunta"], ["botez"], ["nunta", "boho"], ["boho"]];
   const customs = [true, false];
 
+  // categorii suplimentare (ProductAdditionalCategory): niciuna / lipsă / una / două
+  const additionalSets = [[], undefined, [{ category: "b" }], [{ category: "c" }, { category: "a" }]];
+
   const products = [];
   for (const category of categories)
-    for (const priceCents of prices)
-      for (const occasionTags of tagSets)
-        for (const acceptsCustom of customs)
-          products.push({
-            category,
-            priceCents,
-            occasionTags,
-            styleTags: occasionTags.filter((t) => t === "boho"),
-            acceptsCustom,
-          });
+    for (const additionalCategories of additionalSets)
+      for (const priceCents of prices)
+        for (const occasionTags of tagSets)
+          for (const acceptsCustom of customs)
+            products.push({
+              category,
+              additionalCategories,
+              priceCents,
+              occasionTags,
+              styleTags: occasionTags.filter((t) => t === "boho"),
+              acceptsCustom,
+            });
 
   const ruleSets = [
     {},
@@ -176,6 +185,24 @@ test("lot: colecție cu produs care se potrivește => true; fără => false", as
   ]);
 
   assert.deepEqual(out, [true, false, true]);
+});
+
+test("lot: regula pe categorie include și categoriile SUPLIMENTARE ale produsului", async () => {
+  const db = fakeDb([
+    prod({
+      id: "fig",
+      category: "party_figurine-tort",
+      additionalCategories: [{ category: "cadouri_anime-manga" }],
+    }),
+  ]);
+
+  const out = await collectionsWithPublicProducts(db, [
+    { rules: { categories: ["cadouri_anime-manga"] }, items: [] }, // suplimentară
+    { rules: { categories: ["party_figurine-tort"] }, items: [] }, // principală
+    { rules: { categories: ["cadouri_rame-foto"] }, items: [] }, // niciuna
+  ]);
+
+  assert.deepEqual(out, [true, true, false]);
 });
 
 test("lot: produsele nepublice nu contează", async () => {

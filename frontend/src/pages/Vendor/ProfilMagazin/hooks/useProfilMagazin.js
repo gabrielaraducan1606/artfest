@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { api } from "../../../../lib/api.js";
+import { additionalCategoriesPayload } from "../../../../utils/additionalCategories.js";
 import { mergeOwnerContactFields } from "../utils/ownerStoreContact.js";
 
 /* ================= Fallback categorii ================= */
@@ -384,6 +385,7 @@ const EMPTY_PROD_FORM = {
   videoUrl: null,
   videoMuted: false,
   category: "",
+  additionalCategories: [],
   color: "",
 
   availability: "READY",
@@ -1563,6 +1565,11 @@ if (owner) {
       price,
       images,
       category,
+      // max 3, fără duplicate, fără principala (validat și în backend)
+      ...additionalCategoriesPayload(
+        prodForm,
+        category
+      ),
       color,
 
       orderMode,

@@ -850,6 +850,10 @@ model Product {
   importItems          ProductImportItem[]
   campaignProducts     VendorCampaignProduct[]
 
+  // Categorii SUPLIMENTARE (doar discovery intern, max 3). Categoria
+  // principală rămâne Product.category (breadcrumb, SEO, canonical, feed-uri).
+  additionalCategories ProductAdditionalCategory[]
+
   costing ProductCosting?
 
   @@index([serviceId, isActive, createdAt])
@@ -1029,6 +1033,22 @@ model VendorCostItem {
   @@index([vendorId, type])
   @@index([vendorId, isActive])
   @@index([vendorId, createdAt])
+}
+
+// Categoriile SUPLIMENTARE ale unui produs (max 3, validat în backend).
+// `category` = cheie din src/constants/categories.js (ca Product.category),
+// niciodată egală cu categoria principală. Fără backfill: produsele existente
+// au zero rânduri aici.
+model ProductAdditionalCategory {
+  productId String
+  category  String   @db.VarChar(64)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([productId, category])
+  @@index([category, productId])
 }
 
 model ProductCosting {

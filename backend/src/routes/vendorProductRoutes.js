@@ -2,7 +2,13 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired, enforceTokenVersion } from "../api/auth.js";
 import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
-import { CATEGORY_SET } from "../constants/categories.js";
+import {
+  CATEGORY_SET,
+  additionalCategoryKeys,
+  normalizeAdditionalCategories,
+  planAdditionalCategoriesWrite,
+  productCategoryWhere,
+} from "../constants/categories.js";
 import { COLOR_SET } from "../constants/colors.js";
 import {
   applyPromotionsToProducts,
@@ -224,6 +230,11 @@ function mapProduct(p) {
     category:
       p.category || null,
 
+    // doar când relația e încărcată - altfel nu raportăm un [] fals
+    ...(Array.isArray(p.additionalCategories)
+      ? { additionalCategories: additionalCategoryKeys(p) }
+      : {}),
+
     color:
       p.color || null,
 
@@ -396,7 +407,9 @@ function applyProductFilters(where, query = {}) {
     moderationStatus = "",
   } = query;
 
-  if (category) where.category = String(category).trim();
+  // principală SAU suplimentară (AND, ca să nu se ciocnească cu OR-ul din q)
+  const categoryCond = productCategoryWhere(category);
+  if (categoryCond) where.AND = [...(where.AND || []), categoryCond];
 
   const av = String(availability || "").trim().toUpperCase();
   if (av) where.availability = av;
@@ -758,7 +771,6 @@ async function publicListProducts(req, res) {
       moderationStatus: "APPROVED",
     };
 
-    if (category) where.category = String(category);
     if (color) where.color = String(color).trim();
 
     const av = String(availability || "").toUpperCase();
@@ -777,6 +789,10 @@ async function publicListProducts(req, res) {
         where.availability = av;
       }
     }
+
+    // principală SAU suplimentară (după availability, care poate seta AND)
+    const categoryCond = productCategoryWhere(category);
+    if (categoryCond) where.AND = [...(where.AND || []), categoryCond];
 
     const priceMin = Number(pmin);
     const priceMax = Number(pmax);
@@ -804,6 +820,7 @@ async function publicListProducts(req, res) {
 
     const items = await prisma.product.findMany({
       where,
+      include: { additionalCategories: true },
       orderBy: buildProductOrderBy(sort),
       take: pageSize + 1,
       ...(cursorObj ? { cursor: cursorObj, skip: 1 } : {}),
@@ -857,6 +874,7 @@ async function listVendorProducts(req, res) {
     const items =
   await prisma.product.findMany({
     where,
+    include: { additionalCategories: true },
     orderBy:
       buildProductOrderBy(
         sort
@@ -910,6 +928,7 @@ async function getProduct(req, res) {
     const p = await prisma.product.findUnique({
       where: { id },
       include: {
+        additionalCategories: true,
         service: {
           include: {
             vendor: true,
@@ -1302,25 +1321,46 @@ async function createProduct(req, res) {
         ? !!videoMuted
         : false;
 
-    let cat = null;
+    // categoria PRINCIPALĂ e obligatorie (coloana rămâne nullable în DB)
+    const cat =
+      category != null
+        ? String(category).trim()
+        : "";
 
-    if (
-      category != null &&
-      String(category).trim() !== ""
-    ) {
-      const c =
-        String(category).trim();
+    if (!cat) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "category_required",
+          message:
+            "Alege categoria principală a produsului.",
+        });
+    }
 
-      if (!CATEGORY_SET.has(c)) {
-        return res
-          .status(400)
-          .json({
-            error:
-              "invalid_category",
-          });
-      }
+    if (!CATEGORY_SET.has(cat)) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "invalid_category",
+        });
+    }
 
-      cat = c;
+    // categorii SUPLIMENTARE: max 3, fără duplicate, fără principala
+    const additionalNorm =
+      normalizeAdditionalCategories(
+        req.body?.additionalCategories,
+        cat
+      );
+
+    if (!additionalNorm.ok) {
+      return res
+        .status(400)
+        .json({
+          error: additionalNorm.error,
+          detail: additionalNorm.detail,
+        });
     }
 
     let colorCode = null;
@@ -1538,6 +1578,15 @@ async function createProduct(req, res) {
 
           category: cat,
 
+          additionalCategories: {
+            create: additionalNorm.value.map(
+              (key, position) => ({
+                category: key,
+                position,
+              })
+            ),
+          },
+
           color:
             colorCode,
 
@@ -1635,9 +1684,11 @@ async function createProduct(req, res) {
 
     return res
       .status(201)
-      .json(
-        mapProduct(moderated)
-      );
+      .json({
+        ...mapProduct(moderated),
+        additionalCategories:
+          additionalNorm.value,
+      });
   } catch (e) {
     console.error(
       "POST /vendors/store/:slug/products error:",
@@ -1665,6 +1716,7 @@ async function updateProduct(
           where: { id },
 
           include: {
+            additionalCategories: true,
             service: {
               include: {
                 vendor: true,
@@ -1888,28 +1940,87 @@ async function updateProduct(
       const v =
         req.body.category;
 
+      // categoria PRINCIPALĂ nu mai poate fi ștearsă la editare
       if (
         v == null ||
         String(v).trim() === ""
       ) {
-        patch.category = null;
-      } else {
-        const c =
-          String(v).trim();
-
-        if (
-          !CATEGORY_SET.has(c)
-        ) {
-          return res
-            .status(400)
-            .json({
-              error:
-                "invalid_category",
-            });
-        }
-
-        patch.category = c;
+        return res
+          .status(400)
+          .json({
+            error:
+              "category_required",
+            message:
+              "Alege categoria principală a produsului.",
+          });
       }
+
+      const c =
+        String(v).trim();
+
+      if (
+        !CATEGORY_SET.has(c)
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "invalid_category",
+          });
+      }
+
+      patch.category = c;
+    }
+
+    /*
+     * Categorii SUPLIMENTARE (planAdditionalCategoriesWrite, comun cu
+     * adminul): câmp absent = păstrăm; [] = golim; listă identică = nicio
+     * scriere; noua principală era suplimentară = scoatem doar pe ea.
+     */
+    const effectivePrimary =
+      patch.category !== undefined
+        ? patch.category
+        : product.category;
+
+    if (
+      req.body.additionalCategories !==
+        undefined &&
+      !effectivePrimary
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "category_required",
+          message:
+            "Alege categoria principală a produsului.",
+        });
+    }
+
+    const additionalPlan =
+      planAdditionalCategoriesWrite({
+        input:
+          req.body.additionalCategories,
+        primaryCategory:
+          effectivePrimary,
+        newPrimaryCategory:
+          patch.category,
+        existingKeys:
+          additionalCategoryKeys(product),
+      });
+
+    if (!additionalPlan.ok) {
+      return res
+        .status(400)
+        .json({
+          error: additionalPlan.error,
+          detail: additionalPlan.detail,
+        });
+    }
+
+    if (additionalPlan.write) {
+      patch.additionalCategories =
+        additionalPlan.write;
     }
 
     if (
@@ -2318,6 +2429,9 @@ async function updateProduct(
         {
           where: { id },
           data: patch,
+          include: {
+            additionalCategories: true,
+          },
         }
       );
 
@@ -2353,9 +2467,11 @@ async function updateProduct(
           })
         : updated;
 
-    return res.json(
-      mapProduct(moderated)
-    );
+    return res.json({
+      ...mapProduct(moderated),
+      additionalCategories:
+        additionalCategoryKeys(updated),
+    });
   } catch (e) {
     console.error(
       "PUT /vendors/products/:id error:",

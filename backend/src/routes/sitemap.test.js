@@ -159,6 +159,11 @@ test("categorii: categoriile fără pagină în frontend sunt într-adevăr făr
   assert.ok(withPage.length > 0 && slugs.size > 0);
 });
 
+test("categorii: Anime & Manga are pagină /categorii/anime-si-manga (backend + frontend sincronizate)", () => {
+  assert.ok(getCategoryPageSlugs().includes("anime-si-manga"));
+  assert.equal(getCategoryBySlug("anime-si-manga")?.key, "cadouri_anime-manga");
+});
+
 /* ---------- colecții: doar active ȘI cu produse publice ---------- */
 
 test("colecție ACTIVĂ cu produse => în sitemap; canonical == <loc>", async (t) => {

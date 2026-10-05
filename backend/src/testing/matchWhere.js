@@ -5,7 +5,7 @@
 // testele să verifice regulile reale din cod.
 //
 // Suportă subsetul folosit de rutele de colecții/sitemap: egalitate
-// (inclusiv null), OR, AND, `is` (relații 1:1), și operatorii
+// (inclusiv null), OR, AND, `is` (relații 1:1), `some` (relații 1:N), și operatorii
 // in / notIn / gt / gte / lt / lte / not / hasSome / isEmpty / equals.
 
 const OPERATORS = new Set([
@@ -62,6 +62,18 @@ export function matchWhere(row, where) {
     if (key === "is") return row != null && matchWhere(row, cond);
 
     const value = row?.[key];
+
+    // relație 1:N: { additionalCategories: { some: {...} } }
+    if (
+      cond !== null &&
+      typeof cond === "object" &&
+      Object.keys(cond).length === 1 &&
+      "some" in cond
+    ) {
+      return (Array.isArray(value) ? value : []).some((sub) =>
+        matchWhere(sub, cond.some)
+      );
+    }
 
     if (isOperatorObject(cond)) return applyOperators(value, cond);
 

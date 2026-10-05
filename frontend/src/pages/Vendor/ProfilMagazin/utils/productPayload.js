@@ -1,4 +1,5 @@
 import { dateOnlyToISO } from "./dateHelpers";
+import { additionalCategoriesPayload } from "../../../../utils/additionalCategories.js";
 
 export function buildProductPayload(prodForm) {
   const title = (prodForm.title || "").trim();
@@ -94,6 +95,8 @@ const quoteSchema = Array.isArray(prodForm.quoteSchema)
   videoUrl,
   videoMuted,
   category,
+  // max 3, fără duplicate, fără principala (validat și în backend)
+  ...additionalCategoriesPayload(prodForm, category),
   currency: prodForm.currency || "RON",
   isActive: prodForm.isActive !== false,
   isHidden: !!prodForm.isHidden,

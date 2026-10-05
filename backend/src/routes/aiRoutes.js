@@ -12,6 +12,7 @@ import { openai } from "../lib/openai.js";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
+  pickSuggestedAdditionalCategories,
 } from "../constants/categories.js";
 
 import {
@@ -694,7 +695,10 @@ Reguli importante:
 - Dacă nu există indicii de personalizare, sugerează READY_TO_BUY.
 - orderModeConfidence trebuie să fie între 0 și 1.
 - Pune întrebări pentru lucrurile care nu pot fi deduse din imagini.
-- Alege category DOAR din lista permisă.
+- Alege category DOAR din lista permisă (categoria PRINCIPALĂ, exact una).
+- additionalCategories: 0-3 categorii SUPLIMENTARE, DOAR din lista
+  permisă, diferite de category și între ele, doar dacă produsul se
+  potrivește clar și acolo (ex. tematică, ocazie). Altfel [].
 - Alege color DOAR din lista permisă.
 - Dacă sunt mai multe culori, folosește "multicolor".
 - materialMain: alege DOAR o cheie din lista de materiale permise,
@@ -750,6 +754,7 @@ Schema exactă a răspunsului:
   "title": "",
   "description": "",
   "category": "",
+  "additionalCategories": [],
   "materialMain": "",
   "technique": "",
   "color": "",
@@ -831,6 +836,13 @@ Schema exactă a răspunsului:
           parsed.materialMain
         );
 
+      const primaryCategory =
+        CATEGORIES.includes(
+          parsed.category
+        )
+          ? parsed.category
+          : "alte";
+
       return res.json({
         title: String(
           parsed.title || ""
@@ -843,11 +855,17 @@ Schema exactă a răspunsului:
         ).trim(),
 
         category:
-          CATEGORIES.includes(
-            parsed.category
-          )
-            ? parsed.category
-            : "alte",
+          primaryCategory,
+
+        /*
+         * Max 3 categorii SUPLIMENTARE propuse - doar sugestii pentru
+         * vendor (frontend-ul nu le aplică automat).
+         */
+        suggestedAdditionalCategories:
+          pickSuggestedAdditionalCategories(
+            parsed.additionalCategories,
+            primaryCategory
+          ),
 
         materialMain:
           canonicalMaterial?.label ||

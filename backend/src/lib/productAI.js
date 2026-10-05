@@ -15,7 +15,10 @@ export async function analyzeProductImagesWithAi({
    * Răspunsul trebuie să aibă această structură:
    */
   return {
+    // categoria PRINCIPALĂ propusă (cheie din catalog)
     category: null,
+    // max 3 categorii SUPLIMENTARE propuse - doar sugestii pentru vendor
+    additionalCategories: [],
     colors: [],
     materialMain: null,
     confidence: null,

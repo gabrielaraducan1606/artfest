@@ -115,6 +115,7 @@ export const CATEGORIES = [
   "cadouri_harta-razuibila",
   "cadouri_boxa-muzicala",
   "cadouri_obiecte-cu-nume",
+  "cadouri_anime-manga",
 
   // Artă & artizanat
   "arta_tablouri",
@@ -268,6 +269,7 @@ export const CATEGORY_LABELS = {
   "cadouri_harta-razuibila": "Hartă răzuibilă",
   "cadouri_boxa-muzicala": "Boxă muzicală personalizată",
   "cadouri_obiecte-cu-nume": "Obiecte cu nume/mesaj",
+  "cadouri_anime-manga": "Anime & Manga",
 
   // Artă
   "arta_tablouri": "Tablouri",
@@ -332,3 +334,168 @@ export const CATEGORIES_DETAILED = Object.entries(CATEGORY_LABELS).map(([key, la
 });
 
 export const CATEGORY_SET = new Set(CATEGORIES);
+// ---------------------------------------------------------------------------
+// Categorii SUPLIMENTARE (ProductAdditionalCategory) - doar discovery intern.
+// Categoria PRINCIPALĂ rămâne Product.category (breadcrumb, SEO, canonical,
+// Google/Meta feed). Suplimentarele: max 3, fără duplicate, niciodată egale
+// cu principala, doar chei din CATEGORIES.
+// ---------------------------------------------------------------------------
+
+export const MAX_ADDITIONAL_CATEGORIES = 3;
+
+/**
+ * Normalizează lista de categorii suplimentare trimisă de client.
+ * - ignoră valorile goale și duplicatele;
+ * - scoate AUTOMAT categoria principală (dacă principala devine una dintre
+ *   suplimentare, nu mai rămâne și suplimentară);
+ * - cheie necunoscută / prea multe -> { error } (nu tăiem silențios).
+ *
+ * @returns {{ ok: true, value: string[] } | { ok: false, error: string, detail?: any }}
+ */
+export function normalizeAdditionalCategories(input, primaryCategory) {
+  if (input == null) return { ok: true, value: [] };
+  if (!Array.isArray(input)) {
+    return { ok: false, error: "invalid_additional_categories" };
+  }
+
+  const primary = String(primaryCategory || "").trim();
+  const seen = new Set();
+  const value = [];
+
+  for (const raw of input) {
+    const key = String(raw ?? "").trim();
+    if (!key || key === primary || seen.has(key)) continue;
+    if (!CATEGORY_SET.has(key)) {
+      return { ok: false, error: "invalid_additional_category", detail: key };
+    }
+    seen.add(key);
+    value.push(key);
+  }
+
+  if (value.length > MAX_ADDITIONAL_CATEGORIES) {
+    return {
+      ok: false,
+      error: "too_many_additional_categories",
+      detail: MAX_ADDITIONAL_CATEGORIES,
+    };
+  }
+
+  return { ok: true, value };
+}
+
+/**
+ * Condiția Prisma "produsul aparține categoriei": principală SAU
+ * suplimentară. Interogarea e pe Product, deci fiecare produs apare o
+ * singură dată în rezultate.
+ */
+export function productCategoryWhere(category, { insensitive = false } = {}) {
+  const key = String(category || "").trim();
+  if (!key) return null;
+
+  const match = insensitive ? { equals: key, mode: "insensitive" } : key;
+
+  return {
+    OR: [
+      { category: match },
+      { additionalCategories: { some: { category: match } } },
+    ],
+  };
+}
+
+/** Același lucru pentru o listă de categorii (reguli de colecție). */
+export function productCategoriesInWhere(categories) {
+  const keys = (Array.isArray(categories) ? categories : [])
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+  if (!keys.length) return null;
+
+  return {
+    OR: [
+      { category: { in: keys } },
+      { additionalCategories: { some: { category: { in: keys } } } },
+    ],
+  };
+}
+
+/** Lista suplimentarelor dintr-un produs încărcat cu relația (ordonată). */
+export function additionalCategoryKeys(product) {
+  const rows = Array.isArray(product?.additionalCategories)
+    ? product.additionalCategories
+    : [];
+  return rows
+    .slice()
+    .sort((a, b) => (a?.position ?? 0) - (b?.position ?? 0))
+    .map((r) => (typeof r === "string" ? r : r?.category))
+    .filter(Boolean);
+}
+
+/**
+ * Sugestii AI de categorii suplimentare: doar chei din catalog, fără
+ * duplicate, fără principala, max MAX_ADDITIONAL_CATEGORIES. Spre deosebire
+ * de normalizeAdditionalCategories (input vendor -> eroare), aici doar
+ * filtrăm: sunt PROPUNERI, afișate vendorului și nesalvate automat.
+ */
+export function pickSuggestedAdditionalCategories(raw, primaryCategory) {
+  const primary = String(primaryCategory || "").trim();
+  const out = [];
+
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const key = String(
+      typeof item === "string" ? item : item?.key || item?.category || ""
+    ).trim();
+
+    if (!key || key === primary || out.includes(key)) continue;
+    if (!CATEGORY_SET.has(key)) continue;
+    out.push(key);
+    if (out.length >= MAX_ADDITIONAL_CATEGORIES) break;
+  }
+
+  return out;
+}
+
+/**
+ * Decide scrierea relației ProductAdditionalCategory la EDITARE
+ * (vendor + admin, aceeași logică):
+ *  - câmp ABSENT (input === undefined) -> nu atingem lista, cu o singură
+ *    excepție: noua principală era suplimentară -> scoatem doar pe ea;
+ *  - [] explicit -> golim lista;
+ *  - listă identică (după normalizare, aceeași ordine) -> NICIO scriere;
+ *  - listă diferită -> înlocuim lista.
+ *
+ * @returns {{ ok: true, write?: object } | { ok: false, error: string, detail?: any }}
+ *   `write` = obiectul nested Prisma pentru `additionalCategories`, sau
+ *   undefined când nu trebuie scris nimic.
+ */
+export function planAdditionalCategoriesWrite({
+  input,
+  primaryCategory,
+  newPrimaryCategory,
+  existingKeys = [],
+}) {
+  const current = Array.isArray(existingKeys) ? existingKeys : [];
+
+  if (input === undefined) {
+    if (newPrimaryCategory && current.includes(newPrimaryCategory)) {
+      return {
+        ok: true,
+        write: { deleteMany: { category: newPrimaryCategory } },
+      };
+    }
+    return { ok: true };
+  }
+
+  const norm = normalizeAdditionalCategories(input, primaryCategory);
+  if (!norm.ok) return norm;
+
+  if (JSON.stringify(current) === JSON.stringify(norm.value)) {
+    return { ok: true };
+  }
+
+  return {
+    ok: true,
+    write: {
+      deleteMany: {},
+      create: norm.value.map((category, position) => ({ category, position })),
+    },
+  };
+}

@@ -420,6 +420,9 @@ const hasOrderFields =
       price: "",
       images: [],
       category: "",
+      additionalCategories: [],
+      aiSuggestedCategory: "",
+      aiSuggestedAdditionalCategories: [],
       color: "",
 
       materialMain: "",
@@ -635,6 +638,9 @@ quoteSchema: [],
           categoryProps={{
             options,
           }}
+          isExistingProduct={
+            !!editingProduct
+          }
         />
 
         <ProductGpsrSection
@@ -744,6 +750,24 @@ quoteSchema: [],
               form.category
             ) ||
               "necompletată"}
+
+            {Array.isArray(
+              form.additionalCategories
+            ) &&
+              form.additionalCategories
+                .length > 0 && (
+                <>
+                  <br />
+                  Categorii suplimentare:{" "}
+                  {form.additionalCategories
+                    .map(
+                      (key) =>
+                        getLabelFor(key) ||
+                        key
+                    )
+                    .join(", ")}
+                </>
+              )}
 
             <br />
 

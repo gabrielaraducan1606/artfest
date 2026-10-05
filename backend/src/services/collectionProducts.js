@@ -60,10 +60,17 @@ export function buildCollectionRulesClause(rawRules = {}) {
   const rules = safeRules(rawRules);
   const clause = {};
 
+  // categoria PRINCIPALĂ sau una SUPLIMENTARĂ (ProductAdditionalCategory);
+  // `in: []` (doar valori goale) => nu potrivește nimic, ca înainte
   if (Array.isArray(rules.categories) && rules.categories.length) {
-    clause.category = {
-      in: rules.categories.map((x) => String(x || "").trim()).filter(Boolean),
-    };
+    const keys = rules.categories
+      .map((x) => String(x || "").trim())
+      .filter(Boolean);
+
+    clause.OR = [
+      { category: { in: keys } },
+      { additionalCategories: { some: { category: { in: keys } } } },
+    ];
   }
 
   if (rules.acceptsCustom === true) {
@@ -107,6 +114,7 @@ export function buildCollectionWhereFromRules(rules = {}, excludedIds = []) {
 export const RULE_PRODUCT_FIELDS = {
   id: true,
   category: true,
+  additionalCategories: { select: { category: true } },
   acceptsCustom: true,
   priceCents: true,
   occasionTags: true,
@@ -122,8 +130,19 @@ export const RULE_PRODUCT_FIELDS = {
 export function productMatchesRulesClause(product, clause) {
   if (!product || !clause) return false;
 
-  if (clause.category && !clause.category.in.includes(product.category)) {
-    return false;
+  // singurul OR generat de builder = categoria (principală SAU suplimentară)
+  if (clause.OR) {
+    const keys = clause.OR[0].category.in;
+    const additional = Array.isArray(product.additionalCategories)
+      ? product.additionalCategories.map((row) => row?.category)
+      : [];
+
+    if (
+      !keys.includes(product.category) &&
+      !additional.some((key) => keys.includes(key))
+    ) {
+      return false;
+    }
   }
 
   if (clause.acceptsCustom === true && product.acceptsCustom !== true) {

@@ -21,6 +21,7 @@ import crypto from "node:crypto";
 import { z } from "zod";
 
 import { prisma } from "../db.js";
+import { productCategoryWhere } from "../constants/categories.js";
 
 import {
   authRequired,
@@ -657,8 +658,10 @@ router.get("/:id/product-search", async (req, res) => {
       });
     }
 
-    if (category) {
-      and.push({ category });
+    // categoria principală SAU una suplimentară
+    const categoryCond = productCategoryWhere(category);
+    if (categoryCond) {
+      and.push(categoryCond);
     }
 
     const where = {
