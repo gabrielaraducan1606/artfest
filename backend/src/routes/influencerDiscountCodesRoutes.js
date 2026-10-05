@@ -4,6 +4,7 @@ import { Router } from "express";
 import { z } from "zod";
 
 import { prisma } from "../db.js";
+import { deriveDiscountCodeStatus } from "../services/discountCodeValidation.js";
 
 import {
   authRequired,
@@ -158,6 +159,12 @@ export function serializeDiscountCode(
 
     isActive:
       discountCode.isActive,
+
+    // status efectiv - aceeași regulă ca validarea (deriveDiscountCodeStatus)
+    effectiveStatus:
+      deriveDiscountCodeStatus(
+        discountCode
+      ),
 
     startsAt:
       discountCode.startsAt,

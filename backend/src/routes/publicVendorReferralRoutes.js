@@ -1,21 +1,21 @@
 // backend/src/routes/publicVendorReferralRoutes.js
 
 /*
- * Captură publică a atribuirii de referral VENDOR - mirror
- * STRUCTURAL al publicInfluencerRoutes.js (endpoint separat, NU
- * reutilizează vreo rută de influencer/campanie).
+ * DEPRECIAT (atribuire vendor referral request-based, fără stocare pe
+ * terminal): frontend-ul NU mai apelează această rută - codul ?ref= e
+ * transportat în aceeași navigare (URL / memoria aplicației) și validat
+ * server-side la checkout (services/referralAttribution.js). Atribuirea
+ * comenzii NU depinde de această rută și nici de VendorReferralClick.
+ *
+ * TRANZIȚIE - DE ELIMINAT: păstrată doar pentru bundle-urile vechi din cache
+ * (care încă cer un token): emite tokenul ca înainte, dar click-ul se
+ * înregistrează ANONIM - fără ipHash, userAgent, sessionId sau referrer (doar
+ * vendorul și calea paginii, fără query) - ca simplu contor agregat.
  *
  * GET /api/public/vendor-referral/attribution?ref=<referralCode>
- *
- * Apelat de pe ORICE pagină, de fiecare dată când URL-ul curent
- * conține ?ref= (vezi frontend/src/components/VendorReferralAttributionCapture.jsx).
- *
- * Nu necesită autentificare. Fail-open pentru orice caz invalid -
- * niciodată nu blochează navigarea, doar nu emite un token.
  */
 
 import { Router } from "express";
-import crypto from "node:crypto";
 
 import { prisma } from "../db.js";
 
@@ -26,92 +26,27 @@ import {
 
 const router = Router();
 
-/*
- * Nu stocăm IP brut niciodată - doar hash, la fel ca la
- * publicInfluencerRoutes.js.
- */
-function sha256(value = "") {
-  return crypto
-    .createHash("sha256")
-    .update(String(value), "utf8")
-    .digest("hex");
+// doar calea (fără query/hash - fără identificatori în URL)
+function pagePathOnly(pageUrl) {
+  if (!pageUrl) return null;
+  return String(pageUrl).split(/[?#]/)[0].slice(0, 500) || null;
 }
 
-function getReqIp(req) {
-  const ipHeader = String(
-    req.headers["x-forwarded-for"] || ""
-  );
-
-  return (
-    ipHeader.split(",")[0].trim() ||
-    req.socket?.remoteAddress ||
-    null
-  );
-}
-
-function hashRequestIp(req) {
-  const ip = getReqIp(req);
-  return ip ? sha256(ip) : null;
-}
-
-function truncateUserAgent(value) {
-  if (!value) return null;
-  return String(value).slice(0, 500);
-}
-
-/*
- * Evită duplicate excesive la fiecare rerender - dacă avem deja un
- * VendorReferralClick pentru ACEEAȘI pereche vendor+sessionId în
- * ultimele 30 de minute, nu mai creăm unul nou.
- */
-const CLICK_DEDUPE_WINDOW_MS = 30 * 60 * 1000;
-
-async function recordVendorReferralClickIfNeeded({
-  vendorId,
-  sessionId,
-  pageUrl,
-  referrer,
-  req,
-}) {
+async function recordAnonymousVendorReferralClick({ vendorId, pageUrl }) {
   try {
-    if (sessionId) {
-      const recent = await prisma.vendorReferralClick.findFirst({
-        where: {
-          vendorId,
-          sessionId,
-
-          createdAt: {
-            gte: new Date(
-              Date.now() - CLICK_DEDUPE_WINDOW_MS
-            ),
-          },
-        },
-
-        select: { id: true },
-      });
-
-      if (recent) return;
-    }
-
     await prisma.vendorReferralClick.create({
       data: {
         vendorId,
-        sessionId: sessionId || null,
-        pageUrl: pageUrl ? String(pageUrl).slice(0, 500) : null,
-        referrer: referrer ? String(referrer).slice(0, 500) : null,
-        ipHash: hashRequestIp(req),
-        userAgent: truncateUserAgent(req.get("user-agent")),
+        pageUrl: pagePathOnly(pageUrl),
+        sessionId: null,
+        referrer: null,
+        ipHash: null,
+        userAgent: null,
       },
     });
   } catch (error) {
-    /*
-     * Tracking-ul de click nu trebuie NICIODATĂ să blocheze
-     * emiterea tokenului de atribuire.
-     */
-    console.error(
-      "[public-vendor-referral] click tracking failed:",
-      error
-    );
+    // contorul nu blochează niciodată emiterea tokenului
+    console.error("[public-vendor-referral] anonymous click counter failed:", error?.message || error);
   }
 }
 
@@ -149,26 +84,14 @@ router.get("/attribution", async (req, res) => {
       });
     }
 
-    const sessionId = req.query?.sessionId
-      ? String(req.query.sessionId).slice(0, 128)
-      : null;
-
     const pageUrl = req.query?.pageUrl
       ? String(req.query.pageUrl)
       : null;
 
-    const referrer = req.get("referer") || null;
-
-    /*
-     * Non-blocant - vezi comentariul din
-     * recordVendorReferralClickIfNeeded.
-     */
-    recordVendorReferralClickIfNeeded({
+    // contor anonim, non-blocant (fără identificatori)
+    recordAnonymousVendorReferralClick({
       vendorId: vendor.id,
-      sessionId,
       pageUrl,
-      referrer,
-      req,
     });
 
     const attributionToken = signVendorReferralAttributionToken({

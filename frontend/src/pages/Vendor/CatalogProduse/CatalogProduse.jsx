@@ -24,7 +24,7 @@ import {
   fetchProductEditDraft,
   buildProductSavePayload,
 } from "../../../components/AIAssistant/VendorAIAssistant/services/productEditMapping.js";
-import CampaignsTab from "./VendorCampaigns/CampaignsTab.jsx";
+import VendorCollectionsTab from "./VendorCollections/VendorCollectionsTab.jsx";
 import VendorReferralEarnings from "./VendorReferralEarnings/VendorReferralEarnings.jsx";
 import VendorDiscountCodesTab from "./VendorDiscountCodesTab/VendorDiscountCodesTab.jsx";
 import VendorHomepagePromotions from "../Promotions/VendorPromotions.jsx";
@@ -2560,6 +2560,8 @@ async function handleSaveProductFromWizard(event) {
   changeTab("campaigns")
 }
 >
+  {/* cheia internă "campaigns" păstrată (linkuri existente ?tab=campaigns);
+      conținut: VendorCollection - conceptul unic „Colecții” (fostele campanii incluse) */}
   Colecții
 </button>
 
@@ -2616,7 +2618,7 @@ async function handleSaveProductFromWizard(event) {
       )}
 
       {activeTab === "campaigns" && (
-        <CampaignsTab products={products} />
+        <VendorCollectionsTab />
       )}
 
       {activeTab === "codes" && (

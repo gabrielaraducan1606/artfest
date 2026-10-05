@@ -1,16 +1,22 @@
 // backend/src/services/campaignAttribution.js
 
 /*
- * Revalidare server-side a atribuirii de campanie, folosită
- * EXCLUSIV la checkout.
+ * Revalidare server-side a atribuirii de campanie (checkout, coș,
+ * sumar, prețuri afișate).
  *
- * Client-ul trimite un attributionToken (emis de
- * GET /api/public/campaigns/:slug) per vendorId - dar
- * tokenul dovedește doar "acest server a emis asta pentru
- * campania X la momentul Y", nu că regulile campaniei sunt
- * încă valabile ACUM. De aceea revalidăm mereu direct din DB
- * (isActive, vendor activ, interval startsAt/endsAt), la fel
- * ca GET /api/public/campaigns/:slug.
+ * Model REQUEST-BASED (ca referral-ul influencer / vendor): clientul
+ * ține slug-urile campaniilor vizitate (/c/:slug, modalul campaniei)
+ * DOAR în memoria aplicației și în URL (?camp=), fără localStorage /
+ * cookie / consimțământ, și le trimite ca `campaignSlugs` (cele mai
+ * recente întâi). Slug-ul e public, deci NU e dovadă de nimic: fiecare
+ * campanie e revalidată fresh din DB (activă, vendor activ, interval
+ * startsAt/endsAt, vendor prezent în coș), la fel ca
+ * GET /api/public/campaigns/:slug. Per vendor câștigă cea mai recentă
+ * campanie VALIDĂ (last-click-wins per vendor, ca la tokenurile vechi).
+ *
+ * TRANZIȚIE - DE ELIMINAT: `tokensByVendorId` ({ [vendorId]: attributionToken })
+ * vine doar din bundle-uri vechi; folosit numai pentru vendorii fără
+ * campanie validă din `campaignSlugs`.
  *
  * Fail open: orice atribuire invalidă/expirată/lipsă e
  * ignorată silențios - comanda continuă normal, fără discount
@@ -22,10 +28,91 @@ import { prisma } from "../db.js";
 import { verifyCampaignAttributionToken } from "./campaignAttributionToken.js";
 import { campaignToPromotion } from "./productPromotionPrice.js";
 
+const MAX_CAMPAIGN_SLUGS = 10;
+const CAMPAIGN_SLUG_MAX_LENGTH = 160; // VendorCampaign.slug VarChar(160)
+
+/*
+ * campaignSlugs din body (array) sau din query (string "a,b" / array
+ * pentru ?campaignSlugs=a&campaignSlugs=b) -> listă curată, distinctă,
+ * în ordinea primită (cele mai recente întâi), cel mult MAX_CAMPAIGN_SLUGS.
+ */
+export function normalizeCampaignSlugs(raw) {
+  const list = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? raw.split(",")
+      : [];
+
+  const seen = new Set();
+  const out = [];
+
+  for (const item of list) {
+    if (typeof item !== "string") continue;
+    const slug = item.trim();
+    if (!slug || slug.length > CAMPAIGN_SLUG_MAX_LENGTH || seen.has(slug)) continue;
+    seen.add(slug);
+    out.push(slug);
+    if (out.length >= MAX_CAMPAIGN_SLUGS) break;
+  }
+
+  return out;
+}
+
+const CAMPAIGN_ATTRIBUTION_SELECT = {
+  id: true,
+  vendorId: true,
+  slug: true,
+  isActive: true,
+  scope: true,
+  discountPercent: true,
+  platformFundingBps: true,
+  vendorFundingBps: true,
+  fundingSource: true,
+  startsAt: true,
+  endsAt: true,
+
+  vendor: {
+    select: {
+      isActive: true,
+    },
+  },
+
+  products: {
+    select: {
+      productId: true,
+    },
+  },
+};
+
+// aceleași reguli ca înainte (activă, vendor activ, interval) -> atribuire sau null
+function toValidAttribution(campaign, now) {
+  if (!campaign) return null;
+  if (campaign.vendor?.isActive === false) return null;
+  if (!campaign.isActive) return null;
+  if (campaign.startsAt && campaign.startsAt > now) return null;
+  if (campaign.endsAt && campaign.endsAt <= now) return null;
+
+  return {
+    campaignId: campaign.id,
+    slug: campaign.slug || null,
+    discountPercent: Number(campaign.discountPercent || 0),
+    platformFundingBps: campaign.platformFundingBps,
+    vendorFundingBps: campaign.vendorFundingBps,
+    fundingSource: campaign.fundingSource,
+    scope: campaign.scope,
+    selectedProductIds: new Set(
+      Array.isArray(campaign.products)
+        ? campaign.products.map((p) => p.productId).filter(Boolean)
+        : []
+    ),
+  };
+}
+
 /**
  * @param {object} params
  * @param {string[]} params.vendorIds - vendorii prezenți în coșul curent
- * @param {Record<string,string>} params.tokensByVendorId - { [vendorId]: attributionToken }
+ * @param {string[]|string} [params.campaignSlugs] - slug-uri din navigarea curentă, cele mai recente întâi
+ * @param {Record<string,string>} [params.tokensByVendorId] - TRANZIȚIE: { [vendorId]: attributionToken }
  * @returns {Promise<Map<string, {
  *   campaignId: string,
  *   discountPercent: number,
@@ -35,80 +122,95 @@ import { campaignToPromotion } from "./productPromotionPrice.js";
  */
 export async function resolveVendorCampaignAttributions({
   vendorIds = [],
+  campaignSlugs = [],
   tokensByVendorId = {},
+  db = prisma,
 }) {
   const result = new Map();
 
-  const candidateVendorIds = vendorIds
-    .map((id) => String(id || ""))
-    .filter((id) => id && tokensByVendorId?.[id]);
+  const cartVendorIds = new Set(
+    (vendorIds || []).map((id) => String(id || "")).filter(Boolean)
+  );
 
-  if (!candidateVendorIds.length) {
+  if (!cartVendorIds.size) {
     return result;
   }
 
   const now = new Date();
 
-  for (const vendorId of candidateVendorIds) {
-    const payload = verifyCampaignAttributionToken(
-      tokensByVendorId[vendorId]
-    );
+  /* ---------- request-based: slug-uri din navigarea curentă ---------- */
+
+  const slugs = normalizeCampaignSlugs(campaignSlugs);
+
+  if (slugs.length) {
+    const campaigns = await db.vendorCampaign.findMany({
+      where: {
+        slug: { in: slugs },
+        vendorId: { in: [...cartVendorIds] },
+      },
+      select: CAMPAIGN_ATTRIBUTION_SELECT,
+    });
+
+    const bySlug = new Map(campaigns.map((c) => [c.slug, c]));
+
+    // ordinea clientului = cele mai recente întâi -> prima validă per vendor câștigă
+    for (const slug of slugs) {
+      const campaign = bySlug.get(slug);
+      if (!campaign) continue;
+
+      const vendorId = String(campaign.vendorId);
+      if (!cartVendorIds.has(vendorId) || result.has(vendorId)) continue;
+
+      const attribution = toValidAttribution(campaign, now);
+      if (attribution) result.set(vendorId, attribution);
+    }
+  }
+
+  /* ---------- TRANZIȚIE - DE ELIMINAT: tokenuri din bundle-uri vechi ---------- */
+
+  const legacyTokens =
+    tokensByVendorId && typeof tokensByVendorId === "object"
+      ? tokensByVendorId
+      : {};
+
+  for (const vendorId of cartVendorIds) {
+    if (result.has(vendorId) || !legacyTokens[vendorId]) continue;
+
+    const payload = verifyCampaignAttributionToken(legacyTokens[vendorId]);
 
     if (!payload || payload.vendorId !== vendorId) {
       continue;
     }
 
-    const campaign = await prisma.vendorCampaign.findFirst({
+    const campaign = await db.vendorCampaign.findFirst({
       where: {
         id: payload.campaignId,
         vendorId,
       },
-
-      select: {
-        id: true,
-        vendorId: true,
-        isActive: true,
-        scope: true,
-        discountPercent: true,
-        platformFundingBps: true,
-        vendorFundingBps: true,
-        fundingSource: true,
-        startsAt: true,
-        endsAt: true,
-
-        vendor: {
-          select: {
-            isActive: true,
-          },
-        },
-
-        products: {
-          select: {
-            productId: true,
-          },
-        },
-      },
+      select: CAMPAIGN_ATTRIBUTION_SELECT,
     });
 
-    if (!campaign) continue;
-    if (campaign.vendor?.isActive === false) continue;
-    if (!campaign.isActive) continue;
-    if (campaign.startsAt && campaign.startsAt > now) continue;
-    if (campaign.endsAt && campaign.endsAt <= now) continue;
+    const attribution = toValidAttribution(campaign, now);
+    if (attribution) result.set(vendorId, attribution);
+  }
 
-    result.set(vendorId, {
-      campaignId: campaign.id,
-      discountPercent: Number(campaign.discountPercent || 0),
-      platformFundingBps: campaign.platformFundingBps,
-      vendorFundingBps: campaign.vendorFundingBps,
-      fundingSource: campaign.fundingSource,
-      scope: campaign.scope,
-      selectedProductIds: new Set(
-        Array.isArray(campaign.products)
-          ? campaign.products.map((p) => p.productId).filter(Boolean)
-          : []
-      ),
+  /*
+   * Consolidare Colecții: o campanie MIGRATĂ (există VendorCollection cu
+   * legacyCampaignId = campaign.id) nu se mai aplică drept campanie - sursa de
+   * adevăr devine colecția (vendorCollectionPricing.js mapează slug-ul vechi).
+   * Comenzile istorice rămân pe Shipment.campaignId, neatinse.
+   */
+  if (result.size) {
+    const campaignIds = [...result.values()].map((a) => a.campaignId);
+    const migrated = await db.vendorCollection.findMany({
+      where: { legacyCampaignId: { in: campaignIds } },
+      select: { legacyCampaignId: true },
     });
+    const migratedIds = new Set(migrated.map((m) => String(m.legacyCampaignId)));
+
+    for (const [vendorId, attribution] of [...result]) {
+      if (migratedIds.has(String(attribution.campaignId))) result.delete(vendorId);
+    }
   }
 
   return result;

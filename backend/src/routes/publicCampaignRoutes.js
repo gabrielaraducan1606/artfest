@@ -234,7 +234,8 @@ store:
 
    Exemplu:
    GET /api/public/campaigns/store/atelierul-meu
-     ?campaignAttribution={"<vendorId>":"<token>"}
+     ?campaignSlugs=<slug1>,<slug2>   (request-based, cele mai recente întâi)
+     ?campaignAttribution={"<vendorId>":"<token>"}   (TRANZIȚIE - DE ELIMINAT)
 
    NU e un endpoint de descoperire - nu returnează "toate
    campaniile active" ale vendorului. Returnează DOAR campania
@@ -355,6 +356,9 @@ router.get(
             service.vendorId,
           ],
 
+          campaignSlugs: req.query?.campaignSlugs,
+
+          // TRANZIȚIE - DE ELIMINAT: tokenuri din bundle-uri vechi
           tokensByVendorId:
             campaignAttributionQuery,
         });
@@ -1015,6 +1019,12 @@ createdAt:
         );
 
       /*
+       * TRANZIȚIE - DE ELIMINAT: attributionToken e emis doar pentru
+       * bundle-urile vechi ale frontend-ului (localStorage). Frontend-ul
+       * nou NU îl mai folosește: păstrează slug-ul campaniei în memorie /
+       * URL (?camp=) și îl trimite ca `campaignSlugs`, revalidat server-side
+       * în services/campaignAttribution.js.
+       *
        * Token de atribuire - dovedește la checkout că
        * link-ul a fost chiar accesat prin acest server,
        * pentru ACEST vendor/campanie. Checkout-ul îl

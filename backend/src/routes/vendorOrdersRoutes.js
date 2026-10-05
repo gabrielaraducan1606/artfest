@@ -31,8 +31,13 @@ import {
 } from "../services/commissionCalc.js";
 import {
   getCampaignEligibilityInfo,
-  splitItemsByCampaignEligibility,
 } from "../services/campaignAttribution.js";
+import {
+  classifyShipmentCommissionItems,
+  collectionReferralItems,
+  COMMISSION_GROUP_LABELS,
+  isOwnCollectionItem,
+} from "../services/shipmentCommissionGroups.js";
 import {
   restoreStockFromItems,
 } from "../services/stockRestore.js";
@@ -261,13 +266,45 @@ export async function buildAttributionCommissionPreview({
   });
 
   if (ledgerEntry) {
+    /*
+     * Valoarea NETĂ din ledger: SALE + REFUND-ul legat de shipment
+     * (meta.refShipmentId, rândul REFUND nu are shipmentId) - altfel un
+     * earning deja reversat apărea în continuare activ în Order Details
+     * (și netArtfestAfterAttribution ieșea negativ). Doar afișare: ledger-ul
+     * rămâne sursa, nu se recalculează nimic.
+     */
+    let refundEntry = null;
+
+    if (isPostgres) {
+      refundEntry = await ledgerModel.findFirst({
+        where: { type: "REFUND", meta: { path: ["refShipmentId"], equals: shipmentId } },
+      });
+    } else {
+      const lastRefunds = await ledgerModel.findMany({
+        where: { type: "REFUND" },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+      refundEntry = lastRefunds.find((r) => r?.meta?.refShipmentId === shipmentId) || null;
+    }
+
+    const saleAmount = round2(Number(ledgerEntry.earningNet || 0));
+    const refundAmount = round2(Number(refundEntry?.earningNet || 0));
+
     return {
       type,
       name: name || null,
       commissionBps: bps,
       commissionPercent: round2(bps / 100),
-      baseAmount: round2(Number(ledgerEntry.artfestCommissionNet || 0)),
-      amount: round2(Number(ledgerEntry.earningNet || 0)),
+      baseAmount: round2(
+        Number(ledgerEntry.artfestCommissionNet || 0) +
+          Number(refundEntry?.artfestCommissionNet || 0)
+      ),
+      amount: round2(saleAmount + refundAmount),
+      saleAmount,
+      refundAmount,
+      isReversed: Boolean(refundEntry),
+      status: refundEntry ? "REVERSED" : "CONFIRMED",
       isSnapshot: true,
     };
   }
@@ -282,6 +319,8 @@ export async function buildAttributionCommissionPreview({
     commissionPercent: round2(bps / 100),
     baseAmount,
     amount,
+    isReversed: false,
+    status: "ESTIMATED",
     isSnapshot: false,
   };
 }
@@ -437,23 +476,11 @@ export async function computeVendorEarningForShipment({
       undefined;
 
   /*
-   * Sursa own-sale (audit 2026-09-15, regula finală de business
-   * pentru VendorCollection): 500bps e identic indiferent de sursă,
-   * dar UI-ul trebuie să distingă "colecție proprie" de "cod personal"
-   * - vezi marcajul scris în buildShipmentAttributionFields
-   * (chekoutRoutes.js), care refolosește câmpul
-   * referrerVendorReferralCodeSnapshot (mereu null în own-sale altfel,
-   * populat doar pe ramura de referral extern) ca marcaj
-   * "COLLECTION:<slug>" (prefix, NU egalitate strictă - audit
-   * 2026-09-15, persistent attribution, carry-ul slug-ului pentru
-   * afișare UI).
+   * Sursa own-sale (marcaj "COLLECTION:<slug>" în
+   * referrerVendorReferralCodeSnapshot) e decisă acum în
+   * classifyShipmentCommissionItems (services/shipmentCommissionGroups.js),
+   * cu aceleași label-uri ca înainte.
    */
-  const isVendorCollectionOwnSale =
-    hasVendorReferralOwnSaleCommission &&
-    typeof shipment.referrerVendorReferralCodeSnapshot === "string" &&
-    shipment.referrerVendorReferralCodeSnapshot.startsWith(
-      "COLLECTION:"
-    );
 
   /*
    * Comision de campanie (override) - setat exclusiv
@@ -497,37 +524,30 @@ export async function computeVendorEarningForShipment({
    * own-sale/plan (fără campanie): un singur grup, cu toate itemii -
    * comportament identic cu formula simplă de dinainte.
    */
-  let groupInputs;
+  /*
+   * Clasificare PER ITEM - sursă unică cu CARD (computeOrderSplits):
+   * services/shipmentCommissionGroups.js. Comportament neschimbat pentru
+   * campanie (eligibili / plan) și own-sale clasic (tot shipment-ul);
+   * NOU doar pentru VendorCollection request-based: itemii cu snapshot de
+   * colecție -> own-sale, restul -> campanie (dacă eligibili) sau plan.
+   * Itemii fiind snapshot (ShipmentItem.vendorCollectionIdSnapshot), NU
+   * citim niciodată colecția live.
+   */
+  const campaignEligibilityInfo =
+    shipment.campaignCommissionBps !== null &&
+    shipment.campaignCommissionBps !== undefined &&
+    shipment.campaignId
+      ? await getCampaignEligibilityInfo(shipment.campaignId)
+      : null;
 
-  if (hasCampaignCommission) {
-    const eligibilityInfo =
-      await getCampaignEligibilityInfo(shipment.campaignId);
+  const groupInputs = classifyShipmentCommissionItems({
+    shipment,
+    items: shipment.items || [],
+    baseCommissionBps,
+    campaignEligibilityInfo,
+  });
 
-    const { eligible, standard } =
-      splitItemsByCampaignEligibility(
-        shipment.items || [],
-        eligibilityInfo
-      );
-
-    groupInputs = [
-      { label: "campaign", items: eligible, commissionBps: Number(shipment.campaignCommissionBps) },
-      { label: "plan", items: standard, commissionBps: baseCommissionBps },
-    ];
-  } else {
-    groupInputs = [
-      {
-        label: hasVendorReferralOwnSaleCommission
-          ? isVendorCollectionOwnSale
-            ? "vendor_collection_own_sale"
-            : "vendor_referral_own_sale"
-          : "plan",
-        items: shipment.items || [],
-        commissionBps,
-      },
-    ];
-  }
-
-  const groupedBreakdownInputs = groupInputs.map((g) => {
+  const toBreakdownInput = (g) => {
     const groupSubtotalGross = getShipmentPaidGross(g.items);
     const groupPlatformDiscountGross = getPlatformDiscountGross(g.items);
     const groupVendorDiscountGross = getVendorDiscountGross(g.items);
@@ -543,9 +563,55 @@ export async function computeVendorEarningForShipment({
       ),
       itemsAfterDiscountGross: groupSubtotalGross,
       platformDiscountAmount: groupPlatformDiscountGross,
+      vendorDiscountAmount: groupVendorDiscountGross,
       vatFraction,
     };
+  };
+
+  const groupedBreakdownInputs = groupInputs.map(toBreakdownInput);
+
+  /*
+   * Baza remunerației de REFERRAL din colecție (cross-vendor, per item):
+   * aceeași formulă (computeGroupedCommissionBreakdown, cu comisionul
+   * SELLERULUI per item - plan / campanie), rulată DOAR pe itemii cu
+   * snapshot de colecție. null = referral clasic -> tot shipment-ul.
+   */
+  const referralItems = collectionReferralItems({
+    shipment,
+    items: shipment.items || [],
   });
+
+  let vendorCollectionReferralBase = null;
+
+  if (referralItems) {
+    const referralGrouped = computeGroupedCommissionBreakdown(
+      classifyShipmentCommissionItems({
+        shipment,
+        items: referralItems,
+        baseCommissionBps,
+        campaignEligibilityInfo,
+      }).map(toBreakdownInput)
+    );
+
+    vendorCollectionReferralBase = {
+      itemCount: referralItems.length,
+      itemsNet: referralGrouped.itemsAfterDiscount,
+      platformNet: referralGrouped.platformNet,
+      collectionIdSnapshot: referralItems[0]?.vendorCollectionIdSnapshot || null,
+      collectionSlugSnapshot: referralItems[0]?.vendorCollectionSlugSnapshot || null,
+    };
+  }
+
+  /*
+   * Own-sale din colecție PER ITEM - intrările pentru beneficiul afișat
+   * (economia de comision) DOAR pe itemii din colecție, nu pe tot
+   * shipment-ul (vezi computeOwnSaleBenefit, vendorReferralEarnings.js).
+   */
+  const collectionOwnSaleInput = groupedBreakdownInputs.find(
+    (g) =>
+      g.label === COMMISSION_GROUP_LABELS.VENDOR_COLLECTION_OWN_SALE &&
+      (shipment.items || []).some((item) => isOwnCollectionItem(item, shipment))
+  );
 
   /*
    * Sursă unică pentru comision - identică cu CARD
@@ -607,6 +673,25 @@ export async function computeVendorEarningForShipment({
 
     commissionGroups:
       grouped.groups,
+
+    /*
+     * VendorCollection per item (snapshot la checkout):
+     *  - baza referral-ului cross-vendor (doar itemii din colecție);
+     *  - intrările beneficiului own-sale (doar itemii din colecție).
+     * null pentru orice shipment fără snapshot de colecție.
+     */
+    vendorCollectionReferralBase,
+
+    vendorCollectionOwnSaleBase: collectionOwnSaleInput
+      ? {
+          commissionBaseGross: collectionOwnSaleInput.itemsOriginalGross,
+          platformDiscountGross: collectionOwnSaleInput.platformDiscountAmount,
+          vendorDiscountGross: collectionOwnSaleInput.vendorDiscountAmount,
+          actualCommissionNet:
+            grouped.groups.find((g) => g.label === collectionOwnSaleInput.label)
+              ?.platformNet ?? 0,
+        }
+      : null,
 
     campaignId:
       shipment.campaignId ||
@@ -765,6 +850,13 @@ export async function ensureSaleLedgerEntry({
 
         commissionGroups:
           earning.commissionGroups,
+
+        // VendorCollection per item - înghețate în SALE (citite de referral / dashboard)
+        vendorCollectionReferralBase:
+          earning.vendorCollectionReferralBase,
+
+        vendorCollectionOwnSaleBase:
+          earning.vendorCollectionOwnSaleBase,
       },
     },
   });
@@ -1062,6 +1154,9 @@ export async function ensureVendorReferralSaleLedgerEntry({ shipmentId }) {
       referrerVendorId: true,
       referrerVendorCommissionBpsSnapshot: true,
       direction: true,
+      vendorId: true,
+      referrerVendorReferralCodeSnapshot: true,
+      items: { select: { vendorCollectionIdSnapshot: true, vendorCollectionSlugSnapshot: true } },
     },
   });
 
@@ -1093,8 +1188,43 @@ export async function ensureVendorReferralSaleLedgerEntry({ shipmentId }) {
    */
   if (!vendorEntry) return null;
 
-  const artfestCommissionNet = vendorEntry.commissionNet;
-  const eligibleItemsNet = vendorEntry.itemsNet;
+  let artfestCommissionNet = vendorEntry.commissionNet;
+  let eligibleItemsNet = vendorEntry.itemsNet;
+
+  /*
+   * Referral din VendorCollection PER ITEM: baza = DOAR itemii cu snapshot
+   * de colecție (înghețată în SALE: meta.vendorCollectionReferralBase).
+   * Fallback, dacă SALE-ul nu o are (ex. CARD cu earning indisponibil la
+   * plată): recalculată din SNAPSHOT-ul itemilor - niciodată din colecția
+   * live și niciodată tot shipment-ul. Plafonată la comisionul shipment-ului.
+   * Referral clasic (?ref= / cod) -> neschimbat, tot shipment-ul.
+   */
+  // referral DIN COLECȚIE (marcaj COLLECTION:<slug> + itemi cu același slug);
+  // snapshot-urile colecției PROPRII a sellerului nu contează aici
+  const isCollectionReferral =
+    collectionReferralItems({ shipment, items: shipment.items || [] }) !== null;
+
+  let collectionBase = null;
+
+  if (isCollectionReferral) {
+    collectionBase = vendorEntry.meta?.vendorCollectionReferralBase || null;
+
+    if (!collectionBase) {
+      const live = await computeVendorEarningForShipment({
+        vendorId: shipment.vendorId,
+        shipmentId,
+      });
+      collectionBase = live.vendorCollectionReferralBase;
+    }
+
+    if (!collectionBase) return null;
+
+    artfestCommissionNet = Math.min(
+      Number(collectionBase.platformNet || 0),
+      Number(vendorEntry.commissionNet || 0)
+    );
+    eligibleItemsNet = Number(collectionBase.itemsNet || 0);
+  }
 
   /*
    * earningNet = platformNet x comisionBps / 10000 - IDENTIC ca
@@ -1127,7 +1257,15 @@ export async function ensureVendorReferralSaleLedgerEntry({ shipmentId }) {
 
       occurredAt: new Date(),
 
-      meta: { source: "shipment_status_fulfilled" },
+      meta: collectionBase
+        ? {
+            source: "shipment_status_fulfilled",
+            basis: "vendor_collection_items",
+            vendorCollectionIdSnapshot: collectionBase.collectionIdSnapshot || null,
+            vendorCollectionSlugSnapshot: collectionBase.collectionSlugSnapshot || null,
+            eligibleItemCount: collectionBase.itemCount ?? null,
+          }
+        : { source: "shipment_status_fulfilled" },
     },
   });
 }

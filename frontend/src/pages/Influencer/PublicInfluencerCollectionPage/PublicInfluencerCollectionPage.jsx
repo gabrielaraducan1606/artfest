@@ -7,9 +7,14 @@ import {
 import {
   Link,
   useParams,
+  useSearchParams,
 } from "react-router-dom";
 
 import { api } from "../../../lib/api.js";
+import {
+  buildCollectionProductLinkQuery,
+  captureInfluencerReferral,
+} from "../../../utils/influencerAttributionApp.js";
 
 import ProductCard from "../../Vendor/ProfilMagazin/components/ProductCard";
 
@@ -20,6 +25,9 @@ import styles from "../../Products/Products.module.css";
 export default function PublicInfluencerCollectionPage() {
   const { slug } =
     useParams();
+
+  const [searchParams] =
+    useSearchParams();
 
   const [
     collection,
@@ -209,12 +217,33 @@ export default function PublicInfluencerCollectionPage() {
       ?.referralCode ||
     null;
 
+  // ?ref= explicit din URL-ul colecției (gestionat de InfluencerAttributionCapture)
+  const urlRef =
+    String(
+      searchParams.get("ref") || ""
+    ).trim();
+
+  /*
+   * Fallback „proprietarul colecției”: vizita într-o colecție de influencer
+   * fără ?ref= pornește ACELAȘI mecanism de atribuire cu codul
+   * proprietarului - cu consimțământ „Atribuire” și DOAR dacă nu există
+   * deja o atribuire validă (verificat în utils/influencerAttributionApp.js).
+   */
+  useEffect(() => {
+    if (urlRef || !referralCode || !slug) return;
+
+    captureInfluencerReferral(
+      referralCode,
+      `/selectii/${slug}`
+    );
+  }, [urlRef, referralCode, slug]);
+
   const productLinkQuery =
-    referralCode
-      ? `ref=${encodeURIComponent(
-          referralCode
-        )}`
-      : "";
+    buildCollectionProductLinkQuery({
+      urlRef,
+      ownerReferralCode:
+        referralCode,
+    });
 
   const viewMode =
     me ? "user" : "guest";

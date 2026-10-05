@@ -3,6 +3,14 @@ import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../../../lib/api.js";
 import styles from "../AdminDesktop.module.css";
+import {
+  getShipmentSource,
+  getOrderSourceSummary,
+  getCommissionGroupLabel,
+  getItemAttributionLabel,
+  getOrderModeLabel,
+  formatConfigurationEntries,
+} from "./adminOrderAttribution.js";
 
 const PAGE_SIZE = 25;
 
@@ -30,30 +38,8 @@ const PROMOTION_SOURCE_LABELS = {
   DISCOUNT_CODE: "Cod de reducere",
 };
 
-function getShipmentSource(shipment) {
-  if (!shipment) return "Direct";
-
-  if (shipment.influencerId) {
-    const hasCode = (shipment.items || []).some(
-      (it) => it.discountCodeId
-    );
-    return hasCode ? "Cod influencer" : "Influencer";
-  }
-
-  if (shipment.campaignId) return "Campanie vendor";
-
-  return "Direct";
-}
-
-function getOrderSourceSummary(order) {
-  const shipments = order?.shipments || [];
-  if (!shipments.length) return "Direct";
-
-  const sources = [...new Set(shipments.map(getShipmentSource))];
-
-  if (sources.length === 1) return sources[0];
-  return "Surse multiple";
-}
+// getShipmentSource / getOrderSourceSummary: ./adminOrderAttribution.js
+// (Direct, Own sale 5%, Vendor referral, VendorCollection, Influencer, cod, campanie legacy)
 
 /* ----------------------------------------------------
    Helpers: status la fel ca în backend userOrdersRoutes
@@ -1036,6 +1022,8 @@ const customerPhone =
           shipment.vendor
             ?.displayName ||
           null,
+
+        _shipment: shipment,
       })
     )
   );
@@ -1973,6 +1961,7 @@ const appliedDiscountCodes = Object.values(
   {" · "}
   {PROMOTION_SOURCE_LABELS[it.discountSource] || "Fără promoție"}
 </div>
+                    <ItemAdminDetails item={it} />
                   </div>
                 ))}
               </div>
@@ -1993,11 +1982,6 @@ const appliedDiscountCodes = Object.values(
 
                   const shipmentSource = getShipmentSource(s);
 
-                  const attributionType = s.influencerId
-                    ? shipmentItems.some((it) => it.discountCodeId)
-                      ? "Cod de reducere"
-                      : "Referral (?ref=)"
-                    : null;
 
                   const totalDiscount = shipmentItems.reduce(
                     (sum, it) => sum + Number(it.discountAmount || 0),
@@ -2057,14 +2041,32 @@ const appliedDiscountCodes = Object.values(
                           <>
                             <strong>Influencer:</strong>{" "}
                             {s.influencer?.displayName || "—"}
-                            {" · "}
-                            {attributionType}
+                            <br />
+                          </>
+                        )}
+                        {s.referrerVendorId && (
+                          <>
+                            <strong>Vendor referral:</strong>{" "}
+                            {s.referrerVendor?.displayName || s.referrerVendorId}
+                            {s.referrerVendorReferralCodeSnapshot
+                              ? ` · ${s.referrerVendorReferralCodeSnapshot}`
+                              : ""}
+                            {s.referrerVendorCommissionBpsSnapshot != null
+                              ? ` · ${(s.referrerVendorCommissionBpsSnapshot / 100).toFixed(2)}% din comisionul Artfest`
+                              : ""}
+                            <br />
+                          </>
+                        )}
+                        {s.vendorReferralCommissionOverrideBps != null && (
+                          <>
+                            <strong>Own sale:</strong>{" "}
+                            {(s.vendorReferralCommissionOverrideBps / 100).toFixed(2)}% (doar pe produsele eligibile - vezi grupurile de comision)
                             <br />
                           </>
                         )}
                         {s.campaignId && (
                           <>
-                            <strong>Campanie vendor:</strong>{" "}
+                            <strong>Campanie vendor (legacy):</strong>{" "}
                             {s.campaign?.name || "—"}
                             <br />
                           </>
@@ -2120,9 +2122,9 @@ const appliedDiscountCodes = Object.values(
                                 {s.vendorFinancials.commissionGroups
                                   .map(
                                     (g) =>
-                                      `${
-                                        g.label === "campaign" ? "campanie" : "standard"
-                                      } ${(g.commissionBps / 100).toFixed(2)}% pe ${
+                                      `${getCommissionGroupLabel(
+                                        g.label
+                                      )} ${(g.commissionBps / 100).toFixed(2)}% pe ${
                                         g.itemCount
                                       } ${g.itemCount === 1 ? "produs" : "produse"} (${Number(
                                         g.itemsAfterDiscount || 0
@@ -2204,6 +2206,8 @@ const appliedDiscountCodes = Object.values(
                               : {Number(s.influencerCommission.amount || 0).toFixed(2)} RON
                               {" "}({s.influencerCommission.commissionPercent}% din comisionul Artfest)
                               {!s.influencerCommission.isSnapshot && " · estimat"}
+                              {s.influencerCommission.isReversed &&
+                                ` · reversat (inițial ${Number(s.influencerCommission.saleAmount || 0).toFixed(2)} RON)`}
                               <br />
                             </>
                           )}
@@ -2216,6 +2220,18 @@ const appliedDiscountCodes = Object.values(
                               : {Number(s.vendorReferralCommission.amount || 0).toFixed(2)} RON
                               {" "}({s.vendorReferralCommission.commissionPercent}% din comisionul Artfest)
                               {!s.vendorReferralCommission.isSnapshot && " · estimat"}
+                              {s.vendorReferralCommission.isReversed &&
+                                ` · reversat (inițial ${Number(s.vendorReferralCommission.saleAmount || 0).toFixed(2)} RON)`}
+                              {s.vendorFinancials?.vendorCollectionReferralBase && (
+                                <>
+                                  <br />
+                                  <span className={styles.subtle}>
+                                    Referral calculat doar pe{" "}
+                                    {s.vendorFinancials.vendorCollectionReferralBase.itemCount}{" "}
+                                    {s.vendorFinancials.vendorCollectionReferralBase.itemCount === 1 ? "produs" : "produse"} din colecție
+                                  </span>
+                                </>
+                              )}
                             </>
                           )}
                         </div>
@@ -2551,5 +2567,63 @@ const appliedDiscountCodes = Object.values(
       {refundModalNode}
     </>,
     document.body
+  );
+}
+
+/* ----------------------------------------------------
+   Detalii per item (admin): tip produs, configurare, colecție, sursă
+----------------------------------------------------- */
+function ItemAdminDetails({ item }) {
+  const modeLabel = getOrderModeLabel(item.orderMode);
+  const attribution = getItemAttributionLabel(item, item._shipment);
+  const options = formatConfigurationEntries(item.selectedOptions);
+  const custom = formatConfigurationEntries(item.customAnswers);
+  const groups = formatConfigurationEntries(item.repeatedGroupAnswers);
+  const hasCollection = Boolean(item.vendorCollectionSlugSnapshot || item.vendorCollectionIdSnapshot);
+
+  if (!modeLabel && !attribution && !options.length && !custom.length && !groups.length && !hasCollection) {
+    return null;
+  }
+
+  return (
+    <div className={styles.drawerListMeta}>
+      {modeLabel && (
+        <>
+          <strong>Tip:</strong> {modeLabel}
+          {item.productId ? <> · <code>{item.productId}</code></> : null}
+          <br />
+        </>
+      )}
+      {attribution && (
+        <>
+          <strong>Atribuire:</strong> {attribution}
+          <br />
+        </>
+      )}
+      {hasCollection && (
+        <>
+          <strong>Colecție (snapshot):</strong> {item.vendorCollectionSlugSnapshot || "—"}
+          {item.vendorCollectionIdSnapshot ? <> · <code>{item.vendorCollectionIdSnapshot}</code></> : null}
+          <br />
+        </>
+      )}
+      {options.length > 0 && (
+        <>
+          <strong>Opțiuni:</strong> {options.join(" · ")}
+          <br />
+        </>
+      )}
+      {custom.length > 0 && (
+        <>
+          <strong>Personalizare:</strong> {custom.join(" · ")}
+          <br />
+        </>
+      )}
+      {groups.length > 0 && (
+        <>
+          <strong>Seturi:</strong> {groups.join(" · ")}
+        </>
+      )}
+    </div>
   );
 }

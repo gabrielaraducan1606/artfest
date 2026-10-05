@@ -195,7 +195,9 @@ function inferAction({
 const ATTRIBUTION_STORAGE_KEYS = [
   "artfest.influencerAttribution",
   "artfest.vendorReferralAttribution",
+  // nefolosită de frontend-ul nou (campanii request-based) - doar curățare date vechi
   "artfest.campaignAttribution",
+  // nefolosită de frontend-ul nou (colecții vendor request-based) - doar curățare date vechi
   "artfest.vendorCollectionAttribution",
   // Cod de recomandare persistat la înregistrare (Register.jsx, din ?ref=).
   "artfest.referralCode",

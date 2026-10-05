@@ -1,8 +1,6 @@
 // src/components/AiAssistant/quotes/quoteApi.js
 
-import { getInfluencerAttributionForCheckout } from "../../../utils/influencerAttribution.js";
-import { getVendorReferralAttributionForCheckout } from "../../../utils/vendorReferralAttribution.js";
-import { getVendorCollectionAttributionForCheckout } from "../../../utils/vendorCollectionAttribution.js";
+import { getReferralCheckoutFields } from "../../../utils/referralMemory.js";
 
 /* =========================================================
    Configurare
@@ -283,17 +281,9 @@ export async function createQuoteRequest({
             ? quoteSchemaAnswers
             : {},
 
-        influencerAttribution:
-          getInfluencerAttributionForCheckout() ||
-          undefined,
-
-        vendorReferralAttribution:
-          getVendorReferralAttributionForCheckout() ||
-          undefined,
-
-        vendorCollectionAttribution:
-          getVendorCollectionAttributionForCheckout() ||
-          undefined,
+        // referral influencer + vendor + VendorCollection din navigarea
+        // curentă (vendorCollectionSlugs inclus; fără tokenuri)
+        ...getReferralCheckoutFields(),
       },
     }
   );

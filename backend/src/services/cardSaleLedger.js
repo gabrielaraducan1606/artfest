@@ -16,9 +16,9 @@
 //    (ce factura deja webhook-ul). computeVendorEarningForShipment
 //    (logica COD) e folosit DOAR ca pondere de distribuție între
 //    shipment-uri, NU ca sumă - poate diferi cu ±0,01 (rotunjire per
-//    shipment vs. per agregat) și la own-sale (computeOrderSplits nu
-//    aplică vendorReferralCommissionOverrideBps). Diferența own-sale NU
-//    se corectează aici.
+//    shipment vs. per agregat). Own-sale (clasic și VendorCollection per
+//    item) e aplicat acum identic în computeOrderSplits și COD (clasificare
+//    comună, services/shipmentCommissionGroups.js).
 //  - Ultimul shipment absoarbe reziduul de rotunjire.
 //  - Shipment-urile direction = RETURN nu sunt niciodată vânzări.
 
@@ -244,6 +244,15 @@ export function buildCardSaleEntryMeta({
       : {}),
     ...(row.earning?.vendorDiscountGross != null
       ? { vendorDiscountGross: Number(row.earning.vendorDiscountGross) }
+      : {}),
+
+    // VendorCollection per item (din snapshot-ul itemilor) - citite de
+    // ledger-ul de referral / dashboard, la fel ca la COD
+    ...(row.earning?.vendorCollectionReferralBase
+      ? { vendorCollectionReferralBase: row.earning.vendorCollectionReferralBase }
+      : {}),
+    ...(row.earning?.vendorCollectionOwnSaleBase
+      ? { vendorCollectionOwnSaleBase: row.earning.vendorCollectionOwnSaleBase }
       : {}),
 
     // descriptori la nivel de vendor - descriu CUM s-a calculat suma

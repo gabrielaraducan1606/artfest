@@ -16,6 +16,10 @@ import {
   resolveVendorCampaignAttributions,
   buildCampaignPromotionsByProductId,
 } from "../services/campaignAttribution.js";
+import {
+  resolveOwnCollectionAttributions,
+  withOwnCollectionPromotions,
+} from "../services/vendorCollectionPricing.js";
 import { buildPublicGpsrInfo } from "../lib/gpsrCompliance.js";
 import { buildCollectionWhereFromRules } from "../services/collectionProducts.js";
 const router = Router();
@@ -923,13 +927,24 @@ router.get("/products", async (req, res, next) => {
     const campaignAttributionsByVendorId =
       await resolveVendorCampaignAttributions({
         vendorIds: sliceVendorIds,
+        campaignSlugs: req.query?.campaignSlugs,
+        // TRANZIȚIE - DE ELIMINAT: tokenuri din bundle-uri vechi
         tokensByVendorId: listCampaignAttributionQuery,
       });
 
+    // + reducerea colecțiilor proprii (VendorCollection, finanțată de vendor)
     const campaignPromotionsByProductId =
-      buildCampaignPromotionsByProductId(
+      withOwnCollectionPromotions(
+        buildCampaignPromotionsByProductId(
+          slice,
+          campaignAttributionsByVendorId
+        ),
         slice,
-        campaignAttributionsByVendorId
+        await resolveOwnCollectionAttributions({
+          vendorIds: sliceVendorIds,
+          vendorCollectionSlugs: req.query?.vendorCollectionSlugs,
+          campaignSlugs: req.query?.campaignSlugs,
+        })
       );
 
     promotedSlice =
@@ -1402,12 +1417,20 @@ router.get("/product-cards", async (req, res, next) => {
         const campaignAttributionsByVendorId =
           await resolveVendorCampaignAttributions({
             vendorIds: sliceVendorIds,
+            campaignSlugs: req.query?.campaignSlugs,
+            // TRANZIȚIE - DE ELIMINAT: tokenuri din bundle-uri vechi
             tokensByVendorId: listCampaignAttributionQuery,
           });
 
-        const campaignPromotionsByProductId = buildCampaignPromotionsByProductId(
+        // + reducerea colecțiilor proprii (VendorCollection, finanțată de vendor)
+        const campaignPromotionsByProductId = withOwnCollectionPromotions(
+          buildCampaignPromotionsByProductId(slice, campaignAttributionsByVendorId),
           slice,
-          campaignAttributionsByVendorId
+          await resolveOwnCollectionAttributions({
+            vendorIds: sliceVendorIds,
+            vendorCollectionSlugs: req.query?.vendorCollectionSlugs,
+            campaignSlugs: req.query?.campaignSlugs,
+          })
         );
 
         promotedSlice = await applyPromotionsToProducts(slice, {
@@ -2336,6 +2359,8 @@ router.get(
         vendorId
           ? resolveVendorCampaignAttributions({
               vendorIds: [vendorId],
+              campaignSlugs: req.query?.campaignSlugs,
+              // TRANZIȚIE - DE ELIMINAT: tokenuri din bundle-uri vechi
               tokensByVendorId: campaignAttributionQuery,
             })
           : Promise.resolve(new Map()),
@@ -2343,10 +2368,21 @@ router.get(
         getActiveHomepagePromotionsForProducts([p]),
       ]);
 
+      // + reducerea colecțiilor proprii (VendorCollection, finanțată de vendor)
       const campaignPromotionsByProductId =
-        buildCampaignPromotionsByProductId(
+        withOwnCollectionPromotions(
+          buildCampaignPromotionsByProductId(
+            [p],
+            campaignAttributionsByVendorId
+          ),
           [p],
-          campaignAttributionsByVendorId
+          vendorId
+            ? await resolveOwnCollectionAttributions({
+                vendorIds: [vendorId],
+                vendorCollectionSlugs: req.query?.vendorCollectionSlugs,
+                campaignSlugs: req.query?.campaignSlugs,
+              })
+            : new Map()
         );
 
       const winningPromotion = chooseBestPromotion([

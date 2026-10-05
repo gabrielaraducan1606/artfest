@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { api } from "../../../lib/api";
+import { getSafeLoginRedirect, resolvePostAuthDestination } from "../Login/loginRedirect.js";
 import styles from "./VerifyEmail.module.css";
 
 export default function VerifyEmail() {
@@ -35,7 +36,12 @@ export default function VerifyEmail() {
       });
 
       const intent = (sessionStorage.getItem("onboarding.intent") || urlIntent || "").toLowerCase();
-      const next = r?.next || (intent === "vendor" ? "/onboarding" : "/desktop");
+      // redirect contextual adus de la înregistrare (ex. /produs/abc?vcol=x); vânzătorul -> onboarding
+      const next = resolvePostAuthDestination({
+        redirectTo: getSafeLoginRedirect(window.location.search),
+        vendorIntent: intent === "vendor",
+        fallback: r?.next || (intent === "vendor" ? "/onboarding" : "/desktop"),
+      });
 
       window.location.assign(next);
     } catch (e) {

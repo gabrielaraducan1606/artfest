@@ -32,6 +32,12 @@ import {
   signVendorCollectionAttributionToken,
   VENDOR_COLLECTION_ATTRIBUTION_WINDOW_HOURS,
 } from "../services/vendorCollectionAttributionToken.js";
+import {
+  applyPromotionPricingToProduct,
+  getPromotionPricingForProducts,
+} from "../services/productPromotionPrice.js";
+import { withOwnCollectionPromotions } from "../services/vendorCollectionPricing.js";
+import { vendorCollectionStatus } from "../services/vendorCollectionRules.js";
 
 const router = Router();
 
@@ -43,6 +49,8 @@ const MAX_TITLE_LENGTH = 160;
 const MAX_SLUG_LENGTH = 180;
 const MAX_DESCRIPTION_LENGTH = 5000;
 const MAX_COLLECTION_PRODUCTS = 100;
+// același plafon ca reducerile vendorului (MAX_TOTAL_DISCOUNT_PERCENT, vendorDiscountCodesRoutes.js)
+const MAX_COLLECTION_DISCOUNT_PERCENT = 50;
 
 /* =========================================================
    AUTH - identic cu vendorDiscountCodesRoutes.js
@@ -146,6 +154,14 @@ export function formatVendorCollection(collection) {
     visits: collection.visits,
     clicks: collection.clicks,
 
+    // preluate din VendorCampaign (Colecții unice)
+    discountPercent: Number(collection.discountPercent || 0),
+    startsAt: collection.startsAt || null,
+    endsAt: collection.endsAt || null,
+    allOwnProducts: Boolean(collection.allOwnProducts),
+    status: vendorCollectionStatus(collection),
+    publicPath: `/colectie-vendor/${collection.slug}`,
+
     productsCount:
       collection._count?.items ?? collection.items?.length ?? 0,
 
@@ -158,7 +174,34 @@ export function formatVendorCollection(collection) {
    VALIDATION
 ========================================================= */
 
+/*
+ * Câmpuri preluate din VendorCampaign: reducere (DOAR produse proprii,
+ * finanțată de vendor), perioadă opțională, includerea automată a tuturor
+ * produselor proprii. Datele vin ca ISO string sau null (fără perioadă).
+ */
+const optionalDate = z
+  .union([z.string().trim().min(1), z.null()])
+  .optional()
+  .refine((v) => v == null || !Number.isNaN(new Date(v).getTime()), "Dată invalidă.");
+
+const campaignLikeFields = {
+  discountPercent: z.number().int().min(0).max(MAX_COLLECTION_DISCOUNT_PERCENT).optional(),
+  startsAt: optionalDate,
+  endsAt: optionalDate,
+  allOwnProducts: z.boolean().optional(),
+};
+
+function toDateOrNull(value) {
+  return value == null ? null : new Date(value);
+}
+
+// endsAt trebuie să fie după startsAt (ambele, dacă sunt setate - inclusiv cele existente)
+function invalidPeriod(startsAt, endsAt) {
+  return Boolean(startsAt && endsAt && new Date(endsAt).getTime() <= new Date(startsAt).getTime());
+}
+
 const CreateCollectionSchema = z.object({
+  ...campaignLikeFields,
   title: z
     .string()
     .trim()
@@ -177,6 +220,7 @@ const CreateCollectionSchema = z.object({
 });
 
 const UpdateCollectionSchema = z.object({
+  ...campaignLikeFields,
   title: z.string().trim().min(2).max(MAX_TITLE_LENGTH).optional(),
 
   description: z
@@ -275,7 +319,16 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const { title, description, coverImage, isActive } = parsed.data;
+    const { title, description, coverImage, isActive, discountPercent, startsAt, endsAt, allOwnProducts } =
+      parsed.data;
+
+    if (invalidPeriod(startsAt, endsAt)) {
+      return res.status(400).json({
+        ok: false,
+        error: "invalid_period",
+        message: "Data de final trebuie să fie după data de început.",
+      });
+    }
 
     const slug = await buildUniqueSlug(title);
 
@@ -288,6 +341,10 @@ router.post("/", async (req, res) => {
         coverImage: coverImage || null,
         isActive,
         sort: "curated",
+        discountPercent: discountPercent ?? 0,
+        startsAt: toDateOrNull(startsAt),
+        endsAt: toDateOrNull(endsAt),
+        allOwnProducts: allOwnProducts ?? false,
       },
 
       include: { _count: { select: { items: true } } },
@@ -442,6 +499,33 @@ router.patch("/:id", async (req, res) => {
       data.sort = parsed.data.sort;
     }
 
+    if (parsed.data.discountPercent !== undefined) {
+      data.discountPercent = parsed.data.discountPercent;
+    }
+
+    if (parsed.data.startsAt !== undefined) {
+      data.startsAt = toDateOrNull(parsed.data.startsAt);
+    }
+
+    if (parsed.data.endsAt !== undefined) {
+      data.endsAt = toDateOrNull(parsed.data.endsAt);
+    }
+
+    if (parsed.data.allOwnProducts !== undefined) {
+      data.allOwnProducts = parsed.data.allOwnProducts;
+    }
+
+    const nextStartsAt = data.startsAt !== undefined ? data.startsAt : existing.startsAt;
+    const nextEndsAt = data.endsAt !== undefined ? data.endsAt : existing.endsAt;
+
+    if (invalidPeriod(nextStartsAt, nextEndsAt)) {
+      return res.status(400).json({
+        ok: false,
+        error: "invalid_period",
+        message: "Data de final trebuie să fie după data de început.",
+      });
+    }
+
     const collection = await prisma.vendorCollection.update({
       where: { id: existing.id },
       data,
@@ -495,6 +579,160 @@ router.delete("/:id", async (req, res) => {
     return res.status(500).json({
       ok: false,
       error: "vendor_collection_delete_failed",
+    });
+  }
+});
+
+/* =========================================================
+   Eligibilitate PUBLICĂ a unui produs pentru o VendorCollection -
+   aceleași reguli ca listarea publică a marketplace-ului
+   (GET /api/public/products, publicProductRoutes.js): produs activ,
+   vizibil, aprobat; magazin (serviciu de tip "products") activ și
+   publicat; vendor activ. De la ORICE vendor - ownerul colecției NU
+   devine seller, produsul rămâne al vendorului real.
+========================================================= */
+
+const PUBLIC_COLLECTION_PRODUCT_WHERE = {
+  isActive: true,
+  isHidden: false,
+  moderationStatus: "APPROVED",
+  service: {
+    is: {
+      type: { is: { code: "products" } },
+      isActive: true,
+      status: "ACTIVE",
+      vendor: { is: { isActive: true } },
+    },
+  },
+};
+
+const PRODUCT_SEARCH_MAX_LIMIT = 48;
+
+/* =========================================================
+   GET /api/vendor/collections/:id/product-search
+     ?q=<titlu>&store=<magazin/vendor>&category=<cod>&page=1&limit=24
+
+   Selectorul de produse al editorului de colecție: produse publice
+   eligibile din TOT marketplace-ul (nu doar ale vendorului curent).
+   Doar ownerul colecției (getOwnedCollection). Read-only.
+   Fiecare rezultat: vendorul REAL (vendorId / magazin), isOwn
+   (produs propriu vs alt vendor), inCollection (deja adăugat).
+========================================================= */
+
+router.get("/:id/product-search", async (req, res) => {
+  try {
+    const vendor = await requireVendor(req, res);
+    if (!vendor) return;
+
+    const collection = await getOwnedCollection(
+      normalizeString(req.params.id),
+      vendor.id
+    );
+
+    if (!collection) {
+      return res.status(404).json({ ok: false, error: "collection_not_found" });
+    }
+
+    const q = normalizeString(req.query?.q).slice(0, 120);
+    const store = normalizeString(req.query?.store).slice(0, 120);
+    const category = normalizeString(req.query?.category).slice(0, 80);
+    const page = Math.max(1, Number.parseInt(req.query?.page, 10) || 1);
+    const limit = Math.min(
+      PRODUCT_SEARCH_MAX_LIMIT,
+      Math.max(1, Number.parseInt(req.query?.limit, 10) || 24)
+    );
+
+    const and = [];
+
+    if (q) {
+      and.push({ title: { contains: q, mode: "insensitive" } });
+    }
+
+    if (store) {
+      and.push({
+        OR: [
+          { service: { is: { profile: { is: { displayName: { contains: store, mode: "insensitive" } } } } } },
+          { service: { is: { vendor: { is: { displayName: { contains: store, mode: "insensitive" } } } } } },
+        ],
+      });
+    }
+
+    if (category) {
+      and.push({ category });
+    }
+
+    const where = {
+      ...PUBLIC_COLLECTION_PRODUCT_WHERE,
+      ...(and.length ? { AND: and } : {}),
+    };
+
+    const [rows, collectionItems] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        skip: (page - 1) * limit,
+        take: limit + 1,
+        select: {
+          id: true,
+          title: true,
+          images: true,
+          priceCents: true,
+          currency: true,
+          category: true,
+          service: {
+            select: {
+              vendorId: true,
+              title: true,
+              profile: { select: { displayName: true, slug: true } },
+              vendor: { select: { id: true, displayName: true } },
+            },
+          },
+        },
+      }),
+
+      prisma.vendorCollectionItem.findMany({
+        where: { collectionId: collection.id },
+        select: { productId: true },
+      }),
+    ]);
+
+    const inCollection = new Set(collectionItems.map((item) => item.productId));
+    const hasMore = rows.length > limit;
+
+    const products = rows.slice(0, limit).map((product) => {
+      const sellerVendorId = product.service?.vendor?.id || product.service?.vendorId || null;
+
+      return {
+        id: product.id,
+        title: product.title,
+        image: Array.isArray(product.images) ? product.images[0] || null : null,
+        priceCents: product.priceCents,
+        price: Number(product.priceCents || 0) / 100,
+        currency: product.currency || "RON",
+        category: product.category || null,
+
+        // vendorul REAL (seller) - ownerul colecției nu devine seller
+        vendorId: sellerVendorId,
+        vendorName: product.service?.vendor?.displayName || null,
+        storeName:
+          product.service?.profile?.displayName ||
+          product.service?.title ||
+          product.service?.vendor?.displayName ||
+          null,
+        storeSlug: product.service?.profile?.slug || null,
+
+        isOwn: String(sellerVendorId) === String(vendor.id),
+        inCollection: inCollection.has(product.id),
+      };
+    });
+
+    return res.json({ ok: true, page, limit, hasMore, products });
+  } catch (error) {
+    console.error("[vendorCollections] GET /:id/product-search error:", error);
+
+    return res.status(500).json({
+      ok: false,
+      error: "vendor_collection_product_search_failed",
     });
   }
 });
@@ -557,12 +795,15 @@ router.post("/:id/products", async (req, res) => {
      * Permitem doar produse publicabile - de la ORICE vendor.
      */
 
+    /*
+     * Revalidare server-side la FIECARE adăugare: produs public eligibil
+     * (aceleași reguli ca listarea publică - produs activ / vizibil /
+     * aprobat, magazin activ și publicat, vendor activ), de la ORICE vendor.
+     */
     const products = await prisma.product.findMany({
       where: {
         id: { in: productIds },
-        isActive: true,
-        isHidden: false,
-        moderationStatus: "APPROVED",
+        ...PUBLIC_COLLECTION_PRODUCT_WHERE,
       },
 
       select: { id: true },
@@ -772,6 +1013,55 @@ router.patch("/:id/products/reorder", async (req, res) => {
 
 const publicRouter = Router();
 
+// select-ul produselor afișate pe pagina publică (compatibil ProductCard + motorul de pricing)
+const PUBLIC_COLLECTION_PRODUCT_SELECT = {
+  id: true,
+  title: true,
+  description: true,
+  priceCents: true,
+  currency: true,
+  images: true,
+  availability: true,
+  category: true,
+  color: true,
+
+  isActive: true,
+  isHidden: true,
+  moderationStatus: true,
+
+  orderMode: true,
+  acceptsCustom: true,
+  optionsSchema: true,
+  customSchema: true,
+  repeatedGroups: true,
+  quoteSchema: true,
+  readyQty: true,
+  leadTimeDays: true,
+  nextShipDate: true,
+  createdAt: true,
+  serviceId: true,
+
+  service: {
+    select: {
+      id: true,
+      title: true,
+      vendorId: true,
+
+      // sellerul REAL (poate fi alt vendor decât ownerul colecției)
+      profile: {
+        select: { displayName: true, slug: true },
+      },
+
+      vendor: {
+        select: { id: true, displayName: true },
+      },
+    },
+  },
+};
+
+// plafon pentru allOwnProducts pe pagina publică (pagina nu e paginată încă)
+const PUBLIC_ALL_OWN_PRODUCTS_LIMIT = 200;
+
 publicRouter.get("/:slug", async (req, res) => {
   try {
     const slug = normalizeString(req.params.slug);
@@ -793,55 +1083,15 @@ publicRouter.get("/:slug", async (req, res) => {
         },
 
         items: {
+          // aceeași eligibilitate publică ca selectorul / adăugarea (magazin + vendor activ)
           where: {
-            product: {
-              isActive: true,
-              isHidden: false,
-              moderationStatus: "APPROVED",
-            },
+            product: PUBLIC_COLLECTION_PRODUCT_WHERE,
           },
 
           orderBy: [{ position: "asc" }, { createdAt: "asc" }],
 
           include: {
-            product: {
-              select: {
-                id: true,
-                title: true,
-                description: true,
-                priceCents: true,
-                currency: true,
-                images: true,
-                availability: true,
-                category: true,
-                color: true,
-
-                isActive: true,
-                isHidden: true,
-                moderationStatus: true,
-
-                orderMode: true,
-                acceptsCustom: true,
-                optionsSchema: true,
-                customSchema: true,
-                repeatedGroups: true,
-                quoteSchema: true,
-                readyQty: true,
-                leadTimeDays: true,
-                nextShipDate: true,
-
-                service: {
-                  select: {
-                    id: true,
-                    title: true,
-
-                    vendor: {
-                      select: { id: true, displayName: true },
-                    },
-                  },
-                },
-              },
-            },
+            product: { select: PUBLIC_COLLECTION_PRODUCT_SELECT },
           },
         },
       },
@@ -849,6 +1099,76 @@ publicRouter.get("/:slug", async (req, res) => {
 
     if (!collection) {
       return res.status(404).json({ ok: false, error: "collection_not_found" });
+    }
+
+    /*
+     * Starea pentru pricing / atribuire nouă (startsAt / endsAt):
+     * LIVE | SCHEDULED | EXPIRED. În afara intervalului pagina se afișează,
+     * dar fără reducere, iar frontend-ul nu pornește atribuirea.
+     */
+    const status = vendorCollectionStatus(collection);
+    const isLive = status === "LIVE";
+
+    /*
+     * allOwnProducts: TOATE produsele publice eligibile ale ownerului
+     * (inclusiv cele publicate ulterior), după selecțiile explicite
+     * (VendorCollectionItem - inclusiv produsele altor vendori).
+     */
+    const explicitProducts = collection.items.map((item) => item.product).filter(Boolean);
+    let products = explicitProducts;
+
+    if (collection.allOwnProducts) {
+      const ownProducts = await prisma.product.findMany({
+        where: {
+          ...PUBLIC_COLLECTION_PRODUCT_WHERE,
+          service: {
+            is: { ...PUBLIC_COLLECTION_PRODUCT_WHERE.service.is, vendorId: collection.vendorId },
+          },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        take: PUBLIC_ALL_OWN_PRODUCTS_LIMIT,
+        select: PUBLIC_COLLECTION_PRODUCT_SELECT,
+      });
+
+      const seen = new Set(explicitProducts.map((p) => p.id));
+      products = [...explicitProducts, ...ownProducts.filter((p) => !seen.has(p.id))];
+    }
+
+    /*
+     * Prețuri: aceleași surse ca restul site-ului (getPromotionPricingForProducts)
+     * + reducerea COLECȚIEI, doar pe produsele proprii ale ownerului și doar
+     * când colecția e activă în interval (finanțată de vendor, Artfest = 0).
+     * Fail-open: la eroare se afișează prețul de listă.
+     */
+    let pricedProducts = products;
+
+    try {
+      const ownCollections = isLive
+        ? new Map([
+            [
+              String(collection.vendorId),
+              {
+                collectionId: collection.id,
+                slug: collection.slug,
+                title: collection.title,
+                vendorId: String(collection.vendorId),
+                discountPercent: Number(collection.discountPercent || 0),
+                allOwnProducts: Boolean(collection.allOwnProducts),
+                selectedProductIds: new Set(explicitProducts.map((p) => String(p.id))),
+              },
+            ],
+          ])
+        : new Map();
+
+      const pricingByProductId = await getPromotionPricingForProducts(products, {
+        campaignPromotionsByProductId: withOwnCollectionPromotions(new Map(), products, ownCollections),
+      });
+
+      pricedProducts = products.map((product) =>
+        applyPromotionPricingToProduct(product, pricingByProductId.get(product.id))
+      );
+    } catch (pricingError) {
+      console.error("[vendorCollections] public pricing failed:", pricingError);
     }
 
     /*
@@ -867,18 +1187,18 @@ publicRouter.get("/:slug", async (req, res) => {
       });
 
     /*
-     * PERSISTENT ATTRIBUTION (audit 2026-09-15, regula finală de
-     * business) - emis la FIECARE încărcare a paginii publice a
-     * colecției (echivalentul "vizitării linkului"). Semnat
-     * server-side, revalidat fresh din DB la checkout
-     * (resolveVendorCollectionAttribution, vendorAttribution.js) -
-     * NU e sursă de adevăr singură. NU face produsele eligibile la
-     * discount - asta rămâne strict legat de VendorCollectionItem.
+     * TRANZIȚIE - DE ELIMINAT: attributionToken e emis doar pentru
+     * bundle-urile vechi (localStorage). Frontend-ul nou păstrează slug-ul
+     * colecției în memoria aplicației / URL (?vcol=) și îl trimite la
+     * checkout ca `vendorCollectionSlugs` (services/referralAttribution.js
+     * -> resolveVendorCollectionAttributionBySlug).
      */
-    const attributionToken = signVendorCollectionAttributionToken({
-      collectionId: collection.id,
-      ownerVendorId: collection.vendorId,
-    });
+    const attributionToken = isLive
+      ? signVendorCollectionAttributionToken({
+          collectionId: collection.id,
+          ownerVendorId: collection.vendorId,
+        })
+      : null;
 
     return res.json({
       ok: true,
@@ -891,13 +1211,20 @@ publicRouter.get("/:slug", async (req, res) => {
         coverImage: collection.coverImage,
         visits: collection.visits,
 
+        discountPercent: Number(collection.discountPercent || 0),
+        allOwnProducts: Boolean(collection.allOwnProducts),
+        startsAt: collection.startsAt || null,
+        endsAt: collection.endsAt || null,
+        status,
+        isLive,
+
         vendor: {
           id: collection.vendor.id,
           displayName: collection.vendor.displayName,
           referralCode: collection.vendor.referralCode,
         },
 
-        products: collection.items.map((item) => item.product),
+        products: pricedProducts,
       },
 
       attributionToken,
@@ -910,6 +1237,95 @@ publicRouter.get("/:slug", async (req, res) => {
       ok: false,
       error: "public_vendor_collection_failed",
     });
+  }
+});
+
+/* =========================================================
+   GET /api/public/vendor-collections/store/:storeSlug
+
+   „Colecțiile magazinului” din profilul public: colecțiile ACTIVE ÎN
+   INTERVAL ale vendorului magazinului (owner), cele mai noi întâi.
+========================================================= */
+
+const STORE_COLLECTIONS_LIMIT = 12;
+
+publicRouter.get("/store/:storeSlug", async (req, res) => {
+  try {
+    const storeSlug = normalizeString(req.params.storeSlug);
+    if (!storeSlug) return res.status(400).json({ ok: false, error: "store_slug_required" });
+
+    const profile = await prisma.serviceProfile.findUnique({
+      where: { slug: storeSlug },
+      select: { service: { select: { vendorId: true, vendor: { select: { isActive: true } } } } },
+    });
+
+    const vendorId = profile?.service?.vendorId;
+    if (!vendorId || profile.service.vendor?.isActive === false) {
+      return res.json({ ok: true, collections: [] });
+    }
+
+    const rows = await prisma.vendorCollection.findMany({
+      where: { vendorId, isActive: true },
+      orderBy: { createdAt: "desc" },
+      include: { _count: { select: { items: true } } },
+    });
+
+    const collections = rows
+      .filter((c) => vendorCollectionStatus(c) === "LIVE")
+      .slice(0, STORE_COLLECTIONS_LIMIT)
+      .map((c) => ({
+        id: c.id,
+        slug: c.slug,
+        title: c.title,
+        description: c.description,
+        coverImage: c.coverImage,
+        discountPercent: Number(c.discountPercent || 0),
+        allOwnProducts: Boolean(c.allOwnProducts),
+        productsCount: c._count?.items ?? 0,
+        publicPath: `/colectie-vendor/${c.slug}`,
+      }));
+
+    return res.json({ ok: true, collections });
+  } catch (error) {
+    console.error("[vendorCollections] GET public/store/:storeSlug error:", error);
+    return res.status(500).json({ ok: false, error: "public_store_collections_failed" });
+  }
+});
+
+/* =========================================================
+   GET /api/public/vendor-collections/legacy-campaign/:slug
+
+   Compatibilitate /c/:slug: dacă VendorCampaign cu acest slug a fost
+   MIGRATĂ (VendorCollection.legacyCampaignId), întoarce slug-ul colecției
+   -> frontend-ul face redirect la /colectie-vendor/:slug. Campanie nemigrată
+   (sau inexistentă) -> 404, iar /c/:slug păstrează comportamentul vechi.
+========================================================= */
+
+publicRouter.get("/legacy-campaign/:slug", async (req, res) => {
+  try {
+    const slug = normalizeString(req.params.slug);
+    if (!slug) return res.status(400).json({ ok: false, error: "slug_required" });
+
+    const campaign = await prisma.vendorCampaign.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+
+    const collection = campaign
+      ? await prisma.vendorCollection.findUnique({
+          where: { legacyCampaignId: campaign.id },
+          select: { slug: true },
+        })
+      : null;
+
+    if (!collection) {
+      return res.status(404).json({ ok: false, error: "not_migrated" });
+    }
+
+    return res.json({ ok: true, collectionSlug: collection.slug });
+  } catch (error) {
+    console.error("[vendorCollections] GET public/legacy-campaign/:slug error:", error);
+    return res.status(500).json({ ok: false, error: "legacy_campaign_lookup_failed" });
   }
 });
 

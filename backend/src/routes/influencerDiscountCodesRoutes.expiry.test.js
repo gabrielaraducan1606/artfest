@@ -63,6 +63,10 @@ mock.module("../api/auth.js", {
     enforceTokenVersion(_req, _res, next) {
       next();
     },
+    // importat de vendorDiscountCodesRoutes.js (testul de effectiveStatus de mai jos)
+    requireRole() {
+      return (_req, _res, next) => next();
+    },
   },
 });
 
@@ -216,4 +220,100 @@ test("ACTIVE: poate reactiva un cod dezactivat", async () => {
 
   assert.equal(status, 200);
   assert.equal(codes[0].isActive, true);
+});
+
+/* =========================================================
+   effectiveStatus (sursă unică: deriveDiscountCodeStatus) în listări:
+   - serializatoarele vendor / influencer;
+   - ruta admin GET /api/admin/vendor-discount-codes și filtrul de status
+     (= statusul EFECTIV, nu doar isActive). Mutat din testul de audit.
+========================================================= */
+
+const DAY = 86400000;
+const NOW_MS = Date.now();
+const ADMIN_CODES = [
+  { id: "c-active", code: "ACTIV1", startsAt: new Date(NOW_MS - DAY), endsAt: new Date(NOW_MS + DAY) },
+  { id: "c-noend", code: "FARAFINAL" },
+  { id: "c-expired-1", code: "EU8", startsAt: new Date(NOW_MS - 20 * DAY), endsAt: new Date(NOW_MS - 9 * DAY) },
+  { id: "c-expired-2", code: "EU0", startsAt: new Date(NOW_MS - 20 * DAY), endsAt: new Date(NOW_MS - 18 * DAY) },
+  { id: "c-scheduled", code: "VIITOR", startsAt: new Date(NOW_MS + 2 * DAY) },
+  { id: "c-exhausted", code: "EPUIZAT", usageLimit: 3, usedCount: 3 },
+  { id: "c-disabled", code: "OPRIT", isActive: false },
+].map((c, i) => ({
+  ownerType: "VENDOR", vendorId: "vendor-a", scope: "VENDOR_ALL_PRODUCTS", status: "ACTIVE", isActive: true,
+  startsAt: null, endsAt: null, usageLimit: null, usageLimitPerUser: null, usedCount: 0, discountPercent: 10,
+  discountType: "PERCENT", fundingSource: "VENDOR", platformFundingBps: 0, vendorFundingBps: 10000, currency: "RON",
+  createdAt: new Date(NOW_MS - i * 1000), vendor: { id: "vendor-a", displayName: "Atelier A", city: "Cluj", isActive: true },
+  _count: { redemptions: 0 }, ...c,
+}));
+
+const matchesAdmin = (row, where = {}) =>
+  Object.entries(where).every(([key, cond]) => (key === "id" && cond?.in ? cond.in.includes(row.id) : cond === undefined || typeof cond === "object" || row[key] === cond));
+
+// metode folosite DOAR de ruta admin (aditive pe același fake)
+fakePrisma.discountCode.findMany = async ({ where, skip = 0, take } = {}) => {
+  const rows = ADMIN_CODES.filter((r) => matchesAdmin(r, where));
+  return take ? rows.slice(skip, skip + take) : rows;
+};
+fakePrisma.discountCode.count = async ({ where } = {}) => ADMIN_CODES.filter((r) => matchesAdmin(r, where)).length;
+fakePrisma.user = { findUnique: async () => ({ id: USER_ID, role: "ADMIN" }) };
+fakePrisma.shipmentItem = { findMany: async () => [] };
+
+let adminServer;
+let adminBase;
+
+before(async () => {
+  const router = (await import("./adminVendorDiscountCodesRoutes.js")).default;
+  const app = express();
+  app.use("/api/admin/vendor-discount-codes", router);
+  adminServer = http.createServer(app);
+  await new Promise((resolve) => adminServer.listen(0, "127.0.0.1", resolve));
+  adminBase = `http://127.0.0.1:${adminServer.address().port}/api/admin/vendor-discount-codes`;
+});
+
+after(() => new Promise((resolve) => adminServer.close(resolve)));
+
+async function adminList(query = "") {
+  const res = await fetch(`${adminBase}${query}`);
+  const body = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(body));
+  return body;
+}
+
+test("admin: effectiveStatus pe fiecare cod; isActive / status rămân în răspuns", async () => {
+  const body = await adminList();
+  assert.deepEqual(Object.fromEntries(body.items.map((i) => [i.code, i.effectiveStatus])), {
+    ACTIV1: "ACTIVE", FARAFINAL: "ACTIVE", EU8: "EXPIRED", EU0: "EXPIRED", VIITOR: "SCHEDULED", EPUIZAT: "EXHAUSTED", OPRIT: "DISABLED",
+  });
+  const expired = body.items.find((i) => i.code === "EU8");
+  assert.equal(expired.isActive, true);
+  assert.equal(expired.status, "ACTIVE");
+});
+
+test("admin: filtrul „activ” = effectiveStatus ACTIVE; filtre programat / expirat / epuizat / inactiv; paginare pe rezultat", async () => {
+  const active = await adminList("?status=active");
+  assert.deepEqual(active.items.map((i) => i.code).sort(), ["ACTIV1", "FARAFINAL"]);
+  assert.equal(active.total, 2);
+  assert.deepEqual((await adminList("?status=expired")).items.map((i) => i.code).sort(), ["EU0", "EU8"]);
+  assert.deepEqual((await adminList("?status=scheduled")).items.map((i) => i.code), ["VIITOR"]);
+  assert.deepEqual((await adminList("?status=exhausted")).items.map((i) => i.code), ["EPUIZAT"]);
+  assert.deepEqual((await adminList("?status=inactive")).items.map((i) => i.code), ["OPRIT"]);
+
+  const page1 = await adminList("?status=expired&pageSize=1&page=1");
+  const page2 = await adminList("?status=expired&pageSize=1&page=2");
+  assert.equal(page1.total, 2);
+  assert.notEqual(page1.items[0].code, page2.items[0].code);
+});
+
+test("vendor + influencer: serializatoarele întorc același effectiveStatus, fără să elimine câmpuri", async () => {
+  const { serializeVendorDiscountCode } = await import("./vendorDiscountCodesRoutes.js");
+  const { serializeDiscountCode } = await import("./influencerDiscountCodesRoutes.js");
+  for (const row of ADMIN_CODES) {
+    const vendor = serializeVendorDiscountCode(row);
+    const influencer = serializeDiscountCode({ ...row, ownerType: "INFLUENCER", vendorId: null, influencerId: "inf-1" });
+    assert.equal(vendor.effectiveStatus, influencer.effectiveStatus, row.code);
+    assert.equal(vendor.isActive, row.isActive);
+    assert.equal(influencer.isActive, row.isActive);
+  }
+  assert.equal(serializeVendorDiscountCode(ADMIN_CODES.find((c) => c.code === "EU8")).effectiveStatus, "EXPIRED");
 });

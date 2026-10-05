@@ -15,6 +15,11 @@ import {
 } from "lucide-react";
 
 import { api } from "../../../lib/api";
+import {
+  getSafeLoginRedirect,
+  resolvePostAuthDestination,
+  withLoginRedirect,
+} from "../Login/loginRedirect.js";
 import { hasAttributionConsent } from "../../../lib/cookieConsent.js";
 import { trackSignup } from "../../../../services/analytics.js";
 
@@ -1028,9 +1033,18 @@ export default function Register({
       }
     }
 
+    /*
+     * Redirect contextual (?redirect=... din /autentificare, /inregistrare sau
+     * modalul global) - același helper ca Login.jsx; ex. înapoi la
+     * /produs/abc?vcol=septembrie după „Cere ofertă”.
+     */
     window.location.assign(
-      response?.next ||
-        "/desktop-user"
+      resolvePostAuthDestination({
+        redirectTo: getSafeLoginRedirect(window.location.search),
+        fallback:
+          response?.next ||
+          "/desktop-user",
+      })
     );
   }
 
@@ -1602,11 +1616,14 @@ window.google.accounts.id.renderButton(
           // ignore
         }
 
-        const next =
+        // redirect-ul contextual merge mai departe la confirmarea emailului (nu pentru vânzător)
+        const next = withLoginRedirect(
           response?.next ||
-          `/verify-email?email=${encodeURIComponent(
-            normalizedEmail
-          )}`;
+            `/verify-email?email=${encodeURIComponent(
+              normalizedEmail
+            )}`,
+          asVendor ? null : getSafeLoginRedirect(window.location.search)
+        );
 
         window.location.assign(
           next

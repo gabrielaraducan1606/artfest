@@ -8,6 +8,7 @@ import {
   Outlet,
   useSearchParams,
   useParams,
+  useLocation,
 } from "react-router-dom";
 
 import {
@@ -22,7 +23,6 @@ import "react-toastify/dist/ReactToastify.css";
 
 import ScrollManager from "./components/ScrollManager/ScrollManager.jsx";
 import InfluencerAttributionCapture from "./components/InfluencerAttributionCapture.jsx";
-import VendorReferralAttributionCapture from "./components/VendorReferralAttributionCapture.jsx";
 import AppLayout from "./components/Navbar/AppLayout.jsx";
 import Navbar from "./components/Navbar/Navbar.jsx";
 
@@ -41,7 +41,10 @@ import CollectionsIndexPage from "./pages/Collections/CollectionsIndex.jsx";
 import PublicCampaignPage from "./pages/Campaigns/PublicCampaignPage.jsx";
 import PublicInfluencerCollectionPage
   from "./pages/Influencer/PublicInfluencerCollectionPage/PublicInfluencerCollectionPage.jsx";
+import PublicVendorCollectionPage
+  from "./pages/VendorCollections/PublicVendorCollectionPage.jsx";
 import Login from "./pages/Auth/Login/Login";
+import { getSafeLoginRedirect } from "./pages/Auth/Login/loginRedirect.js";
 import Register from "./pages/Auth/Register/Register";
 import ForgotPassword from "./pages/Auth/ForgotPassword";
 import ResetPassword from "./pages/Auth/ResetPassword";
@@ -358,6 +361,24 @@ function LegalHtmlRoute({
 
 /* ================= Guards ================= */
 
+/*
+ * /autentificare?redirect=... - același redirect contextual ca modalul global
+ * (Navbar.jsx, ?auth=login&redirect=...), trimis la <Login redirectTo>.
+ * Utilizator deja autentificat + redirect -> direct la destinație (fără să
+ * mai vadă formularul, ex. „Înapoi” în browser după login).
+ */
+function LoginPage() {
+  const location = useLocation();
+  const { me, loading } = useAuth();
+  const redirectTo = getSafeLoginRedirect(location.search);
+
+  if (redirectTo && !loading && me) {
+    return <Navigate to={redirectTo} replace />;
+  }
+
+  return <Login redirectTo={redirectTo} />;
+}
+
 function RequireUser({
   children,
 }) {
@@ -599,7 +620,6 @@ export default function App() {
     <BrowserRouter>
       <ScrollManager />
       <InfluencerAttributionCapture />
-      <VendorReferralAttributionCapture />
       <ToastContainer position="top-center" autoClose={3500} />
 
       <SEOProvider
@@ -738,6 +758,12 @@ export default function App() {
     <PublicInfluencerCollectionPage />
   }
 />
+<Route
+  path="/colectie-vendor/:slug"
+  element={
+    <PublicVendorCollectionPage />
+  }
+/>
             <Route
               path="/confidentialitate"
               element={
@@ -832,7 +858,7 @@ export default function App() {
             <Route
               path="/autentificare"
               element={
-                <Login />
+                <LoginPage />
               }
             />
 

@@ -79,6 +79,7 @@ import {
 } from "../../config/influencerNavigation.js";
 import { GUEST_NAV_SECTIONS } from "../../config/guestNavigation.js";
 import { prefetchChunk } from "../../lib/smartPrefetch.js";
+import { getSafeLoginRedirect } from "../../pages/Auth/Login/loginRedirect.js";
 import { usePublicCollections } from "../../hooks/usePublicCollections";
 import { toCollectionCards } from "../../pages/Home/CollectionsSection/collectionCards.js";
 import {
@@ -1606,47 +1607,8 @@ const isAdminRoute = location.pathname.startsWith("/admin");
     me?.email ||
     "Admin";
 
- const loginRedirect = (() => {
-  try {
-    const sp =
-      new URLSearchParams(
-        location.search
-      );
-
-    const requestedRedirect =
-      sp.get(
-        "redirect"
-      );
-
-    /*
-     * Acceptăm doar redirect-uri interne.
-     *
-     * Ex:
-     * /
-     * /cereri/123
-     * /produs/abc#recenzii
-     */
-    if (
-      requestedRedirect &&
-      requestedRedirect.startsWith("/") &&
-      !requestedRedirect.startsWith("//")
-    ) {
-      return requestedRedirect;
-    }
-
-    /*
-     * Dacă autentificarea este deschisă
-     * direct din Navbar, nu avem redirect
-     * contextual.
-     *
-     * Login.jsx va decide desktop-ul
-     * în funcție de rol.
-     */
-    return null;
-  } catch {
-    return null;
-  }
-})();
+  // redirect contextual (?redirect=...) - sursă unică, vezi Auth/Login/loginRedirect.js
+  const loginRedirect = getSafeLoginRedirect(location.search);
 
   /* ================= NAVBAR SPECIAL PENTRU ADMIN ================= */
   if (isAdmin && isAdminRoute) {

@@ -472,12 +472,13 @@ export const ASSISTANT_ACTION_REGISTRY = {
    * direct în cod) - nu rute separate, query param pe aceeași pagină.
    */
   VENDOR_CAMPAIGNS: {
+    // tab-ul unic „Colecții” (campaniile au devenit colecții; cheia rămâne pentru compatibilitate)
     route: "/vendor/catalog?tab=campaigns",
     action: A.NAVIGATE,
     allowedRoles: [R.VENDOR],
     requiresAuth: true,
     precondition: "cont de vânzător activ",
-    label: "campaniile tale",
+    label: "colecțiile tale",
   },
 
   VENDOR_CATALOG_IMPORTS: {

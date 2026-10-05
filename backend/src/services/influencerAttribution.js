@@ -154,3 +154,44 @@ export async function resolveInfluencerAttributionByInfluencerId({
 
   return buildAttributionFromInfluencer(influencer);
 }
+
+/*
+ * Atribuire prin referralCode transportat în aceeași navigare
+ * (?ref= / fallback colecție -> memoria aplicației -> payload checkout),
+ * fără token și fără stocare pe terminal.
+ *
+ * Codul venit din client NU e de încredere: e doar un identificator
+ * public, căutat exact în DB și validat cu ACEEAȘI regulă ca tokenul
+ * (buildAttributionFromInfluencer: ACTIVE, colaborare activă,
+ * commissionBps valid). Fail-open: orice cod invalid/inactiv -> null.
+ */
+const REFERRAL_CODE_MAX_LENGTH = 64;
+
+export function normalizeInfluencerReferralCode(value) {
+  const code = String(value ?? "").trim();
+  if (!code || code.length > REFERRAL_CODE_MAX_LENGTH) return null;
+  return code;
+}
+
+export async function resolveInfluencerAttributionByReferralCode({
+  referralCode,
+  db = prisma,
+} = {}) {
+  const code = normalizeInfluencerReferralCode(referralCode);
+  if (!code) return null;
+
+  const influencer = await db.influencerProfile.findUnique({
+    where: { referralCode: code },
+    select: {
+      id: true,
+      referralCode: true,
+      commissionBps: true,
+      status: true,
+      createdAt: true,
+      collaborationEndOverride: true,
+    },
+  });
+
+  return buildAttributionFromInfluencer(influencer);
+}
+

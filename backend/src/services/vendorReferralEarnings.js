@@ -43,6 +43,7 @@ import {
   getActivePlanForVendor,
 } from "../routes/vendorOrdersRoutes.js";
 import { computeCommissionBreakdown } from "./commissionCalc.js";
+import { collectionReferralItems, isOwnCollectionItem } from "./shipmentCommissionGroups.js";
 
 /*
  * Statusuri de shipment care NU mai pot deveni o vânzare confirmată
@@ -123,6 +124,87 @@ export function computeOwnSaleBenefit({
   );
 }
 
+/*
+ * VendorCollection PER ITEM - aceeași bază ca ledger-ul și listele:
+ *  - own-sale: `vendorCollectionOwnSaleBase` (meta SALE COD/CARD, sau live din
+ *    computeVendorEarningForShipment) = DOAR itemii cu snapshot de colecție;
+ *  - referral: `vendorCollectionReferralBase` = DOAR itemii cu snapshot.
+ * Fără formulă nouă: valorile own-sale se obțin cu computeCommissionBreakdown
+ * pe aceleași intrări ca grupul "vendor_collection_own_sale" din
+ * computeVendorEarningForShipment, iar beneficiul cu computeOwnSaleBenefit.
+ */
+export function computeCollectionOwnSaleFigures({
+  base,
+  vatRate,
+  ownSaleCommissionBps,
+  standardCommissionBps,
+}) {
+  const commissionBaseGross = Number(base?.commissionBaseGross || 0);
+  const platformDiscountGross = Number(base?.platformDiscountGross || 0);
+  const vendorDiscountGross = Number(base?.vendorDiscountGross || 0);
+  const vatFraction = Number(vatRate || 0) > 0 ? Number(vatRate) / 100 : 0;
+
+  const breakdown = computeCommissionBreakdown({
+    itemsOriginalGross: commissionBaseGross,
+    itemsAfterDiscountGross:
+      commissionBaseGross - platformDiscountGross - vendorDiscountGross,
+    platformDiscountAmount: platformDiscountGross,
+    commissionBps: Number(ownSaleCommissionBps || 0),
+    vatFraction,
+  });
+
+  return {
+    itemsNet: breakdown.itemsAfterDiscount,
+    commissionNet: Number(base?.actualCommissionNet ?? breakdown.platformNet),
+    vendorNet: breakdown.vendorNet,
+    benefitAmount: computeOwnSaleBenefit({
+      commissionBaseGross,
+      platformDiscountGross,
+      vendorDiscountGross,
+      vatRate,
+      standardCommissionBps,
+      actualCommissionNet: base?.actualCommissionNet,
+    }),
+  };
+}
+
+/*
+ * Valoarea comercială (preț final × cantitate, brut) a itemilor ATRIBUIȚI:
+ * pentru un shipment cu snapshot de colecție doar itemii din colecție, altfel
+ * toți itemii (referral / own-sale clasic - neschimbat).
+ * `items` = ShipmentItem cu { shipmentId, price, qty, vendorCollectionIdSnapshot }.
+ */
+function attributedItemsGross(items = [], role = "REFERRAL") {
+  const byShipment = new Map();
+
+  for (const item of items) {
+    const key = String(item.shipmentId || "");
+    if (!byShipment.has(key)) byShipment.set(key, []);
+    byShipment.get(key).push(item);
+  }
+
+  let total = 0;
+
+  for (const shipmentItems of byShipment.values()) {
+    const shipment = shipmentItems[0]?.shipment || null;
+
+    // același rol al snapshot-ului ca ledger-ul (services/shipmentCommissionGroups.js)
+    let counted;
+    if (role === "REFERRAL") {
+      counted = collectionReferralItems({ shipment, items: shipmentItems }) || shipmentItems;
+    } else {
+      const own = shipmentItems.filter((item) => isOwnCollectionItem(item, shipment));
+      counted = own.length ? own : shipmentItems;
+    }
+
+    for (const item of counted) {
+      total += Number(item.price || 0) * Number(item.qty || 0);
+    }
+  }
+
+  return Math.round(total * 100) / 100;
+}
+
 /**
  * Totaluri CONFIRMATE (deja în ledger), pentru un vendor promotor.
  */
@@ -199,19 +281,18 @@ export async function getVendorReferralAttributedTotals(referrerVendorId) {
       },
 
       select: {
+        shipmentId: true,
         price: true,
         qty: true,
+        vendorCollectionIdSnapshot: true,
+        vendorCollectionSlugSnapshot: true,
+        shipment: { select: { referrerVendorId: true, referrerVendorReferralCodeSnapshot: true } },
       },
     }),
   ]);
 
-  const salesAmount =
-    Math.round(
-      shipmentItems.reduce(
-        (sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0),
-        0
-      ) * 100
-    ) / 100;
+  // VendorCollection per item: doar itemii din colecție (B1, nu B2)
+  const salesAmount = attributedItemsGross(shipmentItems, "REFERRAL");
 
   return {
     ordersCount: distinctOrders.length,
@@ -255,8 +336,13 @@ export async function getVendorReferralEstimatedEarnings(referrerVendorId) {
         shipmentId: shipment.id,
       });
 
+      // VendorCollection per item: baza = doar itemii din colecție (ca lista și ledger-ul)
+      const base = earning.vendorCollectionReferralBase
+        ? earning.vendorCollectionReferralBase.platformNet
+        : earning.commissionNet;
+
       estimatedEarningsAmount +=
-        (Number(earning.commissionNet || 0) * commissionBpsSnapshot) / 10000;
+        (Number(base || 0) * commissionBpsSnapshot) / 10000;
     } catch {
       /*
        * Shipment fără iteme încă / date incomplete - îl sărim, nu
@@ -383,8 +469,15 @@ export async function listVendorReferralAttributedOrders({
 
         const bps = Number(shipment.referrerVendorCommissionBpsSnapshot || 0);
 
-        eligibleItemsNet = Number(live.itemsNet || 0);
-        artfestCommissionNet = Number(live.commissionNet || 0);
+        // VendorCollection per item: doar itemii din colecție (snapshot)
+        const collectionBase = live.vendorCollectionReferralBase;
+
+        eligibleItemsNet = Number(
+          (collectionBase ? collectionBase.itemsNet : live.itemsNet) || 0
+        );
+        artfestCommissionNet = Number(
+          (collectionBase ? collectionBase.platformNet : live.commissionNet) || 0
+        );
         earningNet =
           Math.round(((artfestCommissionNet * bps) / 10000) * 100) / 100;
       } catch {
@@ -588,17 +681,42 @@ export async function listVendorOwnSaleAttributedOrders({
      */
     let benefitAmount = null;
 
+    const ownSaleCommissionBps = Number(
+      shipment.vendorReferralCommissionOverrideBps || 0
+    );
+
     if (confirmed && !refund) {
       const meta = confirmed.meta || {};
+      // VendorCollection per item: valori + beneficiu DOAR pe itemii din colecție
+      const collectionOwnSale = meta.vendorCollectionOwnSaleBase;
 
-      benefitAmount = computeOwnSaleBenefit({
-        commissionBaseGross: meta.commissionBaseGross,
-        platformDiscountGross: meta.platformDiscountGross,
-        vendorDiscountGross: meta.vendorDiscountGross,
-        vatRate: meta.vatRate,
-        standardCommissionBps,
-        actualCommissionNet: confirmed.commissionNet,
-      });
+      if (collectionOwnSale) {
+        const figures = computeCollectionOwnSaleFigures({
+          base: collectionOwnSale,
+          vatRate: meta.vatRate,
+          ownSaleCommissionBps,
+          standardCommissionBps,
+        });
+
+        eligibleItemsNet = figures.itemsNet;
+        artfestCommissionNet = figures.commissionNet;
+        vendorNet = figures.vendorNet;
+      }
+
+      benefitAmount = collectionOwnSale
+        ? computeOwnSaleBenefit({
+            ...collectionOwnSale,
+            vatRate: meta.vatRate,
+            standardCommissionBps,
+          })
+        : computeOwnSaleBenefit({
+            commissionBaseGross: meta.commissionBaseGross,
+            platformDiscountGross: meta.platformDiscountGross,
+            vendorDiscountGross: meta.vendorDiscountGross,
+            vatRate: meta.vatRate,
+            standardCommissionBps,
+            actualCommissionNet: confirmed.commissionNet,
+          });
     } else if (confirmed && refund) {
       benefitAmount = 0;
     }
@@ -614,14 +732,33 @@ export async function listVendorOwnSaleAttributedOrders({
         artfestCommissionNet = Number(live.commissionNet || 0);
         vendorNet = Number(live.vendorNet || 0);
 
-        benefitAmount = computeOwnSaleBenefit({
-          commissionBaseGross: live.commissionBaseGross,
-          platformDiscountGross: live.platformDiscountGross,
-          vendorDiscountGross: live.vendorDiscountGross,
-          vatRate: live.vatRate,
-          standardCommissionBps,
-          actualCommissionNet: live.commissionNet,
-        });
+        if (live.vendorCollectionOwnSaleBase) {
+          const figures = computeCollectionOwnSaleFigures({
+            base: live.vendorCollectionOwnSaleBase,
+            vatRate: live.vatRate,
+            ownSaleCommissionBps,
+            standardCommissionBps,
+          });
+
+          eligibleItemsNet = figures.itemsNet;
+          artfestCommissionNet = figures.commissionNet;
+          vendorNet = figures.vendorNet;
+        }
+
+        benefitAmount = live.vendorCollectionOwnSaleBase
+          ? computeOwnSaleBenefit({
+              ...live.vendorCollectionOwnSaleBase,
+              vatRate: live.vatRate,
+              standardCommissionBps,
+            })
+          : computeOwnSaleBenefit({
+              commissionBaseGross: live.commissionBaseGross,
+              platformDiscountGross: live.platformDiscountGross,
+              vendorDiscountGross: live.vendorDiscountGross,
+              vatRate: live.vatRate,
+              standardCommissionBps,
+              actualCommissionNet: live.commissionNet,
+            });
       } catch {
         earningStatus = "UNAVAILABLE";
       }
@@ -702,17 +839,19 @@ export async function getVendorOwnSaleAttributedTotals(vendorId) {
         },
       },
 
-      select: { price: true, qty: true },
+      select: {
+        shipmentId: true,
+        price: true,
+        qty: true,
+        vendorCollectionIdSnapshot: true,
+        vendorCollectionSlugSnapshot: true,
+        shipment: { select: { referrerVendorId: true, referrerVendorReferralCodeSnapshot: true } },
+      },
     }),
   ]);
 
-  const salesAmount =
-    Math.round(
-      shipmentItems.reduce(
-        (sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0),
-        0
-      ) * 100
-    ) / 100;
+  // VendorCollection per item: doar itemii din colecție (A1, nu A2/A3)
+  const salesAmount = attributedItemsGross(shipmentItems, "OWN_SALE");
 
   return { ordersCount: distinctOrders.length, salesAmount };
 }
@@ -732,8 +871,12 @@ export async function getVendorOwnSaleAttributedTotals(vendorId) {
 export async function getVendorOwnSaleConfirmedTotals(vendorId) {
   const ownSaleShipments = await prisma.shipment.findMany({
     where: { vendorId, vendorReferralOwnSaleAttributedAt: { not: null } },
-    select: { id: true },
+    select: { id: true, vendorReferralCommissionOverrideBps: true },
   });
+
+  const ownSaleBpsByShipmentId = new Map(
+    ownSaleShipments.map((s) => [s.id, Number(s.vendorReferralCommissionOverrideBps || 0)])
+  );
 
   const ownSaleShipmentIds = new Set(ownSaleShipments.map((s) => s.id));
 
@@ -785,9 +928,24 @@ export async function getVendorOwnSaleConfirmedTotals(vendorId) {
     if (reversedShipmentIds.has(entry.shipmentId)) continue;
 
     confirmedOrderIds.add(entry.orderId);
-    salesAmount += Number(entry.itemsNet || 0);
 
     const meta = entry.meta || {};
+
+    // VendorCollection per item: vânzări + beneficiu DOAR pe itemii din colecție
+    if (meta.vendorCollectionOwnSaleBase) {
+      const figures = computeCollectionOwnSaleFigures({
+        base: meta.vendorCollectionOwnSaleBase,
+        vatRate: meta.vatRate,
+        ownSaleCommissionBps: ownSaleBpsByShipmentId.get(entry.shipmentId),
+        standardCommissionBps,
+      });
+
+      salesAmount += figures.itemsNet;
+      confirmedBenefitAmount += figures.benefitAmount;
+      continue;
+    }
+
+    salesAmount += Number(entry.itemsNet || 0);
 
     confirmedBenefitAmount += computeOwnSaleBenefit({
       commissionBaseGross: meta.commissionBaseGross,
@@ -836,6 +994,16 @@ export async function getVendorOwnSaleEstimatedBenefit(vendorId) {
         vendorId: shipment.vendorId,
         shipmentId: shipment.id,
       });
+
+      // VendorCollection per item: beneficiul DOAR pe itemii din colecție
+      if (live.vendorCollectionOwnSaleBase) {
+        estimatedBenefitAmount += computeOwnSaleBenefit({
+          ...live.vendorCollectionOwnSaleBase,
+          vatRate: live.vatRate,
+          standardCommissionBps,
+        });
+        continue;
+      }
 
       estimatedBenefitAmount += computeOwnSaleBenefit({
         commissionBaseGross: live.commissionBaseGross,

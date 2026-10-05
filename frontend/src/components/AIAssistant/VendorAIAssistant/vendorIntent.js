@@ -98,7 +98,8 @@ const VENDOR_NAVIGATION_VERB_RE =
 const VENDOR_NAVIGATION_TARGETS = [
   { re: /\bcomenzil?e?\b|\bcomand\w*/, target: "VENDOR_ORDERS", allowArataVerb: true },
   { re: /\bprodusele mele\b|\bprodusele\b/, target: "VENDOR_PRODUCTS", allowArataVerb: true },
-  { re: /\bcampani\w*/, target: "VENDOR_CAMPAIGNS", allowArataVerb: true },
+  // campaniile au devenit „Colecții” - ambele cuvinte duc la tab-ul unic
+  { re: /\bcampani\w*|\bcolec[tț]i[a-zăâîșț]*/, target: "VENDOR_CAMPAIGNS", allowArataVerb: true },
   { re: /\bpromov\w*/, target: "VENDOR_PROMOTIONS", allowArataVerb: true },
   {
     re: /\bcalculator\w*|\bcosturi\b|\bcosturi si profit\b|\bprofitabilitate\w*/,

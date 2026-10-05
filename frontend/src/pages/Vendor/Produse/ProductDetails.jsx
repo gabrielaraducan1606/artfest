@@ -13,6 +13,9 @@ import {
   isQuoteIntentForEntity,
 } from "../../../components/AIAssistant/quotes/quoteRequestIntentEvent.js";
 import { api } from "../../../lib/api.js";
+import { useAuth } from "../../Auth/Context/context.js";
+import { withMissingQueryParams } from "../../Auth/Login/loginRedirect.js";
+import { buildCheckoutReferralQuery } from "../../../utils/referralMemory.js";
 import { SEO } from "../../../components/Seo/SeoProvider";
 import {
   normalizeOptionChoice,
@@ -52,7 +55,7 @@ import {
   buildProductMerchantAttributes,
 } from "../../../../../backend/src/constants/productMerchantAttributes.js";
 import { addToGuestCart } from "../../../utils/guestCart";
-import { getAttributionsForCheckout } from "../../../utils/campaignAttribution.js";
+import { buildPromotionApiQuery } from "../../../utils/promotionContext.js";
 import { getCanonicalLabel } from "../../../utils/optionLabels.js";
 import {
   getPrefetchedData,
@@ -1520,15 +1523,44 @@ const missingRequiredSelection = useMemo(() => {
 const isQuoteOnly =
   product?.orderMode === "QUOTE_ONLY";
 
+/*
+ * Sesiunea GLOBALĂ (AuthProvider, aceeași ca restul aplicației) - `me` local
+ * de mai sus pornește ca null și se completează abia după /api/auth/me ȘI
+ * /api/favorites/ids, deci un click rapid pe „Cere ofertă” trimitea greșit
+ * la login un utilizator deja autentificat. Cât timp sesiunea se încarcă,
+ * click-ul e reținut și reluat după încărcare (fără login, fără buclă).
+ */
+const { me: sessionMe, loading: sessionLoading } = useAuth() || {};
+const pendingQuoteRequestRef = useRef(false);
+
 const onRequestQuote = useCallback(() => {
-  if (!product || isOwner) {
+  const currentUser = me || sessionMe || null;
+
+  if (!currentUser && sessionLoading) {
+    pendingQuoteRequestRef.current = true;
     return;
   }
 
-  if (!me) {
+  const isOwnerBySession =
+    Boolean(ownerVendorId && sessionMe?.vendor?.id && String(sessionMe.vendor.id) === String(ownerVendorId)) ||
+    Boolean(ownerUserId && sessionMe?.id && String(sessionMe.id) === String(ownerUserId));
+
+  if (!product || isOwner || isOwnerBySession) {
+    return;
+  }
+
+  if (!currentUser) {
+    /*
+     * Login-ul reîncarcă pagina (memoria de referral se golește) - URL-ul de
+     * întoarcere duce și contextul din memorie (?ref= / ?cref= / ?vcol=, același
+     * helper ca Coș -> Checkout), doar pentru parametrii care lipsesc din URL.
+     */
     const redir = encodeURIComponent(
-      window.location.pathname +
-        window.location.search
+      withMissingQueryParams(
+        window.location.pathname +
+          window.location.search,
+        buildCheckoutReferralQuery()
+      )
     );
 
     navigate(
@@ -1589,11 +1621,22 @@ const onRequestQuote = useCallback(() => {
   product,
   isOwner,
   me,
+  sessionMe,
+  sessionLoading,
+  ownerVendorId,
+  ownerUserId,
   navigate,
   selectedOptions,
   customAnswers,
   repeatedGroupAnswers,
 ]);
+
+// click făcut cât se încărca sesiunea -> reluat o singură dată, după încărcare
+useEffect(() => {
+  if (sessionLoading || !pendingQuoteRequestRef.current) return;
+  pendingQuoteRequestRef.current = false;
+  onRequestQuote();
+}, [sessionLoading, onRequestQuote]);
 
 /*
  * "vreau o ofertă" scris liber în AI Assistant pe această pagină ->
@@ -2423,13 +2466,9 @@ const loadProduct = useCallback(async () => {
      * indiferent dacă endpointul public e apelat direct sau ca
      * fallback după endpointul de vendor.
      */
-    const attributions = getAttributionsForCheckout();
-    const attributionQuery =
-      attributions && Object.keys(attributions).length
-        ? `?campaignAttribution=${encodeURIComponent(
-            JSON.stringify(attributions)
-          )}`
-        : "";
+    // campaniile din navigarea curentă (memorie / ?camp=), revalidate pe server
+    const campaignQuery = buildPromotionApiQuery();
+    const attributionQuery = campaignQuery ? `?${campaignQuery}` : "";
 
     const fetchPublicProduct = () =>
       api(

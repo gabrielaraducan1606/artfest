@@ -11,6 +11,7 @@ import React, {
 import { Link, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "../../lib/api";
+import { buildCheckoutReferralQuery } from "../../utils/influencerAttributionApp.js";
 import { humanizeOptionValue } from "../../utils/optionLabels";
 import {
   productPlaceholder,
@@ -29,7 +30,8 @@ import {
   removeFromGuestCart,
   clearGuestCart,
 } from "../../utils/guestCart";
-import { getAttributionsForCheckout } from "../../utils/campaignAttribution.js";
+import { buildCampaignUrlQuery } from "../../utils/campaignAttribution.js";
+import { buildPromotionApiQuery, getPromotionBodyFields } from "../../utils/promotionContext.js";
 import {
   getStoredDiscountCode,
   storeDiscountCode,
@@ -274,11 +276,10 @@ const [rows, setRows] =
     }
 
     const ids = list.map((x) => x.productId).join(",");
-    const attributionQuery = encodeURIComponent(
-      JSON.stringify(getAttributionsForCheckout())
-    );
+    // campaniile din navigarea curentă (memorie), revalidate pe server
+    const campaignQuery = buildPromotionApiQuery();
     const res = await api(
-      `/api/public/products?ids=${encodeURIComponent(ids)}&limit=${list.length}&campaignAttribution=${attributionQuery}`,
+      `/api/public/products?ids=${encodeURIComponent(ids)}&limit=${list.length}${campaignQuery ? `&${campaignQuery}` : ""}`,
       { signal }
     );
 
@@ -535,10 +536,9 @@ configurationKey:
   }, []);
 
   const loadServer = useCallback(async (signal) => {
+    const campaignQuery = buildPromotionApiQuery();
     const c = await api(
-      `/api/cart?campaignAttribution=${encodeURIComponent(
-        JSON.stringify(getAttributionsForCheckout())
-      )}`,
+      campaignQuery ? `/api/cart?${campaignQuery}` : "/api/cart",
       { signal }
     );
     const items = Array.isArray(c?.items) ? c.items : [];
@@ -748,7 +748,7 @@ availabilityMessage:
           method: "POST",
           body: {
             items: local,
-            campaignAttribution: getAttributionsForCheckout(),
+            ...getPromotionBodyFields(),
           },
         });
 
@@ -865,7 +865,7 @@ availabilityMessage:
               method: "POST",
               body: {
                 code,
-                campaignAttribution: getAttributionsForCheckout(),
+                ...getPromotionBodyFields(),
               },
             })
           : await api("/api/checkout/guest/discount-code/validate", {
@@ -873,7 +873,7 @@ availabilityMessage:
               body: {
                 code,
                 items,
-                campaignAttribution: getAttributionsForCheckout(),
+                ...getPromotionBodyFields(),
               },
             });
 
@@ -1226,7 +1226,12 @@ const goCheckout = useCallback(() => {
 
   trackBeginCheckout(grandTotal);
 
-  nav("/checkout");
+  // referral-ul (?ref= / ?cref=) și campaniile (?camp=) active, din memorie,
+  // rămân în URL, ca un refresh pe /checkout să nu le piardă - fără stocare pe terminal
+  const checkoutQuery = [buildCheckoutReferralQuery(), buildCampaignUrlQuery()]
+    .filter(Boolean)
+    .join("&");
+  nav(checkoutQuery ? `/checkout?${checkoutQuery}` : "/checkout");
 }, [
   hasOwnItems,
   hasUnavailableItems,

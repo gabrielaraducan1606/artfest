@@ -9,8 +9,11 @@ import {
 } from "../services/commissionCalc.js";
 import {
   getCampaignEligibilityInfoMap,
-  splitItemsByCampaignEligibility,
 } from "../services/campaignAttribution.js";
+import {
+  classifyShipmentCommissionItems,
+  COMMISSION_GROUP_LABELS,
+} from "../services/shipmentCommissionGroups.js";
 
 /* =========================================================
    Helpers
@@ -654,21 +657,7 @@ export async function computeOrderSplits(
            * campaniei (comision redus), grup "standard" = restul
            * (comision standard al planului).
            */
-          commissionGroups: {
-            campaign: {
-              itemsGross: 0,
-              itemsOriginalGross: 0,
-              platformDiscountGross: 0,
-              itemCount: 0,
-            },
-
-            standard: {
-              itemsGross: 0,
-              itemsOriginalGross: 0,
-              platformDiscountGross: 0,
-              itemCount: 0,
-            },
-          },
+          commissionBuckets: new Map(),
         }
       );
     }
@@ -697,83 +686,89 @@ export async function computeOrderSplits(
     }
 
     /*
-     * Acumulare per grup de eligibilitate (audit 2026-09-14) - vezi
-     * comentariul de la inițializarea commissionGroups. NU afectează
-     * vendorRow.itemsGross/... de mai jos (rămân totalul brut real,
-     * neschimbat).
+     * Acumulare PER ITEM pe grupuri de comision - clasificare comună cu
+     * COD (services/shipmentCommissionGroups.js): own-sale (clasic = tot
+     * shipment-ul; VendorCollection = doar itemii cu snapshot), campanie
+     * (itemii eligibili), plan (restul). NU afectează vendorRow.itemsGross/...
+     * de mai jos (rămân totalul brut real, neschimbat).
      */
     const shipmentHasCampaignCommission =
       shipment.campaignCommissionBps !== null &&
       shipment.campaignCommissionBps !== undefined;
 
-    if (shipmentHasCampaignCommission) {
-      const eligibilityInfo =
-        campaignEligibilityByCampaignId.get(
+    const eligibilityInfo = shipmentHasCampaignCommission
+      ? campaignEligibilityByCampaignId.get(
           String(shipment.campaignId || "")
-        ) || null;
+        ) || null
+      : null;
 
-      const { eligible, standard } =
-        splitItemsByCampaignEligibility(
-          shipmentItems,
-          eligibilityInfo
-        );
+    const shipmentGroups = classifyShipmentCommissionItems({
+      shipment,
+      items: shipmentItems,
+      // planul se rezolvă per vendor mai jos; grupul "plan" își ia bps-ul atunci
+      baseCommissionBps: 0,
+      campaignEligibilityInfo: eligibilityInfo,
+    });
 
-      for (const [subset, bucket] of [
-        [eligible, vendorRow.commissionGroups.campaign],
-        [standard, vendorRow.commissionGroups.standard],
-      ]) {
-        const subsetItemsGross = dec2(
-          subset.reduce(
-            (total, item) =>
-              total +
-              safeNumber(item?.price, 0) *
-                safeNumber(item?.qty, 0),
-            0
-          )
-        );
+    for (const group of shipmentGroups) {
+      const subset = group.items;
 
-        const subsetPlatformDiscountGross = dec2(
-          subset.reduce(
-            (total, item) =>
-              total + safeNumber(item?.platformDiscountAmount, 0),
-            0
-          )
-        );
+      const subsetItemsGross = dec2(
+        subset.reduce(
+          (total, item) =>
+            total +
+            safeNumber(item?.price, 0) * safeNumber(item?.qty, 0),
+          0
+        )
+      );
 
-        const subsetVendorDiscountGross = dec2(
-          subset.reduce(
-            (total, item) =>
-              total + safeNumber(item?.vendorDiscountAmount, 0),
-            0
-          )
-        );
+      const subsetPlatformDiscountGross = dec2(
+        subset.reduce(
+          (total, item) =>
+            total + safeNumber(item?.platformDiscountAmount, 0),
+          0
+        )
+      );
 
-        const subsetOriginalGross = dec2(
-          subsetItemsGross +
-            subsetPlatformDiscountGross +
-            subsetVendorDiscountGross
-        );
+      const subsetVendorDiscountGross = dec2(
+        subset.reduce(
+          (total, item) =>
+            total + safeNumber(item?.vendorDiscountAmount, 0),
+          0
+        )
+      );
 
-        bucket.itemsGross = dec2(bucket.itemsGross + subsetItemsGross);
-        bucket.itemsOriginalGross = dec2(
-          bucket.itemsOriginalGross + subsetOriginalGross
-        );
-        bucket.platformDiscountGross = dec2(
-          bucket.platformDiscountGross + subsetPlatformDiscountGross
-        );
-        bucket.itemCount += subset.length;
+      const subsetOriginalGross = dec2(
+        subsetItemsGross +
+          subsetPlatformDiscountGross +
+          subsetVendorDiscountGross
+      );
+
+      const isPlan = group.label === COMMISSION_GROUP_LABELS.PLAN;
+      const bucketKey = isPlan ? group.label : `${group.label}:${group.commissionBps}`;
+
+      if (!vendorRow.commissionBuckets.has(bucketKey)) {
+        vendorRow.commissionBuckets.set(bucketKey, {
+          label: group.label,
+          // null = comisionul planului (rezolvat per vendor)
+          commissionBps: isPlan ? null : group.commissionBps,
+          itemsGross: 0,
+          itemsOriginalGross: 0,
+          platformDiscountGross: 0,
+          itemCount: 0,
+        });
       }
-    } else {
-      const bucket = vendorRow.commissionGroups.standard;
 
-      bucket.itemsGross = dec2(bucket.itemsGross + itemsGross);
+      const bucket = vendorRow.commissionBuckets.get(bucketKey);
+
+      bucket.itemsGross = dec2(bucket.itemsGross + subsetItemsGross);
       bucket.itemsOriginalGross = dec2(
-        bucket.itemsOriginalGross + itemsOriginalGross
+        bucket.itemsOriginalGross + subsetOriginalGross
       );
       bucket.platformDiscountGross = dec2(
-        bucket.platformDiscountGross + platformDiscountGross
+        bucket.platformDiscountGross + subsetPlatformDiscountGross
       );
-      bucket.itemCount += shipmentItems.length;
+      bucket.itemCount += subset.length;
     }
 
     vendorRow.itemsGross =
@@ -904,33 +899,26 @@ export async function computeOrderSplits(
      * commissionNet = platformNet (ce reține EFECTIV Artfest,
      * după subvenție) - asta e cifra corectă de facturat.
      */
-    const campaignBucket =
-      vendor.commissionGroups.campaign;
-
-    const standardBucket =
-      vendor.commissionGroups.standard;
-
+    /*
+     * Grupurile per item (clasificare comună cu COD) - own-sale (clasic sau
+     * VendorCollection), campanie, plan. Planul primește aici bps-ul
+     * planului activ al vendorului.
+     */
     const grouped =
-      computeGroupedCommissionBreakdown([
-        {
-          label: "campaign",
-          commissionBps: safeNumber(vendor.campaignCommissionBps, 0),
-          itemCount: campaignBucket.itemCount,
-          itemsOriginalGross: campaignBucket.itemsOriginalGross,
-          itemsAfterDiscountGross: campaignBucket.itemsGross,
-          platformDiscountAmount: campaignBucket.platformDiscountGross,
+      computeGroupedCommissionBreakdown(
+        Array.from(vendor.commissionBuckets.values()).map((bucket) => ({
+          label: bucket.label,
+          commissionBps:
+            bucket.commissionBps === null ? commissionBps : bucket.commissionBps,
+          itemCount: bucket.itemCount,
+          itemsOriginalGross: bucket.itemsOriginalGross,
+          itemsAfterDiscountGross: bucket.itemsGross,
+          platformDiscountAmount: bucket.platformDiscountGross,
           vatFraction: vendor.vatFraction,
-        },
-        {
-          label: "plan",
-          commissionBps,
-          itemCount: standardBucket.itemCount,
-          itemsOriginalGross: standardBucket.itemsOriginalGross,
-          itemsAfterDiscountGross: standardBucket.itemsGross,
-          platformDiscountAmount: standardBucket.platformDiscountGross,
-          vatFraction: vendor.vatFraction,
-        },
-      ]);
+        }))
+      );
+
+    delete vendor.commissionBuckets;
 
     /*
      * Fallback IDENTIC cu COD (computeVendorEarningForShipment) pentru

@@ -106,6 +106,7 @@ export const VENDOR_NAV_SECTIONS = [
     label: "Promovare",
     icon: "Megaphone",
     items: [
+      // VendorCollection (selecție curată, cross-vendor) - tab-ul "campaigns" din Catalog
       { label: "Colecții", to: "/vendor/catalog?tab=campaigns", icon: "Layers" },
       { label: "Coduri", to: "/vendor/catalog?tab=codes", icon: "Tag" },
       { label: "Recomandări", to: "/vendor/catalog?tab=referrals", icon: "Megaphone" },

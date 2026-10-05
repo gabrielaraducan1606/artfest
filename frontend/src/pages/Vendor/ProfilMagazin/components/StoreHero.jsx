@@ -664,7 +664,7 @@ Hai să ajungem împreună la 1000 de creatori!
                     )}
                   </div>
 
-                  {/* CAMPANII */}
+                  {/* COLECȚII (tab-ul unic din Catalog) */}
                   <button
                     className={
                       styles.followBtn
@@ -677,7 +677,7 @@ Hai să ajungem împreună la 1000 de creatori!
                       typeof onOpenCampaigns !==
                       "function"
                     }
-                    title="Vezi campaniile magazinului"
+                    title="Administrează colecțiile magazinului"
                     style={{
                       display:
                         "inline-flex",
@@ -696,7 +696,7 @@ Hai să ajungem împreună la 1000 de creatori!
                           : "not-allowed",
                     }}
                   >
-                    ✨ Campanii
+                    📚 Colecții
                   </button>
 
                   <div

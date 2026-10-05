@@ -1,411 +1,98 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../../../../lib/api.js";
 import styles from "../ProfilMagazin.module.css";
-import { getAttributionsForCheckout } from "../../../../utils/campaignAttribution.js";
 
-export default function StoreCampaignCollections({
-  storeSlug,
-  isOwner = false,
-  onOpenCampaign,
-}) {
-  const [campaigns, setCampaigns] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+/*
+ * „Colecțiile magazinului” din profilul public - VendorCollection (conceptul
+ * unic „Colecții”, care înlocuiește campaniile). Doar colecțiile active în
+ * interval ale magazinului; click -> pagina canonică /colectie-vendor/:slug.
+ * Fișierul își păstrează numele istoric (StoreCampaignCollections) ca să nu
+ * mute importurile; afișează exclusiv VendorCollection.
+ */
+export default function StoreCampaignCollections({ storeSlug }) {
+  const [collections, setCollections] = useState([]);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (!storeSlug) {
-      console.warn(
-        "[StoreCampaignCollections] lipsește storeSlug"
-      );
-
-      setCampaigns([]);
-      setError("Lipsește slug-ul magazinului.");
-      return;
-    }
-
-    if (isOwner) {
-      setCampaigns([]);
-      setError("");
-      return;
-    }
+    if (!storeSlug) return undefined;
 
     let alive = true;
 
-    const controller =
-      new AbortController();
-
-    async function loadCollections() {
-      setLoading(true);
-      setError("");
-
-      /*
-       * Trimitem atribuirea salvată (per vendor) ca să
-       * backend-ul decidă, server-side, dacă vizitatorul
-       * curent poate vedea vreo campanie a acestui magazin -
-       * profilul public NU mai listează toate campaniile
-       * active, doar cea atribuită (dacă există și e validă).
-       */
-      const url =
-        `/api/public/campaigns/store/${encodeURIComponent(
-          storeSlug
-        )}?campaignAttribution=${encodeURIComponent(
-          JSON.stringify(
-            getAttributionsForCheckout()
-          )
-        )}`;
-
-      console.log(
-        "[StoreCampaignCollections] request:",
-        url
-      );
-
-      try {
-        const response =
-          await fetch(url, {
-            method: "GET",
-
-            credentials:
-              "include",
-
-            headers: {
-              Accept:
-                "application/json",
-            },
-
-            signal:
-              controller.signal,
-          });
-
-        let data = null;
-
-        try {
-          data =
-            await response.json();
-        } catch {
-          data = null;
-        }
-
-        console.log(
-          "[StoreCampaignCollections] response:",
-          {
-            status:
-              response.status,
-
-            ok:
-              response.ok,
-
-            storeSlug,
-
-            data,
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(
-            data?.message ||
-              data?.error ||
-              `Colecțiile nu au putut fi încărcate. HTTP ${response.status}`
-          );
-        }
-
-        if (!alive) {
-          return;
-        }
-
-        const items =
-          Array.isArray(
-            data?.items
-          )
-            ? data.items
-            : [];
-
-        console.log(
-          "[StoreCampaignCollections] campaigns:",
-          items
-        );
-
-        setCampaigns(
-          items
-        );
-      } catch (
-        requestError
-      ) {
-        if (
-          requestError?.name ===
-          "AbortError"
-        ) {
-          return;
-        }
-
-        console.error(
-          "[StoreCampaignCollections] load error:",
-          requestError
-        );
-
-        if (alive) {
-          setCampaigns([]);
-
-          setError(
-            requestError?.message ||
-              "Colecțiile nu au putut fi încărcate."
-          );
-        }
-      } finally {
-        if (alive) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadCollections();
+    api(`/api/public/vendor-collections/store/${encodeURIComponent(storeSlug)}`)
+      .then((data) => {
+        if (alive) setCollections(Array.isArray(data?.collections) ? data.collections : []);
+      })
+      .catch(() => {
+        if (alive) setCollections([]);
+      })
+      .finally(() => {
+        if (alive) setLoaded(true);
+      });
 
     return () => {
       alive = false;
-
-      controller.abort();
     };
-  }, [
-    storeSlug,
-    isOwner,
-  ]);
+  }, [storeSlug]);
 
-  const visibleCampaigns =
-    useMemo(
-      () =>
-        campaigns.slice(
-          0,
-          3
-        ),
-      [campaigns]
-    );
-
-  /*
-   * Owner-ul nu vede colecțiile publice aici,
-   * pentru că are deja butonul lui Campanii.
-   */
-  if (isOwner) {
-    return null;
-  }
-
-  /*
-   * TEMPORAR:
-   * afișăm stările ca să putem diagnostica.
-   */
-  if (loading) {
-    return (
-      <section
-        className={
-          styles.storeCollections
-        }
-      >
-        <div
-          style={{
-            padding: 12,
-            fontSize: 14,
-            opacity: 0.7,
-          }}
-        >
-          Se încarcă
-          colecțiile...
-        </div>
-      </section>
-    );
-  }
-
-  if (error) {
-    return (
-      <section
-        className={
-          styles.storeCollections
-        }
-      >
-        <div
-          style={{
-            padding: 12,
-            fontSize: 14,
-            color: "#b91c1c",
-          }}
-        >
-          Colecțiile nu au
-          putut fi încărcate:
-          {" "}
-          {error}
-        </div>
-      </section>
-    );
-  }
-
-  if (
-    !visibleCampaigns.length
-  ) {
-    return (
-      <section
-        className={
-          styles.storeCollections
-        }
-      >
-        <div
-          style={{
-            padding: 12,
-            fontSize: 14,
-            opacity: 0.7,
-          }}
-        >
-          Acest creator nu
-          are momentan
-          colecții publice.
-        </div>
-      </section>
-    );
-  }
+  // fără colecții active -> secțiunea nu se afișează deloc
+  if (!loaded || !collections.length) return null;
 
   return (
-    <section
-      className={
-        styles.storeCollections
-      }
-      aria-labelledby="store-collections-title"
-    >
-      <div
-        className={
-          styles.storeCollectionsHeader
-        }
-      >
+    <section className={styles.storeCollections} aria-labelledby="store-collections-title">
+      <div className={styles.storeCollectionsHeader}>
         <div>
-          <span
-            className={
-              styles.storeCollectionsEyebrow
-            }
-          >
-            Descoperă mai ușor
-          </span>
-
-          <h2
-            id="store-collections-title"
-            className={
-              styles.storeCollectionsTitle
-            }
-          >
-            Colecțiile
-            creatorului
+          <span className={styles.storeCollectionsEyebrow}>Descoperă mai ușor</span>
+          <h2 id="store-collections-title" className={styles.storeCollectionsTitle}>
+            Colecțiile magazinului
           </h2>
         </div>
 
-        {campaigns.length >
-          3 && (
-          <span
-            className={
-              styles.storeCollectionsCount
-            }
-          >
-            {
-              campaigns.length
-            }{" "}
-            colecții
-          </span>
-        )}
+        {collections.length > 3 ? (
+          <span className={styles.storeCollectionsCount}>{collections.length} colecții</span>
+        ) : null}
       </div>
 
-      <div
-        className={
-          styles.storeCollectionsGrid
-        }
-      >
-        {visibleCampaigns.map(
-          (campaign) => {
-            const productsCount =
-              Number(
-                campaign?.productsCount ||
-                  0
-              );
+      <div className={styles.storeCollectionsGrid}>
+        {collections.map((collection) => {
+          const discountPercent = Number(collection.discountPercent || 0);
 
-            const discountPercent =
-              Number(
-                campaign?.discountPercent ||
-                  0
-              );
+          return (
+            <Link
+              key={collection.id}
+              to={`/colectie-vendor/${encodeURIComponent(collection.slug)}`}
+              className={styles.storeCollectionCard}
+            >
+              <div className={styles.storeCollectionIcon}>
+                {collection.coverImage ? (
+                  <img
+                    src={collection.coverImage}
+                    alt=""
+                    style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit" }}
+                  />
+                ) : (
+                  "📚"
+                )}
+              </div>
 
-            return (
-              <button
-                key={
-                  campaign.id
-                }
-                type="button"
-                className={
-                  styles.storeCollectionCard
-                }
-                onClick={() =>
-                  onOpenCampaign?.(
-                    campaign
-                  )
-                }
-              >
-                <div
-                  className={
-                    styles.storeCollectionIcon
-                  }
-                >
-                  ✨
+              <div className={styles.storeCollectionContent}>
+                <div className={styles.storeCollectionTop}>
+                  <strong>{collection.title || "Colecție"}</strong>
+
+                  {discountPercent > 0 ? (
+                    <span className={styles.storeCollectionDiscount}>-{discountPercent}%</span>
+                  ) : null}
                 </div>
 
-                <div
-                  className={
-                    styles.storeCollectionContent
-                  }
-                >
-                  <div
-                    className={
-                      styles.storeCollectionTop
-                    }
-                  >
-                    <strong>
-                      {campaign.name ||
-                        "Colecție"}
-                    </strong>
+                {collection.description ? (
+                  <div className={styles.storeCollectionMeta}>{collection.description}</div>
+                ) : null}
 
-                    {discountPercent >
-                      0 && (
-                      <span
-                        className={
-                          styles.storeCollectionDiscount
-                        }
-                      >
-                        -
-                        {
-                          discountPercent
-                        }
-                        %
-                      </span>
-                    )}
-                  </div>
-
-                  <div
-                    className={
-                      styles.storeCollectionMeta
-                    }
-                  >
-                    {productsCount >
-                    0
-                      ? `${productsCount} ${
-                          productsCount ===
-                          1
-                            ? "produs"
-                            : "produse"
-                        }`
-                      : "Descoperă produsele"}
-                  </div>
-
-                  <div
-                    className={
-                      styles.storeCollectionAction
-                    }
-                  >
-                    Vezi colecția →
-                  </div>
-                </div>
-              </button>
-            );
-          }
-        )}
+                <div className={styles.storeCollectionAction}>Vezi colecția →</div>
+              </div>
+            </Link>
+          );
+        })}
       </div>
     </section>
   );

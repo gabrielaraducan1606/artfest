@@ -899,6 +899,23 @@ model VendorCollection {
   visits Int @default(0)
   clicks Int @default(0)
 
+  /**
+   * Consolidare VendorCampaign -> VendorCollection (Colecții unice).
+   * discountPercent: reducere finanțată de owner, DOAR pe produsele proprii
+   * (0 = fără reducere). Pentru produsele altor vendori nu se aplică.
+   * startsAt / endsAt: interval opțional de valabilitate.
+   * allOwnProducts: include automat TOATE produsele publice ale ownerului
+   * (echivalentul ALL_PRODUCTS din campanii), inclusiv cele publicate ulterior.
+   * legacyCampaignId: VendorCampaign din care a fost migrată colecția
+   * (redirect /c/:slug, compatibilitate campaignSlugs). Fără FK intenționat:
+   * VendorCampaign rămâne tabel legacy, neatins.
+   */
+  discountPercent  Int       @default(0)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  allOwnProducts   Boolean   @default(false)
+  legacyCampaignId String?   @unique
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1819,6 +1836,18 @@ model ShipmentItem {
   discountCodeAmount        Decimal? @db.Decimal(10, 2)
   discountCodeFundingSource String?
 
+  /**
+   * Snapshot VendorCollection (atribuire request-based, PER ITEM).
+   * Setat la checkout DOAR pe itemii care erau efectiv membri ai colecției
+   * câștigătoare (VendorCollectionItem) la momentul comenzii. Ledger-ul
+   * (COD / CARD / refund) citește EXCLUSIV snapshot-ul, niciodată colecția
+   * live - comenzile istorice nu se schimbă dacă produsul e scos din
+   * colecție sau colecția e redenumită / dezactivată / ștearsă.
+   * Fără FK intenționat (supraviețuiește ștergerii colecției).
+   */
+  vendorCollectionIdSnapshot   String?
+  vendorCollectionSlugSnapshot String? @db.VarChar(180)
+
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@index([shipmentId])
@@ -1828,6 +1857,7 @@ model ShipmentItem {
   @@index([homepageFeatureId])
   @@index([discountSource])
   @@index([discountCodeId])
+  @@index([vendorCollectionIdSnapshot])
 }
 
 model SupportTicket {

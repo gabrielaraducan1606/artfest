@@ -1,0 +1,1219 @@
+/*
+ * Tab-ul „Colecții” (VendorCollection) - stiluri pe variabilele globale din
+ * src/styles/variables.css (light / dark / preferința sistemului), aliniate
+ * cu restul dashboard-ului (CatalogProduse): carduri pe
+ * --surface cu --shadow-sm, nuanțe de brand prin color-mix pe --color-primary,
+ * stări prin token-urile *-bg-soft. Fără culori hardcodate. Mobile-first.
+ */
+
+/* ================= Container ================= */
+
+.wrap {
+  display: grid;
+  gap: 16px;
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+/* polish vizual: câmpurile cu width:100% + padding ieșeau din card */
+.wrap,
+.wrap *,
+.wrap *::before,
+.wrap *::after {
+  box-sizing: border-box;
+}
+
+/* ================= Header ================= */
+
+.header {
+  display: grid;
+  gap: 6px;
+  padding: 4px 2px 0;
+}
+
+.header h2 {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+
+.header p {
+  margin: 0;
+  max-width: 72ch;
+  color: var(--color-muted);
+  line-height: 1.55;
+}
+
+/* ================= Carduri ================= */
+
+.card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 6px);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.card h3 {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: 1.02rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+/* ================= Rânduri / formulare ================= */
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.row > input,
+.row > select {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.settings {
+  display: grid;
+  gap: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.field > span:first-child {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+/* inputuri, select-uri, textarea - același aspect peste tot în tab */
+.wrap input:not([type="checkbox"]):not([type="file"]),
+.wrap select,
+.wrap textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius);
+  background: var(--input-bg);
+  color: var(--color-text);
+  font: inherit;
+  box-shadow: var(--shadow-xs);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wrap textarea {
+  min-height: 88px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.wrap input::placeholder,
+.wrap textarea::placeholder {
+  color: var(--text-disabled);
+}
+
+.wrap input:not([type="checkbox"]):not([type="file"]):focus-visible,
+.wrap select:focus-visible,
+.wrap textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.wrap input[type="file"] {
+  max-width: 100%;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.wrap input[type="file"]::file-selector-button {
+  margin-right: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* checkbox-uri (activ / allOwnProducts) */
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  color: var(--color-text);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.check:hover {
+  border-color: var(--border-strong);
+}
+
+.check:has(input:checked) {
+  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--surface));
+}
+
+.check input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--color-primary);
+}
+
+.hint {
+  margin: -6px 2px 2px;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.hint strong {
+  color: var(--color-text);
+}
+
+.cover {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  aspect-ratio: 16 / 7;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface-muted);
+}
+
+/* ================= Butoane ================= */
+
+.wrap button {
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.wrap button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--hover-bg);
+}
+
+.wrap button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.wrap button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.wrap .primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--on-primary);
+  font-weight: 800;
+}
+
+.wrap .primary:hover:not(:disabled) {
+  border-color: var(--color-hover);
+  background: var(--color-hover);
+}
+
+.wrap .secondary {
+  background: var(--surface);
+}
+
+.wrap .danger {
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+  background: var(--danger-bg-soft);
+  color: var(--color-danger);
+}
+
+.wrap .danger:hover:not(:disabled) {
+  border-color: var(--color-danger);
+  background: var(--danger-bg-soft);
+}
+
+/* stări (nu acțiuni): „Inclus automat” / „Adăugat în colecție” */
+.wrap .stateAuto,
+.wrap .stateAdded {
+  min-height: 32px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  opacity: 1;
+  cursor: default;
+}
+
+.wrap .stateAuto {
+  border-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+.wrap .stateAdded {
+  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+  background: var(--success-bg-soft);
+  color: var(--color-success);
+}
+
+/* sunt stări, nu acțiuni dezactivate: fără estomparea de la button:disabled */
+.wrap .stateAuto:disabled,
+.wrap .stateAdded:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.wrap .loadMore {
+  justify-self: center;
+}
+
+.linkButton {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.wrap .linkButton,
+.wrap .linkButton:hover:not(:disabled) {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.linkButton strong {
+  color: var(--color-text);
+  font-weight: 800;
+}
+
+.linkAction {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 4px;
+  color: var(--color-primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.linkAction:hover {
+  color: var(--color-hover);
+  text-decoration: underline;
+}
+
+.wrap a {
+  color: var(--color-primary);
+}
+
+/* ================= Lista colecțiilor ================= */
+
+.list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.listItem,
+.listItemActive {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface-elevated);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.listItem:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-xs);
+}
+
+.listItemActive {
+  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* eticheta de stare a colecției */
+.status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface-muted);
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status[data-status="LIVE"] {
+  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+  background: var(--success-bg-soft);
+  color: var(--color-success);
+}
+
+.status[data-status="SCHEDULED"] {
+  border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+  background: var(--warning-bg-soft);
+  color: var(--color-text);
+}
+
+.status[data-status="EXPIRED"],
+.status[data-status="INACTIVE"] {
+  color: var(--color-muted);
+}
+
+/* ================= Produse ================= */
+
+.grid {
+  display: grid;
+  gap: 10px;
+}
+
+.product {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface-elevated);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.product:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-xs);
+}
+
+/* acțiunea / starea produsului: pe mobil sub conținut */
+.product > div:last-child {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* mobil: acțiunea produsului pe toată lățimea, ușor de apăsat */
+.product > div:last-child > button {
+  flex: 1 1 auto;
+}
+
+/* mobil: butonul „Caută” sub filtre, pe toată lățimea */
+.card > form.row > button[type="submit"] {
+  flex: 1 1 100%;
+}
+
+.thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius);
+  object-fit: cover;
+  background: var(--surface-muted);
+  border: 1px solid var(--color-border);
+}
+
+.productBody {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* titlul produsului: până la 2 rânduri (pe mobil un singur rând tăia prea mult) */
+.productBody strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text);
+  font-weight: 700;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.productBody > span:nth-of-type(1) {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+/* badge-uri proprietate */
+.badgeOwn,
+.badgeOther {
+  justify-self: start;
+  margin-top: 2px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.badgeOwn {
+  border-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+.badgeOther {
+  border-color: var(--color-border);
+  background: var(--surface-muted);
+  color: var(--color-muted);
+}
+
+/* ================= Text / stări ================= */
+
+.muted {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.notice {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--surface));
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+  border-radius: var(--radius);
+  background: var(--danger-bg-soft);
+  color: var(--color-danger);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+/* „Indisponibil public” în cardul produsului: etichetă mică, nu alertă */
+.productBody .error {
+  justify-self: start;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+}
+
+.state {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  padding: 24px;
+  border: 1px dashed var(--color-border);
+  border-radius: calc(var(--radius) + 6px);
+  background: var(--surface);
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+/* empty state în carduri */
+.card > .muted {
+  padding: 18px 14px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  text-align: center;
+}
+
+/* ================= Layout: [ lista ] [ editor ] ================= */
+
+.layout {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+
+.sidebar {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 6px);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebarHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sidebarHeader h3 {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+/* pe mobil lista rămâne compactă: scroll intern, editorul imediat dedesubt */
+.sidebar .list {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.sidebar .listItem,
+.sidebar .listItemActive {
+  padding: 10px 12px;
+}
+
+.sidebar .linkButton {
+  display: grid;
+  gap: 4px;
+}
+
+.listMeta {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.sidebar .status {
+  justify-self: start;
+}
+
+.editor {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.editorHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* ================= Grupuri de câmpuri ================= */
+
+.group {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.groupTitle {
+  margin: 0 0 2px;
+  padding: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.checks {
+  display: grid;
+  gap: 8px;
+}
+
+/* ================= Accordion „Perioadă și reducere” ================= */
+
+.advanced {
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+.advanced[open] {
+  border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  background: var(--surface);
+}
+
+.advancedSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  min-height: 48px;
+  padding: 12px 14px;
+  color: var(--color-text);
+  font-weight: 800;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.advancedSummary::-webkit-details-marker {
+  display: none;
+}
+
+.advancedSummary::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-right: 2px solid var(--color-muted);
+  border-bottom: 2px solid var(--color-muted);
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+}
+
+.advanced[open] > .advancedSummary::after {
+  transform: rotate(225deg);
+}
+
+.advancedSummary:hover {
+  background: var(--hover-bg);
+}
+
+.advancedSummary:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.advancedMeta {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.advancedBody {
+  display: grid;
+  gap: 12px;
+  padding: 4px 14px 14px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 14px;
+}
+
+/* ================= Acțiunile formularului ================= */
+
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding-top: 4px;
+}
+
+.formActions .primary {
+  flex: 1 1 100%;
+}
+
+/* ================= Tabletă / desktop ================= */
+
+@media (min-width: 720px) {
+  .wrap {
+    gap: 20px;
+  }
+
+  .card {
+    gap: 16px;
+    padding: 20px 22px;
+  }
+
+  .row > input,
+  .row > select {
+    flex: 1 1 200px;
+  }
+
+  .field {
+    flex: 1 1 220px;
+  }
+
+  .listItem,
+  .listItemActive {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .product {
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+  }
+
+  .product > div:last-child {
+    grid-column: auto;
+  }
+
+  .thumb {
+    width: 64px;
+    height: 64px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wrap *,
+  .wrap *::before,
+  .wrap *::after {
+    transition: none !important;
+  }
+}
+
+/* ================= Desktop: două coloane ================= */
+
+@media (min-width: 1024px) {
+  .layout {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  /* lista rămâne la vedere cât editezi */
+  .sidebar {
+    position: sticky;
+    top: calc(var(--appbar-h) + 16px);
+  }
+
+  .sidebar .list {
+    max-height: calc(100vh - var(--appbar-h) - 160px);
+  }
+
+  .formActions .primary {
+    flex: 0 0 auto;
+  }
+}
+
+/* ================= Zona „Adaugă produse” (avantaj + CTA) ================= */
+
+.promo {
+  border-color: color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--surface));
+}
+
+.promoHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.promoIcon,
+.optionIcon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+.promoIcon {
+  width: 40px;
+  height: 40px;
+}
+
+.optionIcon {
+  width: 34px;
+  height: 34px;
+}
+
+.promoText {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.promoText h3 {
+  margin: 0;
+}
+
+.promoText p {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--color-muted);
+  line-height: 1.55;
+}
+
+/* CTA principal al editorului - lățime completă pe mobil */
+.wrap .ctaAdd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 18px;
+  font-size: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.options {
+  display: grid;
+  gap: 10px;
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
+}
+
+.option strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--color-text);
+  font-weight: 800;
+}
+
+.option p {
+  margin: 2px 0 0;
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.option .optionBenefit {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+/* microtext sub badge-ul „Alt magazin” din căutare */
+.badgeHint {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+/* empty state cu CTA - produse adăugate manual */
+.emptyState {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 20px 16px;
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface-muted);
+  text-align: center;
+}
+
+.emptyState p {
+  margin: 0;
+  max-width: 56ch;
+  color: var(--color-muted);
+  line-height: 1.55;
+}
+
+@media (min-width: 720px) {
+  .options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .wrap .ctaAdd {
+    width: auto;
+    justify-self: start;
+  }
+}
+
+/* ================= Polish vizual (verificat în browser) ================= */
+
+@media (min-width: 720px) {
+  .product > div:last-child > button {
+    flex: 0 0 auto;
+  }
+
+  .card > form.row > button[type="submit"] {
+    flex: 0 0 auto;
+  }
+}
+
+@media (min-width: 1024px) {
+  /* editorul nu se întinde excesiv pe ecrane foarte late */
+  .editor {
+    max-width: 1040px;
+  }
+}
+
+/* CTA-ul din empty state: accent discret de brand, ca să fie vizibil pe fundalul neutru */
+.wrap .emptyState button {
+  border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  color: var(--color-primary);
+}
+
+.wrap .emptyState button:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--surface));
+}
+
+/* ================= Banner „Poți câștiga și din recomandări” ================= */
+
+/* info premium (nu warning): accent de brand, bară laterală, compact */
+.earnBanner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px 12px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+  border-left: 4px solid var(--color-primary);
+  border-radius: calc(var(--radius) + 4px);
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--surface));
+  box-shadow: var(--shadow-sm);
+}
+
+.earnIcon {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  background: var(--color-primary);
+  color: var(--on-primary);
+}
+
+.earnText {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.earnText strong {
+  color: var(--color-text);
+  font-family: var(--font-title);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.earnText p {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* textul secundar doar de la tabletă în sus - pe mobil bannerul rămâne compact */
+.earnText .earnSecondary {
+  display: none;
+  color: var(--color-muted);
+  font-size: 0.84rem;
+}
+
+/* mobil: CTA pe toată lățimea, sub text */
+.wrap .earnCta {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 44px;
+}
+
+@media (min-width: 720px) {
+  .earnBanner {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px 16px;
+    padding: 14px 18px;
+  }
+
+  .earnText .earnSecondary {
+    display: block;
+  }
+
+  .wrap .earnCta {
+    grid-column: auto;
+    width: auto;
+    white-space: nowrap;
+  }
+}
+
+/* ================= Banner sus + ordinea pe mobil ================= */
+
+/* explicația scurtă din zona „Adaugă produse” */
+.promoShort {
+  margin: 0;
+  align-self: center;
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+/* mobil, colecție nouă: banner -> formular de creare -> lista colecțiilor */
+@media (max-width: 1023px) {
+  .layout[data-mode="create"] .editor {
+    order: -1;
+  }
+}
+
+/* ================= Scroll: un scroll în listă, unul în editor ================= */
+
+/* bara editorului (titlu + acțiuni principale) */
+.editorBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 6px);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.editorBar h3 {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-family: var(--font-title);
+  font-size: 1.02rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * Mobil / tabletă: fără scroll-uri interne - secțiunile curg vertical,
+ * un singur scroll (al paginii). Anulează scroll-ul intern mic al listei.
+ */
+.sidebar .list {
+  max-height: none;
+  overflow: visible;
+}
+
+@media (min-width: 1024px) {
+  /*
+   * Desktop: layout-ul ocupă înălțimea ecranului (sub navbar). Fiecare
+   * coloană are UN singur scroll: lista colecțiilor și editorul.
+   */
+  .layout {
+    height: calc(100vh - var(--appbar-h) - 24px);
+    min-height: 560px;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .sidebar {
+    position: static;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .sidebar .list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+  }
+
+  .editor {
+    align-content: start;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 6px 16px 0;
+  }
+
+  /* titlul + acțiunile rămân la vedere în scroll-ul editorului */
+  /*
+   * halou în culoarea paginii (urmează colțurile rotunjite): conținutul
+   * derulat sub bară nu se mai vede pe lângă colțuri
+   */
+  .editorBar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    box-shadow: 0 0 0 6px var(--color-bg), var(--shadow-md);
+  }
+
+  /*
+   * Doar rezultatele marketplace (cresc nelimitat cu „Încarcă mai multe”) au
+   * plafon; produsele din colecție curg în scroll-ul editorului - fără al
+   * doilea scroll imbricat. Scroll-ul apare DOAR când lista depășește plafonul.
+   */
+  .editor .resultsGrid {
+    max-height: min(520px, 58vh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+  }
+
+  /* scrollbar-uri discrete, pe token-uri */
+  .sidebar .list,
+  .editor,
+  .editor .resultsGrid {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+/* ================= Mobil: listă scurtată (colapsabilă), fără scroll intern ================= */
+
+@media (max-width: 1023px) {
+  .listItemExtra {
+    display: none;
+  }
+}
+
+.wrap .listToggle {
+  width: 100%;
+  border-style: dashed;
+  color: var(--color-primary);
+}
+
+@media (min-width: 1024px) {
+  /* desktop: lista e completă, în scroll-ul ei - fără buton de scurtare */
+  .wrap .listToggle {
+    display: none;
+  }
+}

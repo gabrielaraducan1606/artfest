@@ -324,15 +324,28 @@ test("Persistent attribution A: token de colectie produce own-sale cand produsul
 /* Scenariul 7: colecția A vizitată, cumpără produs ALT vendor (B), NU
    în colecție => tokenul de colecție TOT alimentează referral extern
    (A a adus clientul pe platformă). */
-test("Persistent attribution 7: token de colecție alimenteaza referral cross-vendor cand shipmentul e al altui vendor", () => {
+test("Persistent attribution 7: colecția alimentează referral cross-vendor când shipmentul altui vendor conține un produs MEMBRU", () => {
   const effective = resolveEffectiveRefVendorAttribution({
     refVendorAttribution: null,
     refCollectionAttribution: collAttr(VENDOR_A, 1000),
     shipmentVendorId: VENDOR_B,
+    shipmentEligibleByCollectionMembership: true,
   });
 
   assert.equal(effective.vendorId, VENDOR_A);
   assert.equal(effective.collectionSlug, "col-a");
+});
+
+/* Regula (a): fără produs membru în shipment, colecția NU atribuie (nici cross-vendor) */
+test("Persistent attribution 7b: shipment al altui vendor fără produs membru -> colecția nu atribuie", () => {
+  const effective = resolveEffectiveRefVendorAttribution({
+    refVendorAttribution: null,
+    refCollectionAttribution: collAttr(VENDOR_A, 1000),
+    shipmentVendorId: VENDOR_B,
+    shipmentEligibleByCollectionMembership: false,
+  });
+
+  assert.equal(effective, null);
 });
 
 /* J: ?ref=A urmat de vizitarea colecției B (mai recentă) => B câștigă */
@@ -341,6 +354,7 @@ test("Persistent attribution J: ?ref=A apoi colectie B mai recenta -> B castiga 
     refVendorAttribution: refAttr(VENDOR_A, 1000),
     refCollectionAttribution: collAttr(VENDOR_B, 2000),
     shipmentVendorId: "vendor-c",
+    shipmentEligibleByCollectionMembership: true,
   });
 
   assert.equal(effective.vendorId, VENDOR_B);
@@ -369,6 +383,7 @@ test("Persistent attribution I: doar cel mai recent token de colectie conteaza (
     refVendorAttribution: null,
     refCollectionAttribution: collAttr(VENDOR_B, 5000, "col-b"),
     shipmentVendorId: "vendor-c",
+    shipmentEligibleByCollectionMembership: true,
   });
 
   assert.equal(effective.vendorId, VENDOR_B);

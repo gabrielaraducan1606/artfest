@@ -10,12 +10,11 @@ import {
   clearGuestCart,
 } from "../../utils/guestCart";
 import {
-  getAttributionsForCheckout,
-  consumeCampaignAttributions,
+  consumeCampaignSlugs,
+  getCampaignSlugsForCheckout,
 } from "../../utils/campaignAttribution.js";
-import { getInfluencerAttributionForCheckout } from "../../utils/influencerAttribution.js";
-import { getVendorReferralAttributionForCheckout } from "../../utils/vendorReferralAttribution.js";
-import { getVendorCollectionAttributionForCheckout } from "../../utils/vendorCollectionAttribution.js";
+import { getReferralCheckoutFields } from "../../utils/referralMemory.js";
+import { buildPromotionApiQuery, getPromotionBodyFields } from "../../utils/promotionContext.js";
 import {
   getStoredDiscountCode,
   storeDiscountCode,
@@ -409,6 +408,8 @@ function validateSingleField({
   }
 }
 
+const QUOTE_ONLY_MESSAGE = "Acest produs se comandă prin cerere de ofertă.";
+
 function getReadableApiError(error) {
   const raw =
     error?.message ||
@@ -446,6 +447,9 @@ function getReadableApiError(error) {
 
     case "cart_empty":
       return "Coșul este gol.";
+
+    case "quote_only_product":
+      return QUOTE_ONLY_MESSAGE;
 
     case "payment_invalid":
       return "Metoda de plată selectată nu este validă.";
@@ -677,6 +681,8 @@ const [me, setMe] = useState(null);
 
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState("");
+  // produs QUOTE_ONLY în coș (detectat de summary, înainte de submit)
+  const [quoteOnlyProduct, setQuoteOnlyProduct] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("COD");
   const [previewImage, setPreviewImage] = useState(null);
 
@@ -1154,6 +1160,7 @@ const checkoutTrackedRef =
   (async () => {
     setLoading(true);
     setError("");
+    setQuoteOnlyProduct(null);
 
     try {
       /*
@@ -1679,9 +1686,7 @@ const offer =
 
           summary =
             await api(
-              `/api/checkout/summary?campaignAttribution=${encodeURIComponent(
-                JSON.stringify(getAttributionsForCheckout())
-              )}${
+              `/api/checkout/summary?${buildPromotionApiQuery()}${
                 getStoredDiscountCode()
                   ? `&discountCode=${encodeURIComponent(
                       getStoredDiscountCode()
@@ -1720,8 +1725,8 @@ const offer =
                   items:
                     guestItems,
 
-                  campaignAttribution:
-                    getAttributionsForCheckout(),
+                  // campanii (legacy) + colecții: prețul redus validat pe server
+                  ...getPromotionBodyFields(),
 
                   discountCode:
                     getStoredDiscountCode() || undefined,
@@ -1904,12 +1909,22 @@ const offer =
         setItems([]);
         setGroups([]);
 
-        setError(
-          getReadableApiError(
-            error
-          ) ||
-            "Nu am putut încărca checkout-ul."
-        );
+        if (error?.code === "quote_only_product") {
+          const title = error?.data?.productTitle || "";
+          setQuoteOnlyProduct({ id: error?.data?.productId || null, title });
+          setError(
+            title
+              ? `„${title}”: ${QUOTE_ONLY_MESSAGE}`
+              : QUOTE_ONLY_MESSAGE
+          );
+        } else {
+          setError(
+            getReadableApiError(
+              error
+            ) ||
+              "Nu am putut încărca checkout-ul."
+          );
+        }
       }
     } finally {
       if (
@@ -2202,11 +2217,13 @@ const removeDiscountCode = () => {
         paymentMethod,
         shipToDifferentAddress:
           customerType === "PJ" ? shipToDifferentAddress : false,
-        campaignAttribution: getAttributionsForCheckout(),
-        influencerAttribution: getInfluencerAttributionForCheckout(),
-        vendorReferralAttribution: getVendorReferralAttributionForCheckout(),
-        vendorCollectionAttribution:
-          getVendorCollectionAttributionForCheckout(),
+        // campaniile din navigarea curentă (memorie / ?camp=), revalidate pe server
+        campaignSlugs: getCampaignSlugsForCheckout(),
+        // referral influencer + vendor + VendorCollection din navigarea curentă
+        // (memorie / URL), validat pe server: referralCodes,
+        // influencerCollectionReferralCode, influencerReferralCode,
+        // vendorReferralCode, vendorCollectionSlugs (fără tokenuri)
+        ...getReferralCheckoutFields(),
         discountCode: getStoredDiscountCode() || undefined,
         discountCodeAttribution:
           getStoredDiscountCodeAttribution() || undefined,
@@ -2376,13 +2393,12 @@ if (result?.ok || result?.orderId) {
   clearStoredDiscountCodeAttribution();
 
   /*
-   * Consumare token campanie (audit 2026-09-14, lifecycle
-   * VendorCampaign) - DOAR pentru vendorii confirmați de backend
-   * (eligibleCampaignVendorIds) ca având ≥1 produs eligibil în
-   * ACEASTĂ comandă. Identic user/guest - același răspuns, același
-   * helper. Un token fără produs eligibil NU e atins aici.
+   * Consumare campanie (lifecycle VendorCampaign) - DOAR campaniile
+   * confirmate de backend (eligibleCampaignSlugs) ca având ≥1 produs
+   * eligibil în ACEASTĂ comandă. Identic user/guest. O campanie fără
+   * produs eligibil rămâne în memorie.
    */
-  consumeCampaignAttributions(result?.eligibleCampaignVendorIds);
+  consumeCampaignSlugs(result?.eligibleCampaignSlugs);
 
  try {
   sessionStorage.removeItem(
@@ -2497,7 +2513,14 @@ if (me) {
 
       {error && <div className={styles.alert}>{error}</div>}
 
-      {items.length === 0 ? (
+      {items.length === 0 && quoteOnlyProduct ? (
+        <div className={styles.empty}>
+          Elimină produsul din coș și cere o ofertă din pagina lui.{" "}
+          <Link to="/cos" className={styles.linkPrimary}>
+            Mergi la coș
+          </Link>
+        </div>
+      ) : items.length === 0 ? (
         <div className={styles.empty}>
           Coșul tău este gol.{" "}
           <Link to="/produse" className={styles.linkPrimary}>

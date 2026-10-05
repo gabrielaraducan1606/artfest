@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { api } from "../../../lib/api.js";
+import {
+  getDiscountCodeStatusLabel,
+  isDiscountCodeEffectivelyActive,
+} from "../../../utils/discountCodeStatus.js";
 
 import styles from "./AdminVendorMarketingTab.module.css";
 
@@ -225,7 +229,11 @@ export default function AdminVendorDiscountCodesTab() {
           onChange={(e) => setStatusFilter(e.target.value)}
         >
           <option value="">Toate statusurile</option>
+          {/* statusul efectiv (backend: deriveDiscountCodeStatus) */}
           <option value="active">Activ</option>
+          <option value="scheduled">Programat</option>
+          <option value="expired">Expirat</option>
+          <option value="exhausted">Epuizat</option>
           <option value="inactive">Inactiv</option>
         </select>
 
@@ -309,12 +317,12 @@ export default function AdminVendorDiscountCodesTab() {
                     <td>
                       <span
                         className={`${styles.status} ${
-                          item.isActive
+                          isDiscountCodeEffectivelyActive(item)
                             ? styles.statusActive
                             : styles.statusInactive
                         }`}
                       >
-                        {item.isActive ? "ACTIV" : "INACTIV"}
+                        {getDiscountCodeStatusLabel(item)}
                       </span>
                     </td>
 
@@ -445,10 +453,10 @@ function DiscountCodeDrawer({
                 <DrawerField label="Status">
                   <span
                     className={`${styles.status} ${
-                      item.isActive ? styles.statusActive : styles.statusInactive
+                      isDiscountCodeEffectivelyActive(item) ? styles.statusActive : styles.statusInactive
                     }`}
                   >
-                    {item.isActive ? "ACTIV" : "INACTIV"}
+                    {getDiscountCodeStatusLabel(item)}
                   </span>
                 </DrawerField>
 

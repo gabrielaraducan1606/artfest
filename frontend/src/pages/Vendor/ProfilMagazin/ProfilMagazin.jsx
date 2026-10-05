@@ -16,9 +16,7 @@ import ProfilMagazinSkeleton from "./components/ProfilMagazinSkeleton";
 import StoreHero from "./components/StoreHero";
 import StoreSections from "./components/StoreSections";
 import StoreModals from "./modals/StoreModals";
-import StoreCampaignsModal from "./modals/StoreCampaignsModal.jsx";
 import StoreCampaignCollections from "./components/StoreCampaignCollections";
-import PublicCampaignModal from "./modals/PublicCampaignModal";
 import { api } from "../../../lib/api";
 import { buildProductPayload } from "./utils/productPayload";
 import { extractCode, extractHttpStatus } from "./utils/activationErrors";
@@ -29,6 +27,7 @@ import {
   isQuoteIntentForEntity,
 } from "../../../components/AIAssistant/quotes/quoteRequestIntentEvent.js";
 import { CONTACT_FIX_APPLY_EVENT } from "../../../components/AIAssistant/contactInfo/contactInfoFixFlow.js";
+import { COLLECTIONS_HUB_URL } from "../CatalogProduse/VendorCollections/collectionsHubLinks.js";
 import { showContactInfoFix } from "../../../components/AIAssistant/contactInfo/contactInfoFixToast.jsx";
 
 /*
@@ -261,15 +260,6 @@ const heroActionsRef = useRef(null);
   // GPSR, pentru butonul „Completează informațiile de siguranță")
   const [productModalStep, setProductModalStep] = useState("images");
   const saveProductLockRef = useRef(false);
-const [campaignsModalOpen, setCampaignsModalOpen] = useState(false);
-const [campaigns, setCampaigns] = useState([]);
-const [campaignsLoading, setCampaignsLoading] = useState(false);
-const [campaignsError, setCampaignsError] = useState("");
-const [publicCampaignOpen, setPublicCampaignOpen] =
-  useState(false);
-
-const [selectedPublicCampaign, setSelectedPublicCampaign] =
-  useState(null);
   const sellerData = useMemo(
     () => ({ ...(_sellerData || {}), ...profilePatch }),
     [_sellerData, profilePatch]
@@ -543,58 +533,6 @@ useEffect(() => {
       setSavingAbout(false);
     }
   }
-
-  async function loadCampaignsForModal() {
-  setCampaignsLoading(true);
-  setCampaignsError("");
-
-  try {
-    const data = await api("/api/vendor/campaigns", {
-      method: "GET",
-    });
-
-    setCampaigns(
-      Array.isArray(data?.items)
-        ? data.items
-        : []
-    );
-  } catch (error) {
-    console.error(
-      "[ProfilMagazin] load campaigns:",
-      error
-    );
-
-    setCampaigns([]);
-
-    setCampaignsError(
-      error?.message ||
-        "Campaniile nu au putut fi încărcate."
-    );
-  } finally {
-    setCampaignsLoading(false);
-  }
-}
-
-function handleOpenPublicCampaign(campaign) {
-  if (!campaign?.slug) {
-    return;
-  }
-
-  setSelectedPublicCampaign(campaign);
-  setPublicCampaignOpen(true);
-}
-
-function handleClosePublicCampaign() {
-  setPublicCampaignOpen(false);
-
-  /*
-   * Îl curățăm puțin mai târziu ca modalul
-   * să nu piardă conținutul instant la închidere.
-   */
-  window.setTimeout(() => {
-    setSelectedPublicCampaign(null);
-  }, 150);
-}
 
  function handleVendorMessage() {
   if (isOwner) {
@@ -1289,10 +1227,7 @@ quoteSchema: Array.isArray(full.quoteSchema)
   canAddProduct={owner.canAddProduct}
   prodLimits={owner.prodLimits}
   handleAddProduct={handleAddProduct}
-  onOpenCampaigns={async () => {
-    setCampaignsModalOpen(true);
-    await loadCampaignsForModal();
-  }}
+  onOpenCampaigns={() => navigate(COLLECTIONS_HUB_URL)}
   showAddProductHint={showAddProductHint}
   heroActionsRef={heroActionsRef}
   onDismissAddProductHint={dismissAddProductHint}
@@ -1305,11 +1240,7 @@ quoteSchema: Array.isArray(full.quoteSchema)
 />
 
 {deferredSectionsReady && (
-  <StoreCampaignCollections
-    storeSlug={storeSlug}
-    isOwner={isOwner}
-    onOpenCampaign={handleOpenPublicCampaign}
-  />
+  <StoreCampaignCollections storeSlug={storeSlug} />
 )}
 <div className={styles.card}>
 
@@ -1384,25 +1315,6 @@ quoteSchema: Array.isArray(full.quoteSchema)
         sellerData={_sellerData}
         productModalStep={productModalStep}
       />
-<StoreCampaignsModal
-  open={campaignsModalOpen}
-  onClose={() => setCampaignsModalOpen(false)}
-  shopName={shopName}
-  campaigns={campaigns}
-  loading={campaignsLoading}
-  error={campaignsError}
-  onGoToCampaignsPage={() => {
-    setCampaignsModalOpen(false);
-    navigate("/vendor/catalog?tab=campaigns");
-  }}
-/>
-
-<PublicCampaignModal
-  open={publicCampaignOpen}
-  campaign={selectedPublicCampaign}
-  onClose={handleClosePublicCampaign}
-  navigate={navigate}
-/>
     </>
   );
 }

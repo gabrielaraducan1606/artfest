@@ -5,6 +5,10 @@ import {
 } from "react";
 
 import { api } from "../../../lib/api.js";
+import {
+  getDiscountCodeStatusLabel,
+  isDiscountCodeEffectivelyActive,
+} from "../../../utils/discountCodeStatus.js";
 
 import styles from "./InfluencerDiscountCodesModal.module.css";
 
@@ -950,16 +954,17 @@ export default function InfluencerDiscountCodesModal({
                         }
                       </strong>
 
+                      {/* status efectiv din backend (effectiveStatus), nu din isActive */}
                       <span
                         className={
-                          code.isActive
+                          isDiscountCodeEffectivelyActive(code)
                             ? styles.activeBadge
                             : styles.inactiveBadge
                         }
                       >
-                        {code.isActive
-                          ? "ACTIV"
-                          : "OPRIT"}
+                        {getDiscountCodeStatusLabel(
+                          code
+                        )}
                       </span>
 
                       <span

@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../../lib/api.js";
-import { offerCampaignAttribution } from "../../utils/campaignAttributionCapture.js";
+import { buildCampaignUrlQuery, captureCampaignSlug } from "../../utils/campaignAttribution.js";
 import ProductCard from "../Vendor/ProfilMagazin/components/ProductCard";
 import { SEO } from "../../components/Seo/SeoProvider";
 import styles from "../Products/Products.module.css";
 
+/*
+ * LEGACY /c/:slug - campaniile au devenit „Colecții” (VendorCollection).
+ * O campanie MIGRATĂ (VendorCollection.legacyCampaignId) face redirect la
+ * pagina canonică /colectie-vendor/:slug (păstrând query-ul, ex. ?ref=).
+ * O campanie NEMIGRATĂ păstrează temporar comportamentul vechi de mai jos.
+ */
 export default function PublicCampaignPage() {
   const { slug } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -48,21 +56,31 @@ export default function PublicCampaignPage() {
     setError("");
     setData(null);
 
-    api(`/api/public/campaigns/${encodeURIComponent(slug || "")}`)
+    // 1) campanie migrată -> redirect; 404 (nemigrată) -> pagina veche
+    api(`/api/public/vendor-collections/legacy-campaign/${encodeURIComponent(slug || "")}`)
+      .then((legacy) => (legacy?.collectionSlug ? legacy.collectionSlug : null))
+      .catch(() => null)
+      .then((collectionSlug) => {
+        if (cancelled) return null;
+
+        if (collectionSlug) {
+          cancelled = true;
+          navigate(`/colectie-vendor/${encodeURIComponent(collectionSlug)}${location.search || ""}`, {
+            replace: true,
+          });
+          return null;
+        }
+
+        return api(`/api/public/campaigns/${encodeURIComponent(slug || "")}`);
+      })
       .then((res) => {
-        if (cancelled) return;
+        if (cancelled || !res) return;
         setData(res);
 
-        if (res?.campaign?.attributionToken && res?.vendor?.id) {
-          // salvat imediat cu consimțământ „Atribuire”, altfel ținut în memorie
-          // până la cookie:consent (vezi utils/campaignAttributionCapture.js)
-          offerCampaignAttribution({
-            vendorId: res.vendor.id,
-            token: res.campaign.attributionToken,
-            campaignId: res.campaign.id,
-            slug: res.campaign.slug,
-            attributionWindowHours: res.campaign.attributionWindowHours,
-          });
+        // campania (validă - serverul a răspuns 200) intră DOAR în memoria
+        // aplicației; fără storage / consimțământ (utils/campaignAttribution.js)
+        if (res?.campaign?.slug) {
+          captureCampaignSlug(res.campaign.slug);
         }
       })
       .catch((e) => {
@@ -79,9 +97,13 @@ export default function PublicCampaignPage() {
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, navigate, location.search]);
 
   const viewMode = me ? "user" : "guest";
+
+  // ?camp= pe linkurile produselor: refresh / tab nou pe produs păstrează campania
+  const campaignSlug = data?.campaign?.slug || null;
+  const productLinkQuery = campaignSlug ? buildCampaignUrlQuery([campaignSlug]) : "";
 
   const productCards = useMemo(() => {
     const products = Array.isArray(data?.products) ? data.products : [];
@@ -94,9 +116,16 @@ export default function PublicCampaignPage() {
      * Nu duplicăm logica aici.
      */
     return products.map((p) => (
-      <ProductCard key={p.id} p={p} viewMode={viewMode} isFav={false} categoryLabelMap={{}} />
+      <ProductCard
+        key={p.id}
+        p={p}
+        viewMode={viewMode}
+        isFav={false}
+        categoryLabelMap={{}}
+        linkQuery={productLinkQuery}
+      />
     ));
-  }, [data, viewMode]);
+  }, [data, viewMode, productLinkQuery]);
 
   const canonical = `https://www.artfest.ro/c/${slug || ""}`;
 

@@ -5928,7 +5928,7 @@ setTopicTracking({
         /*
          * "Promovează produse" - inclus DOAR pentru că am confirmat
          * în audit o destinație reală: /vendor/catalog?tab=campaigns
-         * (tab-ul Campanii din Catalog produse, existent).
+         * (tab-ul unic „Colecții” din Catalog produse).
          */
         perfectChoices.push(
           {

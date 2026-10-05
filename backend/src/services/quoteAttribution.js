@@ -147,3 +147,43 @@ export function resolvePassiveAttributionFromSnapshot(attributionSnapshot) {
       : null,
   };
 }
+
+/**
+ * Snapshot VendorCollection PER ITEM pentru comanda creată din ofertă -
+ * echivalentul collectionSnapshotForItem din checkout, dar DOAR din
+ * attributionSnapshot-ul înghețat la crearea cererii (fără colecția live).
+ *
+ * Se scrie numai când:
+ *  - sursa câștigătoare înghețată e VENDOR_COLLECTION și produsul cerut
+ *    ERA membru al colecției (productWasMember);
+ *  - promotorul câștigător la acceptare e chiar această atribuire
+ *    (`collectionWon` - un cod de reducere / influencer care câștigă
+ *    rămâne neschimbat, fără snapshot de colecție);
+ *  - linia ofertei e produsul cerut (quote.productId) - liniile
+ *    suplimentare din ofertă NU primesc snapshot.
+ *
+ * Clasificatorul (services/shipmentCommissionGroups.js) și ledger-ul fac
+ * apoi restul: own-sale 5% / referral doar pe itemul cu snapshot.
+ */
+export function quoteCollectionSnapshotForItem({
+  attributionSnapshot,
+  collectionWon = false,
+  requestedProductId,
+  productId,
+}) {
+  if (!collectionWon) return {};
+
+  const effective = attributionSnapshot?.effectiveVendorAttribution || null;
+  const collection = attributionSnapshot?.vendorCollection || null;
+
+  if (effective?.via !== "VENDOR_COLLECTION" || collection?.productWasMember !== true) return {};
+  if (!productId || !requestedProductId || String(productId) !== String(requestedProductId)) return {};
+
+  const collectionId = effective.collectionId || collection.collectionId || null;
+  if (!collectionId) return {};
+
+  return {
+    vendorCollectionIdSnapshot: collectionId,
+    vendorCollectionSlugSnapshot: effective.collectionSlug || collection.collectionSlug || null,
+  };
+}

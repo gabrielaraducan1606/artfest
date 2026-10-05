@@ -199,7 +199,11 @@ test("C. Collection A -> produs Vendor B: seller B normal, A primește referral 
   assert.equal(fields.vendorReferralCommissionOverrideBps, null);
 });
 
-test("D. produs Vendor B NU era în colecție, dar traffic attribution valid: A tot primește referral (cross-vendor nu cere membership)", () => {
+/*
+ * Regula (a) - decizie explicită: colecția atribuie DOAR produsele efectiv
+ * membre, inclusiv cross-vendor (înainte: cross-vendor nu cerea membership).
+ */
+function collectionQuoteFields({ wasMember }) {
   const vendorCollectionAttribution = {
     vendorId: VENDOR_A,
     referralCodeSnapshot: "COLA",
@@ -213,14 +217,12 @@ test("D. produs Vendor B NU era în colecție, dar traffic attribution valid: A 
     refVendorAttribution: null,
     refCollectionAttribution: vendorCollectionAttribution,
     shipmentVendorId: VENDOR_B,
-    shipmentEligibleByCollectionMembership: false,
+    shipmentEligibleByCollectionMembership: wasMember,
   });
-
-  assert.ok(effectiveVendorAttribution);
 
   const snapshot = buildQuoteAttributionSnapshot({
     vendorCollectionAttribution,
-    vendorCollectionProductWasMember: false,
+    vendorCollectionProductWasMember: wasMember,
     effectiveVendorAttribution,
   });
 
@@ -231,14 +233,27 @@ test("D. produs Vendor B NU era în colecție, dar traffic attribution valid: A 
     noPromoter({ refInfluencerAttribution, refVendorAttribution })
   );
 
-  const fields = buildShipmentAttributionFields({
-    promoter,
-    shipmentVendorId: VENDOR_B,
-    discountCodeScope: null,
-    discountCodeCollectionSlug: null,
-  });
+  return {
+    effectiveVendorAttribution,
+    fields: buildShipmentAttributionFields({
+      promoter,
+      shipmentVendorId: VENDOR_B,
+      discountCodeScope: null,
+      discountCodeCollectionSlug: null,
+    }),
+  };
+}
 
+test("D. produs Vendor B NU era în colecția lui A -> A NU primește referral (cross-vendor cere membership)", () => {
+  const { effectiveVendorAttribution, fields } = collectionQuoteFields({ wasMember: false });
+  assert.equal(effectiveVendorAttribution, null);
+  assert.equal(fields.referrerVendorId, null);
+});
+
+test("D2. produs Vendor B ERA în colecția lui A -> A primește referral cross-vendor", () => {
+  const { fields } = collectionQuoteFields({ wasMember: true });
   assert.equal(fields.referrerVendorId, VENDOR_A);
+  assert.equal(fields.referrerVendorReferralCodeSnapshot, "COLLECTION:colectia-a");
 });
 
 test("Prioritate: cod explicit legat de un ALT vendor câștigă peste attribution-ul pasiv din snapshot, dar snapshot-ul istoric rămâne intact", () => {

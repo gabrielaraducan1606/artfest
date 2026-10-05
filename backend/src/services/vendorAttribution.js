@@ -29,6 +29,7 @@
 import { prisma } from "../db.js";
 import { verifyVendorReferralAttributionToken } from "./vendorAttributionToken.js";
 import { verifyVendorCollectionAttributionToken } from "./vendorCollectionAttributionToken.js";
+import { isVendorCollectionLive } from "./vendorCollectionRules.js";
 
 /*
  * Comisionul Artfest pe shipment-ul unei vânzări "own-sale"
@@ -195,10 +196,15 @@ export async function resolveVendorCollectionAttribution({
       id: true,
       vendorId: true,
       slug: true,
+      isActive: true,
+      startsAt: true,
+      endsAt: true,
+      allOwnProducts: true,
     },
   });
 
-  if (!collection) {
+  // colecție în afara intervalului startsAt / endsAt -> fără atribuire nouă
+  if (!collection || !isVendorCollectionLive(collection)) {
     return null;
   }
 
@@ -221,6 +227,7 @@ export async function resolveVendorCollectionAttribution({
     ...attribution,
     collectionId: collection.id,
     collectionSlug: collection.slug,
+    allOwnProducts: Boolean(collection.allOwnProducts),
     issuedAt: payload.issuedAt,
   };
 }
@@ -258,4 +265,108 @@ export async function resolveVendorReferralAttributionByVendorId({
   });
 
   return buildAttributionFromVendor(vendor);
+}
+
+/*
+ * Atribuire VENDOR REFERRAL request-based: referralCode transportat în
+ * aceeași navigare (?ref= -> memoria aplicației -> payload checkout), fără
+ * token / stocare pe terminal / click tracking.
+ *
+ * Codul din client NU e de încredere: căutat exact în DB (Vendor.referralCode,
+ * unic) și validat cu ACEEAȘI regulă ca tokenul (buildAttributionFromVendor:
+ * vendor existent, activ; procent configurat sau implicit). Produce aceeași
+ * structură ca resolveVendorReferralAttribution:
+ * { vendorId, referralCodeSnapshot, commissionBpsSnapshot, issuedAt }.
+ *
+ * issuedAt = momentul capturii în aplicație (ms), folosit DOAR pentru regula
+ * existentă „global last click wins” față de atribuirea VendorCollection
+ * (resolveEffectiveRefVendorAttribution). Valoarea vine din client, deci e
+ * limitată la intervalul [acum - 168h, acum].
+ */
+const VENDOR_REFERRAL_CODE_MAX_LENGTH = 64;
+const REFERRAL_ISSUED_AT_MAX_AGE_MS = 168 * 60 * 60 * 1000;
+
+function clampIssuedAt(value, now = Date.now()) {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) return now;
+  return Math.min(now, Math.max(now - REFERRAL_ISSUED_AT_MAX_AGE_MS, ms));
+}
+
+export async function resolveVendorReferralAttributionByCode({
+  referralCode,
+  capturedAt,
+  db = prisma,
+} = {}) {
+  const code = String(referralCode ?? "").trim();
+  if (!code || code.length > VENDOR_REFERRAL_CODE_MAX_LENGTH) return null;
+
+  const vendor = await db.vendor.findUnique({
+    where: { referralCode: code },
+    select: {
+      id: true,
+      referralCode: true,
+      referralCommissionBps: true,
+      isActive: true,
+    },
+  });
+
+  const attribution = buildAttributionFromVendor(vendor);
+  if (!attribution) return null;
+
+  return { ...attribution, issuedAt: clampIssuedAt(capturedAt) };
+}
+
+/*
+ * Atribuire VendorCollection REQUEST-BASED: slug-ul colecției vizitate
+ * (/colectie-vendor/:slug -> memoria aplicației / ?vcol= -> checkout
+ * `vendorCollectionSlugs`), fără token / stocare / click tracking.
+ *
+ * Slug-ul vine din client, deci NU e de încredere: aceleași verificări ca
+ * resolveVendorCollectionAttribution (token) - colecție existentă și ACTIVĂ,
+ * owner vendor existent și ACTIV (buildAttributionFromVendor). NU depinde de
+ * Vendor.referralCode (snapshot-ul pe Shipment devine "COLLECTION:<slug>").
+ * Apartenența produselor (VendorCollectionItem) se verifică separat, la
+ * checkout, per item.
+ *
+ * issuedAt = momentul capturii (ms, limitat la [acum - 168h, acum]) - pentru
+ * regula existentă „global last click wins” față de ?ref= de vendor.
+ */
+const VENDOR_COLLECTION_SLUG_MAX_LENGTH = 180; // VendorCollection.slug VarChar(180)
+
+export async function resolveVendorCollectionAttributionBySlug({
+  slug,
+  capturedAt,
+  db = prisma,
+} = {}) {
+  const value = String(slug ?? "").trim();
+  if (!value || value.length > VENDOR_COLLECTION_SLUG_MAX_LENGTH) return null;
+
+  const collection = await db.vendorCollection.findFirst({
+    where: { slug: value, isActive: true },
+    select: { id: true, vendorId: true, slug: true, isActive: true, startsAt: true, endsAt: true, allOwnProducts: true },
+  });
+
+  // colecție în afara intervalului startsAt / endsAt -> fără atribuire nouă
+  if (!collection || !isVendorCollectionLive(collection)) return null;
+
+  const vendor = await db.vendor.findUnique({
+    where: { id: collection.vendorId },
+    select: {
+      id: true,
+      referralCode: true,
+      referralCommissionBps: true,
+      isActive: true,
+    },
+  });
+
+  const attribution = buildAttributionFromVendor(vendor);
+  if (!attribution) return null;
+
+  return {
+    ...attribution,
+    collectionId: collection.id,
+    collectionSlug: collection.slug,
+    allOwnProducts: Boolean(collection.allOwnProducts),
+    issuedAt: clampIssuedAt(capturedAt),
+  };
 }

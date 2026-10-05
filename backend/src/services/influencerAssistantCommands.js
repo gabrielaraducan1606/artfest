@@ -416,6 +416,15 @@ export async function getInfluencerCollections({ influencerId }) {
   };
 }
 
+// statusul efectiv al codului în răspunsul text (aceeași regulă ca validarea)
+const EFFECTIVE_STATUS_SUFFIX = Object.freeze({
+  ACTIVE: "",
+  SCHEDULED: " (programat)",
+  EXPIRED: " (expirat)",
+  DISABLED: " (inactiv)",
+  EXHAUSTED: " (epuizat)",
+});
+
 /* =========================================================
    6. getInfluencerDiscountCodes
 ========================================================= */
@@ -432,6 +441,8 @@ export async function getInfluencerDiscountCodes({ influencerId }) {
       name: code.name,
       status: code.status,
       isActive: code.isActive,
+      // status efectiv (ACTIVE / SCHEDULED / EXPIRED / DISABLED / EXHAUSTED) - deriveDiscountCodeStatus
+      effectiveStatus: code.effectiveStatus,
       discountPercent: code.discountPercent,
       scope: code.scope,
       collection: code.collection,
@@ -835,7 +846,7 @@ export function composeInfluencerAnswer(scope, data) {
       .map(
         (code) =>
           `${code.code} - ${code.discountPercent}%${
-            code.isActive ? "" : " (inactiv)"
+            EFFECTIVE_STATUS_SUFFIX[code.effectiveStatus] ?? (code.isActive ? "" : " (inactiv)")
           }`
       );
 

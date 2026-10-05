@@ -475,9 +475,10 @@ test("B+C. CARD două shipment-uri OUTBOUND, același vendor: 2 SALE, total = co
 });
 
 /* =========================================================
-   D. Own-sale: total ledger rămâne cel din computeOrderSplits
+   D. Own-sale: computeOrderSplits aplică override-ul (paritate cu COD)
+   - decizie explicită: CARD nu mai păstrează comisionul planului pe own-sale.
 ========================================================= */
-test("D. CARD own-sale: total ledger = computeOrderSplits (nu se aplică override-ul), transferul neschimbat", async () => {
+test("D. CARD own-sale: computeOrderSplits aplică 5% pe shipment-ul own-sale (= COD), transferul neschimbat", async () => {
   seedOrder({
     shipments: [
       { id: "s1", vendorId: "v1", items: [{ price: 10.05 }], vendorReferralCommissionOverrideBps: 500 },
@@ -488,11 +489,15 @@ test("D. CARD own-sale: total ledger = computeOrderSplits (nu se aplică overrid
   await postPaymentSucceeded();
 
   const vendorTotal = await vendorCommissionFromSplits("order-1", "v1");
-  assert.equal(vendorTotal, 2.41);
+  // s1 own-sale 5% (0,50) + s2 plan (1,21) - înainte: 2,41 (planul pe tot)
+  assert.equal(vendorTotal, 1.71);
   assert.equal(sumCents(saleRows(), "commissionNet"), cents(vendorTotal));
 
   const s1 = saleRows().find((r) => r.shipmentId === "s1");
-  assert.equal(s1.meta.cardAllocation.shipmentComputedCommissionNet, 0.5, "COD ar fi dat 5% doar pe acest shipment");
+  const s2 = saleRows().find((r) => r.shipmentId === "s2");
+  assert.equal(s1.meta.cardAllocation.shipmentComputedCommissionNet, 0.5, "COD: 5% pe acest shipment");
+  assert.equal(s1.commissionNet, 0.5, "CARD = COD pe shipment-ul own-sale");
+  assert.equal(s2.commissionNet, 1.21, "CARD = COD pe shipment-ul pe plan");
 
   // transferul Stripe = gross - fee, exact ca înainte (nu depinde de comision)
   assert.equal(fakeStripe.transferCreates.length, 1);

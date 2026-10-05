@@ -1,164 +1,113 @@
 // src/utils/campaignAttribution.js
 
 /*
- * Atribuire de campanie, per vendor, în localStorage.
+ * Memoria de CAMPANIE vendor (VendorCampaign) - request-based,
+ * privacy-minimal, același model ca referral-ul (utils/referralMemory.js).
  *
- * De ce nu o singură cheie globală (ca la referralCode din
- * Register.jsx): campania Vendorului A NU trebuie să șteargă
- * atribuirea Vendorului B dacă vizitatorul accesează ambele
- * link-uri într-o sesiune. Fiecare vendor are propriul slot,
- * suprascris doar când e accesat DIN NOU link-ul ACELUIAȘI
- * vendor (last-click-wins per vendor).
+ * Slug-urile campaniilor vizitate (/c/:slug, modalul campaniei din profilul
+ * magazinului, ?camp= din URL) sunt ținute DOAR în memoria aplicației,
+ * cele mai recente întâi (distincte, cel mult MAX_CAMPAIGN_SLUGS), și
+ * trimise ca `campaignSlugs` la coș / sumar / checkout / prețuri. Serverul
+ * revalidează fiecare campanie fresh din DB și alege, per vendor, cea mai
+ * recentă campanie VALIDĂ (backend/src/services/campaignAttribution.js).
  *
- * Tokenul salvat aici e doar un HINT pentru checkout - server-ul
- * revalidează mereu campania fresh din DB înainte să aplice
- * orice discount/comision redus (vezi
- * backend/src/services/campaignAttribution.js).
+ * NU citește / scrie localStorage / sessionStorage / cookie, nu face
+ * request și NU depinde de consimțământul „Atribuire” (slug-ul e public,
+ * nu identifică vizitatorul; reducerea și comisionul de campanie sunt
+ * tranzacționale). Refresh / tab nou: doar prin URL (?camp= pe paginile
+ * de produs din campanie și pe /checkout).
+ *
+ * Fosta cheie localStorage „artfest.campaignAttribution” (tokenul JWT
+ * per vendor) NU mai e folosită; rămâne doar în lista de curățare din
+ * lib/cookieConsent.js pentru datele vechi de pe dispozitive.
  */
 
-import { hasAttributionConsent } from "../lib/cookieConsent.js";
+export const CAMPAIGN_PARAM = "camp";
+export const MAX_CAMPAIGN_SLUGS = 10;
+const CAMPAIGN_SLUG_MAX_LENGTH = 160;
 
-const STORAGE_KEY = "artfest.campaignAttribution";
+function normalizeSlug(value) {
+  const slug = String(value ?? "").trim();
+  if (!slug || slug.length > CAMPAIGN_SLUG_MAX_LENGTH || slug.includes(",")) return null;
+  return slug;
+}
 
-function readMap() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
+export function createCampaignMemory() {
+  let slugs = []; // cele mai recente întâi
+
+  // vizită campanie -> last-click-wins (devine cea mai recentă)
+  function capture(value) {
+    const slug = normalizeSlug(value);
+    if (!slug) return false;
+    slugs = [slug, ...slugs.filter((s) => s !== slug)].slice(0, MAX_CAMPAIGN_SLUGS);
+    return true;
   }
-}
 
-function writeMap(map) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-  } catch {
-    // localStorage indisponibil (mod privat etc.) - degradăm silențios,
-    // pur și simplu nu se salvează atribuirea.
+  // ?camp= (repetabil; ordinea din URL = cea mai recentă primul)
+  function captureFromSearch(search) {
+    const values = new URLSearchParams(search || "").getAll(CAMPAIGN_PARAM);
+    [...values].reverse().forEach((slug) => capture(slug));
   }
-}
 
-function isExpired(entry, now = Date.now()) {
-  if (!entry?.expiresAt) return true;
-  const expiresAt = new Date(entry.expiresAt).getTime();
-  return !Number.isFinite(expiresAt) || expiresAt <= now;
-}
+  // după o comandă: campaniile cu ≥1 produs eligibil (răspunsul serverului)
+  function consume(consumed = []) {
+    if (!Array.isArray(consumed) || !consumed.length) return;
+    const drop = new Set(consumed.map(String));
+    slugs = slugs.filter((s) => !drop.has(s));
+  }
 
-/**
- * Apelat la accesarea /c/:slug (după ce backend-ul confirmă
- * campania validă și întoarce un attributionToken) - prin
- * utils/campaignAttributionCapture.js, care amână salvarea până la
- * consimțământul „Atribuire”.
- *
- * Întoarce true DOAR dacă tokenul a fost efectiv scris.
- */
-export function storeCampaignAttribution({
-  vendorId,
-  token,
-  campaignId,
-  slug,
-  attributionWindowHours,
-}) {
-  if (!vendorId || !token) return false;
-
-  /*
-   * BUGFIX (Cookies v2 §11.2 / audit legal) - token-ul de
-   * atribuire NU se scrie în localStorage fără consimțământul
-   * categoriei "Atribuire recomandări".
-   */
-  if (!hasAttributionConsent()) return false;
-
-  const windowHours = Math.max(1, Number(attributionWindowHours) || 168);
-  const expiresAt = new Date(
-    Date.now() + windowHours * 60 * 60 * 1000
-  ).toISOString();
-
-  const map = readMap();
-
-  map[String(vendorId)] = {
-    token,
-    campaignId: campaignId || null,
-    slug: slug || null,
-    capturedAt: new Date().toISOString(),
-    expiresAt,
+  return {
+    capture,
+    captureFromSearch,
+    consume,
+    getSlugs: () => [...slugs],
+    clear: () => {
+      slugs = [];
+    },
   };
-
-  writeMap(map);
-
-  // localStorage poate fi indisponibil (mod privat) - verificăm scrierea
-  return readMap()[String(vendorId)]?.token === token;
 }
 
-/**
- * { [vendorId]: attributionToken } - gata de trimis ca
- * `campaignAttribution` în body-ul de checkout. Elimină automat
- * intrările expirate.
- */
-export function getAttributionsForCheckout() {
-  if (!hasAttributionConsent()) {
-    writeMap({});
-    return {};
-  }
+/* =========================================================
+   Instanța aplicației (una singură)
+========================================================= */
 
-  const map = readMap();
-  const now = Date.now();
-  const result = {};
-  let changed = false;
+const appMemory = createCampaignMemory();
 
-  for (const [vendorId, entry] of Object.entries(map)) {
-    if (isExpired(entry, now)) {
-      changed = true;
-      continue;
-    }
-
-    if (entry?.token) {
-      result[vendorId] = entry.token;
-    }
-  }
-
-  if (changed) {
-    const pruned = {};
-    for (const [vendorId, entry] of Object.entries(map)) {
-      if (!isExpired(entry, now)) pruned[vendorId] = entry;
-    }
-    writeMap(pruned);
-  }
-
-  return result;
+export function captureCampaignSlug(slug) {
+  return appMemory.capture(slug);
 }
 
-/**
- * Consumă (șterge) tokenul de campanie pentru vendorii primiți -
- * apelat DOAR după o comandă plasată cu succes, DOAR pentru vendorii
- * pentru care backend-ul a confirmat că a existat ≥1 produs eligibil
- * (`eligibleCampaignVendorIds` din răspunsul /checkout/place sau
- * /checkout/guest/place - identic user/guest).
- *
- * Dacă tokenul exista dar comanda nu a avut niciun produs eligibil
- * pentru acea campanie, NU se cheamă asta pentru acel vendor -
- * tokenul rămâne valabil până la expirarea lui naturală (poate
- * exista o comandă viitoare cu alte produse, eligibile).
- *
- * O revenire explicită prin /c/:slug creează mereu un token NOU
- * (storeCampaignAttribution), indiferent dacă vendorul a fost
- * consumat aici sau nu.
+export function captureCampaignsFromSearch(search) {
+  return appMemory.captureFromSearch(search);
+}
+
+// body checkout / coș / sumar: `campaignSlugs`
+export function getCampaignSlugsForCheckout() {
+  return appMemory.getSlugs();
+}
+
+// query pentru GET-uri API (coș, sumar, produse): "campaignSlugs=a%2Cb" sau ""
+export function buildCampaignSlugsApiQuery() {
+  const slugs = appMemory.getSlugs();
+  return slugs.length ? `campaignSlugs=${encodeURIComponent(slugs.join(","))}` : "";
+}
+
+// query pentru URL-uri de pagină (produs din campanie, /checkout): "camp=a&camp=b" sau ""
+export function buildCampaignUrlQuery(slugs = appMemory.getSlugs()) {
+  const params = new URLSearchParams();
+  (slugs || []).forEach((slug) => {
+    const normalized = normalizeSlug(slug);
+    if (normalized) params.append(CAMPAIGN_PARAM, normalized);
+  });
+  return params.toString();
+}
+
+/*
+ * Apelat DOAR după o comandă plasată cu succes, cu `eligibleCampaignSlugs`
+ * din răspunsul /checkout/place sau /checkout/guest/place: campaniile fără
+ * niciun produs eligibil în comandă rămân în memorie (o comandă ulterioară
+ * cu produse eligibile le poate folosi).
  */
-export function consumeCampaignAttributions(vendorIds = []) {
-  if (!Array.isArray(vendorIds) || !vendorIds.length) return;
-
-  const map = readMap();
-  let changed = false;
-
-  for (const vendorId of vendorIds) {
-    const key = String(vendorId || "");
-    if (key && map[key]) {
-      delete map[key];
-      changed = true;
-    }
-  }
-
-  if (changed) {
-    writeMap(map);
-  }
+export function consumeCampaignSlugs(slugs = []) {
+  appMemory.consume(slugs);
 }

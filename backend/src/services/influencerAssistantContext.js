@@ -163,6 +163,8 @@ export async function getInfluencerAssistantContext({
       name: code.name,
       status: code.status,
       isActive: code.isActive,
+      // status efectiv (ACTIVE / SCHEDULED / EXPIRED / DISABLED / EXHAUSTED) - deriveDiscountCodeStatus
+      effectiveStatus: code.effectiveStatus,
       discountPercent: code.discountPercent,
       scope: code.scope,
       collection: code.collection,

@@ -13,6 +13,10 @@ import {
   resolveVendorCampaignAttributions,
   buildCampaignPromotionsByProductId,
 } from "../services/campaignAttribution.js";
+import {
+  resolveOwnCollectionAttributions,
+  withOwnCollectionPromotions,
+} from "../services/vendorCollectionPricing.js";
 const router = Router();
 
 /*
@@ -284,7 +288,7 @@ function getStockLimit(p) {
 
 async function getCartForUser(
   userId,
-  { campaignAttribution = {} } = {}
+  { campaignSlugs = [], vendorCollectionSlugs = [], campaignAttribution = {} } = {}
 ) {
   const t0 = Date.now();
 
@@ -420,13 +424,24 @@ const cartVendorIds = [
 const campaignAttributionsByVendorId =
   await resolveVendorCampaignAttributions({
     vendorIds: cartVendorIds,
+    campaignSlugs,
+    // TRANZIȚIE - DE ELIMINAT: tokenuri din bundle-uri vechi
     tokensByVendorId: campaignAttribution || {},
   });
 
+// + reducerea colecțiilor proprii (VendorCollection, finanțată de vendor)
 const campaignPromotionsByProductId =
-  buildCampaignPromotionsByProductId(
+  withOwnCollectionPromotions(
+    buildCampaignPromotionsByProductId(
+      products,
+      campaignAttributionsByVendorId
+    ),
     products,
-    campaignAttributionsByVendorId
+    await resolveOwnCollectionAttributions({
+      vendorIds: cartVendorIds,
+      vendorCollectionSlugs,
+      campaignSlugs,
+    })
   );
 
 const pricingByProductId =
@@ -1746,7 +1761,12 @@ router.post(
     } =
       await getCartForUser(
         userId,
-        { campaignAttribution: req.body?.campaignAttribution || {} }
+        {
+          campaignSlugs: req.body?.campaignSlugs,
+          vendorCollectionSlugs: req.body?.vendorCollectionSlugs,
+          // TRANZIȚIE - DE ELIMINAT
+          campaignAttribution: req.body?.campaignAttribution || {},
+        }
       );
 
     return res.json({
@@ -1800,6 +1820,9 @@ router.get(
       await getCartForUser(
         userId,
         {
+          campaignSlugs: req.query?.campaignSlugs,
+          vendorCollectionSlugs: req.query?.vendorCollectionSlugs,
+          // TRANZIȚIE - DE ELIMINAT
           campaignAttribution: parseCampaignAttributionQuery(
             req.query?.campaignAttribution
           ),

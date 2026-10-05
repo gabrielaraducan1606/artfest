@@ -1,0 +1,72 @@
+/*
+ * Pagina publică a unei colecții (/colectie-vendor/:slug) - completează
+ * Products.module.css (layout-ul comun al listărilor) cu elementele proprii
+ * colecției, pe variabilele globale din src/styles/variables.css.
+ */
+
+.cover {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  margin-top: 20px;
+  aspect-ratio: 16 / 6;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 14px);
+  background: var(--surface-muted);
+  box-shadow: var(--shadow-sm);
+}
+
+/* nota de reducere (doar produsele ownerului) */
+.discountNote {
+  display: inline-block;
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--surface));
+  color: var(--color-text);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+/* colecție programată / expirată */
+.statusNote {
+  display: inline-block;
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+  border-radius: var(--radius);
+  background: var(--warning-bg-soft);
+  color: var(--color-text);
+  line-height: 1.45;
+}
+
+.productCell {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* sellerul REAL al produsului (poate fi alt magazin decât ownerul colecției) */
+.seller {
+  margin: 0 4px;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seller a {
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.seller a:hover {
+  color: var(--color-hover);
+  text-decoration: underline;
+}

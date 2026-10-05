@@ -26,6 +26,7 @@
 
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { deriveDiscountCodeStatus } from "../services/discountCodeValidation.js";
 import { authRequired } from "../api/auth.js";
 import {
   getDiscountCodeStats,
@@ -108,6 +109,16 @@ const EMPTY_STATS = {
   vendorNetGenerated: 0,
 };
 
+// filtrul ?status= din lista admin -> statusul efectiv
+const ADMIN_STATUS_FILTERS = Object.freeze({
+  active: "ACTIVE",
+  inactive: "DISABLED",
+  disabled: "DISABLED",
+  scheduled: "SCHEDULED",
+  expired: "EXPIRED",
+  exhausted: "EXHAUSTED",
+});
+
 function serializeListRow(discountCode, stats = null) {
   const { artfestDiscountPercent, vendorDiscountPercent } =
     splitDiscountPercentForDisplay(discountCode);
@@ -128,6 +139,8 @@ function serializeListRow(discountCode, stats = null) {
 
     isActive: discountCode.isActive,
     status: discountCode.status,
+    // status efectiv - aceeași regulă ca validarea (deriveDiscountCodeStatus)
+    effectiveStatus: deriveDiscountCodeStatus(discountCode),
 
     scope: discountCode.scope,
 
@@ -208,8 +221,6 @@ router.get("/", async (req, res) => {
           }
         : {}),
 
-      ...(status === "active" ? { isActive: true } : {}),
-      ...(status === "inactive" ? { isActive: false } : {}),
 
       ...(funding &&
       ["PLATFORM", "VENDOR", "SHARED"].includes(String(funding))
@@ -218,6 +229,26 @@ router.get("/", async (req, res) => {
 
       ...(scope ? { scope: String(scope) } : {}),
     };
+
+    /*
+     * Filtrul de status = statusul EFECTIV (deriveDiscountCodeStatus), nu
+     * doar isActive: „activ” exclude codurile expirate / programate /
+     * epuizate. EXHAUSTED compară două coloane (usedCount vs usageLimit),
+     * deci filtrăm id-urile cu funcția comună, apoi paginăm pe ele.
+     * Compatibil: active -> ACTIVE, inactive -> DISABLED.
+     */
+    const wantedStatus = ADMIN_STATUS_FILTERS[String(status || "").toLowerCase()] || null;
+
+    if (wantedStatus) {
+      const candidates = await prisma.discountCode.findMany({
+        where,
+        select: { id: true, status: true, isActive: true, startsAt: true, endsAt: true, usageLimit: true, usedCount: true },
+      });
+      const now = new Date();
+      where.id = {
+        in: candidates.filter((c) => deriveDiscountCodeStatus(c, now) === wantedStatus).map((c) => c.id),
+      };
+    }
 
     const [items, total] = await Promise.all([
       prisma.discountCode.findMany({

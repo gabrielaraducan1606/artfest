@@ -128,6 +128,8 @@ async function buildShipmentFinancialsForAdmin(shipment) {
           confirmedSale.meta?.platformSubsidyAmount ?? null,
         isReversed: Boolean(confirmedRefund),
         isSnapshot: true,
+        vendorCollectionReferralBase:
+          confirmedSale.meta?.vendorCollectionReferralBase ?? null,
       };
     } else {
       const live = await computeVendorEarningForShipment({
@@ -157,7 +159,10 @@ async function buildShipmentFinancialsForAdmin(shipment) {
       commissionBpsSnapshot: shipment.referrerVendorCommissionBpsSnapshot,
       ledgerModel: prisma.vendorReferralEarningEntry,
       shipmentId: shipment.id,
-      liveArtfestCommissionNet: vendorFinancials.commissionNet,
+      // VendorCollection per item: doar itemii din colecție (snapshot)
+      liveArtfestCommissionNet:
+        vendorFinancials.vendorCollectionReferralBase?.platformNet ??
+        vendorFinancials.commissionNet,
     });
 
     vendorFinancials.netArtfestAfterAttribution = round2(
@@ -1467,10 +1472,38 @@ const shipmentFinancialsById = new Map(
   )
 );
 
+/*
+ * orderMode pe fiecare linie (DIRECT / OPTIONS / QUOTE_ONLY) - doar afișare.
+ * ShipmentItem nu are relație cu Product în schemă, deci o singură citire
+ * separată după productId. E modul CURENT al produsului (nu un snapshot
+ * de la comandă); produs șters -> null.
+ */
+const itemProductIds = [
+  ...new Set(
+    (safeOrder.shipments || [])
+      .flatMap((shipment) => shipment.items || [])
+      .map((item) => item.productId)
+      .filter(Boolean)
+  ),
+];
+const orderModeByProductId = new Map(
+  itemProductIds.length
+    ? (
+        await prisma.product.findMany({
+          where: { id: { in: itemProductIds } },
+          select: { id: true, orderMode: true },
+        })
+      ).map((product) => [product.id, product.orderMode || null])
+    : []
+);
 const safeShipments =
   (safeOrder.shipments || []).map(
     (shipment) => ({
       ...shipment,
+      items: (shipment.items || []).map((item) => ({
+        ...item,
+        orderMode: item.productId ? orderModeByProductId.get(item.productId) ?? null : null,
+      })),
 
       deposit:
         getDepositAdminData(

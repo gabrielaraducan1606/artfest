@@ -158,6 +158,61 @@ async function resolveEligibleProductIds({
   return new Set();
 }
 
+/*
+ * =========================================================
+ * STATUS EFECTIV AL UNUI COD - SURSĂ UNICĂ
+ * =========================================================
+ * Folosit de validateDiscountCode (checkout / summary / oferte) ȘI de
+ * listările vendor / influencer / admin (effectiveStatus), ca UI-ul să
+ * afișeze exact ce acceptă validarea. Expirarea NU e scrisă în DB
+ * (discountCodeExpiryJob doar notifică) - se derivă aici, la cerere.
+ *
+ * Ordinea = ordinea verificărilor din validateDiscountCode:
+ *   DISABLED  - status != ACTIVE sau isActive = false
+ *   SCHEDULED - startsAt > now
+ *   EXPIRED   - endsAt <= now
+ *   EXHAUSTED - usageLimit setat și usedCount >= usageLimit
+ *   ACTIVE    - altfel
+ * Datele sunt comparate ca instanțe Date (UTC), fără fus orar local.
+ */
+export const DISCOUNT_CODE_EFFECTIVE_STATUS = Object.freeze({
+  DISABLED: "DISABLED",
+  SCHEDULED: "SCHEDULED",
+  ACTIVE: "ACTIVE",
+  EXPIRED: "EXPIRED",
+  EXHAUSTED: "EXHAUSTED",
+});
+
+const toDateOrNull = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+export function deriveDiscountCodeStatus(discountCode, now = new Date()) {
+  const S = DISCOUNT_CODE_EFFECTIVE_STATUS;
+  if (!discountCode) return S.DISABLED;
+
+  if (discountCode.status !== "ACTIVE" || !discountCode.isActive) return S.DISABLED;
+
+  const at = toDateOrNull(now) || new Date();
+  const startsAt = toDateOrNull(discountCode.startsAt);
+  const endsAt = toDateOrNull(discountCode.endsAt);
+
+  if (startsAt && startsAt > at) return S.SCHEDULED;
+  if (endsAt && endsAt <= at) return S.EXPIRED;
+
+  if (
+    discountCode.usageLimit !== null &&
+    discountCode.usageLimit !== undefined &&
+    Number(discountCode.usedCount || 0) >= Number(discountCode.usageLimit)
+  ) {
+    return S.EXHAUSTED;
+  }
+
+  return S.ACTIVE;
+}
+
 /**
  * @returns {Promise<{
  *   valid: boolean,
@@ -209,21 +264,24 @@ export async function validateDiscountCode({
     );
   }
 
-  if (discountCode.status !== "ACTIVE" || !discountCode.isActive) {
+  // statusul efectiv - aceeași funcție ca listările (effectiveStatus)
+  const effectiveStatus = deriveDiscountCodeStatus(discountCode, now);
+
+  if (effectiveStatus === DISCOUNT_CODE_EFFECTIVE_STATUS.DISABLED) {
     return invalid(
       "discount_code_inactive",
       "Acest cod de reducere nu mai este activ."
     );
   }
 
-  if (discountCode.startsAt && discountCode.startsAt > now) {
+  if (effectiveStatus === DISCOUNT_CODE_EFFECTIVE_STATUS.SCHEDULED) {
     return invalid(
       "discount_code_not_started",
       "Acest cod de reducere nu este încă valabil."
     );
   }
 
-  if (discountCode.endsAt && discountCode.endsAt <= now) {
+  if (effectiveStatus === DISCOUNT_CODE_EFFECTIVE_STATUS.EXPIRED) {
     return invalid(
       "discount_code_expired",
       "Acest cod de reducere a expirat."
@@ -241,11 +299,8 @@ export async function validateDiscountCode({
     );
   }
 
-  if (
-    discountCode.usageLimit !== null &&
-    discountCode.usageLimit !== undefined &&
-    discountCode.usedCount >= discountCode.usageLimit
-  ) {
+  // după verificarea monedei - ordinea de erori de dinainte
+  if (effectiveStatus === DISCOUNT_CODE_EFFECTIVE_STATUS.EXHAUSTED) {
     return invalid(
       "discount_code_usage_limit_reached",
       "Acest cod de reducere a atins limita de utilizări."

@@ -16,3 +16,21 @@
  *   - Orders/components/AwbPanel           „Generează AWB” / „Descarcă eticheta”
  */
 export const VENDOR_COURIERS_ENABLED = false;
+
+/*
+ * ATTRIBUTION_REQUIRES_CONSENT - atribuirea de referral request-based
+ * (INFLUENCER + VENDOR REFERRAL: ?ref= / colecție -> memoria aplicației ->
+ * coduri trimise la checkout -> validare server-side), FĂRĂ stocare pe
+ * terminal (fără localStorage / cookie), fără click tracking și fără
+ * identificatori (sessionId / ipHash / userAgent).
+ *
+ * false = varianta privacy-minimal: referral-ul e folosit fără a depinde de
+ *         consimțământul „Atribuire” (nu se stochează nimic pe dispozitiv).
+ * true  = referral-ul e folosit doar cu consimțământ „Atribuire”.
+ *
+ * Singurul punct de verificare: utils/referralMemory.js
+ * (createReferralMemory). Nu se citește în alte componente.
+ * Campaniile vendorului NU folosesc acest flag: model request-based separat,
+ * fără consimțământ (utils/campaignAttribution.js, ?camp=).
+ */
+export const ATTRIBUTION_REQUIRES_CONSENT = false;

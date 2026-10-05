@@ -34,14 +34,16 @@ import {
 } from "../../../payments/vendorStripeStatus.js";
 
 import {
-  resolveInfluencerAttribution,
   resolveInfluencerAttributionByInfluencerId,
 } from "../../../services/influencerAttribution.js";
+import {
+  resolveBuyerSelfIdentity,
+  resolveRequestReferralAttributions,
+  withoutSelfReferral,
+} from "../../../services/referralAttribution.js";
 
 import {
-  resolveVendorReferralAttribution,
   resolveVendorReferralAttributionByVendorId,
-  resolveVendorCollectionAttribution,
 } from "../../../services/vendorAttribution.js";
 
 import {
@@ -52,6 +54,7 @@ import {
 import {
   buildQuoteAttributionSnapshot,
   resolvePassiveAttributionFromSnapshot,
+  quoteCollectionSnapshotForItem,
 } from "../../../services/quoteAttribution.js";
 
 import {
@@ -259,8 +262,13 @@ router.post(
         budgetMin,
         budgetMax,
         influencerAttribution,
+        influencerReferralCode,
+        influencerCollectionReferralCode,
+        referralCodes,
+        vendorReferralCode,
         vendorReferralAttribution,
-        vendorCollectionAttribution,
+        vendorCollectionSlugs,
+        vendorCollectionAttribution, // TRANZIȚIE - DE ELIMINAT
       } = req.body || {};
 
       /* =====================================================
@@ -728,21 +736,24 @@ router.post(
          Reutilizează STRICT helperii din checkout - fără motor nou.
       ===================================================== */
 
-      const [
-        influencerAttributionResolved,
-        vendorReferralAttributionResolved,
-        vendorCollectionAttributionResolved,
-      ] = await Promise.all([
-        resolveInfluencerAttribution({
-          token: influencerAttribution,
-        }),
-        resolveVendorReferralAttribution({
-          token: vendorReferralAttribution,
-        }),
-        resolveVendorCollectionAttribution({
-          token: vendorCollectionAttribution,
-        }),
-      ]);
+      // referral request-based (influencer + vendor): coduri din navigare,
+      // validate server-side; tokenurile vechi doar ca tranziție
+      // + VendorCollection request-based (slug), token vechi doar ca tranziție
+      const requestReferrals = await resolveRequestReferralAttributions({
+        referralCodes,
+        influencerReferralCode,
+        influencerCollectionReferralCode,
+        vendorReferralCode,
+        influencerToken: influencerAttribution,
+        vendorToken: vendorReferralAttribution,
+        vendorCollectionSlugs,
+        vendorCollectionToken: vendorCollectionAttribution,
+      });
+
+      const vendorCollectionAttributionResolved = requestReferrals.collection;
+
+      const influencerAttributionResolved = requestReferrals.influencer;
+      const vendorReferralAttributionResolved = requestReferrals.vendor;
 
       let vendorCollectionProductWasMember = false;
 
@@ -762,7 +773,11 @@ router.post(
             select: { productId: true },
           });
 
-        vendorCollectionProductWasMember = Boolean(membership);
+        vendorCollectionProductWasMember =
+          Boolean(membership) ||
+          // allOwnProducts: orice produs propriu al ownerului colecției e membru
+          (vendorCollectionAttributionResolved.allOwnProducts === true &&
+            String(vendorCollectionAttributionResolved.vendorId) === String(resolvedVendorId));
       }
 
       const effectiveVendorAttribution =
@@ -3199,15 +3214,29 @@ router.post(
         Boolean(discountCodeInfluencerAttribution) &&
         Boolean(discountCodeEligibleProductIds?.size);
 
+      // anti-self-referral: clientul nu primește câștig de referral către sine
+      const buyerSelf = await resolveBuyerSelfIdentity({ userId });
+      const selfOpts = { self: buyerSelf, shipmentVendorId: quote.vendorId };
+
       const shipmentPromoter = resolveShipmentPromoter({
         shipmentWonByDiscountCode,
         shipmentEligibleForVendorAttributionByDiscountCode,
         shipmentEligibleForInfluencerByDiscountCode,
-        discountCodeInfluencerAttribution,
-        discountCodeVendorAttribution,
-        refInfluencerAttribution,
-        refVendorAttribution,
+        discountCodeInfluencerAttribution: withoutSelfReferral(discountCodeInfluencerAttribution, { ...selfOpts, kind: "influencer" }),
+        discountCodeVendorAttribution: withoutSelfReferral(discountCodeVendorAttribution, { ...selfOpts, kind: "vendor" }),
+        refInfluencerAttribution: withoutSelfReferral(refInfluencerAttribution, { ...selfOpts, kind: "influencer" }),
+        refVendorAttribution: withoutSelfReferral(refVendorAttribution, { ...selfOpts, kind: "vendor" }),
       });
+
+      /*
+       * VendorCollection PER ITEM: snapshot-ul se scrie doar dacă a câștigat
+       * chiar atribuirea pasivă înghețată la cerere (același obiect) și doar
+       * pe linia produsului cerut - vezi quoteCollectionSnapshotForItem.
+       */
+      const quoteCollectionWon =
+        shipmentPromoter?.type === "VENDOR" &&
+        Boolean(refVendorAttribution) &&
+        shipmentPromoter.vendor === refVendorAttribution;
 
       const shipmentAttributionFields = buildShipmentAttributionFields({
         promoter: shipmentPromoter,
@@ -3693,6 +3722,17 @@ router.post(
 
                           configurationKey:
                             item.configurationKey,
+
+                          ...quoteCollectionSnapshotForItem({
+                            attributionSnapshot:
+                              quote.requestData?.attributionSnapshot || null,
+                            collectionWon:
+                              quoteCollectionWon,
+                            requestedProductId:
+                              quote.productId,
+                            productId:
+                              item.productId,
+                          }),
                         })
                       ),
                   },

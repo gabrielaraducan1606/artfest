@@ -45,6 +45,7 @@ import { Router } from "express";
 import { z } from "zod";
 
 import { prisma } from "../db.js";
+import { deriveDiscountCodeStatus } from "../services/discountCodeValidation.js";
 
 import {
   authRequired,
@@ -271,6 +272,8 @@ export function serializeVendorDiscountCode(discountCode, stats = null) {
     fundingSource: discountCode.fundingSource,
     status: discountCode.status,
     isActive: discountCode.isActive,
+    // status efectiv (Programat / Activ / Expirat / Inactiv / Epuizat) - aceeași regulă ca validarea
+    effectiveStatus: deriveDiscountCodeStatus(discountCode),
     startsAt: discountCode.startsAt,
     endsAt: discountCode.endsAt,
     usageLimit: discountCode.usageLimit,
