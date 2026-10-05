@@ -1685,3 +1685,16 @@
   opacity: .6;
   cursor: not-allowed;
 }
+
+/* ===== Admin pe mobil: titlul paginii curente în header ===== */
+.adminMobileTitle {
+  min-width: 0;
+  max-width: 52vw;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--color-text);
+}

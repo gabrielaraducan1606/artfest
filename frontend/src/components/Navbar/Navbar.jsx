@@ -85,6 +85,8 @@ import { toCollectionCards } from "../../pages/Home/CollectionsSection/collectio
 import {
   ADMIN_DASHBOARD_LINK,
   ADMIN_NAV_SECTIONS,
+  withAdminDefaultTab,
+  getAdminPageLabel,
 } from "../../config/adminNavigation.js";
 
 /*
@@ -1569,16 +1571,16 @@ const isAdminRoute = location.pathname.startsWith("/admin");
 
     for (const section of ADMIN_NAV_SECTIONS) {
       if (
-        section.items.some((item) =>
-          isVendorNavItemActive(item, location)
-        )
+        section.items.some((item) => {
+          const { to, search } = withAdminDefaultTab(item.to, location.pathname, location.search);
+          return isVendorNavItemActive({ ...item, to }, { pathname: location.pathname, search });
+        })
       ) {
         return section.key;
       }
     }
 
     return null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, location.pathname, location.search]);
 
   useEffect(() => {
@@ -1591,6 +1593,20 @@ const isAdminRoute = location.pathname.startsWith("/admin");
       return next;
     });
   }, [activeAdminSectionKey, burgerOpen]);
+
+  // item activ în meniul admin (lipsa ?tab= = tabul implicit al paginii)
+  const isAdminItemActive = useCallback(
+    (item) => {
+      const { to, search } = withAdminDefaultTab(item.to, location.pathname, location.search);
+      return isVendorNavItemActive({ ...item, to }, { pathname: location.pathname, search });
+    },
+    [location.pathname, location.search]
+  );
+
+  const adminPageLabel = useMemo(
+    () => getAdminPageLabel(location.pathname, location.search),
+    [location.pathname, location.search]
+  );
 
   const toggleAdminSection = useCallback((key) => {
     setAdminOpenSections((prev) => {
@@ -1811,6 +1827,11 @@ const isAdminRoute = location.pathname.startsWith("/admin");
                 <Bell size={22} />
                 {adminBadge && <span className={styles.badge}>{adminBadge}</span>}
               </button>
+
+              {/* pe ce pagină admin ești (mobil) */}
+              <span className={styles.adminMobileTitle} title={adminPageLabel}>
+                {adminPageLabel}
+              </span>
             </div>
           </div>
         </div>
@@ -1889,12 +1910,12 @@ const isAdminRoute = location.pathname.startsWith("/admin");
           open={burgerOpen}
           onClose={() => setBurgerOpen(false)}
           displayName={adminDisplayName}
-          eyebrow="Dashboard admin"
+          eyebrow={`Administrator${me?.email ? ` · ${me.email}` : ""}`}
           dashboardLink={ADMIN_DASHBOARD_LINK}
           sections={ADMIN_NAV_SECTIONS}
           openSections={adminOpenSections}
           onToggleSection={toggleAdminSection}
-          isItemActive={isVendorItemActive}
+          isItemActive={isAdminItemActive}
           theme={theme}
           onToggleTheme={toggleTheme}
           onLogout={handleLogout}

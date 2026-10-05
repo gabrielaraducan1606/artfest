@@ -1238,3 +1238,63 @@
     width: 100%;
   }
 }
+/* ===== Subtaburi (Overview / Influenceri / Promovare / ...) ===== */
+.subTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 700px) {
+  /* un rând cu scroll orizontal, nu 6 butoane pe toată lățimea */
+  .subTabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 -12px 14px;
+    padding: 2px 12px 6px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .subTabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .subTabs .subTabBtn {
+    flex: 0 0 auto;
+    width: auto;
+    white-space: nowrap;
+    padding: 9px 14px;
+  }
+
+  /* modalul: header-ul (cu Închide) rămâne vizibil la scroll */
+  .modal {
+    max-height: min(92dvh, 92vh);
+  }
+
+  .modalHeader {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--surface);
+  }
+
+  /* drawer-ul de influencer: tot ecranul, cu scroll intern (header fix) */
+  .drawer {
+    width: 100%;
+    height: 100dvh;
+  }
+
+  .drawerBody {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 430px) {
+  /* statisticile: 2 pe rând și pe telefoane mici (nu un card pe ecran) */
+  .statsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+}

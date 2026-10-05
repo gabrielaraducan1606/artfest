@@ -739,3 +739,42 @@ html[data-theme="dark"] .clickableRow:hover {
     text-align: left;
   }
 }
+
+/* =============== Mobil (admin) =============== */
+@media (max-width: 768px) {
+  .page {
+    padding: 14px 12px 24px;
+  }
+
+  /* KPI-urile pe 2 coloane - conținutul real nu mai începe după 2 ecrane */
+  .kpiRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .kpi {
+    padding: 12px;
+  }
+
+  /* taburile: un rând cu scroll orizontal, nu un zid de butoane */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 8px;
+    margin: 0 -12px 14px;
+    padding: 2px 12px 6px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+}

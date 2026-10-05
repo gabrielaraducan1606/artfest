@@ -83,3 +83,9 @@ test("drawer-ul arată secțiunea „Colaborare Artfest” doar pentru profile (
 
   assert.match(section, /item\.collaboration && \(/);
 });
+
+test("mobil: subtaburile sunt un rând tablist (clase CSS), nu butoane inline pe toată lățimea", () => {
+  assert.match(source, /className=\{styles\.subTabs\}\s+role="tablist"/);
+  assert.ok(source.includes('role="tab"'));
+  assert.ok(source.includes("aria-selected="));
+});

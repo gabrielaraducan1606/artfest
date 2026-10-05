@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../../../lib/api.js";
 import styles from "../AdminDesktop.module.css";
+import AdminMobileFilters from "../../AdminMobileFilters.jsx";
+import { countActiveFilters } from "../../adminFilters.js";
 import {
   getShipmentSource,
   getOrderSourceSummary,
@@ -298,7 +300,11 @@ async function handleOpenOrder(
 }
   return (
     <>
-      {/* Filtre */}
+      {/* Filtre - pe mobil ascunse în „Filtre (N)” (AdminMobileFilters) */}
+      <AdminMobileFilters
+        activeCount={countActiveFilters([filters.q?.trim() || "", filters.status, filters.payment, filters.hasShipments])}
+        onReset={resetFilters}
+      >
       <div className={styles.filtersRow}>
         <label>
           <span>Caută</span>
@@ -372,6 +378,7 @@ async function handleOpenOrder(
           <span className={styles.filtersCount}>{totalItems} rezultate</span>
         </div>
       </div>
+      </AdminMobileFilters>
 
       {(forcedUserId || forcedVendorId) && (
         <div className={styles.subtle}>

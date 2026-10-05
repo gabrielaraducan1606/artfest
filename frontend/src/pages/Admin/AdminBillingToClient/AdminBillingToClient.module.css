@@ -264,3 +264,32 @@
   .filters { grid-template-columns: 1fr; }
   .kvGrid { grid-template-columns: 1fr; }
 }
+
+/* ===== Mobil: modal pe aproape tot ecranul, header fix, scroll intern ===== */
+@media (max-width: 768px) {
+  .modalBackdrop {
+    align-items: flex-end;
+    place-items: end stretch;
+    padding: 0;
+  }
+
+  .modal {
+    width: 100%;
+    max-width: 100vw;
+    max-height: min(94dvh, 94vh);
+    border-radius: calc(var(--radius) + 6px) calc(var(--radius) + 6px) 0 0;
+  }
+
+  .modalHead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--surface);
+  }
+}
+
+@media (max-width: 768px) {
+  .kvGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

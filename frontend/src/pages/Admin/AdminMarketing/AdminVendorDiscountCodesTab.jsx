@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { api } from "../../../lib/api.js";
+import AdminMobileFilters from "../AdminMobileFilters.jsx";
+import { countActiveFilters } from "../adminFilters.js";
 import {
   getDiscountCodeStatusLabel,
   isDiscountCodeEffectivelyActive,
@@ -200,6 +202,17 @@ export default function AdminVendorDiscountCodesTab() {
         </div>
       </div>
 
+      {/* pe mobil: filtrele în „Filtre (N)” (AdminMobileFilters) */}
+      <AdminMobileFilters
+        activeCount={countActiveFilters([query, statusFilter, fundingFilter, scopeFilter])}
+        onReset={() => {
+          setQueryInput("");
+          setQuery("");
+          setStatusFilter("");
+          setFundingFilter("");
+          setScopeFilter("");
+        }}
+      >
       <div className={styles.filters}>
         <input
           type="search"
@@ -266,6 +279,7 @@ export default function AdminVendorDiscountCodesTab() {
           Reîncarcă
         </button>
       </div>
+      </AdminMobileFilters>
 
       {error && <div className={styles.error}>{error}</div>}
       {success && <div className={styles.success}>{success}</div>}

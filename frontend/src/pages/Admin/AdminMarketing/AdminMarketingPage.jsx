@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../../lib/api";
 import styles from "./AdminMarketingPage.module.css";
 
@@ -10,6 +11,19 @@ import AdminAmbassadorsTab from "./AdminAmbassadorsTab";
 import AdminInfluencersTab from "./AdminInfluencersTab.jsx";
 import AdminVendorDiscountCodesTab from "./AdminVendorDiscountCodesTab.jsx";
 import AdminVendorCampaignsTab from "./AdminVendorCampaignsTab.jsx";
+
+// taburile adresabile prin ?tab= (linkuri directe din meniul admin, inclusiv pe mobil)
+const MARKETING_TAB_IDS = [
+  "campaign",
+  "prefs",
+  "newsletter",
+  "digitalWaitlist",
+  "marketplaceWaitlist",
+  "ambassadors",
+  "influencers",
+  "vendorDiscountCodes",
+  "vendorCampaigns",
+];
 
 function cx(...xs) {
   return xs.filter(Boolean).join(" ");
@@ -23,7 +37,14 @@ export default function AdminMarketingTab() {
     unsubscribedTotal: 0,
   });
 
-  const [tab, setTab] = useState("campaign");
+  // tabul activ = ?tab= din URL (implicit „campaign”), click-ul îl scrie înapoi
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
+  const tab = MARKETING_TAB_IDS.includes(tabFromUrl) ? tabFromUrl : "campaign";
+  const setTab = useCallback(
+    (id) => setSearchParams({ tab: id }, { replace: true }),
+    [setSearchParams]
+  );
 
   const [prefs, setPrefs] = useState([]);
   const [prefsPage, setPrefsPage] = useState(1);

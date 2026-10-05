@@ -45,6 +45,7 @@ import PublicVendorCollectionPage
   from "./pages/VendorCollections/PublicVendorCollectionPage.jsx";
 import Login from "./pages/Auth/Login/Login";
 import { getSafeLoginRedirect } from "./pages/Auth/Login/loginRedirect.js";
+import { AdminArea } from "./pages/Admin/AdminArea.jsx";
 import Register from "./pages/Auth/Register/Register";
 import ForgotPassword from "./pages/Auth/ForgotPassword";
 import ResetPassword from "./pages/Auth/ResetPassword";
@@ -599,7 +600,10 @@ function AdminLayout() {
   return (
     <>
       <Navbar />
-      <Outlet />
+      {/* zona admin: reguli de mobil + tabele -> carduri (AdminArea.jsx) */}
+      <AdminArea>
+        <Outlet />
+      </AdminArea>
     </>
   );
 }

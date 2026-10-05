@@ -1739,24 +1739,24 @@ export default function AdminInfluencersTab() {
           SUB-TABURI
       ===================================================== */}
 
+      {/* pe mobil: un rând cu scroll orizontal (CSS .subTabs) */}
       <div
-        style={{
-          display: "flex",
-          gap: 8,
-          flexWrap: "wrap",
-          marginBottom: 20,
-        }}
+        className={styles.subTabs}
+        role="tablist"
+        aria-label="Secțiuni influenceri"
       >
         {SUB_TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"
+            role="tab"
+            aria-selected={subTab === tab.id}
             onClick={() => setSubTab(tab.id)}
-            className={
+            className={`${
               subTab === tab.id
                 ? styles.primaryButton
                 : styles.secondaryButton
-            }
+            } ${styles.subTabBtn}`}
           >
             {tab.label}
           </button>

@@ -44,7 +44,7 @@ export default function AdminDesktop() {
    * /admin?tab=products&moderation=PENDING). Fără param -> comportamentul
    * de dinainte (tab-ul implicit / cel ales manual).
    */
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
 
   useEffect(() => {
@@ -407,7 +407,7 @@ export default function AdminDesktop() {
         />
       </div>
 
-      <div className={styles.tabs}>
+      <div className={styles.tabs} role="tablist" aria-label="Secțiuni admin">
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -415,7 +415,12 @@ export default function AdminDesktop() {
             className={`${styles.tab} ${
               activeTab === tab.id ? styles.tabActive : ""
             }`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => {
+              setActiveTab(tab.id);
+              // tabul în URL: linkurile din meniul admin (și Back) îl deschid direct
+              setSearchParams({ tab: tab.id }, { replace: true });
+            }}
+            aria-current={activeTab === tab.id ? "page" : undefined}
           >
             {tab.label}
           </button>
