@@ -1,6 +1,7 @@
 // src/pages/ProductDetails/components/SimilarProductsGrid.jsx
 import React, { useCallback, useMemo, useRef } from "react";
 import { api } from "../../../../lib/api.js";
+import { Link } from "react-router-dom";
 import styles from "../ProductDetails.module.css";
 import {
   productPlaceholder,
@@ -15,7 +16,7 @@ function formatMoney(value, currency = "RON") {
   }).format(value);
 }
 
-function SimilarProductsGridBase({ products, cacheT, navigate }) {
+function SimilarProductsGridBase({ products, cacheT }) {
   const prefetchedRef = useRef(new Set());
 
   const normalizedProducts = useMemo(() => {
@@ -71,14 +72,6 @@ function SimilarProductsGridBase({ products, cacheT, navigate }) {
     }
   }, []);
 
-  const handleNavigate = useCallback(
-    (productId) => {
-      if (!productId) return;
-      navigate(`/produs/${productId}`);
-    },
-    [navigate]
-  );
-
   if (!normalizedProducts.length) return null;
 
   return (
@@ -87,15 +80,14 @@ function SimilarProductsGridBase({ products, cacheT, navigate }) {
 
       <div className={styles.relatedGrid}>
         {normalizedProducts.map((p, index) => (
-          <button
+          <Link
             key={p.id}
+            to={`/produs/${p.id}`}
             className={styles.relatedCard}
-            onClick={() => handleNavigate(p.id)}
             onMouseEnter={() => prefetchProduct(p)}
             onFocus={() => prefetchProduct(p)}
             onTouchStart={() => prefetchProduct(p)}
             aria-label={`Vezi ${p.title}`}
-            type="button"
           >
             <div className={styles.relImageWrap}>
               <img
@@ -128,7 +120,7 @@ function SimilarProductsGridBase({ products, cacheT, navigate }) {
                 <div className={styles.relPrice}>{p.formattedPrice}</div>
               )}
             </div>
-          </button>
+          </Link>
         ))}
       </div>
     </section>

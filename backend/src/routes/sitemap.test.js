@@ -300,6 +300,16 @@ test("pagina index /colectii e în sitemap, alături de /categorii", async (t) =
   assert.ok(locs.includes("https://www.artfest.ro/categorii"));
 });
 
+test("paginile legale apar cu URL-ul final, nu cu adresele care fac redirect 302", async (t) => {
+  const { locs, cleanup } = await fetchSitemap();
+  t.after(cleanup);
+
+  assert.ok(locs.includes("https://www.artfest.ro/legal/tos.html"));
+  assert.ok(locs.includes("https://www.artfest.ro/legal/privacy.html"));
+  assert.ok(!locs.includes("https://www.artfest.ro/termenii-si-conditiile"));
+  assert.ok(!locs.includes("https://www.artfest.ro/confidentialitate"));
+});
+
 test("URL-urile paginate (?page=N) NU sunt în sitemap (se descoperă prin linkuri Următoarea/Anterioara)", async (t) => {
   const { locs, cleanup } = await fetchSitemap({
     collections: [collection({ slug: "nunta" })],

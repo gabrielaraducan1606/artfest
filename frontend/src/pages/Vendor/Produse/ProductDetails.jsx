@@ -5561,14 +5561,12 @@ const isUploading =
               <StoreProductsSlider
                 products={storeProducts}
                 cacheT={cacheT}
-                navigate={navigate}
               />
             </section>
 
             <SimilarProductsGrid
               products={similarProducts}
               cacheT={cacheT}
-              navigate={navigate}
             />
 
             {/*
@@ -5585,7 +5583,6 @@ const isUploading =
                 product={product}
                 getExcludedIds={getDiscoverExcludedIds}
                 cacheT={cacheT}
-                navigate={navigate}
               />
             )}
           </>

@@ -2,6 +2,7 @@
 import React, { useCallback, useMemo, useRef } from "react";
 import { FaChevronLeft, FaChevronRight } from "react-icons/fa";
 import { api } from "../../../../lib/api.js";
+import { Link } from "react-router-dom";
 import styles from "../ProductDetails.module.css";
 import {
   productPlaceholder,
@@ -16,7 +17,7 @@ function formatMoney(value, currency = "RON") {
   }).format(value);
 }
 
-function StoreProductsSliderBase({ products, cacheT, navigate }) {
+function StoreProductsSliderBase({ products, cacheT }) {
   const scrollRef = useRef(null);
   const prefetchedRef = useRef(new Set());
 
@@ -83,14 +84,6 @@ function StoreProductsSliderBase({ products, cacheT, navigate }) {
     }
   }, []);
 
-  const handleNavigate = useCallback(
-    (productId) => {
-      if (!productId) return;
-      navigate(`/produs/${productId}`);
-    },
-    [navigate]
-  );
-
   if (!normalizedProducts.length) {
     return (
       <div className={styles.emptyBox}>
@@ -112,15 +105,14 @@ function StoreProductsSliderBase({ products, cacheT, navigate }) {
 
       <div className={styles.relatedScroll} ref={scrollRef}>
         {normalizedProducts.map((p, index) => (
-          <button
+          <Link
             key={p.id}
+            to={`/produs/${p.id}`}
             className={styles.relatedCard}
-            onClick={() => handleNavigate(p.id)}
             onMouseEnter={() => prefetchProduct(p)}
             onFocus={() => prefetchProduct(p)}
             onTouchStart={() => prefetchProduct(p)}
             aria-label={`Vezi ${p.title}`}
-            type="button"
           >
             <div className={styles.relImageWrap}>
               <img
@@ -150,7 +142,7 @@ function StoreProductsSliderBase({ products, cacheT, navigate }) {
                 <div className={styles.relPrice}>{p.formattedPrice}</div>
               )}
             </div>
-          </button>
+          </Link>
         ))}
       </div>
 

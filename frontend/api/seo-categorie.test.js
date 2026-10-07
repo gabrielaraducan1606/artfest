@@ -339,3 +339,84 @@ test("builder: același rezultat pentru aceleași date (funcția și pagina folo
   const b = buildCategoryStructuredData({ category: CATEGORY, items: [...PRODUCTS] });
   assert.deepEqual(a, b);
 });
+
+/* ---------- rute necunoscute: 404 real, nu soft 404 (vercel.json + /api/spa-404) ---------- */
+
+const VERCEL = JSON.parse(readFileSync(join(here, "..", "vercel.json"), "utf8"));
+const APP_JSX = readFileSync(join(here, "..", "src", "App.jsx"), "utf8");
+
+// sintaxa folosită în vercel.json: ":param", ":param*" și "(.*)"
+function vercelSourceRegex(source) {
+  const pattern = source
+    .replace(/[.+?^${}|[\]\\]/g, "\\$&")
+    .replace(/\\\(\.\*\)/g, "(.*)")
+    .replace(/\(\\\.\*\)/g, "(.*)")
+    .replace(/:[A-Za-z]+\*/g, ".*")
+    .replace(/:[A-Za-z]+/g, "[^/]+");
+  return new RegExp(`^${pattern}$`);
+}
+
+function rewriteFor(pathname) {
+  return VERCEL.rewrites.find((r) => vercelSourceRegex(r.source).test(pathname));
+}
+
+test("vercel.json: fiecare rută din App.jsx e servită de o rută cunoscută (nu de 404-ul final)", () => {
+  const paths = [...APP_JSX.matchAll(/path="([^"]*)"/g)].map((m) => m[1]);
+  const absolute = paths.filter((p) => p.startsWith("/"));
+  assert.ok(absolute.length > 50);
+
+  for (const p of absolute) {
+    const sample = p.replace(/:[A-Za-z]+/g, "x");
+    const rewrite = rewriteFor(sample);
+    assert.ok(rewrite, p);
+    assert.notEqual(rewrite.destination, "/api/spa-404", `${p} ar primi 404`);
+  }
+
+  // copiii relativi ai /admin (marketing, billing, ...)
+  for (const child of ["marketing", "billing", "vendor-plans"]) {
+    assert.equal(rewriteFor(`/admin/${child}`).destination, "/index.html");
+  }
+});
+
+test("vercel.json: URL-urile necunoscute (inclusiv /cauta) ajung la /api/spa-404; /cauta are X-Robots-Tag noindex", () => {
+  const last = VERCEL.rewrites[VERCEL.rewrites.length - 1];
+  assert.deepEqual(last, { source: "/(.*)", destination: "/api/spa-404" });
+
+  for (const p of ["/cauta", "/pagina-inexistenta", "/produse/extra/segment", "/vendor/inexistent"]) {
+    assert.equal(rewriteFor(p).destination, "/api/spa-404", p);
+  }
+  // rutele publice importante NU sunt afectate
+  assert.equal(rewriteFor("/produs/abc").destination, "/api/seo-produs?id=:id");
+  assert.equal(rewriteFor("/produse").destination, "/index.html");
+  assert.equal(rewriteFor("/").destination, "/index.html");
+
+  const cauta = VERCEL.headers.find((h) => h.source === "/cauta");
+  assert.deepEqual(cauta.headers, [{ key: "X-Robots-Tag", value: "noindex" }]);
+});
+
+test("/api/spa-404: HTTP 404 + noindex, cu ACELAȘI shell SPA (React rulează la fel în browser)", async () => {
+  const { default: spa404 } = await import("./spa-404.js");
+  const res = fakeRes();
+  await spa404({ query: {} }, res);
+
+  assert.equal(res.statusCode, 404);
+  assert.equal(res.headers["x-robots-tag"], "noindex");
+  assert.match(res.body, /<meta name="robots" content="noindex" data-seo="1" \/>/);
+  assert.ok(!res.body.includes('content="index, follow"'));
+  assert.match(res.body, /<title>Pagina nu a fost găsită \| Artfest<\/title>/);
+  assert.ok(!res.body.includes('rel="canonical"'));
+  assert.ok(res.body.includes('<div id="root"></div>'), "body-ul SPA rămâne neschimbat");
+});
+
+test("/api/spa-404: shell indisponibil => tot 404 + noindex", async () => {
+  const { default: spa404 } = await import("./spa-404.js");
+  globalThis.fetch = async () => {
+    throw new Error("network_down");
+  };
+  const res = fakeRes();
+  await spa404({ query: {} }, res);
+
+  assert.equal(res.statusCode, 404);
+  assert.equal(res.headers["x-robots-tag"], "noindex");
+  assert.match(res.body, /noindex/);
+});

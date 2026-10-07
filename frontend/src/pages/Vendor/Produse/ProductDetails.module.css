@@ -698,6 +698,18 @@
 }
 
 .relatedCard {
+  /* cardul e un link real (<a>, crawlabil); valorile de mai jos
+     reproduc stilurile implicite ale <button>-ului folosit anterior,
+     ca aspectul să rămână identic */
+  display: block;
+  box-sizing: border-box;
+  color: buttontext;
+  /* fontul implicit al <button> din fiecare browser (ultima declarație
+     validă câștigă: Chrome/Safari -webkit-small-control, Firefox -moz-button) */
+  font: 13.3333px Arial, sans-serif;
+  font: -moz-button;
+  font: -webkit-small-control;
+  text-decoration: none;
   border: 1px solid var(--color-border);
   background: var(--surface);
   border-radius: var(--radius);

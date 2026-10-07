@@ -20,6 +20,17 @@
       "includeFiles": "{src/utils/seo/**,src/constants/**}"
     }
   },
+  "headers": [
+    {
+      "source": "/cauta",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/sitemap.xml",
@@ -90,8 +101,252 @@
       "destination": "/api/seo-categorie?slug=:slug"
     },
     {
-      "source": "/(.*)",
+      "source": "/",
       "destination": "/index.html"
+    },
+    {
+      "source": "/@:slug",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/account/support",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/account/support/tickets/:ticketId",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/ambasadori",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/autentificare",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/c/:slug",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/categorii",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/cereri",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/cereri/:id",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/checkout",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/colectie-vendor/:slug",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/comanda-guest/:id",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/comanda/:id",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/comenzile-mele",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/cont",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/cont/mesaje",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/cont/setari",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/cos",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/desktop",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/desktop-user",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/facturi",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/influencer",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/influencer/register",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/inregistrare",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/magazine",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/mesaje",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/multumim",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/notificari",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/onboarding",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/onboarding/details",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/planner",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/politica-cookie",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/politica-de-retur",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/preferinte-cookie",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/produse",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/reset-parola",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/retur-guest/:id",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/selectii/:slug",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/servicii-digitale",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/setari",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/support",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/catalog",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/costs-profit",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/costs-profit/:productId",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/costs-profit/library",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/invoices",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/notifications",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/orders",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/orders/:id",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/orders/planning",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/promovari",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/settings/confirm-deactivate",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/store",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/stores",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/support",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/visitors",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/verify-email",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/wishlist",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/api/spa-404"
     }
   ]
 }

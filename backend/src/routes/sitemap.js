@@ -46,8 +46,11 @@ router.get("/sitemap.xml", async (req, res) => {
       { loc: "/magazine" },
       { loc: "/categorii" },
       { loc: "/colectii" },
-      { loc: "/termenii-si-conditiile" },
-      { loc: "/confidentialitate" },
+      // URL-urile finale: /termenii-si-conditiile și /confidentialitate
+      // fac 302 către aceste pagini (rewrite Vercel -> backend), iar un
+      // sitemap trebuie să conțină doar URL-uri fără redirect.
+      { loc: "/legal/tos.html" },
+      { loc: "/legal/privacy.html" },
       { loc: "/politica-cookie" },
       { loc: "/politica-de-retur" },
       { loc: "/preferinte-cookie" },

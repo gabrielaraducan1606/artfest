@@ -15,6 +15,7 @@
 // similare") - niciun endpoint nou.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../../lib/api.js";
+import { Link } from "react-router-dom";
 import styles from "../ProductDetails.module.css";
 import {
   productPlaceholder,
@@ -35,7 +36,7 @@ function formatMoney(value, currency = "RON") {
   }).format(value);
 }
 
-function DiscoverMoreProductsBase({ product, getExcludedIds, cacheT, navigate }) {
+function DiscoverMoreProductsBase({ product, getExcludedIds, cacheT }) {
   const [items, setItems] = useState([]);
   // "idle" -> "loading" -> "done" | "error" - randăm ceva vizibil
   // DOAR în starea "done" cu produse găsite (nicio secțiune goală,
@@ -165,14 +166,6 @@ function DiscoverMoreProductsBase({ product, getExcludedIds, cacheT, navigate })
     }
   }, []);
 
-  const handleNavigate = useCallback(
-    (productId) => {
-      if (!productId) return;
-      navigate(`/produs/${productId}`);
-    },
-    [navigate]
-  );
-
   // Sentinela pentru IntersectionObserver TREBUIE randată chiar dacă
   // nu avem încă produse (altfel observer-ul n-are ce urmări) - dar
   // fără conținut vizibil cât timp nu s-a încărcat nimic, ca să nu
@@ -193,15 +186,14 @@ function DiscoverMoreProductsBase({ product, getExcludedIds, cacheT, navigate })
 
       <div className={styles.discoverGrid}>
         {normalizedItems.map((p) => (
-          <button
+          <Link
             key={p.id}
+            to={`/produs/${p.id}`}
             className={styles.relatedCard}
-            onClick={() => handleNavigate(p.id)}
             onMouseEnter={() => prefetchProduct(p)}
             onFocus={() => prefetchProduct(p)}
             onTouchStart={() => prefetchProduct(p)}
             aria-label={`Vezi ${p.title}`}
-            type="button"
           >
             <div className={styles.relImageWrap}>
               <img
@@ -234,7 +226,7 @@ function DiscoverMoreProductsBase({ product, getExcludedIds, cacheT, navigate })
                 <div className={styles.relPrice}>{p.formattedPrice}</div>
               )}
             </div>
-          </button>
+          </Link>
         ))}
       </div>
     </section>
