@@ -12,6 +12,7 @@ import {
 } from "../api/auth.js";
 
 import {
+  computeFeatureEmailSendAt,
   generateHomepageSchedule,
   notifyVendorAboutFeatureCreated,
   getDayRange,
@@ -418,7 +419,12 @@ router.get(
 
       return res.json({
         ok: true,
-        features,
+        // momentul programat al emailului (3 / 7 zile înainte, 09:00 RO)
+        features: features.map((feature) => ({
+          ...feature,
+          emailScheduledFor:
+            computeFeatureEmailSendAt(feature),
+        })),
       });
     } catch (error) {
       console.error(
@@ -1624,10 +1630,27 @@ if (
   notificationDone &&
   emailDone
 ) {
+  const scheduledLabel = result.emailScheduledFor
+    ? new Date(result.emailScheduledFor).toLocaleString("ro-RO", {
+        timeZone: "Europe/Bucharest",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
   message =
-    result.emailSkipped
-      ? "Vendorul fusese deja notificat și emailul fusese deja trimis."
-      : "Notificarea și emailul au fost trimise vendorului.";
+    !result.emailSkipped
+      ? "Notificarea și emailul au fost trimise vendorului."
+      : result.emailSkipReason === "scheduled"
+        ? `Notificarea în platformă e trimisă. Emailul este programat pentru ${scheduledLabel}.`
+        : result.emailSkipReason === "started"
+          ? "Notificarea în platformă e trimisă. Promovarea a început deja, deci emailul de anunț nu se mai trimite."
+          : result.emailSkipReason === "ineligible"
+            ? "Notificarea în platformă e trimisă. Emailul nu pleacă: produsul / magazinul / vendorul nu este activ."
+            : "Vendorul fusese deja notificat și emailul fusese deja trimis.";
 } else if (
   notificationDone
 ) {

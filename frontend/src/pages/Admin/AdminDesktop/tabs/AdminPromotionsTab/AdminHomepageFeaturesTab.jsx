@@ -1972,10 +1972,22 @@ function FeatureCard({
           }
           label={
             emailed
-              ? "Email trimis"
+              ? `Notificare trimisă la: ${formatDateTime(
+                  feature.vendorEmailedAt
+                )}`
               : feature.vendorEmailError
-                ? "Eroare email"
-                : "Email netrimis"
+                ? `Eroare email${
+                    feature.emailScheduledFor
+                      ? ` · se reîncearcă (programat pentru: ${formatDateTime(
+                          feature.emailScheduledFor
+                        )})`
+                      : ""
+                  }`
+                : feature.emailScheduledFor
+                  ? `Notificare programată pentru: ${formatDateTime(
+                      feature.emailScheduledFor
+                    )}`
+                  : "Email netrimis"
           }
         />
 

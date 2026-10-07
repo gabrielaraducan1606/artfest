@@ -344,6 +344,10 @@ async function loadSchedulerWithMocks({ db, notifyModule, mailerModule }) {
   };
 }
 
+// emailul e PROGRAMAT (3 zile înainte, 09:00 RO): pentru fixture-ul de pe
+// 16 sep e scadent între 13 sep 09:00 și începutul promovării
+const DUE_NOW = new Date("2026-09-14T08:00:00.000Z");
+
 function makeFeatureFixture(overrides = {}) {
   return {
     id: "feature-vendor-test",
@@ -380,7 +384,7 @@ test("D. la creare: notificarea in-app și emailul pleacă EXACT o dată, iar ve
   try {
     const feature = makeFeatureFixture();
 
-    const result = await notifyVendorAboutFeatureCreated(feature);
+    const result = await notifyVendorAboutFeatureCreated(feature, { now: DUE_NOW });
 
     assert.equal(result.ok, true);
     assert.equal(result.notificationSent, true);
@@ -414,7 +418,7 @@ test("E. retry (ex. buton „Retrimite” după ce vendorul a fost deja contacta
   try {
     const feature = makeFeatureFixture();
 
-    const first = await notifyVendorAboutFeatureCreated(feature);
+    const first = await notifyVendorAboutFeatureCreated(feature, { now: DUE_NOW });
 
     // simulăm reîncărcarea feature-ului din DB după primul apel
     // (exact ce face ruta /:id/send-notification înainte de retry)
@@ -423,7 +427,7 @@ test("E. retry (ex. buton „Retrimite” după ce vendorul a fost deja contacta
       vendorEmailedAt: first.vendorEmailedAt,
     });
 
-    const second = await notifyVendorAboutFeatureCreated(reloaded);
+    const second = await notifyVendorAboutFeatureCreated(reloaded, { now: DUE_NOW });
 
     // notificarea in-app rămâne idempotentă (upsert pe dedupeKey în
     // stratul real) - a doua chemare tot "reușește", dar NU a produs
@@ -461,7 +465,7 @@ test("E2. emailul eșuează: vendorEmailedAt NU se completează, dar notificarea
       },
     });
 
-    const result = await notifyVendorAboutFeatureCreated(feature);
+    const result = await notifyVendorAboutFeatureCreated(feature, { now: DUE_NOW });
 
     assert.equal(result.notificationSent, true);
     assert.equal(result.emailSent, false);
@@ -484,7 +488,7 @@ test("E2. emailul eșuează: vendorEmailedAt NU se completează, dar notificarea
       },
     });
 
-    const retryResult = await notifyVendorAboutFeatureCreated(retryFeature);
+    const retryResult = await notifyVendorAboutFeatureCreated(retryFeature, { now: DUE_NOW });
 
     assert.equal(retryResult.emailSent, true);
     assert.ok(retryResult.vendorEmailedAt instanceof Date);
@@ -653,4 +657,226 @@ test("F2. vendorul NU poate seta reducerea dacă NU a fost încă notificat (ven
     restore();
     await stop();
   }
+});
+
+/* =========================================================
+   H. Email PROGRAMAT: Produsul zilei -3 zile, Artizanul săptămânii
+   -7 zile, 09:00 ora României; job idempotent; conținut nou.
+========================================================= */
+
+// Produsul zilei pe 10 oct 2026 (00:00 ora României = 2026-10-09T21:00Z)
+const POD_OCT_10 = { id: "pod-10", type: "PRODUCT_OF_DAY", startsAt: new Date("2026-10-09T21:00:00.000Z"), endsAt: new Date("2026-10-10T21:00:00.000Z") };
+// Artizanul săptămânii luni 12 oct - duminică 18 oct 2026
+const AOW_OCT_12 = { id: "aow-12", type: "ARTISAN_OF_WEEK", startsAt: new Date("2026-10-11T21:00:00.000Z"), endsAt: new Date("2026-10-18T21:00:00.000Z") };
+
+async function loadPureScheduler() {
+  const db = makeFakeHomepageFeatureDb();
+  return loadSchedulerWithMocks({ db, notifyModule: makeFakeNotifyModule(), mailerModule: makeFakeMailerModule() });
+}
+
+test("H1. data trimiterii: Produsul zilei 10 oct -> 7 oct 09:00; Artizanul săptămânii luni 12 oct -> luni 5 oct 09:00 (ora României)", async () => {
+  const { restore } = await loadPureScheduler();
+  const mod = await import(`./homepageFeatureScheduler.js?h1=${Math.random()}`);
+  try {
+    assert.equal(mod.computeFeatureEmailSendAt(POD_OCT_10).toISOString(), "2026-10-07T06:00:00.000Z"); // 09:00 EEST
+    assert.equal(mod.computeFeatureEmailSendAt(AOW_OCT_12).toISOString(), "2026-10-05T06:00:00.000Z"); // luni 09:00
+    // iarna (EET, UTC+2): 09:00 = 07:00Z
+    const winter = { type: "PRODUCT_OF_DAY", startsAt: new Date("2026-12-09T22:00:00.000Z") }; // 10 dec 00:00 RO
+    assert.equal(mod.computeFeatureEmailSendAt(winter).toISOString(), "2026-12-07T07:00:00.000Z");
+  } finally {
+    restore();
+  }
+});
+
+test("H2. plan: înainte de sendAt = programat; după = scadent; promovare începută / produs inactiv = fără email", async () => {
+  const { restore } = await loadPureScheduler();
+  const mod = await import(`./homepageFeatureScheduler.js?h2=${Math.random()}`);
+  const feature = makeFeatureFixture({ ...POD_OCT_10, productId: "p1", vendorId: "vendor-1" });
+  try {
+    assert.equal(mod.planFeatureEmail(feature, new Date("2026-10-07T05:59:00Z")).reason, "scheduled");
+    assert.equal(mod.planFeatureEmail(feature, new Date("2026-10-07T06:00:00Z")).reason, "due");
+    // programată după momentul normal (ex. pe 9 oct), dar înainte de start -> imediat
+    assert.equal(mod.planFeatureEmail(feature, new Date("2026-10-09T15:00:00Z")).sendNow, true);
+    assert.equal(mod.planFeatureEmail(feature, new Date("2026-10-09T21:00:00Z")).reason, "started");
+    const inactive = makeFeatureFixture({ ...POD_OCT_10, product: { title: "x", isActive: false } });
+    assert.equal(mod.planFeatureEmail(inactive, new Date("2026-10-08T10:00:00Z")).reason, "ineligible");
+    const hidden = makeFeatureFixture({ ...POD_OCT_10, product: { title: "x", isHidden: true } });
+    assert.equal(mod.planFeatureEmail(hidden, new Date("2026-10-08T10:00:00Z")).reason, "ineligible");
+  } finally {
+    restore();
+  }
+});
+
+test("H3. la creare ÎNAINTE de termen: notificare in-app imediat, emailul NU pleacă (programat)", async () => {
+  const db = makeFakeHomepageFeatureDb();
+  const notifyModule = makeFakeNotifyModule();
+  const mailerModule = makeFakeMailerModule();
+  const { notifyVendorAboutFeatureCreated, restore } = await loadSchedulerWithMocks({ db, notifyModule, mailerModule });
+  try {
+    const feature = makeFeatureFixture({ ...POD_OCT_10 });
+    const result = await notifyVendorAboutFeatureCreated(feature, { now: new Date("2026-10-01T10:00:00Z") });
+
+    assert.equal(result.notificationSent, true);
+    assert.equal(result.emailSent, false);
+    assert.equal(result.emailSkipReason, "scheduled");
+    assert.equal(result.emailScheduledFor.toISOString(), "2026-10-07T06:00:00.000Z");
+    assert.equal(mailerModule.calls.length, 0);
+    assert.equal(result.vendorEmailedAt, null);
+  } finally {
+    restore();
+  }
+});
+
+/* job cu DB fals (fără DB real, fără email real) */
+function makeJobDb(features, emailLogs = []) {
+  const rows = features.map((f) => ({ vendorEmailedAt: null, vendorEmailError: null, vendorId: "vendor-1", ...f }));
+  return {
+    rows,
+    homepageFeature: {
+      findMany: async ({ where }) =>
+        rows.filter(
+          (r) =>
+            r.vendorEmailedAt === null &&
+            r.vendorId &&
+            r.startsAt > where.startsAt.gt &&
+            r.startsAt <= where.startsAt.lte
+        ),
+      update: async ({ where, data }) => Object.assign(rows.find((r) => r.id === where.id), data),
+    },
+    emailLog: {
+      findFirst: async ({ where }) =>
+        emailLogs.find((l) => l.template === where.template && l.status === where.status) || null,
+      count: async ({ where }) =>
+        emailLogs.filter((l) => l.template === where.template && l.status === where.status).length,
+    },
+  };
+}
+
+async function loadJob() {
+  const mockMailer = mock.module("../lib/mailer.js", {
+    namedExports: {
+      homepageFeatureEmailTemplate: (id) => `homepage_feature:${id}`,
+      sendHomepageFeatureSelectedEmail: async () => ({ ok: true }),
+    },
+  });
+  const mockDb = mock.module("../db.js", { namedExports: { prisma: {} } });
+  const mockNotify = mock.module("./notifications.js", {
+    namedExports: { notifyVendorOnHomepageFeatureCreated: async () => null },
+  });
+  const mod = await import(`../jobs/homepageFeatureEmailJob.js?j=${Math.random()}`);
+  return {
+    runHomepageFeatureEmailJob: mod.runHomepageFeatureEmailJob,
+    MAX_FAILED_ATTEMPTS: mod.MAX_FAILED_ATTEMPTS,
+    restore: () => {
+      mockMailer.restore();
+      mockDb.restore();
+      mockNotify.restore();
+    },
+  };
+}
+
+test("H4. job: trimite DOAR promovările scadente, o singură dată; a doua rulare nu duplică", async () => {
+  const { runHomepageFeatureEmailJob, restore } = await loadJob();
+  try {
+    const pod = makeFeatureFixture({ ...POD_OCT_10 });
+    const aow = makeFeatureFixture({ ...AOW_OCT_12, id: "aow-12", type: "ARTISAN_OF_WEEK", service: { profile: { slug: "atelier" } } });
+    const db = makeJobDb([pod, aow]);
+    const sent = [];
+    const sendNow = async (feature) => {
+      sent.push(feature.id);
+      db.rows.find((r) => r.id === feature.id).vendorEmailedAt = new Date();
+      return { emailSent: true };
+    };
+
+    // 7 oct 10:00 RO: Produsul zilei (10 oct) e scadent; Artizanul (12 oct) a fost scadent pe 5 oct
+    const now = new Date("2026-10-07T07:00:00Z");
+    const first = await runHomepageFeatureEmailJob({ now, prisma: db, sendNow });
+    assert.deepEqual(sent.sort(), ["aow-12", "pod-10"]);
+    assert.equal(first.sent, 2);
+
+    const second = await runHomepageFeatureEmailJob({ now: new Date("2026-10-07T07:15:00Z"), prisma: db, sendNow });
+    assert.equal(second.sent, 0);
+    assert.equal(sent.length, 2, "nicio trimitere în plus");
+  } finally {
+    restore();
+  }
+});
+
+test("H5. job: înainte de termen nu trimite; EmailLog SENT existent -> doar marchează, fără retrimitere; după 5 eșecuri -> stop", async () => {
+  const { runHomepageFeatureEmailJob, MAX_FAILED_ATTEMPTS, restore } = await loadJob();
+  try {
+    const sent = [];
+    const sendNow = async (feature) => {
+      sent.push(feature.id);
+      return { emailSent: false };
+    };
+
+    // înainte de 7 oct 09:00 -> nimic
+    const early = makeJobDb([makeFeatureFixture({ ...POD_OCT_10 })]);
+    const r1 = await runHomepageFeatureEmailJob({ now: new Date("2026-10-06T10:00:00Z"), prisma: early, sendNow });
+    assert.equal(r1.notDue, 1);
+    assert.equal(sent.length, 0);
+
+    // emailul a plecat deja (EmailLog SENT), dar vendorEmailedAt n-a fost salvat
+    const logged = makeJobDb(
+      [makeFeatureFixture({ ...POD_OCT_10 })],
+      [{ template: "homepage_feature:pod-10", status: "SENT", sentAt: new Date("2026-10-07T06:01:00Z") }]
+    );
+    const r2 = await runHomepageFeatureEmailJob({ now: new Date("2026-10-07T08:00:00Z"), prisma: logged, sendNow });
+    assert.equal(r2.alreadyLogged, 1);
+    assert.equal(sent.length, 0);
+    assert.ok(logged.rows[0].vendorEmailedAt instanceof Date);
+
+    // eșecuri repetate -> retry până la limită, apoi stop (doar manual din Admin)
+    const failedLogs = Array.from({ length: MAX_FAILED_ATTEMPTS }, () => ({
+      template: "homepage_feature:pod-10",
+      status: "FAILED",
+    }));
+    const failing = makeJobDb([makeFeatureFixture({ ...POD_OCT_10 })], failedLogs);
+    const r3 = await runHomepageFeatureEmailJob({ now: new Date("2026-10-07T08:00:00Z"), prisma: failing, sendNow });
+    assert.equal(r3.gaveUp, 1);
+    assert.equal(sent.length, 0);
+
+    // sub limită -> se reîncearcă
+    const retry = makeJobDb([makeFeatureFixture({ ...POD_OCT_10 })], failedLogs.slice(1));
+    await runHomepageFeatureEmailJob({ now: new Date("2026-10-07T08:00:00Z"), prisma: retry, sendNow });
+    assert.deepEqual(sent, ["pod-10"]);
+  } finally {
+    restore();
+  }
+});
+
+test("H6. conținut: subiectele cerute, data în ora României, CTA spre produs / magazin", async () => {
+  process.env.APP_URL = "https://www.artfest.ro";
+  const { buildHomepageFeatureEmail } = await import(`../lib/mailer.js?h6=${Math.random()}`);
+
+  const pod = buildHomepageFeatureEmail({
+    firstName: "Ana",
+    featureId: "pod-10",
+    featureType: "PRODUCT_OF_DAY",
+    productId: "p1",
+    productTitle: "Lumânare de soia",
+    ...POD_OCT_10,
+  });
+  assert.equal(pod.subject, "Produsul tău va fi Produsul zilei pe Artfest ✨");
+  assert.match(pod.text, /^Bună, Ana,/);
+  assert.match(pod.text, /„Lumânare de soia”/);
+  assert.match(pod.text, /📅 Data promovării: 10 octombrie 2026/);
+  assert.match(pod.text, /Vezi produsul: https:\/\/www\.artfest\.ro\/produs\/p1/);
+  assert.match(pod.text, /Mulțumim că faci parte din comunitatea Artfest 🤍/);
+
+  const aow = buildHomepageFeatureEmail({
+    firstName: "Ana",
+    featureId: "aow-12",
+    featureType: "ARTISAN_OF_WEEK",
+    storeName: "Atelier Ana",
+    storeSlug: "atelier-ana",
+    ...AOW_OCT_12,
+  });
+  assert.equal(aow.subject, "Săptămâna viitoare ești Artizanul săptămânii pe Artfest ✨");
+  assert.match(aow.text, /📅 Perioada promovării: 12 octombrie 2026 – 18 octombrie 2026/);
+  assert.match(aow.text, /Ai o săptămână la dispoziție pentru a pregăti magazinul\./);
+  assert.match(aow.text, /Vezi magazinul meu: https:\/\/www\.artfest\.ro\/magazin\/atelier-ana/);
+  assert.match(aow.text, /Ne bucurăm să te avem în comunitatea Artfest 🤍/);
+  assert.doesNotMatch(pod.html + aow.html, /<script/);
 });

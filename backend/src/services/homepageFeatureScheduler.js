@@ -920,8 +920,174 @@ async function chooseArtisanForDate(
      niciodată blocată de un eșec de notificare/email.
 ========================================================= */
 
+/* =========================================================
+   EMAIL PROMOVARE - PROGRAMAT ÎNAINTE DE ÎNCEPUT (2026-10-07)
+   - Produsul zilei:        sendAt = ziua promovării - 3 zile, 09:00
+   - Artizanul săptămânii:  sendAt = începutul săptămânii - 7 zile, 09:00
+   (ora României, din startsAt-ul din DB - nu din data creării).
+   Notificarea IN-APP rămâne la creare; DOAR emailul e programat
+   (jobs/homepageFeatureEmailJob.js îl trimite când devine scadent).
+   Promovare creată după momentul normal -> email imediat, o singură
+   dată, dacă nu a început încă. Promovare începută -> fără email.
+========================================================= */
+
+export const FEATURE_EMAIL_LEAD_DAYS = Object.freeze({
+  PRODUCT_OF_DAY: 3,
+  ARTISAN_OF_WEEK: 7,
+});
+
+export const FEATURE_EMAIL_SEND_HOUR = 9;
+
+/** Ziua calendaristică (ora României) "YYYY-MM-DD" minus `days`. */
+function shiftDayKey(dayKey, days) {
+  const base = new Date(`${dayKey}T12:00:00.000Z`);
+  base.setUTCDate(base.getUTCDate() - days);
+  return base.toISOString().slice(0, 10);
+}
+
+/**
+ * Momentul trimiterii emailului: ziua de început (ora României) minus
+ * lead-ul tipului, la FEATURE_EMAIL_SEND_HOUR ora României.
+ */
+export function computeFeatureEmailSendAt(feature) {
+  const lead = FEATURE_EMAIL_LEAD_DAYS[feature?.type];
+  const startsAt = feature?.startsAt ? new Date(feature.startsAt) : null;
+
+  if (lead == null || !startsAt || Number.isNaN(startsAt.getTime())) {
+    return null;
+  }
+
+  const sendDayKey = shiftDayKey(getZonedDayKey(startsAt), lead);
+  const { startsAt: dayStart } = getZonedDayRange(new Date(`${sendDayKey}T12:00:00.000Z`));
+
+  return new Date(dayStart.getTime() + FEATURE_EMAIL_SEND_HOUR * 60 * 60 * 1000);
+}
+
+/*
+ * Promovarea e „activă” pentru email: are vendor, iar produsul / magazinul
+ * și vendorul nu sunt dezactivate, ascunse sau neaprobate. Câmpurile lipsă
+ * (relații neîncărcate) nu blochează - doar valorile explicit invalide.
+ */
+export function isFeatureEmailEligible(feature) {
+  if (!feature?.vendorId && !feature?.vendor) return false;
+
+  const vendor = feature.vendor || feature.service?.vendor || feature.product?.service?.vendor || null;
+  if (vendor && vendor.isActive === false) return false;
+
+  const service = feature.service || feature.product?.service || null;
+  if (service && (service.isActive === false || (service.status && service.status !== "ACTIVE"))) {
+    return false;
+  }
+
+  if (feature.type === "PRODUCT_OF_DAY") {
+    const product = feature.product;
+    if (!product) return false;
+    if (product.isActive === false || product.isHidden === true) return false;
+    if (product.moderationStatus && product.moderationStatus !== "APPROVED") return false;
+  }
+
+  if (feature.type === "ARTISAN_OF_WEEK" && !service) return false;
+
+  return true;
+}
+
+/**
+ * Decizia de email pentru o promovare, la momentul `now`:
+ *  { sendNow, sendAt, reason } - reason: "due" | "scheduled" |
+ *  "started" | "ineligible" | "invalid".
+ */
+export function planFeatureEmail(feature, now = new Date()) {
+  const sendAt = computeFeatureEmailSendAt(feature);
+  const startsAt = feature?.startsAt ? new Date(feature.startsAt) : null;
+
+  if (!sendAt || !startsAt) return { sendNow: false, sendAt, reason: "invalid" };
+  if (now >= startsAt) return { sendNow: false, sendAt, reason: "started" };
+  if (!isFeatureEmailEligible(feature)) return { sendNow: false, sendAt, reason: "ineligible" };
+  if (now < sendAt) return { sendNow: false, sendAt, reason: "scheduled" };
+
+  return { sendNow: true, sendAt, reason: "due" };
+}
+
+/**
+ * Trimite emailul promovării ACUM și persistă rezultatul
+ * (vendorEmailedAt la succes; vendorEmailError la eșec, fără
+ * vendorEmailedAt -> poate fi reluat). Nu aruncă.
+ */
+export async function sendFeatureEmailNow(feature) {
+  const featureId = feature?.id;
+
+  try {
+    const vendor =
+      feature.vendor ||
+      feature.service?.vendor ||
+      feature.product?.service?.vendor ||
+      null;
+
+    const vendorEmail = String(vendor?.user?.email || vendor?.email || "").trim();
+
+    if (!vendorEmail) {
+      throw new Error("Vendorul nu are o adresă de email.");
+    }
+
+    const accountName = String(vendor?.user?.name || "").trim();
+    const composedAccountName = [vendor?.user?.firstName, vendor?.user?.lastName]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    const vendorName =
+      accountName ||
+      composedAccountName ||
+      vendor?.displayName ||
+      feature.service?.profile?.displayName ||
+      feature.product?.service?.profile?.displayName ||
+      "creator";
+
+    const profile = feature.service?.profile || feature.product?.service?.profile || null;
+    const storeName = profile?.displayName || vendor?.displayName || null;
+
+    await sendHomepageFeatureSelectedEmail({
+      to: vendorEmail,
+      userId: vendor?.userId || null,
+      vendorName,
+      firstName: String(vendor?.user?.firstName || "").trim() || null,
+      featureId: feature.id,
+      featureType: feature.type,
+      productId: feature.productId || feature.product?.id || null,
+      productTitle: feature.product?.title || null,
+      storeName,
+      storeSlug: profile?.slug || null,
+      startsAt: feature.startsAt,
+      endsAt: feature.endsAt,
+    });
+
+    const vendorEmailedAt = new Date();
+
+    await prisma.homepageFeature.update({
+      where: { id: featureId },
+      data: { vendorEmailedAt, vendorEmailError: null },
+    });
+
+    return { emailSent: true, emailError: null, vendorEmailedAt, vendorEmailError: null };
+  } catch (error) {
+    const errorMessage = String(error?.message || error || "Email error").slice(0, 1000);
+
+    console.error("[homepage-features] vendor email failed", error);
+
+    await prisma.homepageFeature
+      .update({
+        where: { id: featureId },
+        data: { vendorEmailError: errorMessage },
+      })
+      .catch(() => null);
+
+    return { emailSent: false, emailError: error, vendorEmailedAt: null, vendorEmailError: errorMessage };
+  }
+}
+
 export async function notifyVendorAboutFeatureCreated(
-  feature
+  feature,
+  { now = new Date() } = {}
 ) {
   const featureId =
     feature?.id;
@@ -1018,159 +1184,28 @@ export async function notifyVendorAboutFeatureCreated(
   }
 
   /*
-   * 2. Emailul - sărit dacă a fost deja trimis cu succes.
+   * 2. Emailul - PROGRAMAT (planFeatureEmail): pleacă doar când e scadent
+   *    (sendAt) și promovarea nu a început; sărit dacă a fost deja trimis.
    */
-  if (
-    feature.vendorEmailedAt
-  ) {
-    emailSkipped =
-      true;
+  const emailPlan = planFeatureEmail(feature, now);
+  const emailScheduledFor = emailPlan.sendAt;
+  let emailSkipReason = null;
+
+  if (feature.vendorEmailedAt) {
+    emailSkipped = true;
+    emailSkipReason = "already_sent";
+  } else if (!emailPlan.sendNow) {
+    emailSkipped = true;
+    emailSkipReason = emailPlan.reason;
   } else {
-    try {
-      const vendor =
-        feature.vendor ||
-        feature.service?.vendor ||
-        feature.product?.service
-          ?.vendor ||
-        null;
+    const result = await sendFeatureEmailNow(feature);
 
-      const vendorEmail =
-        String(
-          vendor?.user?.email ||
-            vendor?.email ||
-            ""
-        ).trim();
+    emailSent = result.emailSent;
+    emailError = result.emailError;
+    vendorEmailError = result.vendorEmailError;
 
-      if (!vendorEmail) {
-        throw new Error(
-          "Vendorul nu are o adresă de email."
-        );
-      }
-
-      const accountName =
-        String(
-          vendor?.user?.name ||
-            ""
-        ).trim();
-
-      const composedAccountName =
-        [
-          vendor?.user
-            ?.firstName,
-          vendor?.user
-            ?.lastName,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .trim();
-
-      const vendorName =
-        accountName ||
-        composedAccountName ||
-        vendor?.displayName ||
-        feature.service?.profile
-          ?.displayName ||
-        feature.product?.service
-          ?.profile?.displayName ||
-        "creator";
-
-      const storeName =
-        feature.service?.profile
-          ?.displayName ||
-        feature.product?.service
-          ?.profile?.displayName ||
-        vendor?.displayName ||
-        null;
-
-      await sendHomepageFeatureSelectedEmail({
-        to:
-          vendorEmail,
-
-        userId:
-          vendor?.userId ||
-          null,
-
-        vendorName,
-
-        featureId:
-          feature.id,
-
-        featureType:
-          feature.type,
-
-        productTitle:
-          feature.product
-            ?.title ||
-          null,
-
-        storeName,
-
-        startsAt:
-          feature.startsAt,
-
-        endsAt:
-          feature.endsAt,
-      });
-
-      emailSent =
-        true;
-
-      vendorEmailedAt =
-        new Date();
-
-      vendorEmailError =
-        null;
-
-      await prisma.homepageFeature.update({
-        where: {
-          id:
-            featureId,
-        },
-
-        data: {
-          vendorEmailedAt,
-
-          vendorEmailError:
-            null,
-        },
-      });
-    } catch (error) {
-      emailError =
-        error;
-
-      const errorMessage =
-        String(
-          error?.message ||
-            error ||
-            "Email error"
-        ).slice(
-          0,
-          1000
-        );
-
-      vendorEmailError =
-        errorMessage;
-
-      console.error(
-        "[homepage-features] vendor email failed",
-        error
-      );
-
-      await prisma.homepageFeature
-        .update({
-          where: {
-            id:
-              featureId,
-          },
-
-          data: {
-            vendorEmailError:
-              errorMessage,
-          },
-        })
-        .catch(
-          () => null
-        );
+    if (result.vendorEmailedAt) {
+      vendorEmailedAt = result.vendorEmailedAt;
     }
   }
 
@@ -1190,6 +1225,9 @@ export async function notifyVendorAboutFeatureCreated(
     vendorNotifiedAt,
     vendorEmailedAt,
     vendorEmailError,
+
+    emailScheduledFor,
+    emailSkipReason,
   };
 }
 

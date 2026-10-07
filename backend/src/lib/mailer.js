@@ -3811,24 +3811,183 @@ function formatHomepageFeatureDate(value) {
     return "";
   }
 
+  // ora României explicit - serverul (Render) rulează în UTC
   return date.toLocaleDateString(
     "ro-RO",
     {
-      day: "2-digit",
+      day: "numeric",
       month: "long",
       year: "numeric",
+      timeZone: "Europe/Bucharest",
     }
   );
+}
+
+/**
+ * Conținutul emailului „Produsul zilei” / „Artizanul săptămânii”
+ * (fără trimitere) - folosit și pentru preview în teste / admin.
+ * Datele se afișează în ora României; endsAt e exclusiv (miezul nopții
+ * după ultima zi), deci ultima zi afișată = endsAt - 1 ms.
+ */
+export function buildHomepageFeatureEmail({
+  vendorName = "",
+  firstName = null,
+  featureId,
+  featureType,
+  productId = null,
+  productTitle = null,
+  storeName = null,
+  storeSlug = null,
+  startsAt,
+  endsAt,
+}) {
+  const isProductOfDay = featureType === "PRODUCT_OF_DAY";
+  const greetingName = String(firstName || vendorName || "").trim();
+  const greeting = greetingName ? `Bună, ${greetingName},` : "Bună,";
+
+  const startLabel = formatHomepageFeatureDate(startsAt);
+  const endDate = endsAt ? new Date(new Date(endsAt).getTime() - 1) : null;
+  const endLabel = endDate ? formatHomepageFeatureDate(endDate) : "";
+
+  const ctaUrl = isProductOfDay
+    ? productId && APP_URL
+      ? `${APP_URL}/produs/${encodeURIComponent(productId)}`
+      : null
+    : storeSlug && APP_URL
+      ? `${APP_URL}/magazin/${encodeURIComponent(storeSlug)}`
+      : null;
+  const ctaLabel = isProductOfDay ? "Vezi produsul" : "Vezi magazinul meu";
+
+  // reducerea rămâne opțională și suportată integral de vendor (flux existent)
+  const promotionLink =
+    APP_URL && featureId ? `${APP_URL}/vendor/promovari?featureId=${encodeURIComponent(featureId)}` : null;
+
+  const subject = isProductOfDay
+    ? `Produsul tău va fi Produsul zilei pe ${BRAND_NAME} ✨`
+    : `Săptămâna viitoare ești Artizanul săptămânii pe ${BRAND_NAME} ✨`;
+
+  const paragraphs = isProductOfDay
+    ? [
+        "Avem o veste frumoasă: produsul tău",
+        { strong: `„${productTitle || "produsul tău"}”` },
+        `a fost selectat pentru a fi Produsul zilei pe ${BRAND_NAME}.`,
+        { line: `📅 Data promovării: ${startLabel}` },
+        "În acea zi, produsul va beneficia de vizibilitate suplimentară în platformă.",
+        {
+          list: "Până atunci, îți recomandăm să verifici:",
+          items: [
+            "stocul / disponibilitatea;",
+            "fotografiile;",
+            "descrierea;",
+            "prețul și opțiunile produsului.",
+          ],
+        },
+        `Poți folosi această selecție și în propriile postări pentru a le spune clienților că produsul tău este promovat pe ${BRAND_NAME}.`,
+      ]
+    : [
+        "Avem o veste frumoasă pentru tine: magazinul tău",
+        ...(storeName ? [{ strong: `„${storeName}”` }] : []),
+        `a fost selectat ca „Artizanul săptămânii” pe ${BRAND_NAME}.`,
+        { line: `📅 Perioada promovării: ${startLabel}${endLabel ? ` – ${endLabel}` : ""}` },
+        `Pe parcursul săptămânii, magazinul și creațiile tale vor beneficia de vizibilitate suplimentară în ${BRAND_NAME}.`,
+        "Ai o săptămână la dispoziție pentru a pregăti magazinul.",
+        {
+          list: "Îți recomandăm să verifici:",
+          items: [
+            "produsele active;",
+            "stocurile;",
+            "fotografiile;",
+            "descrierile;",
+            "bannerul și informațiile magazinului;",
+            "produsele pe care vrei să le scoți în evidență.",
+          ],
+        },
+        `Poți anunța și comunitatea ta că urmează să fii Artizanul săptămânii pe ${BRAND_NAME}.`,
+      ];
+
+  const closing = isProductOfDay
+    ? `Mulțumim că faci parte din comunitatea ${BRAND_NAME} 🤍`
+    : `Ne bucurăm să te avem în comunitatea ${BRAND_NAME} 🤍`;
+
+  const discountLine =
+    "Opțional, poți alege din contul tău o reducere proprie pentru perioada promovării (suportată integral de tine); fără reducere, promovarea rămâne activă la prețul normal.";
+
+  const P = (inner) => `<p style="color:#374151;margin:0 0 12px;line-height:1.6;">${inner}</p>`;
+
+  const htmlBody = paragraphs
+    .map((part) => {
+      if (typeof part === "string") return P(escapeEmailHtml(part));
+      if (part.strong) return P(`<strong>${escapeEmailHtml(part.strong)}</strong>`);
+      if (part.line) return P(`<strong>${escapeEmailHtml(part.line)}</strong>`);
+      return `${P(escapeEmailHtml(part.list))}
+    <ul style="color:#374151;margin:0 0 14px;padding-left:20px;line-height:1.6;">
+      ${part.items.map((item) => `<li>${escapeEmailHtml(item)}</li>`).join("\n      ")}
+    </ul>`;
+    })
+    .join("\n    ");
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME}" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:22px;">
+    ${P(escapeEmailHtml(greeting))}
+    ${htmlBody}
+    ${
+      ctaUrl
+        ? `<p style="text-align:center;margin:20px 0;">
+      <a href="${escapeEmailHtml(ctaUrl)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">${ctaLabel}</a>
+    </p>`
+        : ""
+    }
+    ${
+      promotionLink
+        ? `<p style="color:#6b7280;margin:0 0 14px;font-size:13px;line-height:1.5;">${escapeEmailHtml(
+            discountLine
+          )} <a href="${escapeEmailHtml(promotionLink)}" style="color:#4b5563;">Setează reducerea</a></p>`
+        : ""
+    }
+    ${P(escapeEmailHtml(closing))}
+    <p style="color:#374151;margin:0;line-height:1.6;">Echipa ${BRAND_NAME}</p>
+  </div>
+</div>`.trim();
+
+  const text = [
+    greeting,
+    "",
+    ...paragraphs.flatMap((part) => {
+      if (typeof part === "string") return [part, ""];
+      if (part.strong) return [part.strong, ""];
+      if (part.line) return [part.line, ""];
+      return [part.list, ...part.items.map((item) => `- ${item}`), ""];
+    }),
+    ...(ctaUrl ? [`${ctaLabel}: ${ctaUrl}`, ""] : []),
+    ...(promotionLink ? [`${discountLine} ${promotionLink}`, ""] : []),
+    closing,
+    "",
+    `Echipa ${BRAND_NAME}`,
+  ].join("\n");
+
+  return { subject, html, text };
+}
+
+export function homepageFeatureEmailTemplate(featureId) {
+  return `homepage_feature:${featureId}`;
 }
 
 export async function sendHomepageFeatureSelectedEmail({
   to,
   userId = null,
   vendorName,
+  firstName = null,
   featureId,
   featureType,
+  productId = null,
   productTitle = null,
   storeName = null,
+  storeSlug = null,
   startsAt,
   endsAt,
 }) {
@@ -3836,198 +3995,34 @@ export async function sendHomepageFeatureSelectedEmail({
     return null;
   }
 
-  const isProductOfDay =
-    featureType ===
-    "PRODUCT_OF_DAY";
-
-  const promotionLabel =
-    isProductOfDay
-      ? "Produsul zilei"
-      : "Artizanul săptămânii";
-
-  const selectedName =
-    isProductOfDay
-      ? productTitle ||
-        "produsul tău"
-      : storeName ||
-        vendorName ||
-        "magazinul tău";
-
-  const startLabel =
-    formatHomepageFeatureDate(
-      startsAt
-    );
-
-  const endLabel =
-    formatHomepageFeatureDate(
-      endsAt
-    );
-
-  /*
-   * Artfest oferă promovarea, NU reducerea. Orice reducere e
-   * opțională, aleasă și suportată integral de vendor.
-   */
-  const promotionLink =
-    APP_URL
-      ? `${APP_URL}/vendor/promovari?featureId=${encodeURIComponent(
-          featureId
-        )}`
-      : null;
-
-  const subject =
-    isProductOfDay
-      ? `Produsul tău a fost ales Produsul zilei pe ${BRAND_NAME}`
-      : `Ai fost ales Artizanul săptămânii pe ${BRAND_NAME}`;
-
-  const safeVendorName =
-    escapeEmailHtml(
-      vendorName ||
-        "creator"
-    );
-
-  const safeSelectedName =
-    escapeEmailHtml(
-      selectedName
-    );
-
-  const safePromotionLabel =
-    escapeEmailHtml(
-      promotionLabel
-    );
-
-  const html = `
-<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
-  <div style="text-align:center;margin-bottom:20px;">
-    <img
-      src="${EMAIL_LOGO_URL}"
-      alt="${BRAND_NAME}"
-      width="120"
-      height="120"
-      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;"
-    >
-  </div>
-
-  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:22px;">
-    <h2 style="color:#111827;margin:0 0 14px;">
-      Felicitări, ${safeVendorName}! 🎉
-    </h2>
-
-    <p style="color:#374151;margin:0 0 14px;line-height:1.6;">
-      ${
-        isProductOfDay
-          ? `Produsul <strong>${safeSelectedName}</strong> a fost selectat pentru promovarea <strong>${safePromotionLabel}</strong>.`
-          : `<strong>${safeSelectedName}</strong> a fost selectat pentru promovarea <strong>${safePromotionLabel}</strong>.`
-      }
-    </p>
-
-    ${
-      startLabel
-        ? `
-          <p style="color:#374151;margin:0 0 10px;line-height:1.6;">
-            <strong>Perioada promovării:</strong>
-            ${escapeEmailHtml(
-              startLabel
-            )}${
-              endLabel
-                ? ` – ${escapeEmailHtml(
-                    endLabel
-                  )}`
-                : ""
-            }
-          </p>
-        `
-        : ""
-    }
-
-    <p style="color:#374151;margin:0 0 16px;line-height:1.6;">
-      Artfest îți oferă gratuit promovarea pe homepage.
-      Poți alege, opțional, o reducere proprie de 5%, 10%, 15% sau 20% – reducerea este suportată integral de tine.
-      Dacă alegi 0%, promovarea rămâne activă la prețul normal.
-    </p>
-
-    ${
-      promotionLink
-        ? `
-          <p style="text-align:center;margin:24px 0 8px;">
-            <a
-              href="${promotionLink}"
-              style="display:inline-block;background:#7c3aed;color:#ffffff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700;"
-            >
-              Vezi promovarea
-            </a>
-          </p>
-
-          <p style="font-size:12px;color:#6b7280;text-align:center;margin:10px 0 0;word-break:break-all;">
-            ${promotionLink}
-          </p>
-        `
-        : ""
-    }
-  </div>
-
-  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:20px 0 0;">
-    Acest email a fost generat automat de ${BRAND_NAME}.
-  </p>
-</div>
-`.trim();
-
-  const text = [
-    `Felicitări, ${
-      vendorName ||
-      "creator"
-    }!`,
-    "",
-    isProductOfDay
-      ? `Produsul „${selectedName}” a fost ales Produsul zilei pe ${BRAND_NAME}.`
-      : `${selectedName} a fost ales Artizanul săptămânii pe ${BRAND_NAME}.`,
-    "",
-    startLabel
-      ? `Perioada: ${startLabel}${
-          endLabel
-            ? ` - ${endLabel}`
-            : ""
-        }`
-      : "",
-    "",
-    "Artfest îți oferă gratuit promovarea pe homepage. Poți alege, opțional, o reducere proprie de 5%, 10%, 15% sau 20% - reducerea este suportată integral de tine.",
-    "Dacă alegi 0%, promovarea rămâne activă la prețul normal.",
-    "Intră în pagina promovării pentru a vedea detaliile și pentru a-ți alege reducerea.",
-    promotionLink
-      ? `Vezi promovarea: ${promotionLink}`
-      : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const { subject, html, text } = buildHomepageFeatureEmail({
+    vendorName,
+    firstName,
+    featureId,
+    featureType,
+    productId,
+    productTitle,
+    storeName,
+    storeSlug,
+    startsAt,
+    endsAt,
+  });
 
   return sendMailLogged({
-    senderKey:
-      "noreply",
-
+    senderKey: "noreply",
     to,
-
     subject,
-
-    template:
-      "homepage_feature_selected",
-
+    // per promovare -> EmailLog permite verificarea anti-duplicate
+    template: homepageFeatureEmailTemplate(featureId),
     userId,
-
-    toName:
-      vendorName ||
-      null,
-
+    toName: vendorName || null,
     mailOptions: {
-      ...senderEnvelope(
-        "noreply"
-      ),
-
+      ...senderEnvelope("noreply"),
       to,
       subject,
       html,
       text,
-
-      headers:
-        AUTO_HEADERS,
+      headers: AUTO_HEADERS,
     },
   });
 }

@@ -134,6 +134,7 @@ import { runGuestPaymentReminderJob } from "./src/jobs/guestPaymentReminderJob.j
 import { runReturnVendorReminderJob } from "./src/jobs/returnVendorReminderJob.js";
 // 🔔 JOB: notificare vendor/influencer la expirarea unui cod de reducere
 import { runDiscountCodeExpiryJob } from "./src/jobs/discountCodeExpiryJob.js";
+import { runHomepageFeatureEmailJob } from "./src/jobs/homepageFeatureEmailJob.js";
 import vendorCatalogProductsRoutes
   from "./src/routes/vendorCatalogProductsRoutes.js";
 import customerRequestsRouter
@@ -883,6 +884,24 @@ setInterval(() => {
     console.error("discountCodeExpiryJob (interval) failed:", err)
   );
 }, discountCodeExpiryIntervalMs);
+
+/*
+ * Emailul „Produsul zilei” (cu 3 zile înainte) / „Artizanul săptămânii”
+ * (cu 7 zile înainte), la 09:00 ora României - vezi
+ * jobs/homepageFeatureEmailJob.js. Idempotent (vendorEmailedAt +
+ * EmailLog per promovare); verificare la 15 minute.
+ */
+runHomepageFeatureEmailJob().catch((err) =>
+  console.error("homepageFeatureEmailJob (startup) failed:", err)
+);
+
+const homepageFeatureEmailIntervalMs = 15 * 60 * 1000;
+
+setInterval(() => {
+  runHomepageFeatureEmailJob().catch((err) =>
+    console.error("homepageFeatureEmailJob (interval) failed:", err)
+  );
+}, homepageFeatureEmailIntervalMs);
 
 });
 
