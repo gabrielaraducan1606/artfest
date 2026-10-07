@@ -35,6 +35,21 @@
     </script>
     <!-- End Google Consent Mode default -->
 
+    <!--
+      Google tag (gtag.js) - Google Ads AW-18196187164.
+      Încărcat DUPĂ consent default (totul refuzat) de mai sus, deci
+      tag-ul pornește în starea de consimțământ corectă. Folosește
+      același dataLayer/gtag ca GTM-ul de mai jos. Conversia de
+      cumpărare se trimite DOAR din pagina /multumim (services/analytics.js
+      -> trackPurchase), după confirmarea comenzii în backend.
+    -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-18196187164"></script>
+    <script>
+      gtag('js', new Date());
+      gtag('config', 'AW-18196187164');
+    </script>
+    <!-- End Google tag -->
+
     <!-- Google Tag Manager -->
     <script>
       (function(w,d,s,l,i){

@@ -8,8 +8,27 @@ import {
    GOOGLE ADS
 ========================================================= */
 
+/*
+ * ID-ul contului Google Ads (tag-ul global e în index.html) și eticheta
+ * acțiunii de conversie „Cumpărare”. Eticheta se poate seta din mediu
+ * (Vercel -> Environment Variables): VITE_GOOGLE_ADS_CONVERSION_LABEL.
+ * Fără variabilă se folosește eticheta deja configurată în cod.
+ * O etichetă goală / placeholder ("ETICHETA") NU trimite conversia.
+ */
+export const GOOGLE_ADS_ID = "AW-18196187164";
+
+const DEFAULT_GOOGLE_ADS_CONVERSION_LABEL = "MUkKCJu2u7YcEJyQz-RD";
+
+export const GOOGLE_ADS_CONVERSION_LABEL = String(
+  import.meta.env?.VITE_GOOGLE_ADS_CONVERSION_LABEL ||
+    DEFAULT_GOOGLE_ADS_CONVERSION_LABEL
+).trim();
+
 export const GOOGLE_ADS_PURCHASE_CONVERSION_ID =
-  "AW-18196187164/MUkKCJu2u7YcEJyQz-RD";
+  GOOGLE_ADS_CONVERSION_LABEL &&
+  GOOGLE_ADS_CONVERSION_LABEL !== "ETICHETA"
+    ? `${GOOGLE_ADS_ID}/${GOOGLE_ADS_CONVERSION_LABEL}`
+    : null;
 
 /* =========================================================
    META PIXEL
@@ -994,6 +1013,10 @@ export const trackPurchase =
     if (
       typeof window !==
         "undefined" &&
+      GOOGLE_ADS_PURCHASE_CONVERSION_ID &&
+      transactionId &&
+      Number.isFinite(value) &&
+      value > 0 &&
       hasMarketingConsent()
     ) {
       callGtag(

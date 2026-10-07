@@ -21,6 +21,33 @@ import {
   useAuth,
 } from "../Auth/Context/context.js";
 
+/*
+ * Comenzi deja raportate către Google Ads / GA / Meta din acest browser -
+ * împiedică retrimiterea conversiei la refresh sau la revenirea pe pagină.
+ */
+const PURCHASE_TRACKED_PREFIX = "purchase-tracked:";
+
+function wasPurchaseTracked(orderId) {
+  try {
+    return Boolean(
+      localStorage.getItem(`${PURCHASE_TRACKED_PREFIX}${orderId}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function markPurchaseTracked(orderId) {
+  try {
+    localStorage.setItem(
+      `${PURCHASE_TRACKED_PREFIX}${orderId}`,
+      new Date().toISOString()
+    );
+  } catch {
+    // stocare indisponibilă - rămâne protecția per montare (ref)
+  }
+}
+
 export default function ThankYou() {
   const [
     params,
@@ -214,47 +241,15 @@ export default function ThankYou() {
            TOTAL
         ===================================================== */
 
+        /*
+         * Totalul vine STRICT din backend (Order.total, întors de
+         * /api/user/orders/:id și /api/guest/orders/:id) - nu îl
+         * recalculăm în frontend. Lipsă / invalid -> nu raportăm
+         * conversia (vezi mai jos).
+         */
         const total =
           Number(
-            data?.total ||
-              data?.totalPrice ||
-              data?.totalAmount ||
-              data?.grandTotal ||
-              data?.finalTotal ||
-              data?.amount ||
-              data?.totals?.total ||
-              data?.pricing?.total ||
-              data?.order?.total ||
-              data?.order?.totalPrice ||
-              items.reduce(
-                (
-                  sum,
-                  item
-                ) => {
-                  const price =
-                    Number(
-                      item?.price ||
-                        item?.unitPrice ||
-                        item?.product?.price ||
-                        item?.productPrice ||
-                        0
-                    );
-
-                  const quantity =
-                    Number(
-                      item?.quantity ||
-                        item?.qty ||
-                        1
-                    );
-
-                  return (
-                    sum +
-                    price *
-                      quantity
-                  );
-                },
-                0
-              )
+            data?.total
           );
 
         /* =====================================================
@@ -357,30 +352,37 @@ export default function ThankYou() {
           );
 
         const shouldTrackPurchase =
-          isCodPurchase ||
-          isPaidCardPurchase;
+          (isCodPurchase ||
+            isPaidCardPurchase) &&
+          Number.isFinite(total) &&
+          total > 0;
 
         /* =====================================================
-           PURCHASE
+           PURCHASE - o singură dată per comandă
         ===================================================== */
 
+        /*
+         * Pe lângă ref-ul de montare, ținem minte comenzile deja
+         * raportate (localStorage, cheie per comandă), ca refresh-ul
+         * sau revenirea pe /multumim să NU retrimită conversia.
+         * (Google Ads deduplică oricum după transaction_id.)
+         */
         if (
           shouldTrackPurchase &&
-          !purchaseTrackedRef.current
+          !purchaseTrackedRef.current &&
+          !wasPurchaseTracked(orderId)
         ) {
           purchaseTrackedRef.current =
             true;
 
-         trackPurchase({
-  id:
-    orderId,
+          trackPurchase({
+            id: orderId,
+            total,
+            currency,
+            items,
+          });
 
-  total,
-
-  currency,
-
-  items,
-});
+          markPurchaseTracked(orderId);
 
           console.log(
             "[PURCHASE] tracked",
