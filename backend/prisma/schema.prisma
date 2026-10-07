@@ -826,6 +826,14 @@ model Product {
   aiGeneratedFields String[] @default([])
   aiSourceImages    String[] @default([])
 
+  // Titlu SEPARAT pentru feed-ul Google Merchant Center (generat cu AI
+  // doar din datele produsului - services/feedTitleService.js). Titlul de
+  // pe site (`title`) rămâne neatins; feed-ul folosește feedTitle ?? title.
+  // feedTitleInputHash = hash-ul datelor folosite (detectează titlu vechi).
+  feedTitle            String?   @db.VarChar(100)
+  feedTitleGeneratedAt DateTime?
+  feedTitleInputHash   String?   @db.VarChar(64)
+
   aiAnalysisVersion String?   @db.VarChar(80)
   aiConfidence      Float?
   aiAnalyzedAt      DateTime?

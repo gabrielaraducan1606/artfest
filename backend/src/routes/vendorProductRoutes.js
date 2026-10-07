@@ -20,6 +20,7 @@ import {
   getGpsrMissingFields,
 } from "../lib/gpsrCompliance.js";
 import { openai } from "../lib/openai.js";
+import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
 import {
   moderateSavedProduct,
   buildVendorModerationReport,
@@ -1682,6 +1683,9 @@ async function createProduct(req, res) {
         client: openai,
       });
 
+    // titlul pentru feed-ul Google - în fundal, nu blochează salvarea
+    queueFeedTitleRefresh(created.id);
+
     return res
       .status(201)
       .json({
@@ -2466,6 +2470,10 @@ async function updateProduct(
             client: openai,
           })
         : updated;
+
+    // titlul pentru feed-ul Google: regenerat în fundal DOAR dacă datele
+    // relevante s-au schimbat (hash) - nu blochează salvarea
+    queueFeedTitleRefresh(updated.id);
 
     return res.json({
       ...mapProduct(moderated),

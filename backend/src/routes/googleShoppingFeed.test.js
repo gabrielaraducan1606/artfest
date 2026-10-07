@@ -1155,3 +1155,195 @@ test("M2. produs FIXAT într-o colecție activă -> custom_label_0 = acea colec�
   assert.equal(tagValue(itemBlockFor(xml, "prod-m2-pinned"), "g:custom_label_0"), "cadouri-educatoare");
 });
 
+/* =========================================================
+   N. feedTitle - titlul pentru Google Shopping (Product.feedTitle)
+========================================================= */
+
+test("N1. feed: folosește feedTitle dacă există, altfel title (titlul de pe site rămâne neatins)", async (t) => {
+  const withFeedTitle = baseProduct({
+    id: "prod-n1-feed",
+    title: "Iepuraș croșetat din pluș",
+    feedTitle: "Iepuraș croșetat din pluș, jucărie pentru copii, gri cu rochiță verde",
+  });
+  const withoutFeedTitle = baseProduct({ id: "prod-n1-plain", title: "Cană ceramică", feedTitle: null });
+  const blankFeedTitle = baseProduct({ id: "prod-n1-blank", title: "Odorizant dulap", feedTitle: "   " });
+
+  const { xml, cleanup } = await fetchFeed([withFeedTitle, withoutFeedTitle, blankFeedTitle]);
+  t.after(cleanup);
+
+  assert.equal(
+    tagValue(itemBlockFor(xml, "prod-n1-feed"), "title"),
+    "Iepuraș croșetat din pluș, jucărie pentru copii, gri cu rochiță verde"
+  );
+  assert.equal(tagValue(itemBlockFor(xml, "prod-n1-plain"), "title"), "Cană ceramică");
+  assert.equal(tagValue(itemBlockFor(xml, "prod-n1-blank"), "title"), "Odorizant dulap");
+});
+
+async function loadFeedTitleService() {
+  process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || "test-key"; // niciun apel real
+  return import("../services/feedTitleService.js");
+}
+
+test("N2. sanitizeFeedTitle: fără emoji / majuscule excesive / promo; max 150; prima literă mare", async () => {
+  const { sanitizeFeedTitle } = await loadFeedTitleService();
+
+  assert.deepEqual(sanitizeFeedTitle("lumânare decorativă ✨ din ceară!!").title, "Lumânare decorativă din ceară");
+  assert.equal(sanitizeFeedTitle("Cană CERAMICĂ albă").title, "Cană Ceramică albă");
+  assert.equal(sanitizeFeedTitle("Cel mai bun cadou").ok, false);
+  assert.equal(sanitizeFeedTitle("Lumânare, reducere 20%").ok, false);
+  assert.equal(sanitizeFeedTitle("Set cadou, livrare gratuită").ok, false);
+  // „Promoția 2026” = generația de absolvenți, nu text promoțional
+  assert.equal(sanitizeFeedTitle("Aranjament din săpun pentru absolvire, Promoția 2026").ok, true);
+  const long = sanitizeFeedTitle(`Iepuraș croșetat ${"din pluș moale ".repeat(20)}`);
+  assert.ok(long.title.length <= 150);
+  assert.equal(sanitizeFeedTitle("").ok, false);
+});
+
+test("N3. fapte: doar datele produsului (golurile sunt omise); frații = același magazin + titlu aproape identic", async () => {
+  const { buildFeedTitleFacts, findSimilarSiblings } = await loadFeedTitleService();
+
+  const facts = buildFeedTitleFacts({
+    title: "Cană ceramică",
+    description: "<p>Cană ceramică realizată manual.</p>",
+    category: "home_ceramica-lut",
+    color: null,
+    materialMain: null,
+    dimensions: "300 ml",
+    occasionTags: [],
+    acceptsCustom: false,
+  });
+  assert.deepEqual(Object.keys(facts).sort(), ["categorie", "descriere", "dimensiuni", "titluActual"]);
+  assert.equal(facts.descriere, "Cană ceramică realizată manual.");
+
+  const a = { id: "a", serviceId: "s1", title: "Iepuraș croșetat din pluș, decorativ sau jucărie" };
+  const b = { id: "b", serviceId: "s1", title: "Iepuraș croșetat din pluș, gri cu rochiță verde" };
+  const c = { id: "c", serviceId: "s2", title: "Iepuraș croșetat din pluș, decorativ sau jucărie" };
+  const d = { id: "d", serviceId: "s1", title: "Cană ceramică" };
+  assert.deepEqual(findSimilarSiblings(a, [a, b, c, d]).map((p) => p.id), ["b"]);
+});
+
+test("N4. generateFeedTitle: prompt cu regula strictă + frați; titlu gol / promo -> null (feed-ul păstrează title)", async () => {
+  const { generateFeedTitle } = await loadFeedTitleService();
+  const prompts = [];
+  const fakeOpenai = (feedTitle) => ({
+    responses: {
+      create: async (req) => {
+        prompts.push(req.input[0].content[0].text);
+        return { output_text: JSON.stringify({ feedTitle, folosite: ["culoare"] }) };
+      },
+    },
+  });
+
+  const product = { id: "p", serviceId: "s", title: "Iepuraș croșetat", color: "gray" };
+  const sibling = { id: "q", serviceId: "s", title: "Iepuraș croșetat verde" };
+
+  const ok = await generateFeedTitle(product, { siblings: [sibling], openai: fakeOpenai("iepuraș croșetat, gri") });
+  assert.equal(ok.feedTitle, "Iepuraș croșetat, gri");
+  assert.ok(ok.inputHash.length === 64);
+  assert.match(prompts[0], /folosește DOAR informațiile din DATE/);
+  assert.match(prompts[0], /PRODUSE APROAPE IDENTICE/);
+
+  assert.equal((await generateFeedTitle(product, { openai: fakeOpenai("") })).feedTitle, null);
+  assert.equal((await generateFeedTitle(product, { openai: fakeOpenai("Cel mai bun iepuraș") })).feedTitle, null);
+});
+
+/* ---------- N5-N7. regenerare automată feedTitle (după creare / modificare) ---------- */
+
+function makeRefreshDb(product, siblings = []) {
+  const updates = [];
+  return {
+    updates,
+    product: {
+      findUnique: async () => ({ ...product }),
+      findMany: async () => siblings,
+      update: async ({ data }) => {
+        updates.push(data);
+        Object.assign(product, data);
+        return product;
+      },
+    },
+  };
+}
+
+function scriptedOpenai(answers) {
+  const calls = [];
+  return {
+    calls,
+    responses: {
+      create: async () => {
+        const next = answers[calls.length] ?? answers[answers.length - 1];
+        calls.push(next);
+        if (next instanceof Error) throw next;
+        return { output_text: JSON.stringify({ feedTitle: next }) };
+      },
+    },
+  };
+}
+
+test("N5. refresh: generează doar când hash-ul datelor s-a schimbat (fără apel AI pentru date neschimbate)", async () => {
+  const { refreshFeedTitleIfStale } = await loadFeedTitleService();
+  const product = { id: "p1", serviceId: "s1", title: "Cană ceramică", color: "white", feedTitle: null, feedTitleInputHash: null };
+  const db = makeRefreshDb(product);
+  const ai = scriptedOpenai(["Cană ceramică albă"]);
+
+  assert.equal((await refreshFeedTitleIfStale("p1", { prisma: db, openai: ai })).status, "generated");
+  assert.equal(product.feedTitle, "Cană ceramică albă");
+  assert.ok(product.feedTitleInputHash);
+
+  // aceleași date -> fără apel AI, fără scriere
+  assert.equal((await refreshFeedTitleIfStale("p1", { prisma: db, openai: ai })).status, "unchanged");
+  assert.equal(ai.calls.length, 1);
+  assert.equal(db.updates.length, 1);
+
+  // datele se schimbă (titlu) -> regenerare
+  product.title = "Cană ceramică pictată manual";
+  ai.calls.length = 0;
+  const again = await refreshFeedTitleIfStale("p1", { prisma: db, openai: scriptedOpenai(["Cană ceramică pictată manual, albă"]) });
+  assert.equal(again.status, "generated");
+  assert.equal(product.feedTitle, "Cană ceramică pictată manual, albă");
+});
+
+test("N6. refresh eșuat: feedTitle devine null (feed-ul folosește title); eroare API -> se reîncearcă la următoarea salvare", async () => {
+  const { refreshFeedTitleIfStale } = await loadFeedTitleService();
+  const product = { id: "p2", serviceId: "s1", title: "Odorizant dulap", feedTitle: "Titlu vechi", feedTitleInputHash: "vechi" };
+  const db = makeRefreshDb(product);
+
+  const failed = await refreshFeedTitleIfStale("p2", { prisma: db, openai: scriptedOpenai([new Error("openai_down")]) });
+  assert.equal(failed.status, "failed");
+  assert.equal(product.feedTitle, null);
+  assert.equal(product.feedTitleInputHash, null, "fără hash -> reîncercare la următoarea salvare");
+
+  // AI-ul refuză (tip de produs neidentificabil): null + hash salvat, fără bucle de reîncercare
+  const empty = await refreshFeedTitleIfStale("p2", { prisma: db, openai: scriptedOpenai([""]) });
+  assert.equal(empty.status, "empty");
+  assert.equal(product.feedTitle, null);
+  assert.ok(product.feedTitleInputHash);
+  const noRetry = scriptedOpenai(["X"]);
+  assert.equal((await refreshFeedTitleIfStale("p2", { prisma: db, openai: noRetry })).status, "unchanged");
+  assert.equal(noRetry.calls.length, 0);
+});
+
+test("N7. queueFeedTitleRefresh: în fundal, comasează salvările rapide, nu aruncă; fără cheie OpenAI nu face nimic", async () => {
+  const { queueFeedTitleRefresh } = await loadFeedTitleService();
+  const previousKey = process.env.OPENAI_API_KEY;
+
+  delete process.env.OPENAI_API_KEY;
+  assert.equal(queueFeedTitleRefresh("p3"), false);
+  process.env.OPENAI_API_KEY = previousKey || "test-key";
+
+  const product = { id: "p3", serviceId: "s1", title: "Lumânare din ceară de soia", feedTitle: null, feedTitleInputHash: null };
+  const db = makeRefreshDb(product);
+  const ai = scriptedOpenai(["Lumânare din ceară de soia"]);
+
+  assert.equal(queueFeedTitleRefresh("p3", { prisma: db, openai: ai, delayMs: 10 }), true);
+  assert.equal(queueFeedTitleRefresh("p3", { prisma: db, openai: ai, delayMs: 10 }), true); // comasat
+  await new Promise((resolve) => setTimeout(resolve, 60));
+
+  assert.equal(ai.calls.length, 1, "o singură generare pentru salvări succesive");
+  assert.equal(product.feedTitle, "Lumânare din ceară de soia");
+
+  // o eroare în fundal nu se propagă
+  const broken = { product: { findUnique: async () => { throw new Error("db_down"); } } };
+  assert.equal(queueFeedTitleRefresh("p4", { prisma: broken, openai: ai, delayMs: 5 }), true);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+});

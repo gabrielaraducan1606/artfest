@@ -6,6 +6,7 @@ import jwt from "jsonwebtoken";
 import * as XLSX from "xlsx";
 
 import { prisma } from "../db.js";
+import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
 
 import {
   parseSpreadsheetBuffer,
@@ -22,6 +23,17 @@ import {
 } from "../ai/manifests/catalogImports.manifest.js";
 
 const router = express.Router();
+
+/*
+ * Produs nou din import + titlul pentru feed-ul Google programat în fundal
+ * (nu blochează importul; la eșec feed-ul folosește title).
+ */
+async function createProductWithFeedTitle(args) {
+  const product = await prisma.product.create(args);
+  queueFeedTitleRefresh(product.id);
+  return product;
+}
+
 
 const JWT_SECRET =
   process.env.JWT_SECRET || "dev-secret-change-me";
@@ -994,7 +1006,7 @@ router.post(
             });
 
           const createdProduct =
-            await prisma.product.create({
+            await createProductWithFeedTitle({
               data:
                 productData,
             });
@@ -1291,7 +1303,7 @@ router.post(
             });
 
           const createdProduct =
-            await prisma.product.create({
+            await createProductWithFeedTitle({
               data:
                 productData,
             });

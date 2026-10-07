@@ -2,6 +2,7 @@
 
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
 
 import {
   authRequired,
@@ -1080,6 +1081,9 @@ if (
             },
           },
         });
+
+      // titlul pentru feed-ul Google: în fundal, doar dacă datele s-au schimbat
+      queueFeedTitleRefresh(updated.id);
 
       console.info(
         "[ADMIN PRODUCT UPDATE]",

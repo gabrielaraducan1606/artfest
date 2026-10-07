@@ -5,6 +5,7 @@ import express from "express";
 import {
   prisma,
 } from "../db.js";
+import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
 
 import {
   authRequired,
@@ -78,6 +79,17 @@ function normalizeIds(
  * accesul doar la produsele vendorului
  * autentificat.
  */
+
+/*
+ * Produs nou (ex. duplicat) + titlul pentru feed-ul Google programat în
+ * fundal (nu blochează; la eșec feed-ul folosește title).
+ */
+async function createProductWithFeedTitle(args) {
+  const product = await prisma.product.create(args);
+  queueFeedTitleRefresh(product.id);
+  return product;
+}
+
 function ownedProductWhere(
   userId,
   ids = null
@@ -931,6 +943,11 @@ router.patch(
         }),
       ]);
 
+      // categoria schimbată -> titlurile pentru feed se regenerează în fundal
+      for (const productId of ids) {
+        queueFeedTitleRefresh(productId);
+      }
+
       return res.json({
         ok: true,
 
@@ -1132,7 +1149,7 @@ router.post(
           );
 
       const duplicated =
-        await prisma.product.create({
+        await createProductWithFeedTitle({
           data: {
             /*
              * Același magazin.

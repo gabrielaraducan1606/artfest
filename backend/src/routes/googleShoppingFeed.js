@@ -203,7 +203,12 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
         // -> "handmade" (fallback-ul existent).
         const productType = attrs.productType || "handmade";
 
-        const title = p.title || "Produs Artfest";
+        // titlul optimizat pentru Shopping (Product.feedTitle, generat cu AI
+        // din datele produsului) are prioritate; altfel titlul de pe site
+        const title =
+          String(p.feedTitle || "").trim() ||
+          p.title ||
+          "Produs Artfest";
 
         const description =
           stripHtml(p.description) ||
