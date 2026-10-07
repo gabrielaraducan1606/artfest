@@ -9,6 +9,9 @@ documents:
     current: 1
     files:
       1: { path: "legal/docs/tos/v1.md", vars: 1 }
+      # v2: versiune VIITOARE (preaviz) - publică pentru consultare, NU în vigoare.
+      # effectiveAt / noticeAt / changeSummary rămân null până le stabilește operatorul.
+      2: { path: "legal/docs/tos/v2.md", vars: 1, status: "upcoming", effectiveAt: "2026-10-23", noticeAt: null, changeSummary: null }
 
   privacy:
     title: "Politica de confidențialitate"
@@ -17,6 +20,9 @@ documents:
     current: 1
     files:
       1: { path: "legal/docs/privacy/v1.md", vars: 1 }
+      # v2: versiune VIITOARE (preaviz) - publică pentru consultare, NU în vigoare.
+      # effectiveAt / noticeAt / changeSummary rămân null până le stabilește operatorul.
+      2: { path: "legal/docs/privacy/v2.md", vars: 1, status: "upcoming", effectiveAt: "2026-10-23", noticeAt: null, changeSummary: null }
 
   cookies:
     title: "Politica de Cookie-uri"
@@ -25,6 +31,9 @@ documents:
     current: 1
     files:
       1: { path: "legal/docs/cookies/v1.md", vars: 1 }
+      # v2: versiune VIITOARE (preaviz) - publică pentru consultare, NU în vigoare.
+      # effectiveAt / noticeAt / changeSummary rămân null până le stabilește operatorul.
+      2: { path: "legal/docs/cookies/v2.md", vars: 1, status: "upcoming", effectiveAt: "2026-10-23", noticeAt: null, changeSummary: null }
 
   influencer_terms:
     title: "Acord privind Programul de Influenceri Artfest"
@@ -41,6 +50,9 @@ documents:
     current: 1
     files:
       1: { path: "legal/docs/vendor_terms/v1.md", vars: 1 }
+      # v2: versiune VIITOARE (preaviz) - publică pentru consultare, NU în vigoare.
+      # effectiveAt / noticeAt / changeSummary rămân null până le stabilește operatorul.
+      2: { path: "legal/docs/vendor_terms/v2.md", vars: 1, status: "upcoming", effectiveAt: "2026-10-23", noticeAt: null, changeSummary: null }
 
   shipping_addendum:
     title: "Anexa de Expediere & Curierat"
@@ -49,6 +61,9 @@ documents:
     current: 1
     files:
       1: { path: "legal/docs/shipping_addendum/v1.md", vars: 1 }
+      # v2: versiune VIITOARE (preaviz) - publică pentru consultare, NU în vigoare.
+      # effectiveAt / noticeAt / changeSummary rămân null până le stabilește operatorul.
+      2: { path: "legal/docs/shipping_addendum/v2.md", vars: 1, status: "upcoming", effectiveAt: "2026-10-23", noticeAt: null, changeSummary: null }
 
   returns_policy_ack:
     title: "Politica de retur"
@@ -57,6 +72,9 @@ documents:
     current: 1
     files:
       1: { path: "legal/docs/returns_policy_ack/v1.md", vars: 1 }
+      # v2: versiune VIITOARE (preaviz) - publică pentru consultare, NU în vigoare.
+      # effectiveAt / noticeAt / changeSummary rămân null până le stabilește operatorul.
+      2: { path: "legal/docs/returns_policy_ack/v2.md", vars: 1, status: "upcoming", effectiveAt: "2026-10-23", noticeAt: null, changeSummary: null }
 
   products_addendum:
     title: "Anexa Produse"
@@ -65,4 +83,7 @@ documents:
     current: 1
     files:
       1: { path: "legal/docs/products_addendum/v1.md", vars: 1 }
+      # v2: versiune VIITOARE (preaviz) - publică pentru consultare, NU în vigoare.
+      # effectiveAt / noticeAt / changeSummary rămân null până le stabilește operatorul.
+      2: { path: "legal/docs/products_addendum/v2.md", vars: 1, status: "upcoming", effectiveAt: "2026-10-23", noticeAt: null, changeSummary: null }
       

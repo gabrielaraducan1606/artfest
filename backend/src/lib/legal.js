@@ -267,7 +267,7 @@ function getDocumentCacheKey(type, version) {
  * Templating
  * ========================================================= */
 
-function renderTemplate(value, vars) {
+function renderTemplate(value, vars, missing = null) {
   if (value == null) {
     return "";
   }
@@ -290,15 +290,21 @@ function renderTemplate(value, vars) {
         } else {
           /*
            * Păstrăm comportamentul anterior:
-           * o variabilă lipsă devine text gol.
+           * o variabilă lipsă devine text gol - dar o
+           * raportăm (missingVars), ca o versiune nouă cu
+           * date lipsă să nu poată fi publicată.
            */
+          missing?.add(variableKey);
           return "";
         }
       }
 
-      return current == null
-        ? ""
-        : String(current);
+      if (current == null || String(current).trim() === "") {
+        missing?.add(variableKey);
+        return "";
+      }
+
+      return String(current);
     }
   );
 }
@@ -492,22 +498,26 @@ export function loadLegalDoc(type, options = {}) {
   const raw = readUtf8File(documentPath);
   const parsed = matter(raw);
   const vars = loadVars(varsVersion);
+  const missingVars = new Set();
 
   const title = renderTemplate(
     parsed.data?.title ||
       definition.title ||
       normalizedType,
-    vars
+    vars,
+    missingVars
   ).trim();
 
   const validFrom = renderTemplate(
     parsed.data?.valid_from || "",
-    vars
+    vars,
+    missingVars
   ).trim();
 
   const content = renderTemplate(
     parsed.content || "",
-    vars
+    vars,
+    missingVars
   ).trim();
 
   const html = marked.parse(content);
@@ -603,6 +613,25 @@ export function loadLegalDoc(type, options = {}) {
     sourcePath: documentPath,
     varsVersion,
 
+    /*
+     * Variabile {{...}} lipsă/goale în vars - o versiune cu
+     * missingVars NU e publică și NU poate fi activată.
+     */
+    missingVars: [...missingVars].sort(),
+
+    /*
+     * Metadate de versiune din manifest (fișierul vN):
+     *  - status: "upcoming" = versiune viitoare, publică pentru
+     *    consultare (preaviz), NU în vigoare; absent = draft dacă e
+     *    peste `current`;
+     *  - effectiveAt / noticeAt / changeSummary: null până le
+     *    stabilește operatorul (nu se afișează placeholder-e).
+     */
+    manifestStatus: fileMeta.status ? String(fileMeta.status) : null,
+    effectiveAt: fileMeta.effectiveAt ? String(fileMeta.effectiveAt) : null,
+    noticeAt: fileMeta.noticeAt ? String(fileMeta.noticeAt) : null,
+    changeSummary: fileMeta.changeSummary ? String(fileMeta.changeSummary) : null,
+
     publicUrl:
       defaultPublicUrlForType(normalizedType),
 
@@ -612,7 +641,7 @@ export function loadLegalDoc(type, options = {}) {
     versionHtmlUrl:
       `/legal/${encodeURIComponent(
         normalizedType
-      )}/v/${manifestVersion}.html`,
+      )}/v/${encodeURIComponent(policyVersion)}.html`,
   };
 
   documentCache.set(cacheKey, {
@@ -680,6 +709,93 @@ export function loadLegalDocByPolicyVersion(type, policyVersion) {
       const doc = loadLegalDoc(type, { version: manifestVersion });
 
       if (String(doc.policyVersion) === wanted) {
+        return doc;
+      }
+    } catch {
+      // fișier lipsă / invalid: sărim
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Versiunea din URL (/legal/:type/v/:version.html): număr de manifest
+ * ("2") sau policyVersion ("2.0.0"). Întoarce numărul din manifest sau null.
+ */
+export function resolveManifestVersionParam(type, param) {
+  const raw = String(param ?? "").trim();
+
+  if (!raw) return null;
+
+  const versions = listManifestVersions(type);
+
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    return versions.includes(n) ? n : null;
+  }
+
+  for (const manifestVersion of versions) {
+    try {
+      const doc = loadLegalDoc(type, { version: manifestVersion });
+      if (String(doc.policyVersion) === raw) return manifestVersion;
+    } catch {
+      // fișier lipsă / invalid: sărim
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Starea PUBLICĂ a unei versiuni, relativ la versiunea în vigoare
+ * (`currentManifestVersion`: cea servită ca „în vigoare” - rândul activ
+ * din DB dacă există în manifest, altfel `current` din manifest):
+ *
+ *  - CURRENT  = în vigoare (public);
+ *  - ARCHIVED = mai veche (public, istoric);
+ *  - UPCOMING = status "upcoming" în manifest, fără variabile lipsă
+ *               (public pentru consultare / preaviz, NU în vigoare);
+ *  - NOT_READY = "upcoming", dar cu date lipsă (ex. {{company.phone}})
+ *               -> NU e publică, ca să nu afișăm câmpuri goale;
+ *  - DRAFT    = orice altă versiune mai nouă (NU e publică).
+ *
+ * Doar CURRENT poate fi acceptată / cerută la reacceptare - restul
+ * mecanismelor (UserPolicy/VendorPolicy, gate) nu citesc această stare.
+ */
+export function legalVersionVisibility(doc, currentManifestVersion) {
+  const version = Number(doc?.manifestVersion);
+  const current = Number(currentManifestVersion);
+
+  if (!Number.isInteger(version) || !Number.isInteger(current)) {
+    return { status: "DRAFT", isPublic: false };
+  }
+
+  if (version === current) return { status: "CURRENT", isPublic: true };
+  if (version < current) return { status: "ARCHIVED", isPublic: true };
+
+  if (doc.manifestStatus === "upcoming") {
+    return doc.missingVars?.length
+      ? { status: "NOT_READY", isPublic: false, missingVars: doc.missingVars }
+      : { status: "UPCOMING", isPublic: true };
+  }
+
+  return { status: "DRAFT", isPublic: false };
+}
+
+/**
+ * Cea mai nouă versiune UPCOMING (publică pentru consultare) peste
+ * versiunea în vigoare, sau null.
+ */
+export function findUpcomingLegalDoc(type, currentManifestVersion) {
+  const versions = [...listManifestVersions(type)].reverse();
+
+  for (const manifestVersion of versions) {
+    if (manifestVersion <= Number(currentManifestVersion)) break;
+
+    try {
+      const doc = loadLegalDoc(type, { version: manifestVersion });
+      if (legalVersionVisibility(doc, currentManifestVersion).status === "UPCOMING") {
         return doc;
       }
     } catch {

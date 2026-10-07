@@ -15,6 +15,7 @@ import { createFakePrisma } from "../testkit/fakePrisma.js";
 
 let fake;
 const sentEmails = [];
+const sentNotices = [];
 
 mock.module("../db.js", {
   namedExports: {
@@ -47,6 +48,26 @@ mock.module("../lib/mailer.js", {
     async sendPolicyUpdateEmail(payload) {
       sentEmails.push(payload);
     },
+    // preaviz / actualizare: fără email real, dar cu EmailLog (ca sendMailLogged)
+    async sendLegalNoticeEmail(payload) {
+      sentNotices.push(payload);
+      await fake.emailLog.create({
+        data: {
+          toEmail: payload.to,
+          template: `legal_notice:${payload.campaignKey}`,
+          status: "SENT",
+          sentAt: new Date(),
+          subject: "notice",
+          senderKey: "noreply",
+        },
+      });
+    },
+    buildLegalNoticeEmail({ kind, documents }) {
+      return { subject: `${kind}:${documents.length}`, html: "<p>preview</p>", text: "preview" };
+    },
+    legalNoticeTemplate(campaignKey) {
+      return `legal_notice:${campaignKey}`;
+    },
   },
 });
 
@@ -72,6 +93,7 @@ after(() => new Promise((resolve) => server.close(resolve)));
 
 beforeEach(() => {
   sentEmails.length = 0;
+  sentNotices.length = 0;
   fake = createFakePrisma();
 
   const [u1, u2, v1, v2, i1, admin] = fake.seed("user", [
@@ -511,4 +533,96 @@ test("/send (wrapper): publică versiunea curentă și creează cereri; cookies 
     body: { scope: "USERS", documents: ["TOS"] },
   });
   assert.equal(forbidden.status, 403);
+});
+
+/* --------------------- preaviz / notificare actualizare (HTTP) --------------------- */
+
+// Excepția confirmată face testul independent de data rulării (după 8 oct 2026
+// termenul de 15 zile nu mai e îndeplinit); regula de 15 zile e testată cu
+// dată fixă în legalAdmin.test.js.
+const NOTICE_EXCEPTION = { confirmed: true, reason: "test automat" };
+
+test("admin preaviz: preview fără trimitere; doar adminul are acces", async () => {
+  const forbidden = await call("GET", "/api/admin/legal/notices/preview?kind=notice", { as: asUser(ctx.u1) });
+  assert.equal(forbidden.status, 403);
+
+  const preview = await call("GET", "/api/admin/legal/notices/preview?kind=notice", { as: asAdmin() });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.available, true);
+  assert.equal(preview.body.effectiveAt, "2026-10-23");
+  assert.equal(preview.body.recipients.total, 5);
+  assert.ok(preview.body.samples.length >= 3);
+
+  assert.equal(sentNotices.length, 0, "preview-ul nu trimite");
+  assert.equal(fake.tables.policyGateCampaign.length, 0);
+});
+
+test("admin preaviz: trimite doar cu confirmare, o singură dată; raport; v2 rămâne inactivă și nu blochează pe nimeni", async () => {
+  const noConfirm = await call("POST", "/api/admin/legal/notices/send", {
+    as: asAdmin(),
+    body: { kind: "notice" },
+  });
+  assert.equal(noConfirm.status, 400);
+  assert.equal(sentNotices.length, 0);
+
+  const sent = await call("POST", "/api/admin/legal/notices/send", {
+    as: asAdmin(),
+    body: { kind: "notice", confirm: true, exception: NOTICE_EXCEPTION },
+  });
+  assert.equal(sent.status, 200);
+  assert.equal(sent.body.sent, 5);
+  assert.equal(sent.body.activated, false);
+  assert.equal(sent.body.reacceptanceRequested, false);
+  assert.equal(sentNotices.length, 5);
+  assert.equal(sentEmails.length, 0, "nu pleacă email de reacceptare");
+
+  const again = await call("POST", "/api/admin/legal/notices/send", {
+    as: asAdmin(),
+    body: { kind: "notice", confirm: true, exception: NOTICE_EXCEPTION },
+  });
+  assert.equal(again.status, 409);
+  assert.equal(sentNotices.length, 5, "al doilea click nu trimite nimic");
+
+  const report = await call("GET", `/api/admin/legal/notices/${sent.body.campaignId}/report`, { as: asAdmin() });
+  assert.equal(report.status, 200);
+  assert.equal(report.body.delivered, 5);
+  assert.equal(report.body.failed, 0);
+
+  const retry = await call("POST", `/api/admin/legal/notices/${sent.body.campaignId}/resend-failed`, {
+    as: asAdmin(),
+  });
+  assert.equal(retry.body.attempted, 0);
+  assert.equal(sentNotices.length, 5);
+
+  const overview = await call("GET", "/api/admin/legal/notices", { as: asAdmin() });
+  assert.equal(overview.body.byDocument.tos.notice.version, "2.0.0");
+  assert.equal(overview.body.notice.available, false);
+
+  // v2 NU e activă: catalogul raportează în continuare v1 și gate-ul e gol
+  const catalog = await call("GET", "/api/admin/legal/documents", { as: asAdmin() });
+  const tos = catalog.body.rows.find((r) => r.rowId === "TOS#USER");
+  assert.notEqual(tos.published?.version, "2.0.0");
+
+  for (const [user, scope] of [
+    [ctx.u1, "USERS"],
+    [ctx.v1, "VENDORS"],
+    [ctx.i1, "USERS"],
+  ]) {
+    const gate = await call("GET", `/api/policy-gate?scope=${scope}`, { as: asUser(user) });
+    assert.equal(gate.body.requiresAction, false, user.email);
+    assert.deepEqual(gate.body.documents, [], user.email);
+  }
+});
+
+test("admin actualizare: indisponibilă cât timp v2 nu e activă", async () => {
+  const preview = await call("GET", "/api/admin/legal/notices/preview?kind=update", { as: asAdmin() });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.available, false);
+
+  const send = await call("POST", "/api/admin/legal/notices/send", {
+    as: asAdmin(),
+    body: { kind: "update", confirm: true },
+  });
+  assert.equal(send.status, 409);
+  assert.equal(sentNotices.length, 0);
 });

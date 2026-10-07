@@ -11,6 +11,11 @@
 //   GET  /api/admin/legal/documents/acceptances?catalogId=&audience=&version=&status=&page=
 //   POST /api/admin/legal/campaigns/:id/close
 //   POST /api/admin/legal/campaigns/:id/resend-email
+//   GET  /api/admin/legal/notices                      (stare preaviz/actualizare)
+//   GET  /api/admin/legal/notices/preview?kind=notice|update  (fără trimitere)
+//   POST /api/admin/legal/notices/send   { kind, confirm: true, exception? }
+//   GET  /api/admin/legal/notices/:id/report
+//   POST /api/admin/legal/notices/:id/resend-failed
 //
 // Publicarea NU cere reacceptare; doar "request-reacceptance" poate deschide
 // gate-ul pentru utilizatorii existenți.
@@ -32,6 +37,13 @@ import {
   listAcceptances,
 } from "../services/legalStatsService.js";
 import { dispatchCampaignEmails } from "../services/policyEmailService.js";
+import {
+  legalNoticeOverview,
+  legalNoticeReport,
+  previewLegalNotice,
+  resendFailedLegalNotice,
+  sendLegalNotice,
+} from "../services/legalNoticeService.js";
 
 const router = Router();
 
@@ -198,6 +210,74 @@ router.post("/campaigns/:id/resend-email", async (req, res) => {
     return res.json({ ok: true, ...result });
   } catch (error) {
     return sendError(res, error, "POST /campaigns/:id/resend-email");
+  }
+});
+
+/* =========================================================
+   PREAVIZ / NOTIFICARE DE ACTUALIZARE (services/legalNoticeService.js)
+   - nimic nu se trimite fără POST /notices/send cu confirm: true;
+   - preavizul NU activează documente și NU cere reacceptare.
+========================================================= */
+
+function sendNoticeError(res, error, label) {
+  const status = Number(error?.status) || 500;
+
+  if (status >= 500) return sendError(res, error, label);
+
+  return res.status(status).json({
+    ok: false,
+    error: error?.code || "notice_error",
+    message: error?.message,
+    blockers: error?.blockers,
+    daysUntilEffective: error?.daysUntilEffective,
+  });
+}
+
+router.get("/notices", async (_req, res) => {
+  try {
+    return res.json({ ok: true, ...(await legalNoticeOverview({ prisma })) });
+  } catch (error) {
+    return sendError(res, error, "GET /notices");
+  }
+});
+
+router.get("/notices/preview", async (req, res) => {
+  try {
+    return res.json({ ok: true, ...(await previewLegalNotice({ kind: req.query?.kind, prisma })) });
+  } catch (error) {
+    return sendNoticeError(res, error, "GET /notices/preview");
+  }
+});
+
+router.post("/notices/send", async (req, res) => {
+  try {
+    const result = await sendLegalNotice({
+      kind: req.body?.kind,
+      confirm: req.body?.confirm === true,
+      exception: req.body?.exception || null,
+      actorId: actorOf(req),
+      prisma,
+    });
+
+    return res.json(result);
+  } catch (error) {
+    return sendNoticeError(res, error, "POST /notices/send");
+  }
+});
+
+router.get("/notices/:id/report", async (req, res) => {
+  try {
+    return res.json({ ok: true, ...(await legalNoticeReport({ campaignId: req.params.id, prisma })) });
+  } catch (error) {
+    return sendNoticeError(res, error, "GET /notices/:id/report");
+  }
+});
+
+router.post("/notices/:id/resend-failed", async (req, res) => {
+  try {
+    return res.json(await resendFailedLegalNotice({ campaignId: req.params.id, prisma }));
+  } catch (error) {
+    return sendNoticeError(res, error, "POST /notices/:id/resend-failed");
   }
 });
 

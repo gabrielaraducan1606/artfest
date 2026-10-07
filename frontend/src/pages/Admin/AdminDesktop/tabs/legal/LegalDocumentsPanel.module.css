@@ -277,3 +277,70 @@
     flex: 1 1 0;
   }
 }
+
+/* ===== Preaviz / notificare de actualizare (LegalNoticeDialog, LegalNoticeReportDialog) ===== */
+.noticeBar {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.noticeBar p {
+  margin: 0;
+}
+
+.noticeLine {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin-top: 4px;
+}
+
+.noticeDocs {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.noticeDocs a {
+  color: var(--color-primary);
+}
+
+.noticePreview {
+  display: grid;
+  gap: 8px;
+}
+
+.noticeFrame {
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+@media (max-width: 768px) {
+  .noticeBar .btn,
+  .actions .btn {
+    min-height: 40px;
+  }
+
+  .noticeFrame {
+    min-height: 300px;
+  }
+
+  .summaryGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .summaryGrid dd {
+    margin-bottom: 6px;
+  }
+}

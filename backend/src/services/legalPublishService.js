@@ -64,6 +64,15 @@ export async function publishLegalDocumentVersion({
     );
   }
 
+  // documentul activ nu poate avea câmpuri goale (ex. date firmă lipsă)
+  if (doc.missingVars?.length) {
+    throw fail(
+      409,
+      "version_missing_vars",
+      `Versiunea are date necompletate (${doc.missingVars.join(", ")}). Completează legal/vars înainte de publicare.`
+    );
+  }
+
   const definition = getLegalDefinition(entry.manifestType);
   const title = String(doc.title || definition.title || entry.label).trim();
   const url = doc.publicUrl || defaultPublicUrlForType(entry.manifestType) || "#";

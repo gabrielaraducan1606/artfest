@@ -5,12 +5,16 @@ import s from "./LegalDocumentsPanel.module.css";
 import AcceptanceHistoryDrawer from "./AcceptanceHistoryDrawer.jsx";
 import PublishDialog from "./PublishDialog.jsx";
 import ReacceptanceDialog from "./ReacceptanceDialog.jsx";
+import LegalNoticeDialog from "./LegalNoticeDialog.jsx";
+import LegalNoticeReportDialog from "./LegalNoticeReportDialog.jsx";
 import {
   audienceLabel,
   canPublishRow,
   canRequestRow,
+  formatDaysLeft,
   formatDrafts,
   formatUnregistered,
+  noticeStateForRow,
   sortCatalogRows,
   statusLabel,
   statusTone,
@@ -21,6 +25,54 @@ function formatDate(value) {
   if (!value) return "—";
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("ro-RO");
+}
+
+/*
+ * Butoanele de preaviz / actualizare pe rândul unui document. Preavizul e
+ * AGREGAT (un email per persoană cu toate documentele viitoare), deci
+ * butonul deschide același pachet din orice rând.
+ */
+function NoticeRowActions({ ns, onOpen }) {
+  return (
+    <>
+      {ns.upcoming && !ns.notice && (
+        <>
+          <button
+            type="button"
+            className={s.btn}
+            onClick={() => onOpen({ type: "notice", kind: "notice", previewOnly: true })}
+          >
+            Preview email
+          </button>
+          <button
+            type="button"
+            className={`${s.btn} ${s.btnPrimary}`}
+            onClick={() => onOpen({ type: "notice", kind: "notice" })}
+          >
+            Trimite preaviz
+          </button>
+        </>
+      )}
+      {ns.notice && (
+        <button
+          type="button"
+          className={s.btn}
+          onClick={() => onOpen({ type: "noticeReport", campaignId: ns.notice.campaignId })}
+        >
+          Vezi raport{ns.notice.failed > 0 ? ` (${ns.notice.failed} eșuate)` : ""}
+        </button>
+      )}
+      {ns.updatePending && !ns.update && (
+        <button
+          type="button"
+          className={`${s.btn} ${s.btnPrimary}`}
+          onClick={() => onOpen({ type: "notice", kind: "update" })}
+        >
+          Trimite notificare de actualizare
+        </button>
+      )}
+    </>
+  );
 }
 
 /*
@@ -37,6 +89,7 @@ export default function LegalDocumentsPanel() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [dialog, setDialog] = useState(null); // { type, row }
+  const [notices, setNotices] = useState(null); // GET /notices (preaviz / actualizare)
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -50,7 +103,17 @@ export default function LegalDocumentsPanel() {
     } finally {
       setLoading(false);
     }
+
+    // starea preavizului nu blochează catalogul dacă eșuează
+    try {
+      setNotices(await api("/api/admin/legal/notices"));
+    } catch {
+      setNotices(null);
+    }
   }, []);
+
+  const latestNotice = notices?.notice?.campaigns?.[0] || null;
+  const latestUpdate = notices?.update?.campaigns?.[0] || null;
 
   useEffect(() => {
     load();
@@ -89,6 +152,82 @@ export default function LegalDocumentsPanel() {
       {notice && <div className={s.notice}>{notice}</div>}
       {error && <div className={s.error}>{error}</div>}
 
+      {notices && (
+        <div className={s.noticeBar}>
+          {notices.notice?.available ? (
+            <p>
+              <strong>Versiune viitoare</strong>: {notices.notice.documents.length} documente · intră în vigoare la{" "}
+              <strong>{formatDate(notices.notice.effectiveAt)}</strong> ·{" "}
+              {formatDaysLeft(notices.notice.daysUntilEffective)}
+              {!notices.notice.noticePeriodOk && " · sub termenul minim de 15 zile"}
+            </p>
+          ) : latestNotice ? (
+            <p>
+              <strong>Preaviz trimis</strong> la {formatDate(latestNotice.createdAt)} · {latestNotice.recipients}{" "}
+              destinatari · {latestNotice.delivered} livrate · {latestNotice.failed} eșuate
+              {latestNotice.createdByEmail && <> · inițiat de {latestNotice.createdByEmail}</>}
+            </p>
+          ) : (
+            <p className={s.key}>Nicio versiune viitoare pregătită pentru preaviz.</p>
+          )}
+
+          {latestUpdate && (
+            <p>
+              <strong>Notificare de actualizare trimisă</strong> la {formatDate(latestUpdate.createdAt)} ·{" "}
+              {latestUpdate.delivered} livrate · {latestUpdate.failed} eșuate
+            </p>
+          )}
+
+          <div className={s.actions}>
+            {notices.notice?.available && (
+              <>
+                <button
+                  type="button"
+                  className={s.btn}
+                  onClick={() => setDialog({ type: "notice", kind: "notice", previewOnly: true })}
+                >
+                  Preview email
+                </button>
+                <button
+                  type="button"
+                  className={`${s.btn} ${s.btnPrimary}`}
+                  onClick={() => setDialog({ type: "notice", kind: "notice" })}
+                >
+                  Trimite preaviz
+                </button>
+              </>
+            )}
+            {latestNotice && (
+              <button
+                type="button"
+                className={s.btn}
+                onClick={() => setDialog({ type: "noticeReport", campaignId: latestNotice.campaignId })}
+              >
+                Vezi raport preaviz{latestNotice.failed > 0 ? ` (${latestNotice.failed} eșuate)` : ""}
+              </button>
+            )}
+            {notices.update?.available && (
+              <button
+                type="button"
+                className={`${s.btn} ${s.btnPrimary}`}
+                onClick={() => setDialog({ type: "notice", kind: "update" })}
+              >
+                Trimite notificare de actualizare
+              </button>
+            )}
+            {latestUpdate && (
+              <button
+                type="button"
+                className={s.btn}
+                onClick={() => setDialog({ type: "noticeReport", campaignId: latestUpdate.campaignId })}
+              >
+                Vezi raport actualizare
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className={styles.tableWrapper}>
         <table className={styles.table}>
           <thead>
@@ -111,6 +250,7 @@ export default function LegalDocumentsPanel() {
             {rows.map((row) => {
               const informational = row.informational === true;
               const unregistered = formatUnregistered(row);
+              const ns = noticeStateForRow(row, notices);
 
               return (
                 <tr key={row.rowId}>
@@ -170,6 +310,22 @@ export default function LegalDocumentsPanel() {
                     {row.requirement?.deadlineAt && (
                       <div className={s.key}>termen {formatDate(row.requirement.deadlineAt)}</div>
                     )}
+                    {ns.upcoming && (
+                      <div className={s.noticeLine}>
+                        Versiune viitoare v{ns.upcoming.version} · intră în vigoare la{" "}
+                        {formatDate(ns.upcoming.effectiveAt)}
+                      </div>
+                    )}
+                    {ns.notice && (
+                      <div className={s.noticeLine}>
+                        Preaviz trimis la {formatDate(ns.notice.sentAt)} (v{ns.notice.version})
+                      </div>
+                    )}
+                    {ns.update && (
+                      <div className={s.noticeLine}>
+                        Notificare de actualizare trimisă la {formatDate(ns.update.sentAt)}
+                      </div>
+                    )}
                   </td>
 
                   <td>
@@ -205,8 +361,10 @@ export default function LegalDocumentsPanel() {
                         >
                           Istoric
                         </button>
+                        <NoticeRowActions ns={ns} onOpen={setDialog} />
                       </div>
                     )}
+                    {informational && <NoticeRowActions ns={ns} onOpen={setDialog} />}
                   </td>
                 </tr>
               );
@@ -227,6 +385,23 @@ export default function LegalDocumentsPanel() {
 
       {dialog?.type === "request" && (
         <ReacceptanceDialog row={dialog.row} onClose={() => setDialog(null)} onDone={finish} />
+      )}
+
+      {dialog?.type === "notice" && (
+        <LegalNoticeDialog
+          kind={dialog.kind}
+          previewOnly={dialog.previewOnly === true}
+          onClose={() => setDialog(null)}
+          onDone={finish}
+        />
+      )}
+
+      {dialog?.type === "noticeReport" && (
+        <LegalNoticeReportDialog
+          campaignId={dialog.campaignId}
+          onClose={() => setDialog(null)}
+          onChanged={load}
+        />
       )}
 
       {dialog?.type === "history" && (

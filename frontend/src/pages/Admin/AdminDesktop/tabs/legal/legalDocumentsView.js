@@ -46,7 +46,14 @@ export function formatDrafts(row) {
   if (!drafts.length) return "—";
 
   return drafts
-    .map((d) => `v${d.manifestVersion}${d.policyVersion ? ` (${d.policyVersion})` : ""}`)
+    .map((d) => {
+      const base = `v${d.manifestVersion}${d.policyVersion ? ` (${d.policyVersion})` : ""}`;
+      if (!d.upcoming) return base;
+      // versiune viitoare (preaviz): publică doar dacă nu lipsesc date
+      return d.missingVars?.length
+        ? `${base} · viitoare, NOT READY (lipsesc: ${d.missingVars.join(", ")})`
+        : `${base} · viitoare, publică pentru consultare`;
+    })
     .join(", ");
 }
 
@@ -197,4 +204,68 @@ export function describeRequestResult(result) {
   }
 
   return `${parts.join("; ")}.`;
+}
+
+/* ---------------- preaviz / notificare de actualizare ---------------- */
+
+const CATALOG_MANIFEST_TYPE = {
+  TOS: "tos",
+  PRIVACY: "privacy",
+  "RETURNS_POLICY_ACK@USER": "returns_policy_ack",
+  "RETURNS_POLICY_ACK@VENDOR": "returns_policy_ack",
+  VENDOR_TERMS: "vendor_terms",
+  SHIPPING_ADDENDUM: "shipping_addendum",
+  PRODUCTS_ADDENDUM: "products_addendum",
+  INFLUENCER_TERMS: "influencer_terms",
+  COOKIES: "cookies",
+};
+
+/** Documentul din manifest al unui rând de catalog (ex. TOS -> "tos"). */
+export function manifestTypeOfRow(row) {
+  return CATALOG_MANIFEST_TYPE[row?.catalogId] || null;
+}
+
+/**
+ * Starea de preaviz / actualizare a unui rând (din GET /notices):
+ *  upcoming   = versiune viitoare încă neanunțată { version, effectiveAt }
+ *  notice     = preaviz deja trimis { sentAt, recipients, delivered, failed, ... }
+ *  updatePending / update = idem pentru notificarea de după activare
+ */
+export function noticeStateForRow(row, overview) {
+  const type = manifestTypeOfRow(row);
+  const slot = (type && overview?.byDocument?.[type]) || {};
+
+  return {
+    upcoming: slot.noticePending || null,
+    notice: slot.notice || null,
+    updatePending: slot.updatePending || null,
+    update: slot.update || null,
+  };
+}
+
+/** „16 zile rămase” / „1 zi rămasă” / „termen depășit”. */
+export function formatDaysLeft(days) {
+  if (days == null) return "—";
+  if (days < 0) return "data intrării în vigoare a trecut";
+  if (days === 1) return "1 zi rămasă";
+  return `${days} zile rămase`;
+}
+
+/** Butonul de trimitere e activ doar dacă preview-ul permite și termenul e respectat sau excepția e completă. */
+export function canSendNotice(preview, exception = {}) {
+  if (!preview?.available) return false;
+  if (preview.noticePeriodOk) return true;
+  return exception.confirmed === true && String(exception.reason || "").trim().length > 0;
+}
+
+export function roleLabel(role) {
+  return { USER: "Clienți", VENDOR: "Vânzători", INFLUENCER: "Influenceri" }[role] || role;
+}
+
+export function describeNoticeResult(result) {
+  if (!result) return "";
+  const what = result.kind === "update" ? "Notificarea de actualizare" : "Preavizul";
+  return `${what} a fost trimis: ${result.sent} livrate, ${result.failed} eșuate din ${result.recipients} destinatari.${
+    result.kind === "notice" ? " Versiunea viitoare NU a fost activată." : ""
+  }`;
 }

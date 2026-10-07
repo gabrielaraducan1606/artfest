@@ -2242,7 +2242,16 @@ export async function sendPolicyUpdateEmail({
       ? ` - de acceptat până la ${new Date(doc.deadlineAt).toLocaleDateString("ro-RO")}`
       : "";
 
-    return { title: String(doc.title || ""), version, deadline, url };
+    // opțional (preaviz): versiunea în vigoare, data intrării în vigoare,
+    // rezumatul modificărilor - afișate DOAR dacă sunt furnizate
+    const details = [
+      doc.currentVersion ? `versiunea în vigoare: ${doc.currentVersion}` : "",
+      doc.effectiveAt
+        ? `intră în vigoare la ${new Date(doc.effectiveAt).toLocaleDateString("ro-RO", { timeZone: "Europe/Bucharest" })}`
+        : "",
+    ].filter(Boolean);
+    const changeSummary = String(doc.changeSummary || "").trim();
+    return { title: String(doc.title || ""), version, deadline, url, details, changeSummary };
   });
 
   const paragraphs = String(body || "")
@@ -2281,7 +2290,15 @@ export async function sendPolicyUpdateEmail({
               d.url
                 ? `<a href="${escapeEmailHtml(d.url)}" style="color:#4b5563;">${escapeEmailHtml(d.title)}</a>`
                 : escapeEmailHtml(d.title)
-            }${escapeEmailHtml(d.version)}${escapeEmailHtml(d.deadline)}</li>`
+            }${escapeEmailHtml(d.version)}${escapeEmailHtml(d.deadline)}${
+              d.details.length
+                ? `<br><span style="color:#6b7280;font-size:13px;">${escapeEmailHtml(d.details.join(" · "))}</span>`
+                : ""
+            }${
+              d.changeSummary
+                ? `<br><span style="color:#374151;font-size:13px;">${escapeEmailHtml(d.changeSummary)}</span>`
+                : ""
+            }</li>`
         )
         .join("")}
     </ul>
@@ -2310,7 +2327,11 @@ export async function sendPolicyUpdateEmail({
     "",
     ...paragraphs.flatMap((p) => [p, ""]),
     ...(docLines.length ? ["Documente actualizate:"] : []),
-    ...docLines.map((d) => `- ${d.title}${d.version}${d.deadline}${d.url ? ` - ${d.url}` : ""}`),
+    ...docLines.flatMap((d) => [
+      `- ${d.title}${d.version}${d.deadline}${d.url ? ` - ${d.url}` : ""}`,
+      ...(d.details.length ? [`  (${d.details.join("; ")})`] : []),
+      ...(d.changeSummary ? [`  ${d.changeSummary}`] : []),
+    ]),
     ...(ctaLink ? ["", `Consultă și acceptă documentele: ${ctaLink}`] : []),
   ].join("\n");
 
@@ -2325,6 +2346,252 @@ export async function sendPolicyUpdateEmail({
       ...senderEnvelope("noreply"),
       to,
       subject: safeSubject,
+      html,
+      text,
+      // tranzacțional: fără "Precedence: bulk" și fără List-Unsubscribe de marketing
+      headers: { "Auto-Submitted": "auto-generated" },
+    },
+  });
+}
+
+/* ============================================================
+   LEGAL: PREAVIZ (înainte de intrarea în vigoare) și
+   NOTIFICARE DE ACTUALIZARE (după activare) - tranzacțional
+   ------------------------------------------------------------
+   Un singur email AGREGAT per destinatar, cu toate documentele
+   relevante rolului său. Preavizul NU cere acceptare; notificarea
+   de actualizare menționează acceptarea DOAR pentru documentele cu
+   reacceptare efectiv cerută (doc.reacceptanceRequired === true).
+============================================================ */
+
+const LEGAL_NOTICE_SIGNATURE_EMAIL = "support@artfest.ro";
+
+export function formatLegalNoticeDate(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("ro-RO", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Europe/Bucharest",
+  });
+}
+
+function legalNoticeSubject(kind, documents, effectiveLabel) {
+  const hasTos = documents.some((d) => d.key === "tos");
+  const single = documents.length === 1 ? documents[0] : null;
+
+  if (kind === "update") {
+    if (hasTos) return `Noii Termeni și Condiții ${BRAND_NAME} au intrat în vigoare`;
+    if (single) return `${single.title} ${BRAND_NAME} – noua versiune a intrat în vigoare`;
+    return `Documentele legale ${BRAND_NAME} actualizate au intrat în vigoare`;
+  }
+
+  const what = hasTos ? "Termeni și Condiții" : single ? single.title : "documente legale";
+  return `Actualizare ${what} ${BRAND_NAME} – intrare în vigoare la ${effectiveLabel}`;
+}
+
+/**
+ * Construiește emailul (fără trimitere) - folosit și pentru preview în Admin.
+ *
+ * documents: [{ key, title, version, currentVersion, url, currentUrl,
+ *               effectiveAt, changeSummary, reacceptanceRequired }]
+ * kind: "notice" (preaviz) | "update" (după activare)
+ * acceptLink: zona din cont unde se acceptă (doar update cu reacceptare)
+ */
+export function buildLegalNoticeEmail({ kind = "notice", name = "", documents = [], acceptLink = "" }) {
+  const docs = documents.map((doc) => ({
+    key: String(doc.key || ""),
+    title: String(doc.title || ""),
+    version: String(doc.version || ""),
+    currentVersion: doc.currentVersion ? String(doc.currentVersion) : "",
+    url: absolutePolicyUrl(doc.url),
+    currentUrl: absolutePolicyUrl(doc.currentUrl),
+    effectiveLabel: formatLegalNoticeDate(doc.effectiveAt),
+    changeSummary: String(doc.changeSummary || "").trim(),
+    reacceptanceRequired: doc.reacceptanceRequired === true,
+  }));
+
+  const effectiveLabel = docs.find((d) => d.effectiveLabel)?.effectiveLabel || "";
+  const subject = legalNoticeSubject(kind, docs, effectiveLabel);
+  const greeting = String(name || "").trim() ? `Bună, ${String(name).trim()},` : "Bună,";
+  const primary = docs.find((d) => d.key === "tos") || docs[0] || null;
+  const mustAccept = kind === "update" && docs.some((d) => d.reacceptanceRequired);
+  const acceptUrl = mustAccept ? absolutePolicyUrl(acceptLink) : "";
+
+  const intro =
+    kind === "update"
+      ? [
+          `Versiunile actualizate ale documentelor legale ${BRAND_NAME} de mai jos sunt acum în vigoare${
+            effectiveLabel ? `, începând cu data de ${effectiveLabel}` : ""
+          }.`,
+        ]
+      : [
+          `Dorim să te informăm că am actualizat documentele legale aplicabile utilizării platformei ${BRAND_NAME}.`,
+          `Noile versiuni vor intra în vigoare la data de ${effectiveLabel}.`,
+          "Până la această dată, versiunile actuale rămân în vigoare.",
+        ];
+
+  const outro =
+    kind === "update"
+      ? mustAccept
+        ? [
+            "Pentru documentele marcate mai sus, va trebui să accepți versiunea nouă. Poți face acest lucru din contul tău.",
+          ]
+        : []
+      : ["Îți recomandăm să consulți documentul actualizat înainte de data intrării în vigoare."];
+
+  const ctaLabel = kind === "update" ? "Vezi documentul în vigoare" : "Vezi versiunea actualizată";
+  const ctaUrl = primary?.url || "";
+
+  const p = (text) =>
+    `<p style="color:#374151;margin:0 0 12px;line-height:1.5;">${escapeEmailHtml(text)}</p>`;
+
+  const link = (href, label) =>
+    href ? `<a href="${escapeEmailHtml(href)}" style="color:#4b5563;">${escapeEmailHtml(label)}</a>` : "";
+
+  const docItem = (d) => {
+    const links =
+      kind === "update"
+        ? [link(d.url, `versiunea ${d.version} (în vigoare)`)]
+        : [
+            link(d.currentUrl, `versiunea în vigoare${d.currentVersion ? ` (${d.currentVersion})` : ""}`),
+            link(d.url, `versiunea actualizată (${d.version})`),
+          ];
+    const accept =
+      kind === "update" && d.reacceptanceRequired
+        ? `<br><span style="color:#92400e;font-size:13px;">Necesită acceptarea versiunii noi.</span>`
+        : "";
+
+    return `<li style="margin:0 0 8px;"><strong>${escapeEmailHtml(d.title)}</strong><br>${links
+      .filter(Boolean)
+      .join(" · ")}${accept}</li>`;
+  };
+
+  const summaries = docs.filter((d) => d.changeSummary);
+
+  const summaryBlock = summaries.length
+    ? `<div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin:0 0 16px;">
+    <p style="color:#111827;font-weight:600;margin:0 0 6px;">Principalele modificări</p>
+    ${summaries
+      .map(
+        (d) =>
+          `<p style="color:#374151;margin:0 0 8px;line-height:1.5;"><strong>${escapeEmailHtml(
+            d.title
+          )}:</strong> ${escapeEmailHtml(d.changeSummary).split("\n").join("<br>")}</p>`
+      )
+      .join("\n    ")}
+  </div>`
+    : "";
+
+  const ctaBlock = ctaUrl
+    ? `<p style="text-align:center;margin:20px 0;">
+    <a href="${escapeEmailHtml(ctaUrl)}" style="background:#111827;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block;font-weight:600;">${ctaLabel}</a>
+  </p>`
+    : "";
+
+  const acceptBlock = acceptUrl
+    ? `<p style="text-align:center;margin:12px 0 20px;"><a href="${escapeEmailHtml(
+        acceptUrl
+      )}" style="color:#111827;font-weight:600;">Mergi în cont pentru acceptare</a></p>`
+    : "";
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+  <h2 style="color:#111827;margin:0 0 8px;">${escapeEmailHtml(subject)}</h2>
+  ${p(greeting)}
+  ${intro.map(p).join("\n  ")}
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin:0 0 16px;">
+    <p style="color:#6b7280;font-size:13px;margin:0 0 6px;">${
+      kind === "update" ? "Documente în vigoare:" : "Poți consulta:"
+    }</p>
+    <ul style="margin:0;padding-left:18px;color:#111827;line-height:1.6;">
+      ${docs.map(docItem).join("\n      ")}
+    </ul>
+  </div>
+  ${summaryBlock}
+  ${ctaBlock}
+  ${outro.map(p).join("\n  ")}
+  ${acceptBlock}
+  <p style="color:#374151;margin:16px 0 0;line-height:1.5;">Echipa ${BRAND_NAME}<br>${LEGAL_NOTICE_SIGNATURE_EMAIL}</p>
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acesta este un mesaj tranzacțional legat de contul tău ${BRAND_NAME} (informare privind documente juridice), nu un email de marketing.
+  </p>
+</div>`.trim();
+
+  const text = [
+    greeting,
+    "",
+    ...intro.flatMap((line) => [line, ""]),
+    kind === "update" ? "Documente în vigoare:" : "Poți consulta:",
+    ...docs.flatMap((d) =>
+      kind === "update"
+        ? [
+            `- ${d.title}, versiunea ${d.version} (în vigoare): ${d.url}${
+              d.reacceptanceRequired ? " - necesită acceptarea versiunii noi" : ""
+            }`,
+          ]
+        : [
+            `- ${d.title}`,
+            ...(d.currentUrl
+              ? [`  versiunea în vigoare${d.currentVersion ? ` (${d.currentVersion})` : ""}: ${d.currentUrl}`]
+              : []),
+            ...(d.url ? [`  versiunea actualizată (${d.version}): ${d.url}`] : []),
+          ]
+    ),
+    ...(summaries.length
+      ? ["", "Principalele modificări:", ...summaries.map((d) => `- ${d.title}: ${d.changeSummary}`)]
+      : []),
+    ...(ctaUrl ? ["", `${ctaLabel}: ${ctaUrl}`] : []),
+    ...(outro.length ? ["", ...outro] : []),
+    ...(acceptUrl ? [`Acceptare: ${acceptUrl}`] : []),
+    "",
+    `Echipa ${BRAND_NAME}`,
+    LEGAL_NOTICE_SIGNATURE_EMAIL,
+  ].join("\n");
+
+  return { subject, html, text };
+}
+
+export function legalNoticeTemplate(campaignKey) {
+  return `legal_notice:${campaignKey}`;
+}
+
+/**
+ * Trimite emailul (preaviz / actualizare) și îl loghează în EmailLog cu
+ * template = legal_notice:<campaignKey> (status SENT / FAILED + eroare).
+ * Aruncă la eșec (apelantul numără eșecurile).
+ */
+export async function sendLegalNoticeEmail({
+  to,
+  name = "",
+  kind = "notice",
+  documents = [],
+  acceptLink = "",
+  campaignKey,
+  userId = null,
+}) {
+  if (!to) return;
+
+  const { subject, html, text } = buildLegalNoticeEmail({ kind, name, documents, acceptLink });
+  const greetingName = String(name || "").trim();
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: legalNoticeTemplate(campaignKey),
+    userId,
+    toName: greetingName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
       html,
       text,
       // tranzacțional: fără "Precedence: bulk" și fără List-Unsubscribe de marketing

@@ -1,6 +1,31 @@
-import { loadLegalDoc, defaultPublicUrlForType } from "../lib/legal.js";
+import {
+  defaultPublicUrlForType,
+  findUpcomingLegalDoc,
+  legalVersionVisibility,
+  loadLegalDoc,
+  resolveManifestVersionParam,
+} from "../lib/legal.js";
 import { prisma } from "../db.js";
 import { loadPublishedLegalDoc } from "../services/legalPublishedService.js";
+
+/*
+ * Rezumat public al versiunii VIITOARE (status "upcoming" în manifest,
+ * fără date lipsă) - doar pentru consultare/preaviz. NU e versiunea
+ * acceptată de conturi și NU creează cerințe de reacceptare.
+ */
+export function upcomingSummary(doc) {
+  if (!doc) return null;
+
+  return {
+    version: String(doc.policyVersion),
+    title: doc.title,
+    htmlUrl: doc.versionHtmlUrl,
+    // null până când operatorul stabilește datele - fără placeholder-e
+    effectiveAt: doc.effectiveAt || null,
+    noticeAt: doc.noticeAt || null,
+    changeSummary: doc.changeSummary || null,
+  };
+}
 
 /**
  * GET /api/legal?types=tos,privacy,...
@@ -25,6 +50,8 @@ export async function getLegalMeta(req, res) {
       checksum: d.checksum,
       url: defaultPublicUrlForType(d.type),
       htmlUrl: `/legal/${d.type}.html`,
+      // aditiv: versiunea viitoare publică (sau null) - informativ
+      upcoming: upcomingSummary(findUpcomingLegalDoc(d.type, d.manifestVersion)),
     }));
 
     res.json(out);
@@ -34,22 +61,113 @@ export async function getLegalMeta(req, res) {
   }
 }
 
+function formatLegalDate(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("ro-RO", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Europe/Bucharest",
+  });
+}
+
+/*
+ * Marcajul de status al paginii. Culorile folosesc variabilele globale ale
+ * aplicației (pagina e inserată și în SPA - LegalHtmlRoute); fallback-urile
+ * contează doar pentru pagina HTML deschisă direct.
+ */
+function statusNoticeHtml({ status, doc, current, upcoming }) {
+  if (status === "UPCOMING") {
+    const effective = formatLegalDate(doc.effectiveAt);
+    return `
+    <div class="legal-notice legal-notice--upcoming" role="note">
+      <strong>Versiune viitoare</strong>
+      <p>Această versiune nu este încă în vigoare.${
+        effective ? ` Intră în vigoare la ${escapeHtml(effective)}.` : ""
+      }</p>
+      ${doc.changeSummary ? `<p>${escapeHtml(doc.changeSummary)}</p>` : ""}
+      <p><a href="/legal/${escapeHtml(doc.type)}.html">Vezi versiunea în vigoare (v${escapeHtml(
+        String(current.policyVersion)
+      )})</a></p>
+    </div>`;
+  }
+
+  if (status === "ARCHIVED") {
+    return `
+    <div class="legal-notice" role="note">
+      <strong>Versiune arhivată</strong>
+      <p>Această versiune nu mai este în vigoare.
+        <a href="/legal/${escapeHtml(doc.type)}.html">Vezi versiunea în vigoare</a></p>
+    </div>`;
+  }
+
+  if (status === "CURRENT" && upcoming) {
+    const effective = formatLegalDate(upcoming.effectiveAt);
+    return `
+    <div class="legal-notice" role="note">
+      <p>O versiune actualizată a acestui document este disponibilă pentru consultare.</p>
+      <p>Versiunea: <strong>${escapeHtml(String(upcoming.policyVersion))}</strong> ·
+        Status: <strong>${effective ? `Intră în vigoare la ${escapeHtml(effective)}` : "Nu este încă în vigoare"}</strong></p>
+      <p><a class="legal-notice__cta" href="${escapeHtml(upcoming.versionHtmlUrl)}">Vezi versiunea viitoare</a></p>
+    </div>`;
+  }
+
+  return "";
+}
+
 /**
- * GET /legal/:type.html (latest)
- * GET /legal/:type/v/:version.html (specific)
+ * GET /legal/:type.html                  -> versiunea ÎN VIGOARE
+ * GET /legal/:type/v/:version.html       -> versiune anume ("2" sau "2.0.0"),
+ *   publică doar dacă e CURRENT / ARCHIVED / UPCOMING (draft-uri -> 404)
  */
 export async function getLegalHtml(req, res) {
   try {
     const type = req.params.type;
-    const version = req.params.version ? Number(req.params.version) : undefined;
 
-    // fără versiune explicită se servește versiunea publicată
-    const d = version === undefined
-      ? await loadPublishedLegalDoc(type)
-      : loadLegalDoc(type, { version });
+    // versiunea în vigoare (rândul activ din DB, rezervă manifestul)
+    const current = await loadPublishedLegalDoc(type);
+
+    let d = current;
+    let status = "CURRENT";
+
+    if (req.params.version !== undefined) {
+      const manifestVersion = resolveManifestVersionParam(type, req.params.version);
+
+      if (manifestVersion == null) {
+        return res.status(404).send("Document inexistent.");
+      }
+
+      d = loadLegalDoc(type, { version: manifestVersion });
+      const visibility = legalVersionVisibility(d, current.manifestVersion);
+
+      if (!visibility.isPublic) {
+        return res.status(404).send("Document inexistent.");
+      }
+
+      status = visibility.status;
+    }
+
+    const upcoming =
+      status === "CURRENT" ? findUpcomingLegalDoc(type, current.manifestVersion) : null;
+
     const shownVersion = d.semver || d.version;
+    const statusLabel =
+      status === "CURRENT"
+        ? "În vigoare"
+        : status === "UPCOMING"
+          ? `Versiune viitoare — nu este încă în vigoare${
+              formatLegalDate(d.effectiveAt)
+                ? ` • intră în vigoare la ${formatLegalDate(d.effectiveAt)}`
+                : ""
+            }`
+          : "Arhivată";
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    if (status !== "CURRENT") {
+      // versiunile viitoare / arhivate nu sunt canonice
+      res.setHeader("X-Robots-Tag", "noindex");
+    }
     res.send(`<!doctype html>
 <html>
   <head>
@@ -69,15 +187,29 @@ export async function getLegalHtml(req, res) {
       .meta { color: #666; font-size: 14px; margin-bottom: 16px; }
       pre { background: #f5f5f5; padding: 10px; border-radius: 6px; }
       code { background: #f5f5f5; padding: 2px 4px; border-radius: 4px; }
+      .legal-notice {
+        margin: 0 0 20px;
+        padding: 12px 16px;
+        border: 1px solid var(--color-border, #d9dde3);
+        border-left: 4px solid var(--color-primary, #6b7280);
+        border-radius: var(--radius, 8px);
+        background: var(--surface-muted, #f6f7f9);
+        color: var(--color-text, #222);
+        font-size: 15px;
+      }
+      .legal-notice p { margin: 4px 0; }
+      .legal-notice--upcoming { border-left-color: var(--color-warning, #b7791f); }
+      .legal-notice__cta { font-weight: 600; }
     </style>
   </head>
   <body>
     <h1>${escapeHtml(d.title)}</h1>
     <p class="meta">
-      Versiune: v${escapeHtml(String(shownVersion))}${
-        d.valid_from ? ` • valabil din ${escapeHtml(String(d.valid_from))}` : ""
+      Versiune: v${escapeHtml(String(shownVersion))} • ${escapeHtml(statusLabel)}${
+        status === "CURRENT" && d.valid_from ? ` • valabil din ${escapeHtml(String(d.valid_from))}` : ""
       }
     </p>
+    ${statusNoticeHtml({ status, doc: d, current, upcoming })}
     ${d.html}
   </body>
 </html>`);

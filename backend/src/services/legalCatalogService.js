@@ -54,6 +54,13 @@ function readManifestVersions(type) {
         title: doc.title,
         validFrom: doc.valid_from || null,
         loadable: true,
+        // preaviz: versiune viitoare publică / date lipsă (NOT READY)
+        upcoming: doc.manifestStatus === "upcoming",
+        missingVars: doc.missingVars || [],
+        effectiveAt: doc.effectiveAt || null,
+        noticeAt: doc.noticeAt || null,
+        changeSummary: doc.changeSummary || null,
+        versionHtmlUrl: doc.versionHtmlUrl,
       };
     } catch (error) {
       return {

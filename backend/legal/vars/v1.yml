@@ -4,10 +4,12 @@ brand:
 company:
   legal_name: "ARTFEST MARKETPLACE SRL"
   cui: "53489510"
+  registration_number: "J2026005369007"
   address: "Strada Rândunelelor 3, Șarânga, Buzău"
   support_email: "support@artfest.ro"
   contact_email: "contact@artfest.ro"
-  returns_email: "[EMAIL_RETUR]"
+  phone: "0760565147"
+  returns_email: "support@artfest.ro"
 
 legal:
   jurisdiction:

@@ -29,7 +29,21 @@ import {
 } from "./reacceptanceService.js";
 import { buildLegalCatalog } from "./legalCatalogService.js";
 import { listAcceptances } from "./legalStatsService.js";
-import { getPublishedInfo } from "./legalPublishedService.js";
+import { getPublishedInfo, resolveRegistrationConsent } from "./legalPublishedService.js";
+import {
+  findUpcomingLegalDoc,
+  legalVersionVisibility,
+  loadLegalDoc,
+  resolveManifestVersionParam,
+} from "../lib/legal.js";
+import { upcomingSummary } from "../api/legal.js";
+import {
+  daysUntilEffective,
+  legalNoticeReport,
+  previewLegalNotice,
+  resendFailedLegalNotice,
+  sendLegalNotice,
+} from "./legalNoticeService.js";
 import { sendCampaignEmails, htmlToPlainText } from "./policyEmailService.js";
 
 function world() {
@@ -154,9 +168,10 @@ test("publish: versiune inexistentă în manifest / cookies => eroare", async ()
   const w = world();
 
   await assert.rejects(
-    publishLegalDocumentVersion({ catalogId: "TOS", version: "2.0.0", prisma: w.prisma }),
+    publishLegalDocumentVersion({ catalogId: "TOS", version: "9.9.9", prisma: w.prisma }),
     (e) => e.status === 404 && e.code === "version_not_in_manifest"
   );
+
 
   await assert.rejects(
     publishLegalDocumentVersion({ catalogId: "COOKIES", version: "1.0.0", prisma: w.prisma }),
@@ -485,7 +500,8 @@ test("catalog: rânduri per (document, audience), cookies informativ, statusuri"
 
   const published = await buildLegalCatalog({ prisma: w.prisma });
   const tosPublished = published.rows.find((r) => r.rowId === "TOS#USER");
-  assert.equal(tosPublished.status, "UP_TO_DATE");
+  // v2 (versiune viitoare) există în manifest -> „draft disponibil”, v1 rămâne publicată
+  assert.equal(tosPublished.status, "DRAFT_AVAILABLE");
   assert.equal(tosPublished.published.version, "1.0.0");
   assert.equal(tosPublished.actions.canRequestReacceptance, true);
   assert.equal(tosPublished.targetCount, 2); // u1, u2 activi
@@ -507,7 +523,7 @@ test("catalog: rânduri per (document, audience), cookies informativ, statusuri"
   assert.equal(tosRequested.mustReacceptCount, 1);
 
   // aceeași politică TOS, alt audience: fără cerere
-  assert.equal(requested.rows.find((r) => r.rowId === "TOS#VENDOR").status, "UP_TO_DATE");
+  assert.equal(requested.rows.find((r) => r.rowId === "TOS#VENDOR").status, "DRAFT_AVAILABLE");
 
   const overdue = await buildLegalCatalog({ prisma: w.prisma, now: new Date("2100-01-01T00:00:00Z") });
   assert.equal(overdue.rows.find((r) => r.rowId === "TOS#USER").status, "REACCEPTANCE_OVERDUE");
@@ -515,16 +531,26 @@ test("catalog: rânduri per (document, audience), cookies informativ, statusuri"
   await closeReacceptance({ campaignId, prisma: w.prisma });
 
   const closed = await buildLegalCatalog({ prisma: w.prisma });
-  assert.equal(closed.rows.find((r) => r.rowId === "TOS#USER").status, "UP_TO_DATE");
+  assert.equal(closed.rows.find((r) => r.rowId === "TOS#USER").status, "DRAFT_AVAILABLE");
 });
 
-test("catalog: v2 existent doar ca fișier apare ca nerecunoscut în manifest, nu ca draft publicabil", async () => {
+test("catalog: v2 e înregistrată ca versiune VIITOARE (preaviz), cu date complete și effectiveAt", async () => {
   const w = world();
   const catalog = await buildLegalCatalog({ prisma: w.prisma });
   const tos = catalog.rows.find((r) => r.rowId === "TOS#USER");
 
-  assert.deepEqual(tos.draftVersions, []);
-  assert.ok(Array.isArray(tos.unregisteredFiles));
+  assert.equal(tos.draftVersions.length, 1);
+  const v2 = tos.draftVersions[0];
+  assert.equal(v2.manifestVersion, 2);
+  assert.equal(v2.policyVersion, "2.0.0");
+  assert.equal(v2.upcoming, true);
+  assert.deepEqual(v2.missingVars, []);
+  assert.equal(v2.effectiveAt, "2026-10-23");
+  assert.equal(v2.validFrom, "2026-10-23");
+  // fără dată de notificare / rezumat până le stabilește operatorul
+  assert.equal(v2.noticeAt, null);
+  assert.equal(v2.versionHtmlUrl, "/legal/tos/v/2.0.0.html");
+  assert.deepEqual(tos.unregisteredFiles, []);
 });
 
 /* ------------------------------ statistici ------------------------------ */
@@ -858,4 +884,367 @@ test("resolveRegistrationConsent: TOS/Privacy iau versiunea publicată, marketin
 
   const marketing = await resolveRegistrationConsent("MARKETING_EMAIL_OPTIN", { version: "7", checksum: "m" }, w.prisma);
   assert.deepEqual(marketing, { version: "7", checksum: "m" });
+});
+
+/* ------------- v2 = versiune VIITOARE (preaviz), v1 rămâne în vigoare ------------- */
+
+const V2_TYPES = [
+  "tos",
+  "privacy",
+  "cookies",
+  "vendor_terms",
+  "shipping_addendum",
+  "returns_policy_ack",
+  "products_addendum",
+];
+
+test("preaviz: v1 rămâne versiunea curentă în manifest pentru toate documentele", () => {
+  for (const type of [...V2_TYPES, "influencer_terms"]) {
+    const current = loadLegalDoc(type);
+    assert.equal(current.manifestVersion, 1, type);
+    assert.equal(current.policyVersion, "1.0.0", type);
+    assert.deepEqual(current.missingVars, [], `${type} v1 nu are câmpuri goale`);
+  }
+});
+
+test("preaviz: documentele v2 au antet coerent 2.0.0, effectiveAt 2026-10-23, fără DRAFT și fără câmpuri goale", () => {
+  for (const type of V2_TYPES) {
+    const doc = loadLegalDoc(type, { version: 2 });
+    assert.equal(doc.policyVersion, "2.0.0", type);
+    assert.equal(doc.manifestStatus, "upcoming", type);
+    assert.equal(doc.valid_from, "2026-10-23", type);
+    assert.equal(doc.effectiveAt, "2026-10-23", type);
+    assert.deepEqual(doc.missingVars, [], `${type}: fără variabile lipsă`);
+    assert.ok(
+      !/\bDRAFT\b|statut de draft|\[EMAIL_RETUR\]|\bTODO\b|\bPLACEHOLDER\b/.test(doc.content),
+      `${type}: fără placeholder-e`
+    );
+    assert.ok(!/\{\{/.test(doc.content), `${type}: fără variabile nerandate`);
+    for (const key of doc.missingVars) {
+      assert.ok(
+        ["company.phone", "company.registration_number"].includes(key),
+        `${type}: variabilă lipsă neașteptată ${key}`
+      );
+    }
+  }
+});
+
+test("preaviz: vizibilitate publică - CURRENT/ARCHIVED/UPCOMING publice, DRAFT și NOT_READY nu", () => {
+  const v2 = loadLegalDoc("tos", { version: 2 });
+
+  // date complete -> UPCOMING, publică pentru consultare (NU în vigoare)
+  assert.deepEqual(legalVersionVisibility(v2, 1), { status: "UPCOMING", isPublic: true });
+  assert.equal(findUpcomingLegalDoc("tos", 1).policyVersion, "2.0.0");
+  assert.deepEqual(upcomingSummary(findUpcomingLegalDoc("tos", 1)), {
+    version: "2.0.0",
+    title: "Termeni și Condiții — Artfest",
+    htmlUrl: "/legal/tos/v/2.0.0.html",
+    effectiveAt: "2026-10-23",
+    noticeAt: null,
+    changeSummary: null,
+  });
+
+  // cu date lipsă ar fi NOT_READY - nepublică (fără câmpuri goale)
+  assert.deepEqual(legalVersionVisibility({ ...v2, missingVars: ["company.phone"] }, 1), {
+    status: "NOT_READY",
+    isPublic: false,
+    missingVars: ["company.phone"],
+  });
+  const ready = v2;
+
+  // fără marcaj "upcoming" peste versiunea curentă = draft intern
+  assert.deepEqual(legalVersionVisibility({ ...ready, manifestStatus: null }, 1), {
+    status: "DRAFT",
+    isPublic: false,
+  });
+
+  const v1 = loadLegalDoc("tos", { version: 1 });
+  assert.equal(legalVersionVisibility(v1, 1).status, "CURRENT");
+  assert.deepEqual(legalVersionVisibility(v1, 2), { status: "ARCHIVED", isPublic: true });
+});
+
+test("preaviz: URL pe versiune acceptă 2.0.0 și 2; versiunile inexistente -> null", () => {
+  assert.equal(resolveManifestVersionParam("tos", "2.0.0"), 2);
+  assert.equal(resolveManifestVersionParam("tos", "2"), 2);
+  assert.equal(resolveManifestVersionParam("tos", "1.0.0"), 1);
+  assert.equal(resolveManifestVersionParam("tos", "9.9.9"), null);
+  assert.equal(resolveManifestVersionParam("tos", "../x"), null);
+  assert.equal(loadLegalDoc("tos", { version: 2 }).versionHtmlUrl, "/legal/tos/v/2.0.0.html");
+  assert.equal(upcomingSummary(null), null);
+});
+
+test("preaviz: v2 NU devine curentă, NU creează cerințe și NU e acceptată de conturile noi (USER/VENDOR/INFLUENCER)", async () => {
+  const w = world();
+
+  // versiunea publicată rămâne v1 (rândul activ / rezerva din manifest)
+  for (const catalogId of ["TOS", "PRIVACY", "VENDOR_TERMS", "INFLUENCER_TERMS"]) {
+    assert.equal((await getPublishedInfo(catalogId, w.prisma)).version, "1.0.0", catalogId);
+  }
+
+  // conturile noi acceptă v1, nu v2
+  for (const document of ["TOS", "PRIVACY_ACK", "INFLUENCER_TERMS"]) {
+    const consent = await resolveRegistrationConsent(document, { version: "2.0.0" }, w.prisma);
+    assert.equal(consent.version, "1.0.0", document);
+  }
+
+  // reacceptarea NU se poate cere pentru v2 (nu e activă)
+  await publish(w, "TOS");
+  await assert.rejects(
+    requestReacceptance({ catalogId: "TOS", audience: "USER", version: "2.0.0", prisma: w.prisma }),
+    (e) => e.code === "version_not_published"
+  );
+
+  // existența v2 nu creează nicio cerință pentru niciun rol
+  assert.deepEqual(await getOpenRequirements({ prisma: w.prisma }), []);
+  for (const [user, role, vendorId] of [
+    [w.u1, "USER", null],
+    [w.v1, "VENDOR", w.vendor1.id],
+    [w.i1, "INFLUENCER", null],
+  ]) {
+    const docs = await resolveRequirementsForPrincipal({
+      userId: user.id,
+      role,
+      vendorId,
+      includeInfluencerTerms: true,
+      prisma: w.prisma,
+    });
+    assert.deepEqual(docs, [], role);
+  }
+});
+
+/* ------------- PREAVIZ / NOTIFICARE DE ACTUALIZARE (legalNoticeService) ------------- */
+
+// 7 oct 2026 -> 16 zile până la 23 oct 2026 (>= 15)
+const NOTICE_NOW = new Date("2026-10-07T09:00:00Z");
+
+// „mailer” fals: scrie EmailLog exact ca sendMailLogged (SENT / FAILED) - fără email real
+function fakeNoticeSend(w, { failFor = new Set() } = {}) {
+  const calls = [];
+
+  const send = async (payload) => {
+    calls.push(payload);
+    const template = `legal_notice:${payload.campaignKey}`;
+
+    if (failFor.has(payload.to)) {
+      w.prisma.seed("emailLog", [
+        { toEmail: payload.to, template, status: "FAILED", error: "smtp_down", subject: "x", senderKey: "noreply" },
+      ]);
+      throw new Error("smtp_down");
+    }
+
+    w.prisma.seed("emailLog", [
+      { toEmail: payload.to, template, status: "SENT", sentAt: new Date(), subject: "x", senderKey: "noreply" },
+    ]);
+  };
+
+  return { send, calls };
+}
+
+test("preaviz: preview fără trimitere - pachet agregat, audiențe, zile rămase, fără campanie", async () => {
+  const w = world();
+  const preview = await previewLegalNotice({ kind: "notice", prisma: w.prisma, now: NOTICE_NOW });
+
+  assert.equal(preview.available, true);
+  assert.equal(preview.effectiveAt, "2026-10-23");
+  assert.equal(preview.daysUntilEffective, 16);
+  assert.equal(preview.noticePeriodOk, true);
+  assert.equal(
+    preview.subject,
+    "Actualizare Termeni și Condiții Artfest – intrare în vigoare la 23 octombrie 2026"
+  );
+
+  const audiences = Object.fromEntries(preview.documents.map((d) => [d.key, d.audiences.sort().join(",")]));
+  assert.equal(audiences.tos, "INFLUENCER,USER,VENDOR");
+  assert.equal(audiences.vendor_terms, "VENDOR");
+  assert.equal(audiences.shipping_addendum, "VENDOR");
+  assert.equal(audiences.products_addendum, "VENDOR");
+  assert.equal(audiences.returns_policy_ack, "USER,VENDOR");
+
+  // u1, u2 (USER), v1, v2 (VENDOR), i1 - u3 dezactivat și adminul exclus
+  assert.deepEqual(preview.recipients.byRole, { USER: 2, VENDOR: 2, INFLUENCER: 1 });
+
+  const vendorSample = preview.samples.find((s) => s.role === "VENDOR");
+  const userSample = preview.samples.find((s) => s.role === "USER");
+  assert.ok(vendorSample.documents.length > userSample.documents.length);
+  assert.ok(!userSample.documents.some((t) => /Vânzători/.test(t)), "userii nu primesc acordul vânzătorilor");
+  assert.match(vendorSample.text, /versiunea actualizată \(2\.0\.0\)/);
+  assert.match(vendorSample.text, /\/legal\/vendor_terms\/v\/2\.0\.0\.html/);
+  assert.doesNotMatch(vendorSample.text, /trebuie să accepți|acceptare/i);
+
+  // preview-ul nu creează nimic
+  assert.equal(w.prisma.tables.policyGateCampaign.length, 0);
+  assert.equal(w.prisma.tables.emailLog.length, 0);
+});
+
+test("preaviz: trimitere -> un email agregat per persoană; v2 rămâne INACTIVĂ; fără cereri de reacceptare", async () => {
+  const w = world();
+  const { send, calls } = fakeNoticeSend(w);
+
+  await assert.rejects(
+    sendLegalNotice({ kind: "notice", prisma: w.prisma, send, now: NOTICE_NOW }),
+    (e) => e.code === "confirmation_required"
+  );
+  assert.equal(calls.length, 0);
+
+  const result = await sendLegalNotice({
+    kind: "notice",
+    confirm: true,
+    actorId: w.admin.id,
+    prisma: w.prisma,
+    send,
+    now: NOTICE_NOW,
+  });
+
+  assert.equal(result.recipients, 5);
+  assert.equal(result.sent, 5);
+  assert.equal(result.activated, false);
+  assert.equal(result.reacceptanceRequested, false);
+  assert.equal(new Set(calls.map((c) => c.to)).size, 5, "un singur email per persoană");
+  assert.ok(calls.every((c) => c.kind === "notice"));
+  assert.equal(calls.find((c) => c.to === "v1@t.ro").documents.length, 7);
+  assert.equal(calls.find((c) => c.to === "i1@t.ro").documents.length, 3);
+
+  // v2 NU e activă și nu există cerințe
+  assert.equal((await getPublishedInfo("TOS", w.prisma)).version, "1.0.0");
+  assert.equal(w.prisma.tables.userPolicy.length, 0);
+  assert.equal(w.prisma.tables.vendorPolicy.length, 0);
+  assert.deepEqual(await getOpenRequirements({ prisma: w.prisma }), []);
+
+  const report = await legalNoticeReport({ campaignId: result.campaignId, prisma: w.prisma });
+  assert.equal(report.kind, "notice");
+  assert.equal(report.delivered, 5);
+  assert.equal(report.failed, 0);
+  assert.equal(report.createdByEmail, "adm@t.ro");
+  assert.ok(report.documents.some((d) => d.key === "tos" && d.version === "2.0.0"));
+});
+
+test("preaviz: anti-duplicate - al doilea click e refuzat, iar preview-ul arată „deja trimis”", async () => {
+  const w = world();
+  const { send, calls } = fakeNoticeSend(w);
+
+  await sendLegalNotice({ kind: "notice", confirm: true, prisma: w.prisma, send, now: NOTICE_NOW });
+  const before = calls.length;
+
+  await assert.rejects(
+    sendLegalNotice({ kind: "notice", confirm: true, prisma: w.prisma, send, now: NOTICE_NOW }),
+    (e) => e.status === 409
+  );
+  assert.equal(calls.length, before, "niciun email în plus");
+
+  const preview = await previewLegalNotice({ kind: "notice", prisma: w.prisma, now: NOTICE_NOW });
+  assert.equal(preview.available, false);
+  assert.match(preview.blockers.join(" "), /deja trimis/);
+  assert.ok(preview.alreadyCovered.length >= 7);
+});
+
+test("preaviz: eșecurile parțiale se reiau DOAR pentru cei eșuați", async () => {
+  const w = world();
+  const failing = fakeNoticeSend(w, { failFor: new Set(["u2@t.ro", "v2@t.ro"]) });
+
+  const result = await sendLegalNotice({
+    kind: "notice",
+    confirm: true,
+    prisma: w.prisma,
+    send: failing.send,
+    now: NOTICE_NOW,
+  });
+  assert.equal(result.sent, 3);
+  assert.equal(result.failed, 2);
+
+  let report = await legalNoticeReport({ campaignId: result.campaignId, prisma: w.prisma });
+  assert.deepEqual(report.failedRecipients.map((r) => r.email).sort(), ["u2@t.ro", "v2@t.ro"]);
+  assert.equal(report.failedRecipients[0].error, "smtp_down");
+
+  const ok = fakeNoticeSend(w);
+  const retry = await resendFailedLegalNotice({ campaignId: result.campaignId, prisma: w.prisma, send: ok.send });
+
+  assert.equal(retry.sent, 2);
+  assert.deepEqual(ok.calls.map((c) => c.to).sort(), ["u2@t.ro", "v2@t.ro"]);
+
+  report = await legalNoticeReport({ campaignId: result.campaignId, prisma: w.prisma });
+  assert.equal(report.delivered, 5);
+  assert.equal(report.failed, 0);
+
+  // nimic de reluat -> niciun email
+  const again = fakeNoticeSend(w);
+  const noop = await resendFailedLegalNotice({ campaignId: result.campaignId, prisma: w.prisma, send: again.send });
+  assert.equal(noop.attempted, 0);
+  assert.equal(again.calls.length, 0);
+});
+
+test("preaviz: sub 15 zile e blocat; doar o excepție legală confirmată explicit permite trimiterea", async () => {
+  const w = world();
+  const { send, calls } = fakeNoticeSend(w);
+  const late = new Date("2026-10-09T09:00:00Z"); // 14 zile
+
+  const preview = await previewLegalNotice({ kind: "notice", prisma: w.prisma, now: late });
+  assert.equal(preview.daysUntilEffective, 14);
+  assert.equal(preview.noticePeriodOk, false);
+
+  await assert.rejects(
+    sendLegalNotice({ kind: "notice", confirm: true, prisma: w.prisma, send, now: late }),
+    (e) => e.status === 422 && e.code === "notice_period_too_short" && e.daysUntilEffective === 14
+  );
+  await assert.rejects(
+    sendLegalNotice({ kind: "notice", confirm: true, exception: { confirmed: true, reason: "" }, prisma: w.prisma, send, now: late }),
+    (e) => e.code === "notice_period_too_short"
+  );
+  assert.equal(calls.length, 0);
+
+  const result = await sendLegalNotice({
+    kind: "notice",
+    confirm: true,
+    exception: { confirmed: true, reason: "obligație legală nouă" },
+    prisma: w.prisma,
+    send,
+    now: late,
+  });
+  assert.equal(result.sent, 5);
+  const report = await legalNoticeReport({ campaignId: result.campaignId, prisma: w.prisma });
+  assert.match(report.exception, /EXCEPȚIE termen preaviz \(14 zile\): obligație legală nouă/);
+
+  // 8 oct = exact 15 zile -> permis
+  assert.equal(daysUntilEffective("2026-10-23", new Date("2026-10-08T12:00:00Z")), 15);
+});
+
+test("actualizare: disponibilă DOAR după activare; acceptarea apare doar cu cerere de reacceptare deschisă", async () => {
+  const w = world();
+
+  // înainte de activare: nu există nimic de anunțat
+  const before = await previewLegalNotice({ kind: "update", prisma: w.prisma });
+  assert.equal(before.available, false);
+  await assert.rejects(
+    sendLegalNotice({ kind: "update", confirm: true, prisma: w.prisma, send: fakeNoticeSend(w).send }),
+    (e) => e.code === "notice_not_available"
+  );
+
+  // activare = acțiune SEPARATĂ (manifest current rămâne 1; aici simulăm rândul activ v2)
+  const realCurrent = { ...loadLegalDoc("tos", { version: 2 }) };
+  assert.equal(realCurrent.policyVersion, "2.0.0");
+  await publishLegalDocumentVersion({ catalogId: "TOS", version: "2.0.0", prisma: w.prisma });
+  assert.equal((await getPublishedInfo("TOS", w.prisma)).version, "2.0.0");
+
+  const afterPublish = await previewLegalNotice({ kind: "update", prisma: w.prisma });
+  assert.equal(afterPublish.available, true);
+  assert.deepEqual(afterPublish.documents.map((d) => d.key), ["tos"]);
+  assert.equal(afterPublish.subject, "Noii Termeni și Condiții Artfest au intrat în vigoare");
+  const noRequest = afterPublish.samples.find((s) => s.role === "USER");
+  assert.doesNotMatch(noRequest.text, /va trebui să accepți|necesită acceptarea/);
+
+  // reacceptarea e o acțiune separată; abia atunci emailul o menționează
+  await requestReacceptance({ catalogId: "TOS", audience: "USER", version: "2.0.0", prisma: w.prisma });
+  const withRequest = await previewLegalNotice({ kind: "update", prisma: w.prisma });
+  assert.match(withRequest.samples.find((s) => s.role === "USER").text, /va trebui să accepți versiunea nouă/);
+  assert.doesNotMatch(withRequest.samples.find((s) => s.role === "VENDOR").text, /va trebui să accepți/);
+
+  const { send, calls } = fakeNoticeSend(w);
+  const result = await sendLegalNotice({ kind: "update", confirm: true, prisma: w.prisma, send });
+  assert.equal(result.kind, "update");
+  assert.ok(calls.length > 0 && calls.every((c) => c.kind === "update"));
+  assert.equal(calls.find((c) => c.to === "u1@t.ro").documents[0].reacceptanceRequired, true);
+  assert.equal(calls.find((c) => c.to === "v1@t.ro").documents[0].reacceptanceRequired, false);
+
+  // notificarea nu modifică cererile existente și nu creează altele
+  const open = await getOpenRequirements({ prisma: w.prisma });
+  assert.deepEqual(open.map((r) => `${r.key}|${r.audience}|${r.version}`), ["TOS|USER|2.0.0"]);
 });
