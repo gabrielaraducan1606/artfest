@@ -5,8 +5,22 @@ import {
   availabilityToGoogle,
   buildMerchantPrice,
   buildProductMerchantAttributes,
+  categoryShortLabel,
+  priceBucketLabel,
+  slugifyLabel,
 } from "../constants/productMerchantAttributes.js";
 import { getPromotionPricingForProducts } from "../services/productPromotionPrice.js";
+import { pickPrimaryCollection } from "../services/collectionProducts.js";
+
+/**
+ * custom_label_0: slug-ul colecției principale (prima colecție activă în
+ * care produsul e fixat sau ale cărei reguli le îndeplinește), altfel
+ * slug-ul scurt al categoriei.
+ */
+export function productGroupLabel(product, activeCollections) {
+  const collection = pickPrimaryCollection(product, activeCollections);
+  return (collection && slugifyLabel(collection.slug)) || categoryShortLabel(product?.category);
+}
 
 const router = express.Router();
 
@@ -111,11 +125,36 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
             type: true,
           },
         },
+        // regulile colecțiilor iau în calcul și categoriile suplimentare
+        additionalCategories: {
+          select: {
+            category: true,
+          },
+        },
       },
       orderBy: {
         updatedAt: "desc",
       },
       take: 5000,
+    });
+
+    // colecțiile ACTIVE, o singură dată, în ordine stabilă (custom_label_0)
+    const activeCollections = await prisma.collection.findMany({
+      where: {
+        isActive: true,
+      },
+      include: {
+        items: {
+          select: {
+            productId: true,
+            pinned: true,
+            excluded: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
     });
 
     const eligible = products
@@ -182,6 +221,16 @@ router.get("/google-shopping-feed.xml", async (req, res, next) => {
         const availability = availabilityToGoogle(p.availability);
         const availabilityDate = availabilityDateIso(p);
 
+        // custom labels pentru Performance Max: grup de produs + interval
+        // de preț pe prețul NORMAL (nu sale_price - stabil la promoții).
+        // TODO(minQuantity): produsele vândute cu cantitate minimă (ex.
+        // mărturii) apar aici cu prețul PE BUCATĂ (priceCents), deși nu
+        // se poate cumpăra o singură bucată. Trebuie un câmp
+        // `minQuantity` pe Product, apoi g:price = preț × minQuantity
+        // (+ g:multipack / cantitatea în titlu). Neimplementat încă.
+        const groupLabel = productGroupLabel(p, activeCollections);
+        const priceLabel = priceBucketLabel(p.priceCents);
+
         return `    <item>
       <g:id>${escapeXml(p.id)}</g:id>
 
@@ -208,7 +257,8 @@ ${salePrice ? `\n      <g:sale_price>${escapeXml(salePrice)}</g:sale_price>\n` :
 
       <g:product_type>${escapeXml(productType)}</g:product_type>
 ${attrs.googleProductCategory ? `\n      <g:google_product_category>${attrs.googleProductCategory}</g:google_product_category>\n` : ""}${attrs.color ? `\n      <g:color>${escapeXml(attrs.color)}</g:color>\n` : ""}${attrs.material ? `\n      <g:material>${escapeXml(attrs.material)}</g:material>\n` : ""}
-      <g:mpn>${escapeXml(p.id)}</g:mpn>
+      <g:custom_label_0>${escapeXml(groupLabel)}</g:custom_label_0>
+${priceLabel ? `      <g:custom_label_1>${escapeXml(priceLabel)}</g:custom_label_1>\n` : ""}      <g:mpn>${escapeXml(p.id)}</g:mpn>
 
       <g:identifier_exists>no</g:identifier_exists>
     </item>`;

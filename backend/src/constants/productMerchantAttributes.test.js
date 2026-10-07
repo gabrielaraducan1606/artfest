@@ -20,6 +20,9 @@ import {
   getMaterialLabel,
   resolveCanonicalMaterial,
   MAX_ADDITIONAL_IMAGES,
+  categoryShortLabel,
+  priceBucketLabel,
+  slugifyLabel,
 } from "./productMerchantAttributes.js";
 import {
   GOOGLE_PRODUCT_CATEGORY_BY_CATEGORY,
@@ -491,4 +494,30 @@ test("planAdditionalCategoriesWrite: principala nouă = fostă suplimentară -> 
     }),
     { ok: true }
   );
+});
+
+/* ---------- custom labels (feed Google Merchant / Performance Max) ---------- */
+
+test("custom_label_1: interval de preț pe prețul normal, cu pragurile 20 / 100 lei", () => {
+  assert.equal(priceBucketLabel(397), "sub-20");
+  assert.equal(priceBucketLabel(1999), "sub-20");
+  assert.equal(priceBucketLabel(2000), "20-100");
+  assert.equal(priceBucketLabel(10000), "20-100");
+  assert.equal(priceBucketLabel(10001), "peste-100");
+  assert.equal(priceBucketLabel(NaN), null);
+  assert.equal(priceBucketLabel(undefined), null);
+});
+
+test("custom_label_0 (rezervă): slug scurt din categorie, ASCII, fără slug intern brut", () => {
+  assert.equal(categoryShortLabel("marturii_nunta"), "marturii-nunta");
+  assert.equal(categoryShortLabel("papetarie_invitatii-botez"), "invitatii-botez");
+  assert.equal(categoryShortLabel("cadouri_anime-manga"), "anime-manga");
+  assert.equal(categoryShortLabel("bijuterii_bratari"), "bijuterii-bratari");
+  // categorii vechi / necunoscute: slug din text, fără diacritice
+  assert.equal(categoryShortLabel("Casă"), "casa");
+  assert.equal(categoryShortLabel("Lumânări"), "lumanari");
+  assert.equal(categoryShortLabel(""), "fara-categorie");
+  assert.equal(categoryShortLabel(null), "fara-categorie");
+  assert.equal(slugifyLabel("Cadouri & Educatoare!"), "cadouri-si-educatoare");
+  assert.ok(slugifyLabel("x".repeat(300)).length <= 100);
 });

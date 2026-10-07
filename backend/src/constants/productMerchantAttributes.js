@@ -318,3 +318,61 @@ export function buildProductMerchantAttributes(product, { resolveUrl } = {}) {
     additionalImages: images.slice(1, 1 + MAX_ADDITIONAL_IMAGES),
   };
 }
+
+/* =========================================================
+   CUSTOM LABELS (Google Merchant / Performance Max)
+   - custom_label_0 = grupul de produs (colecția principală sau, ca
+     rezervă, slug-ul scurt al categoriei) - calculat în feed;
+   - custom_label_1 = intervalul de preț pe prețul NORMAL (g:price),
+     stabil la intrarea / ieșirea din promoții.
+   Google: max 100 caractere / etichetă, max 1000 valori unice.
+========================================================= */
+
+export const CUSTOM_LABEL_MAX_LENGTH = 100;
+
+/** Slug ASCII scurt: litere mici, cifre, cratime (ț -> t, ș -> s, ...). */
+export function slugifyLabel(text) {
+  return String(text ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/&/g, "si")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, CUSTOM_LABEL_MAX_LENGTH)
+    .replace(/-+$/g, "");
+}
+
+/**
+ * Slug-ul scurt al categoriei (rezerva pentru custom_label_0):
+ *  - cheie din catalog "grup_frunza": frunza, dacă e deja descriptivă
+ *    (conține cratimă: "papetarie_invitatii-botez" -> "invitatii-botez");
+ *    altfel grup + frunză ("marturii_nunta" -> "marturii-nunta");
+ *  - cheie fără frunză ("cadouri") -> ea însăși;
+ *  - categorie veche / necunoscută -> slug din textul ei ("Casă" -> "casa");
+ *  - lipsă -> "fara-categorie".
+ */
+export function categoryShortLabel(category) {
+  const key = String(category ?? "").trim();
+  if (!key) return "fara-categorie";
+
+  if (!CATEGORY_LABELS[key]) return slugifyLabel(key) || "fara-categorie";
+
+  const separator = key.indexOf("_");
+  if (separator < 0) return slugifyLabel(key);
+
+  const group = key.slice(0, separator);
+  const leaf = key.slice(separator + 1);
+
+  return slugifyLabel(leaf.includes("-") ? leaf : `${group}-${leaf}`);
+}
+
+/** custom_label_1: "sub-20" (< 20 lei), "20-100" (20-100 lei), "peste-100" (> 100 lei). */
+export function priceBucketLabel(priceCents) {
+  const cents = Number(priceCents);
+  if (!Number.isFinite(cents)) return null;
+
+  if (cents < 2000) return "sub-20";
+  if (cents <= 10000) return "20-100";
+  return "peste-100";
+}

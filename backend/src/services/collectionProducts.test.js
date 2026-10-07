@@ -8,6 +8,7 @@ import {
   buildCollectionWhereFromRules,
   collectionHasPublicProducts,
   collectionsWithPublicProducts,
+  pickPrimaryCollection,
   productMatchesRulesClause,
   publicProductWhere,
 } from "./collectionProducts.js";
@@ -314,4 +315,42 @@ test("fără fixate și fără reguli nerezolvate => zero sau o singură interog
   const db2 = fakeDb([prod()]);
   await collectionsWithPublicProducts(db2, [{ rules: {}, items: [] }]);
   assert.equal(db2.calls.length, 1);
+});
+
+/* ---------- colecția principală (custom_label_0 în feed) ---------- */
+
+test("pickPrimaryCollection: fixat > reguli; excluse / inactive / fără reguli nu contează; ordinea dată", () => {
+  const product = {
+    id: "p1",
+    category: "marturii_nunta",
+    additionalCategories: [{ category: "cadouri_botez" }],
+    priceCents: 1500,
+    acceptsCustom: false,
+    occasionTags: [],
+    styleTags: [],
+  };
+
+  const catchAll = { slug: "toate", isActive: true, rules: {}, items: [] };
+  const inactive = { slug: "inactiva", isActive: false, rules: { categories: ["marturii_nunta"] }, items: [] };
+  const byRule = { slug: "marturii-nunta", isActive: true, rules: { categories: ["marturii_nunta"] }, items: [] };
+  const byAdditional = { slug: "botez", isActive: true, rules: { categories: ["cadouri_botez"] }, items: [] };
+  const excluded = {
+    slug: "exclus",
+    isActive: true,
+    rules: { categories: ["marturii_nunta"] },
+    items: [{ productId: "p1", pinned: false, excluded: true }],
+  };
+  const pinned = { slug: "cadouri-educatoare", isActive: true, rules: {}, items: [{ productId: "p1", pinned: true, excluded: false }] };
+
+  // fără reguli = nu „înghite” produsele; inactivă / exclusă = ignorate
+  assert.equal(pickPrimaryCollection(product, [catchAll, inactive, excluded])?.slug, undefined);
+  // prima colecție (în ordine) ale cărei reguli le îndeplinește
+  assert.equal(pickPrimaryCollection(product, [catchAll, byRule, byAdditional]).slug, "marturii-nunta");
+  assert.equal(pickPrimaryCollection(product, [byAdditional, byRule]).slug, "botez");
+  // fixarea are prioritate, indiferent de ordine
+  assert.equal(pickPrimaryCollection(product, [byRule, pinned]).slug, "cadouri-educatoare");
+  // fixat, dar exclus = nu
+  const pinnedExcluded = { ...pinned, items: [{ productId: "p1", pinned: true, excluded: true }] };
+  assert.equal(pickPrimaryCollection(product, [pinnedExcluded, byRule]).slug, "marturii-nunta");
+  assert.equal(pickPrimaryCollection(null, [byRule]), null);
 });

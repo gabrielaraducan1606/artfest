@@ -261,3 +261,39 @@ export async function collectionHasPublicProducts(db, collection) {
   const [has] = await collectionsWithPublicProducts(db, [collection]);
   return has;
 }
+
+/* =========================================================
+   Colecția PRINCIPALĂ a unui produs (custom_label_0 în feed-ul
+   Google Merchant) - aceeași apartenență ca pagina colecției:
+     1) colecțiile active în care produsul e FIXAT (pinned, neexclus);
+     2) altfel, colecțiile active ale căror REGULI le îndeplinește
+        (o colecție fără nicio regulă NU se potrivește - altfel ar
+        „înghiți” toate produsele);
+   în ordinea dată (stabilă: `createdAt` crescător, vezi apelantul).
+   Produsele excluse manual dintr-o colecție nu îi aparțin.
+   Întoarce colecția sau null.
+========================================================= */
+export function pickPrimaryCollection(product, collections = []) {
+  if (!product?.id) return null;
+
+  const active = (Array.isArray(collections) ? collections : []).filter((c) => c?.isActive);
+  const itemOf = (collection) =>
+    (collection.items || []).find((item) => item.productId === product.id) || null;
+
+  const pinned = active.find((collection) => {
+    const item = itemOf(collection);
+    return item?.pinned === true && item.excluded !== true;
+  });
+  if (pinned) return pinned;
+
+  return (
+    active.find((collection) => {
+      if (itemOf(collection)?.excluded === true) return false;
+
+      const clause = buildCollectionRulesClause(collection.rules);
+      if (!Object.keys(clause).length) return false;
+
+      return productMatchesRulesClause(product, clause);
+    }) || null
+  );
+}

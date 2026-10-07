@@ -1102,3 +1102,56 @@ test("N2. price: prețul efectiv din feed = prețul din JSON-LD (cu și fără p
   assert.ok(itemBlockFor(xml, "prod-n2-promo").includes("<g:sale_price>"));
   assert.ok(!itemBlockFor(xml, "prod-n2-plain").includes("<g:sale_price>"));
 });
+
+/* =========================================================
+   M. custom_label_0 (colecția principală / rezervă categorie)
+      și custom_label_1 (interval de preț pe prețul NORMAL)
+========================================================= */
+
+test("M1. custom_label_0 = colecția activă potrivită; altfel slug-ul scurt al categoriei; custom_label_1 pe prețul normal", async (t) => {
+  const inCollection = baseProduct({ id: "prod-m1-col", category: "marturii_nunta", priceCents: 1500 });
+  const fallback = baseProduct({ id: "prod-m1-cat", category: "papetarie_invitatii-botez", priceCents: 5000 });
+  const legacy = baseProduct({ id: "prod-m1-legacy", category: "Casă", priceCents: 25000 });
+
+  const { xml, cleanup } = await fetchFeed([inCollection, fallback, legacy], {
+    collections: [
+      { id: "col-off", slug: "inactiva", isActive: false, rules: { categories: ["marturii_nunta"] }, items: [] },
+      { id: "col-on", slug: "marturii-nunta", isActive: true, rules: { categories: ["marturii_nunta"] }, items: [] },
+    ],
+  });
+  t.after(cleanup);
+
+  const col = itemBlockFor(xml, "prod-m1-col");
+  assert.equal(tagValue(col, "g:custom_label_0"), "marturii-nunta");
+  assert.equal(tagValue(col, "g:custom_label_1"), "sub-20");
+
+  const cat = itemBlockFor(xml, "prod-m1-cat");
+  assert.equal(tagValue(cat, "g:custom_label_0"), "invitatii-botez");
+  assert.equal(tagValue(cat, "g:custom_label_1"), "20-100");
+
+  const old = itemBlockFor(xml, "prod-m1-legacy");
+  assert.equal(tagValue(old, "g:custom_label_0"), "casa");
+  assert.equal(tagValue(old, "g:custom_label_1"), "peste-100");
+
+  // product_type rămâne calea categoriei din site
+  assert.equal(tagValue(cat, "g:product_type"), "Papetărie &amp; personalizări &gt; Invitații botez");
+});
+
+test("M2. produs FIXAT într-o colecție activă -> custom_label_0 = acea colecție, chiar fără reguli potrivite", async (t) => {
+  const p = baseProduct({ id: "prod-m2-pinned", category: "home_lumanari-parfumate", priceCents: 4500 });
+  const { xml, cleanup } = await fetchFeed([p], {
+    collections: [
+      {
+        id: "col-edu",
+        slug: "cadouri-educatoare",
+        isActive: true,
+        rules: {},
+        items: [{ productId: "prod-m2-pinned", pinned: true, excluded: false }],
+      },
+    ],
+  });
+  t.after(cleanup);
+
+  assert.equal(tagValue(itemBlockFor(xml, "prod-m2-pinned"), "g:custom_label_0"), "cadouri-educatoare");
+});
+
