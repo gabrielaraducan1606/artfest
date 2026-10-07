@@ -626,3 +626,28 @@ test("admin actualizare: indisponibilă cât timp v2 nu e activă", async () => 
   assert.equal(send.status, 409);
   assert.equal(sentNotices.length, 0);
 });
+
+test("admin preaviz pe rol: preview cu subiect + destinatari pe categorie; trimiterea = un email per adresă, cu audiența lui", async () => {
+  const preview = await call("GET", "/api/admin/legal/notices/preview?kind=notice", { as: asAdmin() });
+  assert.deepEqual(Object.keys(preview.body.subjects).sort(), ["INFLUENCER", "USER", "VENDOR"]);
+  assert.deepEqual(preview.body.recipients.byRole, { USER: 2, VENDOR: 2, INFLUENCER: 1 });
+  assert.deepEqual(
+    Object.fromEntries(preview.body.samples.map((s) => [s.role, s.recipients])),
+    { USER: 2, VENDOR: 2, INFLUENCER: 1 }
+  );
+
+  const sent = await call("POST", "/api/admin/legal/notices/send", {
+    as: asAdmin(),
+    body: { kind: "notice", confirm: true, exception: NOTICE_EXCEPTION },
+  });
+  assert.equal(sent.status, 200);
+
+  const byEmail = Object.fromEntries(sentNotices.map((n) => [n.to, n]));
+  assert.equal(Object.keys(byEmail).length, sentNotices.length, "nicio adresă de două ori");
+  assert.equal(byEmail["u1@t.ro"].audience, "USER");
+  assert.equal(byEmail["v1@t.ro"].audience, "VENDOR");
+  assert.equal(byEmail["i1@t.ro"].audience, "INFLUENCER");
+  assert.ok(!byEmail["u1@t.ro"].documents.some((d) => d.key === "vendor_terms"));
+  assert.ok(byEmail["v1@t.ro"].documents.some((d) => d.key === "vendor_terms"));
+  assert.deepEqual(byEmail["i1@t.ro"].documents.map((d) => d.key).sort(), ["cookies", "privacy", "tos"]);
+});

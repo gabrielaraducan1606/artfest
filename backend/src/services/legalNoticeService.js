@@ -239,17 +239,75 @@ function entryKeyForType(type) {
   return LEGAL_DOCUMENTS.find((e) => e.manifestType === type)?.key || type.toUpperCase();
 }
 
-function docsForRole(kind, documents, role, requirements) {
-  const audience = ROLE_AUDIENCE[role];
-  if (!audience) return [];
+// tonul emailului pentru o persoană cu mai multe roluri: cel mai comercial
+const AUDIENCE_PRIORITY = ["VENDOR", "INFLUENCER", "USER"];
 
-  return documents
-    .filter((doc) => doc.audiences.includes(audience))
-    .map((doc) => ({
+export function toneAudience(roles) {
+  const audiences = new Set([...roles].map((role) => ROLE_AUDIENCE[role]).filter(Boolean));
+  return AUDIENCE_PRIORITY.find((audience) => audiences.has(audience)) || null;
+}
+
+/*
+ * Rezumatul modificărilor PE AUDIENȚĂ, derivat DOAR din ce scrie operatorul
+ * în manifest (changeSummary) - nu se generează text nou:
+ *  - obiect { USER, VENDOR, INFLUENCER, ALL }: textul audienței sau ALL;
+ *  - text cu rânduri marcate „[USER]”, „[VENDOR]”, „[INFLUENCER]”,
+ *    „[USER,VENDOR]”, „[ALL]”: doar rândurile audienței (+ cele nemarcate);
+ *  - text simplu: același pentru toți;
+ *  - lipsă: fără bloc „Principalele modificări”.
+ */
+export function summaryForAudience(changeSummary, audience) {
+  if (!changeSummary) return null;
+
+  if (typeof changeSummary === "object") {
+    const value = changeSummary[audience] ?? changeSummary.ALL ?? null;
+    return value ? String(value).trim() || null : null;
+  }
+
+  const lines = String(changeSummary).split(/\r?\n/);
+  const kept = [];
+
+  for (const line of lines) {
+    const match = /^\s*\[([A-Z, ]+)\]\s*(.*)$/.exec(line);
+    if (!match) {
+      if (line.trim()) kept.push(line.trim());
+      continue;
+    }
+    const tags = match[1].split(",").map((t) => t.trim());
+    if (tags.includes("ALL") || tags.includes(audience)) kept.push(match[2].trim());
+  }
+
+  return kept.length ? kept.join("\n") : null;
+}
+
+/*
+ * Conținutul emailului pentru un set de roluri - FOLOSIT IDENTIC de preview
+ * și de trimitere (preview = ce primește destinatarul):
+ *  - documentele = reuniunea documentelor rolurilor (fără dubluri);
+ *  - tonul / subiectul = rolul cel mai comercial (VENDOR > INFLUENCER > USER);
+ *  - rezumatul = changeSummary filtrat pe acel ton;
+ *  - acceptarea (doar la update) = cerută pentru ORICARE dintre roluri.
+ */
+function contentForRoles(kind, documents, roles, requirements) {
+  const audiences = [...roles].map((role) => ROLE_AUDIENCE[role]).filter(Boolean);
+  const audience = toneAudience(roles);
+  if (!audience) return null;
+
+  const docs = documents
+    .filter((doc) => audiences.some((a) => doc.audiences.includes(a)))
+    .map(({ changeSummary, audiences: docAudiences, ...doc }) => ({
       ...doc,
+      changeSummary: summaryForAudience(changeSummary, audience),
       reacceptanceRequired:
-        kind === "update" && requirements.has(`${entryKeyForType(doc.key)}|${audience}|${doc.version}`),
+        kind === "update" &&
+        audiences.some(
+          (a) => docAudiences.includes(a) && requirements.has(`${entryKeyForType(doc.key)}|${a}|${doc.version}`)
+        ),
     }));
+
+  if (!docs.length) return null;
+
+  return { audience, documents: docs, acceptLink: ACCEPT_LINKS[audience] || "" };
 }
 
 async function planRecipients({ kind, documents, prisma, onlyEmails = null }) {
@@ -260,36 +318,46 @@ async function planRecipients({ kind, documents, prisma, onlyEmails = null }) {
     select: { id: true, email: true, name: true, firstName: true, role: true },
   });
 
+  // o adresă = un singur email: conturile cu aceeași adresă (fără diferență
+  // de majuscule) se unesc, cu reuniunea rolurilor
   const byEmail = new Map();
   let withoutEmail = 0;
 
   for (const user of users) {
-    const docs = docsForRole(kind, documents, user.role, requirements);
-    if (!docs.length) continue;
-
     const email = String(user.email || "").trim();
     if (!email) {
-      withoutEmail += 1;
+      if (contentForRoles(kind, documents, [user.role], requirements)) withoutEmail += 1;
       continue;
     }
 
     const id = email.toLowerCase();
     if (onlyEmails && !onlyEmails.has(id)) continue;
-    if (byEmail.has(id)) continue;
 
-    byEmail.set(id, {
-      userId: user.id,
-      email,
-      name: user.firstName || user.name || "",
-      role: user.role,
-      documents: docs,
-      acceptLink: ACCEPT_LINKS[user.role] || "",
+    const slot = byEmail.get(id) || { userId: user.id, email, name: "", roles: new Set() };
+    slot.roles.add(user.role);
+    if (!slot.name) slot.name = user.firstName || user.name || "";
+    // contul cu rolul cel mai comercial dă userId-ul din EmailLog
+    if (toneAudience([user.role]) === toneAudience(slot.roles)) slot.userId = user.id;
+    byEmail.set(id, slot);
+  }
+
+  const recipients = [];
+
+  for (const slot of byEmail.values()) {
+    const content = contentForRoles(kind, documents, slot.roles, requirements);
+    if (!content) continue;
+
+    recipients.push({
+      userId: slot.userId,
+      email: slot.email,
+      name: slot.name,
+      roles: [...slot.roles],
+      ...content,
     });
   }
 
-  const recipients = [...byEmail.values()];
   const byRole = {};
-  for (const r of recipients) byRole[r.role] = (byRole[r.role] || 0) + 1;
+  for (const r of recipients) byRole[r.audience] = (byRole[r.audience] || 0) + 1;
 
   return { recipients, byRole, withoutEmail };
 }
@@ -404,13 +472,31 @@ export async function previewLegalNotice({ kind: rawKind, prisma = defaultPrisma
     ? await planRecipients({ kind, documents, prisma })
     : { recipients: [], byRole: {}, withoutEmail: 0 };
 
-  // un exemplu de email per rol (preview real, fără trimitere)
+  // un exemplu de email per rol - ACELAȘI conținut ca la trimitere
+  // (contentForRoles + buildLegalNoticeEmail), fără trimitere
+  const requirements = await reacceptanceIndex(kind, prisma);
   const samples = [];
   for (const role of Object.keys(ROLE_AUDIENCE)) {
-    const docs = docsForRole(kind, documents, role, await reacceptanceIndex(kind, prisma));
-    if (!docs.length) continue;
-    const email = buildLegalNoticeEmail({ kind, documents: docs, acceptLink: ACCEPT_LINKS[role] });
-    samples.push({ role, documents: docs.map((d) => d.title), ...email });
+    const content = contentForRoles(kind, documents, [role], requirements);
+    if (!content) continue;
+    const email = buildLegalNoticeEmail({ kind, ...content });
+    samples.push({
+      role,
+      audience: content.audience,
+      documents: content.documents.map((d) => d.title),
+      documentDetails: content.documents.map((d) => ({
+        key: d.key,
+        title: d.title,
+        version: d.version,
+        currentVersion: d.currentVersion,
+        url: d.url,
+        effectiveAt: d.effectiveAt,
+        changeSummary: d.changeSummary,
+        reacceptanceRequired: d.reacceptanceRequired,
+      })),
+      recipients: plan.byRole[role] || 0,
+      ...email,
+    });
   }
 
   return {
@@ -430,6 +516,7 @@ export async function previewLegalNotice({ kind: rawKind, prisma = defaultPrisma
       withoutEmail: plan.withoutEmail,
     },
     subject: samples.find((s) => s.role === "USER")?.subject || samples[0]?.subject || null,
+    subjects: Object.fromEntries(samples.map((s) => [s.role, s.subject])),
     samples,
   };
 }
@@ -501,6 +588,7 @@ async function deliver({ campaign, kind, recipients, prisma, send, batchSize }) 
         to: r.email,
         name: r.name,
         kind,
+        audience: r.audience,
         documents: r.documents,
         acceptLink: r.acceptLink,
         campaignKey: campaign.campaignKey,
@@ -586,7 +674,10 @@ export async function sendLegalNotice({
             ? `EXCEPȚIE termen preaviz (${preview.daysUntilEffective} zile): ${exceptionReason}`
             : `Trimis din Admin pentru ${documents.map((d) => `${d.key} ${d.version}`).join(", ")}`,
         sendEmail: true,
-        emailSubject: preview.subject,
+        // subiectele diferă pe rol - le păstrăm pe toate pentru raport
+        emailSubject: Object.entries(preview.subjects)
+          .map(([role, subject]) => `${role}: ${subject}`)
+          .join(" | "),
         documents: documents.map((doc) => encodeDoc(kind, doc)),
         targetCount: plan.recipients.length,
         createdCount: plan.recipients.length,

@@ -43,6 +43,8 @@ import {
   previewLegalNotice,
   resendFailedLegalNotice,
   sendLegalNotice,
+  summaryForAudience,
+  toneAudience,
 } from "./legalNoticeService.js";
 import { sendCampaignEmails, htmlToPlainText } from "./policyEmailService.js";
 
@@ -1048,10 +1050,7 @@ test("preaviz: preview fără trimitere - pachet agregat, audiențe, zile rămas
   assert.equal(preview.effectiveAt, "2026-10-23");
   assert.equal(preview.daysUntilEffective, 16);
   assert.equal(preview.noticePeriodOk, true);
-  assert.equal(
-    preview.subject,
-    "Actualizare Termeni și Condiții Artfest – intrare în vigoare la 23 octombrie 2026"
-  );
+  assert.equal(preview.subject, "Actualizare documente Artfest – intrare în vigoare la 23 octombrie 2026");
 
   const audiences = Object.fromEntries(preview.documents.map((d) => [d.key, d.audiences.sort().join(",")]));
   assert.equal(audiences.tos, "INFLUENCER,USER,VENDOR");
@@ -1227,7 +1226,11 @@ test("actualizare: disponibilă DOAR după activare; acceptarea apare doar cu ce
   const afterPublish = await previewLegalNotice({ kind: "update", prisma: w.prisma });
   assert.equal(afterPublish.available, true);
   assert.deepEqual(afterPublish.documents.map((d) => d.key), ["tos"]);
-  assert.equal(afterPublish.subject, "Noii Termeni și Condiții Artfest au intrat în vigoare");
+  assert.deepEqual(afterPublish.subjects, {
+    USER: "Documentele Artfest actualizate au intrat în vigoare",
+    VENDOR: "Noii Termeni pentru vânzători au intrat în vigoare",
+    INFLUENCER: "Documentele actualizate pentru colaborarea cu Artfest au intrat în vigoare",
+  });
   const noRequest = afterPublish.samples.find((s) => s.role === "USER");
   assert.doesNotMatch(noRequest.text, /va trebui să accepți|necesită acceptarea/);
 
@@ -1247,4 +1250,107 @@ test("actualizare: disponibilă DOAR după activare; acceptarea apare doar cu ce
   // notificarea nu modifică cererile existente și nu creează altele
   const open = await getOpenRequirements({ prisma: w.prisma });
   assert.deepEqual(open.map((r) => `${r.key}|${r.audience}|${r.version}`), ["TOS|USER|2.0.0"]);
+});
+
+/* ------------- preaviz pe AUDIENȚĂ: conținut, documente, subiect, un email per adresă ------------- */
+
+const ROLE_DOCS = {
+  USER: ["cookies", "privacy", "returns_policy_ack", "tos"],
+  VENDOR: ["cookies", "privacy", "products_addendum", "returns_policy_ack", "shipping_addendum", "tos", "vendor_terms"],
+  INFLUENCER: ["cookies", "privacy", "tos"],
+};
+
+test("preaviz pe rol: fiecare audiență primește DOAR documentele ei și subiectul ei", async () => {
+  const w = world();
+  const preview = await previewLegalNotice({ kind: "notice", prisma: w.prisma, now: NOTICE_NOW });
+
+  assert.deepEqual(preview.subjects, {
+    USER: "Actualizare documente Artfest – intrare în vigoare la 23 octombrie 2026",
+    VENDOR: "Actualizare Termeni și condiții pentru vânzători – 23 octombrie 2026",
+    INFLUENCER: "Actualizare documente aplicabile colaborării Artfest – 23 octombrie 2026",
+  });
+
+  for (const sample of preview.samples) {
+    assert.deepEqual(
+      sample.documentDetails.map((d) => d.key).sort(),
+      ROLE_DOCS[sample.role],
+      sample.role
+    );
+    assert.ok(sample.documentDetails.every((d) => d.effectiveAt === "2026-10-23"));
+  }
+
+  const user = preview.samples.find((s) => s.role === "USER");
+  const influencer = preview.samples.find((s) => s.role === "INFLUENCER");
+  const vendor = preview.samples.find((s) => s.role === "VENDOR");
+
+  // clientul / influencerul nu văd documente sau termeni comerciali de vânzător
+  for (const sample of [user, influencer]) {
+    assert.doesNotMatch(sample.text, /Vânzători|vânzător|Stripe Connect|comision|livrare — Artfest|Anexa Produse/i);
+  }
+  assert.doesNotMatch(influencer.text, /Politica de retur/);
+
+  // vânzătorul: CTA spre acordul vânzătorilor, ton comercial
+  assert.match(vendor.text, /Vezi versiunea actualizată: .*\/legal\/vendor_terms\/v\/2\.0\.0\.html/);
+  assert.match(vendor.text, /regulile comerciale și operaționale/);
+  assert.match(user.text, /Vezi versiunea actualizată: .*\/legal\/tos\/v\/2\.0\.0\.html/);
+
+  // destinatari pe categorie
+  assert.equal(user.recipients, 2);
+  assert.equal(vendor.recipients, 2);
+  assert.equal(influencer.recipients, 1);
+});
+
+test("preaviz: aceeași adresă cu mai multe conturi (client + vânzător) primește UN singur email, cu tonul de vânzător", async () => {
+  const w = world();
+  // altă scriere a aceleiași adrese (unicitatea din DB e sensibilă la majuscule)
+  w.prisma.seed("user", [{ email: "V1@T.RO", role: "USER" }]);
+
+  const { send, calls } = fakeNoticeSend(w);
+  const result = await sendLegalNotice({ kind: "notice", confirm: true, prisma: w.prisma, send, now: NOTICE_NOW });
+
+  const toV1 = calls.filter((c) => c.to.toLowerCase() === "v1@t.ro");
+  assert.equal(toV1.length, 1, "un singur email pentru adresă");
+  assert.equal(toV1[0].audience, "VENDOR");
+  assert.deepEqual(toV1[0].documents.map((d) => d.key).sort(), ROLE_DOCS.VENDOR);
+  assert.equal(result.recipients, 5);
+  assert.equal(new Set(calls.map((c) => c.to.toLowerCase())).size, calls.length, "nicio adresă de două ori");
+});
+
+test("preaviz: preview = conținutul trimis (același builder, aceleași documente, pe fiecare rol)", async () => {
+  const { buildLegalNoticeEmail } = await import("../lib/mailer.js");
+  const w = world();
+  const preview = await previewLegalNotice({ kind: "notice", prisma: w.prisma, now: NOTICE_NOW });
+  const { send, calls } = fakeNoticeSend(w);
+
+  await sendLegalNotice({ kind: "notice", confirm: true, prisma: w.prisma, send, now: NOTICE_NOW });
+
+  for (const [email, role] of [
+    ["u1@t.ro", "USER"],
+    ["v1@t.ro", "VENDOR"],
+    ["i1@t.ro", "INFLUENCER"],
+  ]) {
+    const payload = calls.find((c) => c.to === email);
+    const sample = preview.samples.find((s) => s.role === role);
+    const sentMail = buildLegalNoticeEmail(payload); // exact ce face sendLegalNoticeEmail
+
+    assert.equal(payload.audience, role);
+    assert.equal(sentMail.subject, sample.subject, role);
+    assert.equal(sentMail.html, sample.html, role);
+    assert.equal(sentMail.text, sample.text, role);
+  }
+});
+
+test("rezumat pe audiență: derivat DOAR din changeSummary-ul din manifest (marcaje [ROL] sau obiect)", () => {
+  const tagged = "[ALL] Text pentru toți.\n[VENDOR] Colecțiile înlocuiesc campaniile.\n[USER,INFLUENCER] Atribuirea nu mai e salvată pe dispozitiv.";
+
+  assert.equal(summaryForAudience(tagged, "VENDOR"), "Text pentru toți.\nColecțiile înlocuiesc campaniile.");
+  assert.equal(summaryForAudience(tagged, "USER"), "Text pentru toți.\nAtribuirea nu mai e salvată pe dispozitiv.");
+  assert.equal(summaryForAudience("[VENDOR] Doar vânzători.", "USER"), null);
+  assert.equal(summaryForAudience("Text general.", "INFLUENCER"), "Text general.");
+  assert.equal(summaryForAudience({ VENDOR: "V", ALL: "A" }, "VENDOR"), "V");
+  assert.equal(summaryForAudience({ VENDOR: "V", ALL: "A" }, "USER"), "A");
+  assert.equal(summaryForAudience(null, "USER"), null);
+  assert.equal(toneAudience(["USER", "VENDOR"]), "VENDOR");
+  assert.equal(toneAudience(["USER", "INFLUENCER"]), "INFLUENCER");
+  assert.equal(toneAudience(["ADMIN"]), null);
 });

@@ -221,3 +221,45 @@ test("preaviz: trimiterea e logată în EmailLog pe campanie (legal_notice:<chei
   assert.equal(log.toEmail, "notice@t.ro");
   assert.equal(log.userId, "u9");
 });
+
+test("email pe audiență: subiect + ton diferit pentru client / vânzător / influencer (preaviz și actualizare)", async () => {
+  const { buildLegalNoticeEmail } = await import("./mailer.js");
+  const docs = NOTICE_DOCS.map((d) => ({ ...d, changeSummary: null }));
+
+  const subjects = Object.fromEntries(
+    ["USER", "VENDOR", "INFLUENCER"].map((audience) => [
+      audience,
+      [
+        buildLegalNoticeEmail({ kind: "notice", audience, documents: docs }).subject,
+        buildLegalNoticeEmail({ kind: "update", audience, documents: docs }).subject,
+      ],
+    ])
+  );
+
+  assert.deepEqual(subjects, {
+    USER: [
+      "Actualizare documente Artfest – intrare în vigoare la 23 octombrie 2026",
+      "Documentele Artfest actualizate au intrat în vigoare",
+    ],
+    VENDOR: [
+      "Actualizare Termeni și condiții pentru vânzători – 23 octombrie 2026",
+      "Noii Termeni pentru vânzători au intrat în vigoare",
+    ],
+    INFLUENCER: [
+      "Actualizare documente aplicabile colaborării Artfest – 23 octombrie 2026",
+      "Documentele actualizate pentru colaborarea cu Artfest au intrat în vigoare",
+    ],
+  });
+
+  const vendor = buildLegalNoticeEmail({ kind: "notice", audience: "VENDOR", documents: docs });
+  assert.match(vendor.text, /activitatea ta de vânzător/);
+  assert.match(vendor.text, /Vezi versiunea actualizată: https:\/\/app\.test\/legal\/vendor_terms\/v\/2\.0\.0\.html/);
+  assert.match(vendor.text, /intră în vigoare la 23 octombrie 2026/);
+
+  const user = buildLegalNoticeEmail({ kind: "notice", audience: "USER", documents: [docs[0]] });
+  assert.match(user.text, /descoperi și cumpăra produse/);
+  assert.doesNotMatch(user.text, /vânzător/i);
+
+  const influencer = buildLegalNoticeEmail({ kind: "notice", audience: "INFLUENCER", documents: [docs[0]] });
+  assert.match(influencer.text, /colaborării tale/);
+});

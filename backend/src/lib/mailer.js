@@ -2377,7 +2377,42 @@ export function formatLegalNoticeDate(value) {
   });
 }
 
-function legalNoticeSubject(kind, documents, effectiveLabel) {
+/*
+ * Conținut pe AUDIENȚĂ (rolul destinatarului): subiect + introducere.
+ * Documentele și rezumatul vin deja filtrate pe rol din legalNoticeService.
+ */
+const LEGAL_NOTICE_COPY = {
+  USER: {
+    noticeSubject: (date) => `Actualizare documente ${BRAND_NAME} – intrare în vigoare la ${date}`,
+    updateSubject: () => `Documentele ${BRAND_NAME} actualizate au intrat în vigoare`,
+    noticeIntro: `Dorim să te informăm că am actualizat documentele care se aplică atunci când folosești platforma ${BRAND_NAME} pentru a descoperi și cumpăra produse.`,
+    updateIntro: `Documentele ${BRAND_NAME} pe care le folosești ca și client au fost actualizate`,
+    ctaKey: "tos",
+  },
+  VENDOR: {
+    noticeSubject: (date) => `Actualizare Termeni și condiții pentru vânzători – ${date}`,
+    updateSubject: () => "Noii Termeni pentru vânzători au intrat în vigoare",
+    noticeIntro: `Dorim să te informăm că am actualizat documentele care reglementează activitatea ta de vânzător pe ${BRAND_NAME}: Acordul Marketplace pentru Vânzători, anexele sale și documentele generale ale platformei.`,
+    updateIntro: `Documentele care reglementează activitatea ta de vânzător pe ${BRAND_NAME} au fost actualizate`,
+    noticeExtra:
+      "Te rugăm să parcurgi în special regulile comerciale și operaționale care se aplică magazinului tău.",
+    ctaKey: "vendor_terms",
+  },
+  INFLUENCER: {
+    noticeSubject: (date) => `Actualizare documente aplicabile colaborării ${BRAND_NAME} – ${date}`,
+    updateSubject: () => `Documentele actualizate pentru colaborarea cu ${BRAND_NAME} au intrat în vigoare`,
+    noticeIntro: `Dorim să te informăm că am actualizat documentele generale ale platformei ${BRAND_NAME} care se aplică și colaborării tale cu noi.`,
+    updateIntro: `Documentele aplicabile colaborării tale cu ${BRAND_NAME} au fost actualizate`,
+    ctaKey: "tos",
+  },
+};
+
+function legalNoticeSubject(kind, documents, effectiveLabel, audience = null) {
+  const copy = LEGAL_NOTICE_COPY[audience];
+  if (copy) {
+    return kind === "update" ? copy.updateSubject() : copy.noticeSubject(effectiveLabel);
+  }
+
   const hasTos = documents.some((d) => d.key === "tos");
   const single = documents.length === 1 ? documents[0] : null;
 
@@ -2397,9 +2432,18 @@ function legalNoticeSubject(kind, documents, effectiveLabel) {
  * documents: [{ key, title, version, currentVersion, url, currentUrl,
  *               effectiveAt, changeSummary, reacceptanceRequired }]
  * kind: "notice" (preaviz) | "update" (după activare)
+ * audience: "USER" | "VENDOR" | "INFLUENCER" - tonul și subiectul emailului
+ *   (fără audience: textul general, compatibil cu apelurile vechi)
  * acceptLink: zona din cont unde se acceptă (doar update cu reacceptare)
  */
-export function buildLegalNoticeEmail({ kind = "notice", name = "", documents = [], acceptLink = "" }) {
+export function buildLegalNoticeEmail({
+  kind = "notice",
+  audience = null,
+  name = "",
+  documents = [],
+  acceptLink = "",
+}) {
+  const copy = LEGAL_NOTICE_COPY[audience] || null;
   const docs = documents.map((doc) => ({
     key: String(doc.key || ""),
     title: String(doc.title || ""),
@@ -2413,23 +2457,28 @@ export function buildLegalNoticeEmail({ kind = "notice", name = "", documents = 
   }));
 
   const effectiveLabel = docs.find((d) => d.effectiveLabel)?.effectiveLabel || "";
-  const subject = legalNoticeSubject(kind, docs, effectiveLabel);
+  const subject = legalNoticeSubject(kind, docs, effectiveLabel, audience);
   const greeting = String(name || "").trim() ? `Bună, ${String(name).trim()},` : "Bună,";
-  const primary = docs.find((d) => d.key === "tos") || docs[0] || null;
+  const primary =
+    docs.find((d) => d.key === (copy?.ctaKey || "tos")) || docs.find((d) => d.key === "tos") || docs[0] || null;
   const mustAccept = kind === "update" && docs.some((d) => d.reacceptanceRequired);
   const acceptUrl = mustAccept ? absolutePolicyUrl(acceptLink) : "";
+  const since = effectiveLabel ? `, începând cu data de ${effectiveLabel}` : "";
 
   const intro =
     kind === "update"
       ? [
-          `Versiunile actualizate ale documentelor legale ${BRAND_NAME} de mai jos sunt acum în vigoare${
-            effectiveLabel ? `, începând cu data de ${effectiveLabel}` : ""
-          }.`,
+          copy
+            ? `${copy.updateIntro}. Versiunile noi sunt acum în vigoare${since}.`
+            : `Versiunile actualizate ale documentelor legale ${BRAND_NAME} de mai jos sunt acum în vigoare${since}.`,
         ]
       : [
-          `Dorim să te informăm că am actualizat documentele legale aplicabile utilizării platformei ${BRAND_NAME}.`,
+          copy
+            ? copy.noticeIntro
+            : `Dorim să te informăm că am actualizat documentele legale aplicabile utilizării platformei ${BRAND_NAME}.`,
           `Noile versiuni vor intra în vigoare la data de ${effectiveLabel}.`,
           "Până la această dată, versiunile actuale rămân în vigoare.",
+          ...(copy?.noticeExtra ? [copy.noticeExtra] : []),
         ];
 
   const outro =
@@ -2462,10 +2511,15 @@ export function buildLegalNoticeEmail({ kind = "notice", name = "", documents = 
       kind === "update" && d.reacceptanceRequired
         ? `<br><span style="color:#92400e;font-size:13px;">Necesită acceptarea versiunii noi.</span>`
         : "";
+    const when = d.effectiveLabel
+      ? `<br><span style="color:#6b7280;font-size:13px;">${
+          kind === "update" ? "În vigoare din" : "Intră în vigoare la"
+        } ${escapeEmailHtml(d.effectiveLabel)}</span>`
+      : "";
 
     return `<li style="margin:0 0 8px;"><strong>${escapeEmailHtml(d.title)}</strong><br>${links
       .filter(Boolean)
-      .join(" · ")}${accept}</li>`;
+      .join(" · ")}${when}${accept}</li>`;
   };
 
   const summaries = docs.filter((d) => d.changeSummary);
@@ -2542,6 +2596,7 @@ export function buildLegalNoticeEmail({ kind = "notice", name = "", documents = 
               ? [`  versiunea în vigoare${d.currentVersion ? ` (${d.currentVersion})` : ""}: ${d.currentUrl}`]
               : []),
             ...(d.url ? [`  versiunea actualizată (${d.version}): ${d.url}`] : []),
+            ...(d.effectiveLabel ? [`  intră în vigoare la ${d.effectiveLabel}`] : []),
           ]
     ),
     ...(summaries.length
@@ -2571,6 +2626,7 @@ export async function sendLegalNoticeEmail({
   to,
   name = "",
   kind = "notice",
+  audience = null,
   documents = [],
   acceptLink = "",
   campaignKey,
@@ -2578,7 +2634,8 @@ export async function sendLegalNoticeEmail({
 }) {
   if (!to) return;
 
-  const { subject, html, text } = buildLegalNoticeEmail({ kind, name, documents, acceptLink });
+  // același builder ca preview-ul din Admin (preview = conținutul trimis)
+  const { subject, html, text } = buildLegalNoticeEmail({ kind, audience, name, documents, acceptLink });
   const greetingName = String(name || "").trim();
 
   return sendMailLogged({

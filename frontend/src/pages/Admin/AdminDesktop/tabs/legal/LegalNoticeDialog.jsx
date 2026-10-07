@@ -191,25 +191,57 @@ export default function LegalNoticeDialog({ kind = "notice", previewOnly = false
 
               {sample && (
                 <div className={s.noticePreview}>
-                  {preview.samples.length > 1 && (
-                    <div className={s.tabs} role="tablist" aria-label="Previzualizare pe rol">
-                      {preview.samples.map((x) => (
-                        <button
-                          key={x.role}
-                          type="button"
-                          role="tab"
-                          aria-selected={x.role === sample.role}
-                          className={`${s.btn} ${x.role === sample.role ? s.btnPrimary : ""}`}
-                          onClick={() => setRole(x.role)}
-                        >
-                          {roleLabel(x.role)} ({x.documents.length})
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <p className={s.hint}>
-                    Subiect: <strong>{sample.subject}</strong>
-                  </p>
+                  <div className={s.tabs} role="tablist" aria-label="Previzualizare pe audiență">
+                    {preview.samples.map((x) => (
+                      <button
+                        key={x.role}
+                        type="button"
+                        role="tab"
+                        aria-selected={x.role === sample.role}
+                        className={`${s.btn} ${x.role === sample.role ? s.btnPrimary : ""}`}
+                        onClick={() => setRole(x.role)}
+                      >
+                        {roleLabel(x.role)} · {x.recipients ?? 0} destinatari
+                      </button>
+                    ))}
+                  </div>
+
+                  <dl className={s.summaryGrid}>
+                    <dt>Subiect</dt>
+                    <dd>
+                      <strong>{sample.subject}</strong>
+                    </dd>
+                    <dt>Documente incluse</dt>
+                    <dd>
+                      <ul className={s.noticeDocs}>
+                        {(sample.documentDetails || []).map((d) => (
+                          <li key={d.key}>
+                            {d.title} · v{d.version}
+                            {d.currentVersion && <> (în vigoare: v{d.currentVersion})</>}
+                            {d.effectiveAt && <> · {isNotice ? "intră în vigoare la" : "în vigoare din"} {formatDay(d.effectiveAt)}</>}
+                            {d.reacceptanceRequired && <> · necesită acceptare</>}
+                          </li>
+                        ))}
+                      </ul>
+                    </dd>
+                    <dt>Rezumat</dt>
+                    <dd>
+                      {(sample.documentDetails || []).some((d) => d.changeSummary) ? (
+                        (sample.documentDetails || [])
+                          .filter((d) => d.changeSummary)
+                          .map((d) => (
+                            <div key={d.key}>
+                              <strong>{d.title}:</strong> {d.changeSummary}
+                            </div>
+                          ))
+                      ) : (
+                        <span className={s.hint}>
+                          Fără rezumat (changeSummary necompletat în manifest) — blocul „Principalele modificări” nu
+                          apare.
+                        </span>
+                      )}
+                    </dd>
+                  </dl>
                   <iframe
                     title="Previzualizare email"
                     className={s.noticeFrame}
