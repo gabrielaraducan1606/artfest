@@ -47,6 +47,12 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired, requireRole } from "../api/auth.js";
+import {
+  ComplianceGateError,
+  assertPayoutAllowedForInfluencer,
+  getInfluencerComplianceStatus,
+  payoutPermission,
+} from "../services/influencerComplianceGate.js";
 
 import {
   serializePayoutProfileFull,
@@ -57,10 +63,13 @@ import {
 } from "../services/influencerEarnings.js";
 
 import {
+  InfluencerPayoutStateError,
   getInfluencerAvailableForPayout,
   getInfluencerLastPayout,
+  getPayoutInvoiceFileLink,
   listInfluencerPayouts,
   prepareInfluencerPayout,
+  serializePayoutInvoice,
 } from "../services/influencerPayoutService.js";
 
 const router = Router();
@@ -261,7 +270,10 @@ router.get("/:id/payouts", async (req, res) => {
       });
     }
 
-    const payouts = await listInfluencerPayouts(id);
+    const [payouts, compliance] = await Promise.all([
+      listInfluencerPayouts(id),
+      getInfluencerComplianceStatus(id),
+    ]);
 
     return res.json({
       ok: true,
@@ -275,24 +287,9 @@ router.get("/:id/payouts", async (req, res) => {
         issuedAt: p.issuedAt,
         paidAt: p.paidAt,
         paymentReference: p.paymentReference,
-        invoice: p.invoice
-          ? {
-              id: p.invoice.id,
-              number:
-                p.invoice.providerSeries && p.invoice.providerNumber
-                  ? `${p.invoice.providerSeries}-${p.invoice.providerNumber}`
-                  : p.invoice.series && p.invoice.number
-                  ? `${p.invoice.series} ${p.invoice.number}`
-                  : p.invoice.number,
-              issueDate: p.invoice.issueDate,
-              totalGross: Number(p.invoice.totalGross || 0),
-              pdfUrl: p.invoice.providerPdfUrl || p.invoice.pdfUrl || null,
-              xmlUrl: p.invoice.meta?.xmlUrl || null,
-              originalFilename: p.invoice.meta?.originalFilename || null,
-              uploadedAt:
-                p.invoice.meta?.uploadedAt || p.invoice.createdAt || null,
-            }
-          : null,
+        // fără URL-uri de fișier - PDF/XML doar prin link semnat (mai jos)
+        invoice: serializePayoutInvoice(p.invoice),
+        ...payoutPermission({ payout: p, compliance }),
       })),
     });
   } catch (error) {
@@ -304,6 +301,39 @@ router.get("/:id/payouts", async (req, res) => {
     return res.status(500).json({
       ok: false,
       error: "admin_influencer_payouts_failed",
+    });
+  }
+});
+
+/*
+ * GET /api/admin/influencers/:id/payouts/:payoutId/invoice/file?kind=pdf|xml
+ *
+ * Factura încărcată de influencer - link semnat cu expirare scurtă
+ * (5 minute), ca la „Fișierele mele”. Payout-ul trebuie să aparțină
+ * influencerului :id, altfel 404.
+ */
+router.get("/:id/payouts/:payoutId/invoice/file", async (req, res) => {
+  try {
+    const link = await getPayoutInvoiceFileLink({
+      payoutId: req.params.payoutId,
+      influencerId: req.params.id,
+      kind: req.query?.kind === "xml" ? "xml" : "pdf",
+    });
+
+    return res.json({ ok: true, ...link });
+  } catch (error) {
+    if (error instanceof InfluencerPayoutStateError) {
+      return res.status(404).json({ ok: false, error: error.code, message: error.message });
+    }
+
+    console.error(
+      "[adminInfluencerPayoutRoutes] GET /:id/payouts/:payoutId/invoice/file error:",
+      error
+    );
+
+    return res.status(500).json({
+      ok: false,
+      error: "admin_influencer_invoice_file_failed",
     });
   }
 });
@@ -332,6 +362,16 @@ router.post("/:id/payouts", async (req, res) => {
         ok: false,
         error: "influencer_not_found",
       });
+    }
+
+    // conformitate: payout blocat până la un gate COMPLETED (flag oprit -> fără efect)
+    try {
+      await assertPayoutAllowedForInfluencer(id);
+    } catch (e) {
+      if (e instanceof ComplianceGateError) {
+        return res.status(e.httpStatus).json({ ok: false, error: e.code, message: e.message });
+      }
+      throw e;
     }
 
     const result = await prepareInfluencerPayout({ influencerId: id });

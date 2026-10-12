@@ -13,6 +13,22 @@ import {
   ensureVendorReferralRefundLedgerEntry,
 } from "./vendorOrdersRoutes.js";
 import { notifyVendorOnAwbAssigned } from "../services/notifications.js";
+import {
+  assertNoActiveCourierAwb,
+  resolveUnknownAwb,
+  toAdminAwb,
+} from "../couriers/awb/awbService.js";
+import { isCourierError } from "../couriers/errors.js";
+
+// erorile serviciului AWB -> răspuns sanitizat (cod + mesaj fix)
+function sendCourierError(res, e) {
+  return res.status(e.httpStatus || 500).json({
+    error: e.code,
+    message: e.message,
+    ...(e.fields?.length ? { fields: e.fields } : {}),
+    ...(e.activeAwb ? { activeAwb: e.activeAwb } : {}),
+  });
+}
 import { RETURN_REASONS, returnReasonLabel } from "../services/returnRequestRules.js";
 import { notifyAdminReturnStatusChange } from "../services/returnRequestService.js";
 
@@ -191,6 +207,18 @@ router.get("/pickups", requireAdmin, async (req, res) => {
       prisma.shipment.count({ where }),
     ]);
 
+    // ultimul AWB generat prin integrarea de curier, per expediere (o singură interogare)
+    const courierAwbRows = rows?.length
+      ? await prisma.courierAwb.findMany({
+          where: { shipmentId: { in: rows.map((s) => s.id) } },
+          orderBy: { createdAt: "desc" },
+        })
+      : [];
+    const latestAwbByShipment = new Map();
+    for (const r of courierAwbRows) {
+      if (!latestAwbByShipment.has(r.shipmentId)) latestAwbByShipment.set(r.shipmentId, r);
+    }
+
     const items = (rows || []).map((s) => {
       const addr = s.order?.shippingAddress || {};
       const vendorEmail = s.vendor?.email || s.vendor?.user?.email || null;
@@ -229,6 +257,7 @@ router.get("/pickups", requireAdmin, async (req, res) => {
         lengthCm: s.lengthCm,
         widthCm: s.widthCm,
         heightCm: s.heightCm,
+        courierAwb: toAdminAwb(latestAwbByShipment.get(s.id) || null, s),
 
         customerName: addr?.name || "",
         customerPhone: addr?.phone || "",
@@ -334,7 +363,14 @@ router.get("/pickups/:shipmentId", requireAdmin, async (req, res) => {
     });
 
     if (!s) return res.status(404).json({ error: "not_found" });
-    return res.json({ shipment: s });
+
+    const courierAwbs = await prisma.courierAwb.findMany({
+      where: { shipmentId: s.id },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+
+    return res.json({ shipment: s, courierAwbs: courierAwbs.map((r) => toAdminAwb(r, s)) });
   } catch (err) {
     console.error("GET /api/admin/pickups/:shipmentId FAILED:", err);
     return res.status(500).json({
@@ -369,13 +405,41 @@ router.patch("/pickups/:shipmentId/courier", requireAdmin, async (req, res) => {
 
     const existing = await prisma.shipment.findUnique({
       where: { id: shipmentId },
-      select: { id: true, status: true, pickupScheduledAt: true },
+      select: {
+        id: true,
+        status: true,
+        pickupScheduledAt: true,
+        courierProvider: true,
+        courierService: true,
+        awb: true,
+        labelUrl: true,
+        trackingUrl: true,
+      },
     });
 
     if (!existing) return res.status(404).json({ error: "not_found" });
 
     if (!["READY_FOR_PICKUP", "PICKUP_SCHEDULED"].includes(existing.status)) {
       return res.status(409).json({ error: "invalid_status" });
+    }
+
+    // datele de curier/AWB nu se schimbă manual peste un AWB activ din integrare
+    // (programarea ridicării rămâne permisă)
+    // doar valorile care chiar se SCHIMBĂ (formularul admin le retrimite pe toate)
+    const changes = (key) => payload[key] !== undefined && (payload[key] ?? null) !== (existing[key] ?? null);
+    const touchesAwbData =
+      changes("awb") ||
+      changes("labelUrl") ||
+      changes("trackingUrl") ||
+      changes("courierProvider") ||
+      (payload.courierService ?? null) !== (existing.courierService ?? null);
+    if (touchesAwbData) {
+      try {
+        await assertNoActiveCourierAwb(prisma, shipmentId);
+      } catch (e) {
+        if (isCourierError(e)) return sendCourierError(res, e);
+        throw e;
+      }
     }
 
     if (payload.awb) {
@@ -487,6 +551,13 @@ router.patch("/pickups/:shipmentId/awb", requireAdmin, async (req, res) => {
     const shipmentId = String(req.params.shipmentId);
     const { awb, labelUrl = null, trackingUrl = null } = SetAwbPayload.parse(req.body || {});
 
+    try {
+      await assertNoActiveCourierAwb(prisma, shipmentId);
+    } catch (e) {
+      if (isCourierError(e)) return sendCourierError(res, e);
+      throw e;
+    }
+
     const existing = await prisma.shipment.findUnique({
       where: { id: shipmentId },
       select: { id: true, status: true, pickupScheduledAt: true },
@@ -544,6 +615,34 @@ router.patch("/pickups/:shipmentId/awb", requireAdmin, async (req, res) => {
       error: "server_error",
       message: err?.message || "Internal Server Error",
     });
+  }
+});
+
+/* ------------------------------------------
+   POST /api/admin/pickups/:shipmentId/courier-awb/:awbId/resolve
+   Body: { outcome: "FAILED" | "CREATED", awbNumber?, note? }
+   Doar pentru AWB-uri UNKNOWN (generare neconfirmată de curier), după
+   verificarea manuală în contul curierului. Auditat (admin + notă).
+------------------------------------------- */
+router.post("/pickups/:shipmentId/courier-awb/:awbId/resolve", requireAdmin, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = await resolveUnknownAwb(
+      {
+        shipmentId: String(req.params.shipmentId),
+        awbId: String(req.params.awbId),
+        outcome: String(body.outcome || ""),
+        awbNumber: body.awbNumber,
+        note: body.note,
+        adminUserId: req.user?.id || null,
+      },
+      prisma
+    );
+    return res.json({ ok: true, ...result });
+  } catch (e) {
+    if (isCourierError(e)) return sendCourierError(res, e);
+    console.error("POST /api/admin/pickups/:shipmentId/courier-awb/:awbId/resolve FAILED:", e?.name || "Error", e?.code || "");
+    return res.status(500).json({ error: "server_error" });
   }
 });
 

@@ -32,6 +32,16 @@ import { resolveParcels } from "./parcels.js";
  *  Header-ul Idempotency-Key (hash cu vendorId) face ca retrimiterea
  *  aceleiași cereri să întoarcă același rezultat, fără alt apel la curier.
  *
+ *  REQUESTED mai vechi de STALE_REQUESTED_MS (ex. serverul a repornit în
+ *  timpul apelului) devine UNKNOWN - blocajul rămâne, dar adminul îl poate
+ *  rezolva după verificarea în contul curierului (resolveUnknownAwb):
+ *  „AWB nu există” -> FAILED (eliberează expedierea) sau „AWB există” ->
+ *  CREATED cu numărul confirmat. Fiecare tranziție manuală / de sistem e
+ *  păstrată în providerMeta.audit (cine, când, ce).
+ *
+ *  Anulare (cancelAwbForShipment): doar înainte de predarea coletului, doar
+ *  după confirmarea curierului; un refuz al curierului NU schimbă starea.
+ *
  * NU se schimbă statusurile comenzii / Shipment-ului și nimic financiar.
  */
 
@@ -43,6 +53,85 @@ const ELIGIBLE_SHIPMENT_STATUSES = new Set([
 ]);
 
 const ACTIVE_AWB_STATUSES = new Set(["REQUESTED", "CREATED", "UNKNOWN"]);
+
+// cel mai lung apel posibil la curier e ~40s (autentificare + creare, cu o
+// reautentificare la 401, câte 10s fiecare) - 2 minute înseamnă sigur abandon
+export const STALE_REQUESTED_MS = 2 * 60 * 1000;
+
+const STALE_REQUESTED_MESSAGE =
+  "Generarea nu s-a finalizat (întreruptă). Verificăm la curier dacă AWB-ul a fost creat înainte de a permite o nouă încercare.";
+
+// AWB-ul se poate anula doar cât coletul NU a fost predat curierului
+const CANCELLABLE_SHIPMENT_STATUSES = ELIGIBLE_SHIPMENT_STATUSES;
+
+const AWB_NUMBER_INPUT_RE = /^[A-Za-z0-9-]{4,60}$/;
+
+export function isStaleRequested(row, now = Date.now()) {
+  return (
+    !!row &&
+    row.status === "REQUESTED" &&
+    now - new Date(row.createdAt).getTime() >= STALE_REQUESTED_MS
+  );
+}
+
+/*
+ * Istoricul acțiunilor (sistem / vendor / admin) pe un CourierAwb, în
+ * providerMeta.audit - fără câmpuri noi în schema. Doar id-uri, acțiune,
+ * moment și nota adminului; niciodată date de autentificare.
+ */
+function withAudit(meta, entry) {
+  const base = meta && typeof meta === "object" && !Array.isArray(meta) ? meta : {};
+  const audit = Array.isArray(base.audit) ? base.audit : [];
+  return { ...base, audit: [...audit, { ...entry, at: new Date().toISOString() }].slice(-50) };
+}
+
+/**
+ * REQUESTED vechi -> UNKNOWN (condiționat, deci sigur la concurență).
+ * Întoarce rândul actualizat (sau neschimbat).
+ */
+export async function expireStaleRequested(db, row) {
+  if (!isStaleRequested(row)) return row;
+
+  await db.courierAwb.updateMany({
+    where: { id: row.id, status: "REQUESTED" },
+    data: {
+      status: "UNKNOWN",
+      errorMessage: STALE_REQUESTED_MESSAGE,
+      providerMeta: withAudit(row.providerMeta, {
+        action: "stale_requested_to_unknown",
+        actor: "system",
+      }),
+    },
+  });
+
+  return db.courierAwb.findUnique({ where: { id: row.id } });
+}
+
+// AWB-ul activ (REQUESTED / CREATED / UNKNOWN) al unei expedieri, sau null
+export async function findActiveCourierAwb(db, shipmentId) {
+  const row = await db.courierAwb.findUnique({ where: { activeShipmentId: String(shipmentId) } });
+  return expireStaleRequested(db, row);
+}
+
+/*
+ * Setarea MANUALĂ a AWB-ului / curierului de către admin nu are voie să
+ * suprascrie un AWB generat prin integrare care e încă activ (altfel
+ * Shipment.awb și CourierAwb ar indica AWB-uri diferite, iar eticheta /
+ * anularea ar acționa pe alt colet).
+ */
+export async function assertNoActiveCourierAwb(db, shipmentId) {
+  const active = await findActiveCourierAwb(db, shipmentId);
+  if (!active) return;
+  const err = new CourierError(
+    "courier_awb_active",
+    active.status === "CREATED"
+      ? `Expedierea are AWB-ul ${active.awbNumber} generat prin integrarea de curier. Nu poate fi suprascris manual; anulează-l mai întâi.`
+      : "Expedierea are o generare de AWB prin integrarea de curier încă nerezolvată. Rezolv-o înainte de a seta manual un AWB.",
+    { httpStatus: 409 }
+  );
+  err.activeAwb = { id: active.id, status: active.status, awbNumber: active.awbNumber || null };
+  throw err;
+}
 
 export class AwbNotFoundError extends CourierError {
   constructor() {
@@ -231,11 +320,17 @@ export async function buildAwbPlan(
   if (String(order.status) === "CANCELLED") {
     blockers.push(blocker("order_cancelled", "Comanda este anulată."));
   }
+  // expediată fără integrare (couriers/manualShipment.js): fără AWB retroactiv
+  if (shipment.manualShipment) {
+    blockers.push(
+      blocker("manual_shipment", "Expedierea a fost trimisă fără integrare de curier; nu se generează AWB ulterior.")
+    );
+  }
   if (!ELIGIBLE_SHIPMENT_STATUSES.has(String(shipment.status))) {
     blockers.push(blocker("shipment_status", "Expedierea nu mai este într-o etapă în care se poate genera AWB."));
   }
 
-  const active = await db.courierAwb.findUnique({ where: { activeShipmentId: shipment.id } });
+  const active = await findActiveCourierAwb(db, shipment.id);
   const activeBlocker = describeActiveAwb(active, shipment);
   if (activeBlocker) blockers.push(activeBlocker);
 
@@ -475,7 +570,10 @@ export async function createAwbForShipment(
   const key = namespacedIdempotencyKey(vendorId, idempotencyKey);
 
   // 0) retrimiterea aceleiași cereri -> același rezultat
-  const previous = await db.courierAwb.findUnique({ where: { idempotencyKey: key } });
+  const previous = await expireStaleRequested(
+    db,
+    await db.courierAwb.findUnique({ where: { idempotencyKey: key } })
+  );
   if (previous) {
     if (previous.shipmentId !== String(shipmentId)) {
       throw new AwbConflictError("idempotency_key_conflict", "Cheia de idempotență a fost folosită pentru altă expediere.");
@@ -498,8 +596,14 @@ export async function createAwbForShipment(
   let reservation;
   try {
     reservation = await db.$transaction(async (tx) => {
-      const fresh = await tx.shipment.findUnique({ where: { id: shipment.id }, select: { awb: true } });
+      const fresh = await tx.shipment.findUnique({
+        where: { id: shipment.id },
+        select: { awb: true, manualShipment: true },
+      });
       if (fresh?.awb) throw new AwbConflictError("awb_exists", `Există deja AWB-ul ${fresh.awb}.`);
+      if (fresh?.manualShipment) {
+        throw new AwbConflictError("manual_shipment", "Expedierea a fost trimisă fără integrare de curier.");
+      }
 
       return tx.courierAwb.create({
         data: {
@@ -524,10 +628,17 @@ export async function createAwbForShipment(
       if (row) return replayExisting(row);
     }
     if (isUniqueViolation(e, "activeShipmentId")) {
-      const row = await db.courierAwb.findUnique({ where: { activeShipmentId: shipment.id } });
-      throw row?.status === "CREATED"
-        ? new AwbConflictError("awb_exists", `Există deja AWB-ul ${row.awbNumber}.`)
-        : new AwbConflictError("awb_in_progress", "Un AWB este deja în curs de generare pentru această expediere.");
+      const row = await findActiveCourierAwb(db, shipment.id);
+      if (row?.status === "CREATED") {
+        throw new AwbConflictError("awb_exists", `Există deja AWB-ul ${row.awbNumber}.`);
+      }
+      if (row?.status === "UNKNOWN") {
+        throw new AwbConflictError(
+          "awb_status_unknown",
+          "Curierul nu a confirmat încă rezultatul unei generări anterioare. Nu genera din nou până nu verificăm."
+        );
+      }
+      throw new AwbConflictError("awb_in_progress", "Un AWB este deja în curs de generare pentru această expediere.");
     }
     throw e;
   }
@@ -553,6 +664,7 @@ export async function createAwbForShipment(
 
   // 4) succes -> CREATED + Shipment (fără statusuri / nimic financiar)
   const providerMeta = { parcelNumbers: result.parcelNumbers || [], cost: result.cost ?? null };
+  const trackingUrl = def.trackingUrl?.(result.awbNumber) || null;
   try {
     const [awbRow] = await db.$transaction([
       db.courierAwb.update({
@@ -566,6 +678,7 @@ export async function createAwbForShipment(
           courierService: serviceLabel,
           awb: result.awbNumber,
           labelUrl: labelPath(shipment.id),
+          trackingUrl,
           parcels: parcels.parcels,
           weightKg: parcels.weightKg,
           lengthCm: parcels.lengthCm,
@@ -648,14 +761,31 @@ async function recordFailure(db, reservation, account, e) {
 export async function getAwbStatus({ vendorId, shipmentId }, db = defaultDb) {
   const shipment = await db.shipment.findFirst({
     where: { id: String(shipmentId || ""), vendorId },
-    select: { id: true, awb: true, courierProvider: true, courierService: true, labelUrl: true, trackingUrl: true },
+    select: {
+      id: true,
+      awb: true,
+      courierProvider: true,
+      courierService: true,
+      labelUrl: true,
+      trackingUrl: true,
+      status: true,
+      handedOverAt: true,
+    },
   });
   if (!shipment) throw new AwbNotFoundError();
 
-  const latest = await db.courierAwb.findFirst({
-    where: { shipmentId: shipment.id },
-    orderBy: { createdAt: "desc" },
-  });
+  const latest = await expireStaleRequested(
+    db,
+    await db.courierAwb.findFirst({
+      where: { shipmentId: shipment.id },
+      orderBy: { createdAt: "desc" },
+    })
+  );
+
+  const active = latest && ACTIVE_AWB_STATUSES.has(latest.status) ? latest.status : null;
+  // AWB generat din Artfest (eticheta prin ruta protejată), nu unul setat manual
+  const artfestAwb =
+    active === "CREATED" && !!latest.awbNumber && shipment.awb === latest.awbNumber;
 
   return {
     shipment: {
@@ -664,10 +794,14 @@ export async function getAwbStatus({ vendorId, shipmentId }, db = defaultDb) {
       courierProvider: shipment.courierProvider || null,
       courierService: shipment.courierService || null,
       hasLabel: !!shipment.labelUrl,
+      artfestLabel: String(shipment.labelUrl || "").startsWith("/api/vendor/shipments/"),
       trackingUrl: shipment.trackingUrl || null,
     },
     latest: toPublicAwb(latest),
-    active: latest && ACTIVE_AWB_STATUSES.has(latest.status) ? latest.status : null,
+    active,
+    // aceleași condiții locale ca în cancelAwbForShipment (curierul decide final)
+    canCancel:
+      artfestAwb && !shipment.handedOverAt && CANCELLABLE_SHIPMENT_STATUSES.has(String(shipment.status)),
   };
 }
 
@@ -705,4 +839,250 @@ export async function getAwbLabel({ vendorId, shipmentId, format }, db = default
   const ctx = { accountId: account.id, credentials: openCredentials(account), publicConfig: account.publicConfig || {} };
   const label = await def.getLabel(ctx, row.awbNumber, { format });
   return { ...label, awbNumber: row.awbNumber };
+}
+
+/* ----- anulare AWB (vendor) ----- */
+
+/**
+ * Anulează AWB-ul CREATED al expedierii vendorului, DOAR înainte de
+ * predarea coletului. Ordinea: verificări locale -> apel curier -> abia
+ * după confirmare: CANCELLED + eliberare + golirea câmpurilor Shipment
+ * care aparțin ACESTUI AWB. Orice eroare a curierului (refuz, timeout)
+ * lasă starea locală neschimbată.
+ */
+export async function cancelAwbForShipment({ vendorId, userId = null, shipmentId }, db = defaultDb) {
+  const shipment = await db.shipment.findFirst({
+    where: { id: String(shipmentId || ""), vendorId },
+    select: { id: true, status: true, handedOverAt: true, awb: true },
+  });
+  if (!shipment) throw new AwbNotFoundError();
+
+  const row = await findActiveCourierAwb(db, shipment.id);
+  if (!row || row.status !== "CREATED" || !row.awbNumber) {
+    throw new AwbConflictError("awb_not_cancellable_state", "Nu există un AWB generat care să poată fi anulat.");
+  }
+
+  if (shipment.handedOverAt || !CANCELLABLE_SHIPMENT_STATUSES.has(String(shipment.status))) {
+    throw new AwbConflictError(
+      "awb_already_handed_over",
+      "Coletul a fost deja predat curierului; AWB-ul nu mai poate fi anulat din Artfest."
+    );
+  }
+
+  const account = row.courierAccountId
+    ? await db.courierAccount.findFirst({ where: { id: row.courierAccountId, vendorId } })
+    : null;
+  if (!account || account.disabledAt) {
+    throw new CourierError(
+      "courier_account_unavailable",
+      "Contul de curier cu care a fost generat AWB-ul nu mai este conectat.",
+      { httpStatus: 409 }
+    );
+  }
+
+  const def = getCourierProvider(account.provider);
+  if (!def.capabilities?.cancelShipment || typeof def.cancelShipment !== "function") {
+    throw new CourierError("cancel_not_supported", "Anularea AWB nu este disponibilă pentru acest curier.", {
+      httpStatus: 409,
+    });
+  }
+
+  const ctx = { accountId: account.id, credentials: openCredentials(account), publicConfig: account.publicConfig || {} };
+
+  // refuz / timeout / indisponibil -> excepția urcă, nimic local nu se schimbă
+  await def.cancelShipment(ctx, row.awbNumber);
+
+  try {
+    const awbRow = await db.$transaction(async (tx) => {
+      const updated = await tx.courierAwb.update({
+        where: { id: row.id },
+        data: {
+          status: "CANCELLED",
+          activeShipmentId: null,
+          providerMeta: withAudit(row.providerMeta, { action: "cancelled", actor: "vendor", userId }),
+        },
+      });
+      // doar dacă Shipment-ul încă indică ACEST AWB
+      await tx.shipment.updateMany({
+        where: { id: shipment.id, awb: row.awbNumber },
+        data: { awb: null, labelUrl: null, trackingUrl: null },
+      });
+      return updated;
+    });
+    return { awb: toPublicAwb(awbRow) };
+  } catch (e) {
+    // anulat la curier, dar nesalvat la noi: rămâne blocat (UNKNOWN) pentru verificare
+    console.error("[awb] AWB anulat la curier, dar salvarea a eșuat:", row.id, e?.code || e?.name || "Error");
+    await db.courierAwb
+      .update({
+        where: { id: row.id },
+        data: {
+          status: "UNKNOWN",
+          errorMessage: "AWB anulat la curier, dar salvarea în Artfest nu s-a finalizat. Necesită verificare.",
+          providerMeta: withAudit(row.providerMeta, { action: "cancel_saved_partially", actor: "vendor", userId }),
+        },
+      })
+      .catch(() => {});
+    throw new CourierError(
+      "awb_cancel_saved_partially",
+      "AWB-ul a fost anulat la curier, dar nu s-a salvat complet în Artfest. Contactează suportul.",
+      { httpStatus: 500 }
+    );
+  }
+}
+
+/* ----- admin: vizualizare + rezolvarea AWB-urilor UNKNOWN ----- */
+
+/**
+ * Reprezentarea pentru admin (fără date de autentificare). Un REQUESTED
+ * vechi apare ca UNKNOWN (stale: true) fără scriere în DB la citire.
+ */
+export function toAdminAwb(row, shipment = null) {
+  if (!row) return null;
+  const stale = isStaleRequested(row);
+  const meta = row.providerMeta && typeof row.providerMeta === "object" ? row.providerMeta : {};
+  const isCurrent = row.status === "CREATED" && !!row.awbNumber && shipment?.awb === row.awbNumber;
+  return {
+    ...toPublicAwb(row),
+    status: stale ? "UNKNOWN" : row.status,
+    stale,
+    active: ACTIVE_AWB_STATUSES.has(row.status),
+    trackingUrl: isCurrent ? shipment?.trackingUrl || null : null,
+    cost: meta.cost ?? null,
+    errorCode: meta.errorCode || null,
+    audit: Array.isArray(meta.audit) ? meta.audit : [],
+  };
+}
+
+class AwbAdminNotFoundError extends CourierError {
+  constructor() {
+    super("courier_awb_not_found", "AWB-ul nu a fost găsit pentru această expediere.", { httpStatus: 404 });
+  }
+}
+
+/**
+ * Rezolvare manuală (ADMIN) a unui AWB UNKNOWN, după verificarea în contul
+ * curierului:
+ *   outcome "FAILED"  -> AWB nu există: FAILED + eliberează expedierea;
+ *   outcome "CREATED" -> AWB există: CREATED cu numărul confirmat + Shipment.
+ * Auditat în providerMeta.audit (adminUserId, notă).
+ */
+export async function resolveUnknownAwb(
+  { shipmentId, awbId, outcome, awbNumber, note, adminUserId },
+  db = defaultDb
+) {
+  let row = await db.courierAwb.findFirst({
+    where: { id: String(awbId || ""), shipmentId: String(shipmentId || "") },
+  });
+  if (!row) throw new AwbAdminNotFoundError();
+  row = await expireStaleRequested(db, row);
+
+  if (row.status !== "UNKNOWN") {
+    throw new AwbConflictError("awb_not_unknown", "Doar un AWB cu status necunoscut (UNKNOWN) poate fi rezolvat manual.");
+  }
+
+  const cleanNote = String(note || "").replace(/\s+/g, " ").trim().slice(0, 500) || null;
+
+  if (outcome === "FAILED") {
+    const res = await db.courierAwb.updateMany({
+      where: { id: row.id, status: "UNKNOWN" },
+      data: {
+        status: "FAILED",
+        activeShipmentId: null,
+        errorMessage: "Rezolvat de admin: AWB-ul nu există la curier.",
+        providerMeta: withAudit(row.providerMeta, {
+          action: "resolved_failed",
+          actor: "admin",
+          userId: adminUserId || null,
+          note: cleanNote,
+          previousAwbNumber: row.awbNumber || null,
+        }),
+      },
+    });
+    if (!res.count) throw new AwbConflictError("awb_changed", "AWB-ul a fost modificat între timp. Reîncarcă pagina.");
+    console.info("[awb] admin resolve FAILED:", row.id, "admin:", adminUserId || "-");
+    return { awb: toAdminAwb(await db.courierAwb.findUnique({ where: { id: row.id } })) };
+  }
+
+  if (outcome !== "CREATED") {
+    throw new CourierValidationError("Alege rezultatul verificării: AWB există sau nu există.", ["outcome"]);
+  }
+
+  const number = String(awbNumber || "").trim();
+  if (!AWB_NUMBER_INPUT_RE.test(number)) {
+    throw new CourierValidationError("Numărul AWB nu este valid.", ["awbNumber"]);
+  }
+  if (row.awbNumber && row.awbNumber !== number) {
+    throw new AwbConflictError(
+      "awb_number_mismatch",
+      `Curierul a raportat deja AWB-ul ${row.awbNumber} pentru această încercare; numărul introdus diferă.`
+    );
+  }
+
+  const [dupAwb, dupShipment, shipment] = await Promise.all([
+    db.courierAwb.findFirst({ where: { provider: row.provider, awbNumber: number, NOT: { id: row.id } }, select: { id: true } }),
+    db.shipment.findFirst({ where: { awb: number, NOT: { id: row.shipmentId } }, select: { id: true } }),
+    db.shipment.findUnique({ where: { id: row.shipmentId }, select: { id: true, awb: true } }),
+  ]);
+  if (dupAwb || dupShipment) {
+    throw new AwbConflictError("awb_duplicate", "Acest număr AWB este deja asociat altei expedieri.");
+  }
+  if (!shipment) throw new AwbAdminNotFoundError();
+  if (shipment.awb && shipment.awb !== number) {
+    throw new AwbConflictError("shipment_has_other_awb", `Expedierea are deja AWB-ul ${shipment.awb}.`);
+  }
+
+  let def = null;
+  try {
+    def = getCourierProvider(row.provider);
+  } catch {
+    def = null;
+  }
+  const trackingUrl = def?.trackingUrl?.(number) || null;
+
+  try {
+    await db.$transaction(async (tx) => {
+      const res = await tx.courierAwb.updateMany({
+        where: { id: row.id, status: "UNKNOWN" },
+        data: {
+          status: "CREATED",
+          awbNumber: number,
+          errorMessage: null,
+          providerMeta: withAudit(row.providerMeta, {
+            action: "resolved_created",
+            actor: "admin",
+            userId: adminUserId || null,
+            note: cleanNote,
+            awbNumber: number,
+          }),
+        },
+      });
+      if (!res.count) throw new AwbConflictError("awb_changed", "AWB-ul a fost modificat între timp. Reîncarcă pagina.");
+
+      await tx.shipment.update({
+        where: { id: row.shipmentId },
+        data: {
+          courierProvider: row.provider,
+          courierService: row.courierService || null,
+          awb: number,
+          labelUrl: labelPath(row.shipmentId),
+          trackingUrl,
+          ...(Array.isArray(row.parcels) && row.parcels.length ? { parcels: row.parcels.length } : {}),
+          ...(row.weightKg != null ? { weightKg: row.weightKg } : {}),
+        },
+      });
+    });
+  } catch (e) {
+    if (isUniqueViolation(e, "awbNumber")) {
+      throw new AwbConflictError("awb_duplicate", "Acest număr AWB este deja asociat altei expedieri.");
+    }
+    throw e;
+  }
+
+  console.info("[awb] admin resolve CREATED:", row.id, "admin:", adminUserId || "-");
+  const [updated, freshShipment] = await Promise.all([
+    db.courierAwb.findUnique({ where: { id: row.id } }),
+    db.shipment.findUnique({ where: { id: row.shipmentId }, select: { awb: true, trackingUrl: true } }),
+  ]);
+  return { awb: toAdminAwb(updated, freshShipment) };
 }

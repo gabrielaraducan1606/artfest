@@ -326,6 +326,13 @@ model Vendor {
   entitySelfDeclaredUa   String?
   productLimitOverride   Int?
 
+  /**
+   * Vendorul a ales „Continuă fără integrare” în dialogul „Nu ai conectat
+   * încă un curier” -> dialogul nu mai apare. Conectarea rămâne posibilă
+   * oricând din Setări -> Livrare și curieri.
+   */
+  courierPromptDismissedAt DateTime?
+
   anonymizedAt DateTime?
 
   /**
@@ -1713,6 +1720,15 @@ model Shipment {
   heightCm          Int?
   handedOverAt      DateTime?
   handedOverById    String?
+
+  /**
+   * Expediere marcată de vendor FĂRĂ integrare de curier (flux manual):
+   * nu există CourierAwb și nu s-a apelat niciun API de curier.
+   * courierProvider / awb / trackingUrl sunt opționale (introduse de
+   * vendor), handedOverAt = data expedierii declarată. Pentru aceste
+   * expedieri nu se generează AWB retroactiv.
+   */
+  manualShipment    Boolean           @default(false)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   deliveredAt       DateTime?
@@ -2014,6 +2030,12 @@ model MessageThread {
   recipientVendorId          String?
   recipientVendorLastReadAt  DateTime?
   deletedByRecipientVendorAt DateTime?
+
+  /// Email „mesaj nou” (anti-spam): momentul ultimului email trimis
+  /// destinatarului. Alt email pleacă doar după ce destinatarul a citit
+  /// conversația (vendorLastReadAt / userLastReadAt >= această valoare).
+  vendorMessageEmailAt DateTime?
+  userMessageEmailAt   DateTime?
 
   messages        Message[]
   user            User?          @relation(fields: [userId], references: [id])
@@ -3608,6 +3630,8 @@ model InfluencerProfile {
   payouts       InfluencerPayout[]
   files         InfluencerFile[]
 
+  complianceGates InfluencerComplianceGate[]
+
   @@index([referralCode])
   @@index([status])
   @@index([createdAt])
@@ -4378,4 +4402,117 @@ model VendorPickupAddress {
   @@index([vendorId])
   @@index([vendorId, isDefault])
   @@index([serviceId])
+}
+
+/// ==================== Conformitate influenceri (gate manual, admin) ====================
+///
+/// Gate aplicat MANUAL de admin unor influenceri selectați (ex. minori).
+/// Nu se activează automat (nici după vârstă). Istoric complet: fiecare
+/// trimitere = un rând nou; „Retrimite” anulează rândul vechi și leagă
+/// noul rând prin replacedByGateId. NOT_REQUIRED nu se stochează (= niciun
+/// gate activ pentru influencer).
+///
+/// Efect (services/influencerComplianceStatus.js): cât timp ultimul gate
+/// NU e COMPLETED, acțiunile financiare/comerciale noi sunt blocate (428);
+/// atribuirea și earning-urile continuă; payout blocat până la COMPLETED.
+
+enum InfluencerComplianceGateType {
+  MINOR_PARENTAL_CONSENT
+}
+
+enum InfluencerComplianceGateStatus {
+  PENDING
+  COMPLETED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum InfluencerGuardianRelationship {
+  PARENT
+  LEGAL_GUARDIAN
+}
+
+model InfluencerComplianceGate {
+  id           String @id @default(cuid())
+  influencerId String
+
+  type   InfluencerComplianceGateType
+  status InfluencerComplianceGateStatus @default(PENDING)
+
+  /// documentul legal cerut (legal/manifest.yml), ex. "influencer_minor_consent" v1
+  requiredDocumentKey     String @db.VarChar(64)
+  requiredDocumentVersion String @db.VarChar(32)
+
+  sentAt      DateTime  @default(now())
+  /// PENDING cu expiresAt trecut = EXPIRED (calculat la citire și marcat lazy)
+  expiresAt   DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+  rejectedAt  DateTime?
+
+  rejectionReason String? @db.VarChar(500)
+
+  /// „Retrimite”: rândul vechi (CANCELLED) indică rândul nou
+  replacedByGateId String?
+
+  /// id-uri de admin păstrate ca text (fără FK): rămân în audit și dacă
+  /// contul adminului e șters ulterior
+  createdByAdminId   String?
+  cancelledByAdminId String?
+  reviewedByAdminId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  influencer InfluencerProfile             @relation(fields: [influencerId], references: [id], onDelete: Restrict)
+  response   InfluencerComplianceResponse?
+
+  @@index([influencerId, status])
+  @@index([influencerId, createdAt])
+  @@index([status, expiresAt])
+}
+
+/// Răspunsul (snapshot auditabil) - exact datele cerute, nimic în plus.
+/// Vizibil DOAR adminilor (GET .../response). Nu apare în listări.
+model InfluencerComplianceResponse {
+  id     String @id @default(cuid())
+  gateId String @unique
+
+  influencerId      String
+  submittedByUserId String
+
+  /// datele influencerului, așa cum au fost declarate la completare
+  influencerName      String   @db.VarChar(160)
+  influencerEmail     String   @db.VarChar(320)
+  influencerBirthDate DateTime @db.Date
+  declaredMinor       Boolean
+
+  guardianName         String                         @db.VarChar(160)
+  guardianRelationship InfluencerGuardianRelationship
+  guardianEmail        String                         @db.VarChar(320)
+  guardianPhone        String                         @db.VarChar(40)
+
+  /// cheile declarațiilor bifate (toate obligatorii), ex.
+  /// { "guardianConfirmed": true, "readDocuments": true, ... }
+  declarations Json
+
+  /// textul exact acceptat: document + versiune + SHA-256 (lib/legal.js)
+  documentKey      String @db.VarChar(64)
+  documentVersion  String @db.VarChar(32)
+  documentChecksum String @db.VarChar(64)
+
+  acceptedAt        DateTime @default(now())
+  /// același tipar ca InfluencerCommissionAgreement: IP doar ca hash
+  acceptedIpHash    String?  @db.VarChar(64)
+  acceptedUserAgent String?  @db.VarChar(500)
+
+  /// confirmarea trimisă părintelui/tutorelui (EmailLog are detaliile)
+  guardianEmailSentAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  gate InfluencerComplianceGate @relation(fields: [gateId], references: [id], onDelete: Restrict)
+
+  @@index([influencerId])
 }

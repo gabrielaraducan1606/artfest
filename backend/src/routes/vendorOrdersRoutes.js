@@ -57,6 +57,14 @@ import {
 } from "../services/returnRequestService.js";
 // mutat neschimbat în services/ (refolosit și de generarea AWB)
 import { computeVendorOrderPaymentState } from "../services/vendorOrderPaymentState.js";
+import {
+  ManualShipmentError,
+  parseManualShipmentInput,
+  assertManualShipmentAllowed,
+  applyManualShipment,
+  getCourierPromptPreference,
+  dismissCourierPrompt,
+} from "../couriers/manualShipment.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -3607,6 +3615,14 @@ router.get(
 
         consents:
           shipment.consents,
+
+        manualShipment:
+          shipment.manualShipment ===
+          true,
+
+        handedOverAt:
+          shipment.handedOverAt ||
+          null,
       },
 
       invoiceNumber:
@@ -4503,6 +4519,36 @@ router.patch(
       req.body?.cancelReasonNote ||
       null;
 
+    /*
+     * Expediere FĂRĂ integrare de curier („Trimite fără integrare”):
+     * { status: "shipped", manualShipping: { courierName?, awb?,
+     * trackingUrl?, shippedAt? } }. Doar câmpuri de livrare - fără
+     * CourierAwb, fără API de curier, nimic financiar (vezi
+     * couriers/manualShipment.js). Restul efectelor = fluxul „shipped”.
+     */
+    const manualRequested =
+      nextUi === "shipped" &&
+      req.body?.manualShipping != null;
+
+    let manualInput = null;
+
+    if (manualRequested) {
+      try {
+        manualInput = parseManualShipmentInput(
+          req.body.manualShipping
+        );
+      } catch (e) {
+        if (e instanceof ManualShipmentError) {
+          return res.status(e.httpStatus).json({
+            error: e.code,
+            message: e.message,
+            fields: e.fields,
+          });
+        }
+        throw e;
+      }
+    }
+
     const s =
       await findShipmentByOrderRef({
         vendorId,
@@ -4616,6 +4662,23 @@ if (
       return lock409(
         res
       );
+    }
+
+    if (manualInput) {
+      try {
+        await assertManualShipmentAllowed(
+          prisma,
+          s
+        );
+      } catch (e) {
+        if (e instanceof ManualShipmentError) {
+          return res.status(e.httpStatus).json({
+            error: e.code,
+            message: e.message,
+          });
+        }
+        throw e;
+      }
     }
 
     /*
@@ -4754,6 +4817,20 @@ if (
                 tx,
                 s.id
               );
+            } else if (manualInput) {
+              // expediere fără integrare: condiționată, fără CourierAwb
+              await applyManualShipment(
+                tx,
+                s.id,
+                manualInput,
+                {
+                  userId:
+                    req.user?.id &&
+                    req.user.id !== "dev"
+                      ? req.user.id
+                      : null,
+                }
+              );
             } else {
               await tx.shipment.update({
                 where: {
@@ -4861,6 +4938,20 @@ if (
 
             message:
               "Comanda este deja anulată sau nu mai poate fi modificată.",
+          });
+      }
+
+      if (
+        error instanceof ManualShipmentError
+      ) {
+        return res
+          .status(error.httpStatus)
+          .json({
+            error:
+              error.code,
+
+            message:
+              error.message,
           });
       }
 
@@ -5144,6 +5235,19 @@ if (
               updatedShipment.trackingUrl ||
               null,
 
+            // expediere fără integrare: curierul și data declarate de vendor
+            courierName:
+              updatedShipment.manualShipment
+                ? updatedShipment.courierProvider ||
+                  null
+                : null,
+
+            shippedAt:
+              updatedShipment.manualShipment
+                ? updatedShipment.handedOverAt ||
+                  null
+                : null,
+
             etaLabel:
               updatedShipment.pickupDate
                 ? "azi/mâine"
@@ -5191,6 +5295,31 @@ if (
     });
   }
 );
+
+/* ----------------------------------------------------
+   Preferința „Continuă fără integrare” (dialogul „Nu ai
+   conectat încă un curier”) - per vendor, Vendor.courierPromptDismissedAt.
+   Nu depinde de flagul integrării de curierat.
+     GET  /api/vendor/shipping-preferences
+     POST /api/vendor/shipping-preferences/courier-prompt/dismiss
+----------------------------------------------------- */
+router.get("/shipping-preferences", requireVendor, async (req, res) => {
+  try {
+    res.json(await getCourierPromptPreference(prisma, req.user.vendorId));
+  } catch (e) {
+    console.error("GET /shipping-preferences failed:", e);
+    res.status(500).json({ error: "shipping_preferences_failed" });
+  }
+});
+
+router.post("/shipping-preferences/courier-prompt/dismiss", requireVendor, async (req, res) => {
+  try {
+    res.json(await dismissCourierPrompt(prisma, req.user.vendorId));
+  } catch (e) {
+    console.error("POST /shipping-preferences/courier-prompt/dismiss failed:", e);
+    res.status(500).json({ error: "shipping_preferences_failed" });
+  }
+});
 
 /* ----------------------------------------------------
    PATCH /api/vendor/orders/:id/notes

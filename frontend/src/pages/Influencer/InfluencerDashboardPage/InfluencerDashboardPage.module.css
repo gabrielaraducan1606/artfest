@@ -2969,3 +2969,49 @@
     width: 100%;
   }
 }
+/* conformitate (acord părinte/tutore) - banner */
+.complianceBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-primary);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--color-text);
+}
+
+.complianceBanner p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.complianceBannerBtn {
+  flex: 0 0 auto;
+  min-height: 42px;
+  padding: 10px 16px;
+  border: 1px solid var(--color-primary);
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: var(--on-primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.complianceBannerBtn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  .complianceBanner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

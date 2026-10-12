@@ -1,7 +1,7 @@
 // src/pages/Vendor/Settings/couriers/CourierSettings.jsx
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   Truck,
@@ -19,11 +19,19 @@ import {
   CheckCircle2,
   AlertTriangle,
   ChevronLeft,
+  RefreshCw,
+  HelpCircle,
+  ExternalLink,
+  PackageCheck,
 } from "lucide-react";
 import { api } from "../../../../lib/api";
 import settingsStyles from "../Settings.module.css";
 import styles from "./CourierSettings.module.css";
-import { VENDOR_COURIERS_ENABLED } from "../../../../config/features.js";
+import {
+  COURIER_AUTOMATION_ENABLED,
+  COURIER_AUTOMATION_SOON_MESSAGE,
+  COURIER_MANUAL_SHIPPING_MESSAGE,
+} from "../../../../config/features.js";
 import {
   COURIERS_ANCHOR_ID,
   isCouriersHash,
@@ -40,6 +48,11 @@ import {
   validatePickupAddressForm,
   buildPickupAddressPayload,
   formatPickupAddress,
+  SAMEDAY_EAWB_LINKS,
+  EAWB_HELP_TEXT,
+  hasEawbHelp,
+  isCourierAuthFailure,
+  manualShippingTarget,
 } from "./courierSettingsLogic.js";
 
 /*
@@ -231,6 +244,7 @@ function SchemaField({ field, value, onChange, error, idPrefix, secretMode }) {
           type={isPassword && !reveal ? "password" : "text"}
           value={value}
           maxLength={field.maxLength || 256}
+          placeholder={field.placeholder || undefined}
           onChange={(e) => onChange(e.target.value)}
           // credentialele curierului NU sunt parola Artfest - fără autofill
           autoComplete={secretMode ? (isPassword ? "new-password" : "off") : "off"}
@@ -265,6 +279,99 @@ function SchemaField({ field, value, onChange, error, idPrefix, secretMode }) {
   );
 }
 
+/* ===== Ajutor „Nu găsești datele eAWB?” (Sameday) =====
+ * Panou în formular (nu modal peste modal). Doar linkuri oficiale Sameday +
+ * fluxul existent de expediere manuală - fără telefon / SMS / OTP. */
+function EawbHelpPanel({ panelRef, titleId, onContinueWithoutIntegration, continuing }) {
+  const [showUsernameHelp, setShowUsernameHelp] = useState(false);
+  const usernameHelpId = useId();
+
+  return (
+    <section
+      ref={panelRef}
+      className={styles.eawbHelp}
+      aria-labelledby={titleId}
+      tabIndex={-1}
+    >
+      <h4 id={titleId} className={styles.eawbHelpTitle}>
+        <HelpCircle size={16} aria-hidden="true" /> {EAWB_HELP_TEXT.title}
+      </h4>
+      <p className={styles.eawbHelpText}>{EAWB_HELP_TEXT.intro}</p>
+
+      <ol className={styles.eawbHelpList}>
+        <li className={styles.eawbHelpItem}>
+          <p className={styles.eawbHelpText}>{EAWB_HELP_TEXT.createAccount}</p>
+          <a
+            className={styles.eawbHelpBtn}
+            href={SAMEDAY_EAWB_LINKS.createAccount}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Creează cont eAWB <ExternalLink size={14} aria-hidden="true" />
+          </a>
+          <p className={styles.eawbHelpNote}>{EAWB_HELP_TEXT.createAccountNext}</p>
+        </li>
+
+        <li className={styles.eawbHelpItem}>
+          <a
+            className={styles.eawbHelpBtn}
+            href={SAMEDAY_EAWB_LINKS.forgotPassword}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Recuperează parola <ExternalLink size={14} aria-hidden="true" />
+          </a>
+        </li>
+
+        <li className={styles.eawbHelpItem}>
+          <button
+            type="button"
+            className={styles.eawbHelpBtn}
+            aria-expanded={showUsernameHelp}
+            aria-controls={usernameHelpId}
+            onClick={() => setShowUsernameHelp((v) => !v)}
+          >
+            Nu știu numele de utilizator
+          </button>
+          <div id={usernameHelpId} hidden={!showUsernameHelp}>
+            <p className={styles.eawbHelpText}>{EAWB_HELP_TEXT.unknownUsername}</p>
+            <a
+              className={styles.linkBtn}
+              href={SAMEDAY_EAWB_LINKS.contact}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Contact Sameday <ExternalLink size={14} aria-hidden="true" />
+            </a>
+          </div>
+        </li>
+
+        <li className={styles.eawbHelpItem}>
+          <button
+            type="button"
+            className={settingsStyles.primary}
+            onClick={onContinueWithoutIntegration}
+            disabled={continuing}
+          >
+            {continuing && <Loader2 size={16} className={settingsStyles.spin} />}
+            <PackageCheck size={16} aria-hidden="true" /> Trimite coletul fără integrare
+          </button>
+        </li>
+      </ol>
+
+      <a
+        className={styles.linkBtn}
+        href={SAMEDAY_EAWB_LINKS.login}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Deschide eAWB Sameday <ExternalLink size={14} aria-hidden="true" />
+      </a>
+      <p className={styles.eawbHelpNote}>{EAWB_HELP_TEXT.later}</p>
+    </section>
+  );
+}
+
 /* ===== Formular conectare / editare cont ===== */
 function CourierAccountForm({ provider, account, addresses, onSaved, onCancel, onBack }) {
   const isEdit = !!account;
@@ -273,6 +380,42 @@ function CourierAccountForm({ provider, account, addresses, onSaved, onCancel, o
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // ajutor eAWB (Sameday): panou deschis la cerere sau din eroarea de autentificare
+  const showEawbHelp = hasEawbHelp(provider);
+  const [eawbHelpOpen, setEawbHelpOpen] = useState(false);
+  const [authFailed, setAuthFailed] = useState(false);
+  const [continuing, setContinuing] = useState(false);
+  const eawbHelpRef = useRef(null);
+  const eawbHelpTitleId = useId();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const openEawbHelp = () => {
+    setEawbHelpOpen(true);
+    // după randare: focus + scroll la panou (în modal, pe mobil)
+    window.setTimeout(() => {
+      eawbHelpRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      eawbHelpRef.current?.focus?.({ preventScroll: true });
+    }, 0);
+  };
+
+  /*
+   * „Trimite coletul fără integrare”: aceeași preferință ca butonul
+   * „Continuă fără integrare” din comandă (nu mai apare dialogul „Nu ai
+   * conectat încă un curier”), apoi fluxul existent de expediere manuală.
+   * Preferința e best-effort - nu blochează vendorul.
+   */
+  const continueWithoutIntegration = async () => {
+    if (continuing) return;
+    setContinuing(true);
+    try {
+      await api("/api/vendor/shipping-preferences/courier-prompt/dismiss", { method: "POST" });
+    } catch {
+      // ignore
+    }
+    navigate(manualShippingTarget(location.search));
+  };
 
   const enabledCapabilities = Object.entries(provider?.capabilities || {})
     .filter(([, on]) => on)
@@ -294,6 +437,7 @@ function CourierAccountForm({ provider, account, addresses, onSaved, onCancel, o
     const localErrors = validateCourierForm(provider, form);
     setErrors(localErrors);
     setFormError("");
+    setAuthFailed(false);
     if (Object.keys(localErrors).length) return;
 
     try {
@@ -325,6 +469,7 @@ function CourierAccountForm({ provider, account, addresses, onSaved, onCancel, o
       // mesaj sanitizat de backend; valorile formularului rămân
       const message = apiErrorMessage(err, "Nu am putut salva contul. Încearcă din nou.");
       setFormError(message);
+      setAuthFailed(isCourierAuthFailure(err));
       const fields = Array.isArray(err?.data?.fields) ? err.data.fields : [];
       if (fields.length) setErrors((prev) => ({ ...prev, ...mapBackendFieldErrors(provider, fields, message) }));
     } finally {
@@ -441,6 +586,28 @@ function CourierAccountForm({ provider, account, addresses, onSaved, onCancel, o
         )}
       </fieldset>
 
+      {showEawbHelp && (
+        <>
+          {!eawbHelpOpen && (
+            <button
+              type="button"
+              className={styles.linkBtn}
+              onClick={openEawbHelp}
+            >
+              <HelpCircle size={14} aria-hidden="true" /> {EAWB_HELP_TEXT.toggle}
+            </button>
+          )}
+          {eawbHelpOpen && (
+            <EawbHelpPanel
+              panelRef={eawbHelpRef}
+              titleId={eawbHelpTitleId}
+              onContinueWithoutIntegration={continueWithoutIntegration}
+              continuing={continuing}
+            />
+          )}
+        </>
+      )}
+
       {(provider.publicConfigFields || []).length > 0 && (
         <div className={settingsStyles.grid2}>
           {provider.publicConfigFields.map((field) => (
@@ -481,6 +648,13 @@ function CourierAccountForm({ provider, account, addresses, onSaved, onCancel, o
       {formError && (
         <div className={settingsStyles.error} role="alert">
           {formError}
+          {showEawbHelp && authFailed && (
+            <div className={styles.authHelpAction}>
+              <button type="button" className={styles.ghostBtn} onClick={openEawbHelp}>
+                <HelpCircle size={16} aria-hidden="true" /> {EAWB_HELP_TEXT.toggle}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -614,22 +788,113 @@ function PickupAddressForm({ address, onSaved, onCancel }) {
 
 /* ===== Pagina ===== */
 /*
- * Flag oprit (config/features.js): chiar și cu acces direct pe
- * /setari?tab=shipping#couriers, secțiunea NU permite nicio acțiune și nu
- * face niciun apel API - doar un mesaj discret. Ancora rămâne pentru
- * linkurile vechi.
+ * Integrarea automată indisponibilă (config/features.js:
+ * COURIER_AUTOMATION_ENABLED = VENDOR_COURIERS_ENABLED && COURIER_AUTO_INTEGRATION_AVAILABLE):
+ * chiar și cu acces direct pe /setari?tab=shipping#couriers, secțiunea e
+ * vizibilă, dar acțiunile de integrare sunt dezactivate și nu se face niciun
+ * apel API. Ancora rămâne pentru linkurile vechi.
  */
 export default function CourierSettings() {
-  if (!VENDOR_COURIERS_ENABLED) {
-    return (
-      <div id={COURIERS_ANCHOR_ID} className={styles.anchor}>
-        <SectionCard icon={<PlugZap size={18} />} title="Curieri conectați">
-          <p className={styles.hint}>Funcție disponibilă în curând.</p>
+  if (!COURIER_AUTOMATION_ENABLED) return <CourierSettingsUnavailable />;
+  return <CourierSettingsInner />;
+}
+
+/* ===== Buton de integrare automată, indisponibil (greyed out, fără request) ===== */
+function UnavailableAction({ icon, label }) {
+  return (
+    <button
+      type="button"
+      className={`${settingsStyles.primary} ${styles.unavailableBtn}`}
+      disabled
+      aria-disabled="true"
+      title={COURIER_AUTOMATION_SOON_MESSAGE}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+/*
+ * Integrarea automată indisponibilă (COURIER_AUTOMATION_ENABLED oprit):
+ * secțiunile rămân vizibile, acțiunile Artfest care conectează / testează /
+ * configurează curierul sunt dezactivate. NICIUN apel API. Ajutorul eAWB și
+ * linkurile externe Sameday rămân active (informative), iar „Trimite coletul
+ * fără integrare” duce la fluxul manual.
+ */
+function CourierSettingsUnavailable() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpRef = useRef(null);
+  const helpTitleId = useId();
+  const helpPanelId = useId();
+
+  useEffect(() => {
+    if (helpOpen) helpRef.current?.focus?.({ preventScroll: true });
+  }, [helpOpen]);
+
+  return (
+    <div id={COURIERS_ANCHOR_ID} className={styles.anchor}>
+      <div className={settingsStyles.grid1}>
+        <SectionCard
+          icon={<PlugZap size={18} />}
+          title="Curieri conectați"
+          subtitle="Conectează contul tău de curier (contractul tău). Datele de autentificare sunt criptate și nu mai pot fi citite după salvare."
+          right={<UnavailableAction icon={<Plus size={16} />} label="Conectează curier" />}
+        >
+          <p className={styles.unavailableNote} role="status">
+            {COURIER_AUTOMATION_SOON_MESSAGE} {COURIER_MANUAL_SHIPPING_MESSAGE}
+          </p>
+
+          <div className={styles.unavailableProvider}>
+            <div className={styles.unavailableProviderHead}>
+              <Truck size={20} aria-hidden="true" />
+              <strong>Sameday</strong>
+              <span className={styles.unavailableBadge}>În curând</span>
+            </div>
+            <p className={settingsStyles.subtitle}>
+              Conectarea se face cu datele contului eAWB Sameday (utilizator eAWB sau email și parola).
+            </p>
+            <p className={styles.eawbHelpText}>{EAWB_HELP_TEXT.intro}</p>
+
+            <div className={styles.unavailableActions}>
+              <UnavailableAction label="Testează și conectează" />
+              <button
+                type="button"
+                className={styles.ghostBtn}
+                aria-expanded={helpOpen}
+                aria-controls={helpPanelId}
+                onClick={() => setHelpOpen((v) => !v)}
+              >
+                <HelpCircle size={16} aria-hidden="true" /> {EAWB_HELP_TEXT.toggle}
+              </button>
+            </div>
+
+            {helpOpen && (
+              <div id={helpPanelId}>
+                <EawbHelpPanel
+                  panelRef={helpRef}
+                  titleId={helpTitleId}
+                  onContinueWithoutIntegration={() => navigate(manualShippingTarget(location.search))}
+                  continuing={false}
+                />
+              </div>
+            )}
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          icon={<MapPin size={18} />}
+          title="Adrese de ridicare"
+          subtitle="Adresele de unde curierul ridică coletele, folosite la generarea automată a AWB-urilor."
+          right={<UnavailableAction icon={<Plus size={16} />} label="Adaugă adresă" />}
+        >
+          <p className={styles.unavailableNote}>{COURIER_AUTOMATION_SOON_MESSAGE}</p>
         </SectionCard>
       </div>
-    );
-  }
-  return <CourierSettingsInner />;
+    </div>
+  );
 }
 
 function CourierSettingsInner() {
@@ -638,6 +903,7 @@ function CourierSettingsInner() {
   const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [integrationDisabled, setIntegrationDisabled] = useState(false);
 
   // modale
   const [connectOpen, setConnectOpen] = useState(false);
@@ -670,7 +936,8 @@ function CourierSettingsInner() {
       setAccounts(Array.isArray(a?.items) ? a.items : []);
       setAddresses(Array.isArray(ad?.items) ? ad.items : []);
     } catch (e) {
-      setLoadError(apiErrorMessage(e, "Nu am putut încărca curierii și adresele de ridicare."));
+      if (e?.data?.error === "courier_integration_disabled") setIntegrationDisabled(true);
+      else setLoadError(apiErrorMessage(e, "Nu am putut încărca curierii și adresele de ridicare."));
     } finally {
       setLoading(false);
     }
@@ -839,6 +1106,16 @@ function CourierSettingsInner() {
     );
   }
 
+  if (integrationDisabled) {
+    return (
+      <div {...anchorProps}>
+        <SectionCard icon={<PlugZap size={18} />} title="Curieri conectați">
+          <p className={styles.hint}>În curs de activare.</p>
+        </SectionCard>
+      </div>
+    );
+  }
+
   if (loadError) {
     return (
       <div {...anchorProps}>
@@ -952,7 +1229,15 @@ function CourierSettingsInner() {
                       disabled={!provider}
                       title={provider ? undefined : "Curier indisponibil momentan"}
                     >
-                      <Pencil size={15} /> Editează
+                      {account.status === "ACTIVE" ? (
+                        <>
+                          <Pencil size={15} /> Editează
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw size={15} /> Reconectează
+                        </>
+                      )}
                     </button>
                     {!account.isDefault && (
                       <button
@@ -973,7 +1258,7 @@ function CourierSettingsInner() {
                         setDisconnectAccount(account);
                       }}
                     >
-                      <Unplug size={15} /> Deconectează
+                      <Unplug size={15} /> Dezactivează
                     </button>
                   </div>
                 </li>
@@ -1130,16 +1415,16 @@ function CourierSettingsInner() {
 
       {disconnectAccount && (
         <ConfirmModal
-          title="Sigur vrei să deconectezi acest curier?"
-          confirmLabel="Deconectează"
+          title="Sigur vrei să dezactivezi acest cont de curier?"
+          confirmLabel="Dezactivează"
           onConfirm={confirmDisconnect}
           onClose={() => !confirmBusy && setDisconnectAccount(null)}
           busy={confirmBusy}
           error={confirmError}
         >
           <p>
-            <strong>{disconnectAccount.label}</strong> va fi deconectat, iar datele de autentificare
-            salvate vor fi șterse.
+            <strong>{disconnectAccount.label}</strong> va fi dezactivat, iar datele de autentificare
+            salvate vor fi șterse. Pentru a-l folosi din nou, îl conectezi din nou cu datele contului.
           </p>
           <p>Comenzile și expedierile deja existente nu sunt șterse.</p>
         </ConfirmModal>

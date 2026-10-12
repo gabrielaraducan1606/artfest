@@ -2805,48 +2805,73 @@ export async function sendInvoiceIssuedEmail({
 /* ============================================================
    SHIPMENT PICKUP (sender: no-reply@)
 ============================================================ */
-export async function sendShipmentPickupEmail({ to, orderId, awb, trackingUrl, etaLabel, slotLabel, userId = null }) {
-  if (!to) return;
-const order = await prisma.order.findUnique({
-  where: { id: orderId },
-  select: { id: true, orderNumber: true, userId: true, isGuestOrder: true, guestAccessExpiresAt: true },
-});
-const displayNo = order?.orderNumber || orderId;
+/*
+ * Conținutul emailului „Comanda ta a fost predată curierului” (pur, fără DB).
+ * Fiecare linie apare DOAR dacă există valoarea: fără „undefined” / „null” /
+ * „-”, fără buton sau link gol și fără „Urmărește coletul” fără tracking -
+ * important pentru expedierea fără integrare (AWB / tracking opționale).
+ * courierName e text liber introdus de vendor -> escapat (escapeEmailHtml,
+ * definit mai jos în fișier). shippedAt se
+ * afișează ca dată în Europe/Bucharest.
+ */
+function cleanEmailValue(value) {
+  if (value == null) return "";
+  const s = String(value).trim();
+  return s === "undefined" || s === "null" ? "" : s;
+}
 
-  const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
-  const encodedOrderId = encodeURIComponent(orderId);
-  const isGuestOrder = order?.isGuestOrder === true && !order?.userId;
-
-  /*
-   * Linkuri „Vezi comanda” + „Solicită / urmărește returul”:
-   *  - cont: pagina normală a comenzii din cont (fără token);
-   *  - guest: token stateless dedicat (guestOrderAccessToken) - nu atinge
-   *    guestAccessTokenHash, deci linkurile din emailurile anterioare
-   *    rămân valabile. Fără token (acces expirat) -> fără linkuri.
-   * Eligibilitatea returului (DELIVERED etc.) rămâne verificată în backend.
-   */
-  let orderLink = null;
-  let returnLink = null;
-
-  if (baseUrl && order) {
-    if (isGuestOrder) {
-      const orderToken = createGuestOrderAccessToken({
-        orderId: order.id,
-        expiresAt: order.guestAccessExpiresAt,
-      });
-
-      if (orderToken) {
-        const q = `?orderToken=${encodeURIComponent(orderToken)}`;
-        orderLink = `${baseUrl}/comanda-guest/${encodedOrderId}${q}`;
-        returnLink = `${baseUrl}/retur-guest/${encodedOrderId}${q}`;
-      }
-    } else {
-      orderLink = `${baseUrl}/comanda/${encodedOrderId}`;
-      returnLink = `${baseUrl}/comanda/${encodedOrderId}#retur`;
-    }
+// http(s) valid sau nimic (fără buton / link gol sau neclickabil)
+function safeEmailUrl(value) {
+  const raw = cleanEmailValue(value);
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+  } catch {
+    return "";
   }
+}
+
+export function formatShipmentDateRo(value) {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("ro-RO", {
+    timeZone: "Europe/Bucharest",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
+}
+
+export function buildShipmentPickupEmailContent({
+  displayNo,
+  awb = null,
+  trackingUrl = null,
+  etaLabel = null,
+  slotLabel = null,
+  courierName = null,
+  shippedAt = null,
+  orderLink = null,
+  returnLink = null,
+}) {
+  const awbText = cleanEmailValue(awb);
+  const courierText = cleanEmailValue(courierName);
+  const tracking = safeEmailUrl(trackingUrl);
+  const eta = cleanEmailValue(etaLabel);
+  const slot = cleanEmailValue(slotLabel);
+  const shippedText = formatShipmentDateRo(shippedAt);
+  const etaText = [eta, slot ? `în intervalul ${slot}` : ""].filter(Boolean).join(" ");
 
   const subject = `Comanda ta a fost predată curierului - ${BRAND_NAME}`;
+
+  const detailRows = [
+    ["Număr comandă", displayNo],
+    ["Curier", courierText],
+    ["AWB", awbText],
+    ["Data expedierii", shippedText],
+    ["Livrare estimată", etaText],
+  ].filter(([, v]) => cleanEmailValue(v));
 
   const html = `
 <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -2861,20 +2886,18 @@ const displayNo = order?.orderNumber || orderId;
   </p>
 
   <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
-    <strong>Număr comandă:</strong> ${displayNo}<br>
-    <strong>AWB:</strong> ${awb || "-"}<br>
-    <strong>Livrare estimată:</strong> ${etaLabel || "-"} în intervalul ${slotLabel || "-"}
+    ${detailRows.map(([k, v]) => `<strong>${k}:</strong> ${escapeEmailHtml(v)}`).join("<br>\n    ")}
   </p>
 
   ${
-    trackingUrl
+    tracking
       ? `<p style="text-align:center;margin:18px 0;">
-           <a href="${trackingUrl}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+           <a href="${escapeEmailHtml(tracking)}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
              Urmărește coletul
            </a>
          </p>
          <p style="color:#6b7280;font-size:13px;margin:0 0 8px;text-align:center;">
-           Sau accesează linkul: <a href="${trackingUrl}" style="color:#4f46e5;">${trackingUrl}</a>
+           Sau accesează linkul: <a href="${escapeEmailHtml(tracking)}" style="color:#4f46e5;">${escapeEmailHtml(tracking)}</a>
          </p>`
       : ""
   }
@@ -2922,15 +2945,79 @@ const displayNo = order?.orderNumber || orderId;
 
   const text = [
     `Comanda ta pe ${BRAND_NAME} a fost predată curierului.`,
-     `Număr comandă: ${displayNo}`,
-    awb ? `AWB: ${awb}` : "",
-    etaLabel || slotLabel ? `Livrare estimată: ${etaLabel || ""} în intervalul ${(slotLabel || "").trim()}`.trim() : "",
-    trackingUrl ? `Poți urmări coletul aici: ${trackingUrl}` : "",
+    ...detailRows.map(([k, v]) => `${k}: ${v}`),
+    tracking ? `Poți urmări coletul aici: ${tracking}` : "",
     orderLink ? `Vezi comanda: ${orderLink}` : "",
     returnLink ? `Solicită / urmărește returul (după livrare): ${returnLink}` : "",
   ]
     .filter(Boolean)
     .join("\n");
+
+  return { subject, html, text };
+}
+
+export async function sendShipmentPickupEmail({
+  to,
+  orderId,
+  awb,
+  trackingUrl,
+  etaLabel,
+  slotLabel,
+  courierName = null,
+  shippedAt = null,
+  userId = null,
+}) {
+  if (!to) return;
+const order = await prisma.order.findUnique({
+  where: { id: orderId },
+  select: { id: true, orderNumber: true, userId: true, isGuestOrder: true, guestAccessExpiresAt: true },
+});
+const displayNo = order?.orderNumber || orderId;
+
+  const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
+  const encodedOrderId = encodeURIComponent(orderId);
+  const isGuestOrder = order?.isGuestOrder === true && !order?.userId;
+
+  /*
+   * Linkuri „Vezi comanda” + „Solicită / urmărește returul”:
+   *  - cont: pagina normală a comenzii din cont (fără token);
+   *  - guest: token stateless dedicat (guestOrderAccessToken) - nu atinge
+   *    guestAccessTokenHash, deci linkurile din emailurile anterioare
+   *    rămân valabile. Fără token (acces expirat) -> fără linkuri.
+   * Eligibilitatea returului (DELIVERED etc.) rămâne verificată în backend.
+   */
+  let orderLink = null;
+  let returnLink = null;
+
+  if (baseUrl && order) {
+    if (isGuestOrder) {
+      const orderToken = createGuestOrderAccessToken({
+        orderId: order.id,
+        expiresAt: order.guestAccessExpiresAt,
+      });
+
+      if (orderToken) {
+        const q = `?orderToken=${encodeURIComponent(orderToken)}`;
+        orderLink = `${baseUrl}/comanda-guest/${encodedOrderId}${q}`;
+        returnLink = `${baseUrl}/retur-guest/${encodedOrderId}${q}`;
+      }
+    } else {
+      orderLink = `${baseUrl}/comanda/${encodedOrderId}`;
+      returnLink = `${baseUrl}/comanda/${encodedOrderId}#retur`;
+    }
+  }
+
+  const { subject, html, text } = buildShipmentPickupEmailContent({
+    displayNo,
+    awb,
+    trackingUrl,
+    etaLabel,
+    slotLabel,
+    courierName,
+    shippedAt,
+    orderLink,
+    returnLink,
+  });
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -2939,6 +3026,130 @@ const displayNo = order?.orderNumber || orderId;
     template: "shipment_pickup",
     userId,
     orderId,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
+/* ============================================================
+   MESAJ NOU ÎN CONVERSAȚIE (USER <-> VENDOR) (sender: noreply@)
+
+   Tranzacțional (nu marketing): fără unsubscribe/List-Unsubscribe.
+   Preview-ul vine deja curățat din services/messageEmailNotifications.js
+   (text simplu, scurtat, date de contact ascunse) și e oricum escapat aici.
+   Linkul e absolut (APP_URL) și duce direct la conversație.
+============================================================ */
+export const MESSAGE_EMAIL_PUBLIC_BASE_URL = APP_URL || "https://www.artfest.ro";
+
+export function buildNewMessageEmailContent({
+  recipientRole,
+  recipientFirstName = null,
+  senderName = null,
+  preview = null,
+  link,
+}) {
+  const isVendorRecipient = recipientRole === "VENDOR";
+  const firstName = cleanEmailValue(recipientFirstName);
+  const sender = cleanEmailValue(senderName);
+  const previewText = cleanEmailValue(preview);
+  const url = safeEmailUrl(link);
+
+  const subject = isVendorRecipient
+    ? `Ai primit un mesaj nou pe ${BRAND_NAME}`
+    : `Ai primit un răspuns nou pe ${BRAND_NAME}`;
+
+  const greeting = firstName ? `Bună, ${firstName},` : "Bună,";
+
+  const intro = isVendorRecipient
+    ? sender
+      ? `Ai primit un mesaj nou pe ${BRAND_NAME} de la ${sender}.`
+      : `Ai primit un mesaj nou pe ${BRAND_NAME}.`
+    : sender
+      ? `${sender} ți-a trimis un mesaj pe ${BRAND_NAME}.`
+      : `Ai primit un mesaj nou pe ${BRAND_NAME}.`;
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:22px;">
+    <p style="color:#111827;margin:0 0 12px;line-height:1.5;">${escapeEmailHtml(greeting)}</p>
+    <p style="color:#374151;margin:0 0 16px;line-height:1.5;">${escapeEmailHtml(intro)}</p>
+    ${
+      previewText
+        ? `<div style="background:#f3f4f6;border-left:3px solid #6f4e43;border-radius:8px;padding:12px 14px;margin:0 0 18px;color:#374151;line-height:1.5;white-space:pre-line;word-break:break-word;">${escapeEmailHtml(previewText)}</div>`
+        : ""
+    }
+    ${
+      url
+        ? `<p style="text-align:center;margin:18px 0 8px;">
+             <a href="${escapeEmailHtml(url)}" style="background:#6f4e43;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+               Vezi conversația
+             </a>
+           </p>
+           <p style="color:#6b7280;font-size:13px;margin:8px 0 0;text-align:center;word-break:break-all;">
+             Sau accesează linkul: <a href="${escapeEmailHtml(url)}" style="color:#4b5563;">${escapeEmailHtml(url)}</a>
+           </p>`
+        : ""
+    }
+  </div>
+
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Pentru siguranța ta, răspunde doar din contul ${BRAND_NAME}. Nu primești alt email pentru mesajele următoare până nu deschizi conversația.<br>
+    Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
+  </p>
+</div>`.trim();
+
+  const text = [
+    greeting,
+    intro,
+    previewText,
+    url ? `Vezi conversația: ${url}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return { subject, html, text };
+}
+
+export async function sendNewMessageEmail({
+  to,
+  toName = null,
+  userId = null,
+  template,
+  recipientRole,
+  recipientFirstName = null,
+  senderName = null,
+  preview = null,
+  link,
+}) {
+  if (!to || !template) return null;
+
+  const { subject, html, text } = buildNewMessageEmailContent({
+    recipientRole,
+    recipientFirstName,
+    senderName,
+    preview,
+    link,
+  });
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    toName,
+    subject,
+    template,
+    userId,
     mailOptions: {
       ...senderEnvelope("noreply"),
       to,
@@ -5165,5 +5376,219 @@ export async function sendInfluencerInviteEmail({
       headers:
         AUTO_HEADERS,
     },
+  });
+}
+/* ============================================================
+   CONFORMITATE INFLUENCER (gate manual, ex. acord părinte/tutore)
+   (sender: noreply@) - tranzacțional, FĂRĂ date sensibile (fără data
+   nașterii, telefon, relație). Vezi services/influencerComplianceGate.js.
+============================================================ */
+
+export function formatComplianceDateTimeRo(value) {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("ro-RO", {
+    timeZone: "Europe/Bucharest",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
+}
+
+function complianceEmailLayout({ heading, paragraphs = [], cta = null }) {
+  const url = cta ? safeEmailUrl(cta.url) : "";
+  return `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:22px;">
+    <h2 style="color:#111827;margin:0 0 12px;font-size:20px;">${escapeEmailHtml(heading)}</h2>
+    ${paragraphs
+      .filter(Boolean)
+      .map((p) => `<p style="color:#374151;margin:0 0 12px;line-height:1.5;">${escapeEmailHtml(p)}</p>`)
+      .join("\n    ")}
+    ${
+      url
+        ? `<p style="text-align:center;margin:18px 0 8px;">
+             <a href="${escapeEmailHtml(url)}" style="background:#6f4e43;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+               ${escapeEmailHtml(cta.label)}
+             </a>
+           </p>
+           <p style="color:#6b7280;font-size:13px;margin:8px 0 0;text-align:center;word-break:break-all;">
+             Sau accesează linkul: <a href="${escapeEmailHtml(url)}" style="color:#4b5563;">${escapeEmailHtml(url)}</a>
+           </p>`
+        : ""
+    }
+  </div>
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
+  </p>
+</div>`.trim();
+}
+
+const COMPLIANCE_PUBLIC_BASE_URL = APP_URL || "https://www.artfest.ro";
+// fluxul de conformitate (întrebări / retragerea acordului) merge la suport
+const COMPLIANCE_SUPPORT_EMAIL = "support@artfest.ro";
+
+export function buildInfluencerComplianceRequestEmail({ firstName = null, expiresAt = null } = {}) {
+  const name = cleanEmailValue(firstName);
+  const deadline = formatComplianceDateTimeRo(expiresAt);
+  const link = `${COMPLIANCE_PUBLIC_BASE_URL}/influencer/conformitate`;
+  const subject = `Este necesară completarea unui acord pentru contul tău de influencer ${BRAND_NAME}`;
+  const paragraphs = [
+    name ? `Bună, ${name},` : "Bună,",
+    `Pentru a putea continua participarea în programul ${BRAND_NAME}, este necesară completarea formularului de conformitate de către părintele sau tutorele legal.`,
+    deadline ? `Formularul poate fi completat până la ${deadline}.` : "",
+  ];
+  const html = complianceEmailLayout({
+    heading: "Completează acordul de conformitate",
+    paragraphs,
+    cta: { label: "Completează formularul", url: link },
+  });
+  const text = [...paragraphs.filter(Boolean), `Completează formularul: ${link}`].join("\n\n");
+  return { subject, html, text, link };
+}
+
+export function buildInfluencerComplianceCompletedEmail({ firstName = null, completedAt = null } = {}) {
+  const name = cleanEmailValue(firstName);
+  const when = formatComplianceDateTimeRo(completedAt);
+  const link = `${COMPLIANCE_PUBLIC_BASE_URL}/influencer`;
+  const subject = `Acordul de conformitate ${BRAND_NAME} a fost înregistrat`;
+  const paragraphs = [
+    name ? `Bună, ${name},` : "Bună,",
+    when
+      ? `Acordul de conformitate pentru contul tău de influencer a fost înregistrat la ${when}.`
+      : "Acordul de conformitate pentru contul tău de influencer a fost înregistrat.",
+    "Funcțiile contului sunt din nou disponibile.",
+  ];
+  const html = complianceEmailLayout({
+    heading: "Acordul a fost înregistrat",
+    paragraphs,
+    cta: { label: "Mergi la dashboard", url: link },
+  });
+  const text = [...paragraphs, `Dashboard: ${link}`].join("\n\n");
+  return { subject, html, text };
+}
+
+export function buildGuardianComplianceConfirmationEmail({
+  guardianName = null,
+  influencerName = null,
+  completedAt = null,
+} = {}) {
+  const guardian = cleanEmailValue(guardianName);
+  const influencer = cleanEmailValue(influencerName);
+  const when = formatComplianceDateTimeRo(completedAt);
+  const subject = `Acordul de conformitate ${BRAND_NAME} a fost înregistrat`;
+  const paragraphs = [
+    guardian ? `Bună ziua, ${guardian},` : "Bună ziua,",
+    [
+      "Vă confirmăm că acordul pentru participarea",
+      influencer ? ` lui ${influencer}` : "",
+      ` la Programul de Influenceri ${BRAND_NAME} a fost înregistrat`,
+      when ? ` la data de ${when}.` : ".",
+    ].join(""),
+    `Pentru întrebări sau pentru retragerea acordului, acolo unde este aplicabil, ne puteți scrie la ${COMPLIANCE_SUPPORT_EMAIL}.`,
+  ];
+  const html = complianceEmailLayout({ heading: "Acordul a fost înregistrat", paragraphs });
+  const text = paragraphs.join("\n\n");
+  return { subject, html, text };
+}
+
+/**
+ * Informativ (nu cere aprobare): datele de plată ale unui influencer minor
+ * au fost completate / actualizate. FĂRĂ IBAN complet, CNP/CUI, adresă
+ * fiscală sau atașamente - cel mult ultimele 4 caractere din IBAN.
+ */
+export function buildGuardianPayoutProfileUpdatedEmail({
+  guardianName = null,
+  influencerName = null,
+  changedAt = null,
+  ibanLast4 = null,
+} = {}) {
+  const guardian = cleanEmailValue(guardianName);
+  const influencer = cleanEmailValue(influencerName);
+  const when = formatComplianceDateTimeRo(changedAt);
+  const last4 = /^[A-Z0-9]{4}$/i.test(String(ibanLast4 || "")) ? String(ibanLast4).toUpperCase() : null;
+  const subject = `Datele de plată ale contului ${BRAND_NAME} au fost actualizate`;
+  const paragraphs = [
+    guardian ? `Bună ziua, ${guardian},` : "Bună ziua,",
+    `Datele de plată/fiscalizare asociate contului de influencer ${BRAND_NAME}${
+      influencer ? ` al lui ${influencer}` : ""
+    } au fost completate sau actualizate${when ? ` la data de ${when}` : ""}.`,
+    last4 ? `Cont bancar: IBAN care se termină în ${last4}.` : "",
+    "Acest mesaj este doar informativ - nu este necesară nicio acțiune din partea dumneavoastră.",
+    `Dacă nu recunoașteți această modificare, scrieți-ne la ${COMPLIANCE_SUPPORT_EMAIL}.`,
+  ].filter(Boolean);
+  const html = complianceEmailLayout({ heading: "Datele de plată au fost actualizate", paragraphs });
+  const text = paragraphs.join("\n\n");
+  return { subject, html, text };
+}
+
+function sendComplianceEmail({ to, toName = null, userId = null, template, content }) {
+  if (!to) return null;
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    toName,
+    subject: content.subject,
+    template,
+    userId,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
+export async function sendInfluencerComplianceRequestEmail({ to, firstName, expiresAt, gateId, userId = null }) {
+  return sendComplianceEmail({
+    to,
+    userId,
+    template: `influencer_compliance_request:${gateId}`,
+    content: buildInfluencerComplianceRequestEmail({ firstName, expiresAt }),
+  });
+}
+
+export async function sendInfluencerComplianceCompletedEmail({ to, firstName, completedAt, gateId, userId = null }) {
+  return sendComplianceEmail({
+    to,
+    userId,
+    template: `influencer_compliance_completed:${gateId}`,
+    content: buildInfluencerComplianceCompletedEmail({ firstName, completedAt }),
+  });
+}
+
+export async function sendGuardianComplianceConfirmationEmail({ to, guardianName, influencerName, completedAt, gateId }) {
+  return sendComplianceEmail({
+    to,
+    toName: guardianName || null,
+    template: `influencer_compliance_guardian:${gateId}`,
+    content: buildGuardianComplianceConfirmationEmail({ guardianName, influencerName, completedAt }),
+  });
+}
+
+export async function sendGuardianPayoutProfileUpdatedEmail({
+  to,
+  guardianName,
+  influencerName,
+  changedAt,
+  ibanLast4,
+  template,
+}) {
+  return sendComplianceEmail({
+    to,
+    toName: guardianName || null,
+    template,
+    content: buildGuardianPayoutProfileUpdatedEmail({ guardianName, influencerName, changedAt, ibanLast4 }),
   });
 }

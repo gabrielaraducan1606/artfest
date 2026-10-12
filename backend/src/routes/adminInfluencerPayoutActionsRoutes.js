@@ -29,6 +29,11 @@ import {
   markInfluencerPayoutAsPaid,
   InfluencerPayoutStateError,
 } from "../services/influencerPayoutService.js";
+import { prisma } from "../db.js";
+import {
+  ComplianceGateError,
+  assertPayoutAllowedForInfluencer,
+} from "../services/influencerComplianceGate.js";
 
 const router = Router();
 
@@ -50,6 +55,22 @@ router.post("/:payoutId/mark-paid", async (req, res) => {
   try {
     const { payoutId } = req.params;
     const parsed = MarkPaidPayload.parse(req.body || {});
+
+    // conformitate: payout blocat până la un gate COMPLETED (flag oprit -> fără efect)
+    const owner = await prisma.influencerPayout.findUnique({
+      where: { id: String(payoutId || "") },
+      select: { influencerId: true },
+    });
+    if (owner) {
+      try {
+        await assertPayoutAllowedForInfluencer(owner.influencerId);
+      } catch (e) {
+        if (e instanceof ComplianceGateError) {
+          return res.status(e.httpStatus).json({ ok: false, error: e.code, message: e.message });
+        }
+        throw e;
+      }
+    }
 
     const payout = await markInfluencerPayoutAsPaid({
       payoutId,

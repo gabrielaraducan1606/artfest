@@ -3,6 +3,7 @@ import express from "express";
 import { prisma } from "../db.js";
 import { authRequired, enforceTokenVersion } from "../api/auth.js";
 import { createVendorNotification } from "../services/notifications.js";
+import { queueNewMessageEmail } from "../services/messageEmailNotifications.js";
 import {
   moderateMarketplaceMessage,
   moderateMarketplaceImage,
@@ -998,6 +999,8 @@ if (
     console.error("Nu am putut crea notificarea pentru vendor (mesaj nou):", e);
   }
 
+  queueNewMessageEmail(msg.id);
+
   res.status(201).json({ ok: true, id: msg.id, createdAt: msg.createdAt });
 });
 
@@ -1178,6 +1181,8 @@ for (const file of files) {
     } catch (e) {
       console.error("Nu am putut crea notificarea pentru vendor (atașament):", e);
     }
+
+    queueNewMessageEmail(result.msg.id);
 
     return res.status(201).json({
       ok: true,

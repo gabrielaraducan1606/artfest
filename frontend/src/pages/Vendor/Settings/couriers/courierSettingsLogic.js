@@ -265,3 +265,66 @@ export function formatPickupAddress(a) {
     .filter(Boolean)
     .join(" · ");
 }
+
+/* ===== ajutor „Nu găsești datele eAWB?” (Sameday) ===== */
+
+/*
+ * Linkuri oficiale Sameday, verificate pe 2026-10-12:
+ *  - login:          pagina eAWB (linkul „eAWB” de pe sameday.ro);
+ *  - forgotPassword: linkul „forgot password” din pagina de login eAWB;
+ *  - createAccount:  platforma oficială de onboarding (butonul
+ *    „Înregistrează-te online” de pe sameday.ro) - înscriere ca firmă,
+ *    documente, contract; accesul eAWB vine după înregistrare;
+ *  - contact:        pagina de contact Sameday.
+ * Fără login cu telefon / SMS / OTP: API-ul eAWB folosit de integrare
+ * acceptă doar utilizator + parolă.
+ */
+export const SAMEDAY_EAWB_LINKS = Object.freeze({
+  login: "https://eawb.sameday.ro/login",
+  forgotPassword: "https://eawb.sameday.ro/forgot-password",
+  createAccount: "https://newcustomers.sameday.ro/register",
+  contact: "https://sameday.ro/contact/",
+});
+
+export const EAWB_HELP_TEXT = Object.freeze({
+  toggle: "Nu știu datele eAWB",
+  title: "Nu găsești datele eAWB?",
+  intro:
+    "Pentru integrarea automată Artfest ai nevoie de datele contului eAWB Sameday. Acestea pot fi diferite de contul folosit în aplicația Sameday sau în onboarding.",
+  createAccount:
+    "Nu ai încă acces eAWB? Începe procesul de creare/activare a contului Sameday necesar pentru integrarea automată.",
+  createAccountNext:
+    "Te înregistrezi ca firmă pe platforma de onboarding Sameday, trimiți documentele și semnezi contractul; după înregistrare primești acces în eAWB.",
+  unknownUsername:
+    "Dacă nu îți amintești username-ul eAWB, contactează Sameday / agentul tău pentru recuperarea sau crearea unui user.",
+  later: "Poți conecta Sameday ulterior din Setări → Livrare și retururi.",
+});
+
+// ajutorul eAWB e specific Sameday (alți curieri au alte conturi)
+export function hasEawbHelp(provider) {
+  return provider?.id === "SAMEDAY";
+}
+
+// Sameday a respins utilizatorul/parola (courier_auth_failed, vezi backend couriers/errors.js)
+export function isCourierAuthFailure(err) {
+  return err?.data?.error === "courier_auth_failed";
+}
+
+/*
+ * „Trimite coletul fără integrare”: înapoi la comanda din care a venit
+ * vendorul (?returnTo=/vendor/orders/<id>), altfel lista de comenzi -
+ * acolo e fluxul existent de expediere manuală. Doar căi interne de
+ * comenzi (fără redirect deschis).
+ */
+export const MANUAL_SHIPPING_FALLBACK_URL = "/vendor/orders";
+const MANUAL_SHIPPING_RETURN_RE = /^\/vendor\/orders(\/[A-Za-z0-9_-]{1,64})?$/;
+
+export function manualShippingTarget(search) {
+  try {
+    const returnTo = new URLSearchParams(search || "").get("returnTo");
+    if (returnTo && MANUAL_SHIPPING_RETURN_RE.test(returnTo)) return returnTo;
+  } catch {
+    // ignore
+  }
+  return MANUAL_SHIPPING_FALLBACK_URL;
+}

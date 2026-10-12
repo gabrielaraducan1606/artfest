@@ -3,7 +3,12 @@
 import { Router } from "express";
 import { authRequired } from "../api/auth.js";
 import { listCourierProviders } from "../couriers/registry.js";
-import { requireVendorAccount, courierApiLimiter, handleCourier } from "../couriers/http.js";
+import {
+  requireVendorAccount,
+  courierApiLimiter,
+  handleCourier,
+  requireCourierIntegration,
+} from "../couriers/http.js";
 import {
   listVendorCourierAccounts,
   createVendorCourierAccount,
@@ -33,6 +38,10 @@ const router = Router();
 // operațiile care contactează API-ul curierului (test / creare / înlocuire)
 const courierLimiter = courierApiLimiter();
 const handle = (fn) => handleCourier(fn, "vendorCourierRoutes");
+
+// flag backend (COURIER_INTEGRATION_ENABLED): DOAR prefixele de curierat -
+// routerul e montat pe /api/vendor, un router.use() global ar bloca tot
+router.use(["/couriers", "/pickup-addresses"], requireCourierIntegration);
 
 router.use(["/couriers", "/pickup-addresses"], authRequired, requireVendorAccount);
 

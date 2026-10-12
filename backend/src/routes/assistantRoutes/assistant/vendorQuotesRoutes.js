@@ -20,6 +20,7 @@ import {
 import {
   createUserNotification,
 } from "../../../services/notifications.js";
+import { queueNewMessageEmail } from "../../../services/messageEmailNotifications.js";
 
 import {
   moderateMarketplaceMessage,
@@ -3255,6 +3256,10 @@ router.post(
           notificationError
         );
       }
+
+      // email doar pentru mesajele reale (oferta trimisă / retrasă rămân
+      // doar notificări in-app, ca până acum)
+      queueNewMessageEmail(message.id);
 
       return res
         .status(201)

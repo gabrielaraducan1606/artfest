@@ -18,8 +18,11 @@ import {
 import styles from "./Orders.module.css";
 import VendorReturnRequestsSection from "./VendorReturnRequestsSection.jsx";
 import AwbPanel from "./components/AwbPanel.jsx";
+import { COURIER_AUTOMATION_ENABLED, COURIER_AUTOMATION_SOON_MESSAGE } from "../../../config/features.js";
+import { isArtfestLabel } from "./utils/awbPanelLogic.js";
 
-const COURIER_ENABLED = false;
+// programarea curierului = integrare automată: vizibilă, dar indisponibilă (greyed out)
+const COURIER_ENABLED = COURIER_AUTOMATION_ENABLED;
 const INVOICE_ENABLED = false;
 
 /*
@@ -855,17 +858,20 @@ const contactPerson =
           {/* Curier temporar indisponibil */}
           {(order.status === "preparing" || order.status === "confirmed") && (
             <button
-              className={styles.primaryBtn}
+              className={`${styles.primaryBtn} ${COURIER_ENABLED ? "" : styles.courierUnavailableBtn}`}
               type="button"
               onClick={openCourierModal}
               disabled={
                 !COURIER_ENABLED ||
                 !canProcess
               }
+              aria-disabled={!COURIER_ENABLED || !canProcess}
               title={
-                waitingForCardPayment
+                !COURIER_ENABLED
+                  ? COURIER_AUTOMATION_SOON_MESSAGE
+                  : waitingForCardPayment
                   ? "Clientul trebuie să finalizeze plata înainte să programezi curierul."
-                  : "Funcționalitate temporar indisponibilă"
+                  : "Programează curier"
               }
             >
               <PackageCheck size={16} /> Curier
@@ -923,8 +929,9 @@ const contactPerson =
               </button>
             ))}
 
-          {/* AWB & tracking existente */}
-          {ship.labelUrl && (
+          {/* AWB & tracking existente (cu integrarea de curier pornită,
+              eticheta Artfest și tracking-ul sunt în secțiunea „Curier / Livrare”) */}
+          {ship.labelUrl && !(COURIER_AUTOMATION_ENABLED && isArtfestLabel(ship)) && (
             <a
               className={styles.secondaryBtn}
               href={`/api/vendor/shipments/${ship.id}/label`}
@@ -934,7 +941,7 @@ const contactPerson =
               <FileDown size={16} /> Etichetă AWB
             </a>
           )}
-          {ship.trackingUrl && (
+          {ship.trackingUrl && !COURIER_AUTOMATION_ENABLED && !ship.manualShipment && (
             <a
               className={styles.linkBtn}
               href={ship.trackingUrl}
@@ -948,11 +955,18 @@ const contactPerson =
       </div>
 
       {/*
-        Zona de curier (AwbPanel): fără cont de curier activ -> CTA
-        „Conectează un curier” (CourierConnectCta); cu cont activ ->
-        „Generează AWB”; cu AWB -> număr AWB + „Descarcă eticheta”.
+        Secțiunea „Curier / Livrare” (AwbPanel): stările și acțiunile sunt
+        decise în utils/awbPanelLogic.js (decideAwbPanelState) - conectare
+        curier / adresă de ridicare / generare / AWB creat / verificare, plus
+        expedierea fără integrare („Trimite fără integrare”, și cu flagul oprit).
       */}
-      <AwbPanel shipment={ship} orderStatus={order.status} onChanged={load} />
+      <AwbPanel
+        shipment={ship}
+        orderId={order.id}
+        orderStatus={order.status}
+        canProcess={canProcess && !waitingForCardPayment}
+        onChanged={load}
+      />
 
       <div className={styles.grid2}>
         {/* Client + facturare */}

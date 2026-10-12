@@ -44,7 +44,7 @@ import PublicInfluencerCollectionPage
 import PublicVendorCollectionPage
   from "./pages/VendorCollections/PublicVendorCollectionPage.jsx";
 import Login from "./pages/Auth/Login/Login";
-import { getSafeLoginRedirect } from "./pages/Auth/Login/loginRedirect.js";
+import { getSafeLoginRedirect, loginPathFor } from "./pages/Auth/Login/loginRedirect.js";
 import { AdminArea } from "./pages/Admin/AdminArea.jsx";
 import Register from "./pages/Auth/Register/Register";
 import ForgotPassword from "./pages/Auth/ForgotPassword";
@@ -180,6 +180,9 @@ import CustomerRequestDetailsPage
  * explicit la hover/focus/touchstart pe linkurile către /influencer
  * (Navbar.jsx), ca navigarea efectivă să nu mai aștepte chunk-ul.
  */
+const InfluencerCompliancePage = lazy(() =>
+  import("./pages/Influencer/InfluencerCompliancePage/InfluencerCompliancePage.jsx")
+);
 const InfluencerDashboardPage = lazy(() =>
   import("./pages/Influencer/InfluencerDashboardPage/InfluencerDashboardPage.jsx")
 );
@@ -383,6 +386,7 @@ function LoginPage() {
 function RequireUser({
   children,
 }) {
+  const location = useLocation();
   const {
     me,
     loading,
@@ -400,10 +404,11 @@ function RequireUser({
     );
   }
 
+  // după login, înapoi EXACT la pagina cerută (ex. link din email)
   if (!me) {
     return (
       <Navigate
-        to="/autentificare"
+        to={loginPathFor(location)}
         replace
       />
     );
@@ -427,6 +432,7 @@ function RequireUser({
 function RequireAuthenticated({
   children,
 }) {
+  const location = useLocation();
   const {
     me,
     loading,
@@ -444,10 +450,11 @@ function RequireAuthenticated({
     );
   }
 
+  // după login, înapoi EXACT la pagina cerută (ex. link din email)
   if (!me) {
     return (
       <Navigate
-        to="/autentificare"
+        to={loginPathFor(location)}
         replace
       />
     );
@@ -459,6 +466,7 @@ function RequireAuthenticated({
 function RequireVendor({
   children,
 }) {
+  const location = useLocation();
   const {
     me,
     loading,
@@ -476,10 +484,11 @@ function RequireVendor({
     );
   }
 
+  // după login, înapoi EXACT la pagina cerută (ex. link din email)
   if (!me) {
     return (
       <Navigate
-        to="/autentificare"
+        to={loginPathFor(location)}
         replace
       />
     );
@@ -509,6 +518,7 @@ function RequireVendor({
 function RequireInfluencer({
   children,
 }) {
+  const location = useLocation();
   const {
     me,
     loading,
@@ -526,10 +536,11 @@ function RequireInfluencer({
     );
   }
 
+  // după login, înapoi EXACT la pagina cerută (ex. link din email)
   if (!me) {
     return (
       <Navigate
-        to="/autentificare"
+        to={loginPathFor(location)}
         replace
       />
     );
@@ -553,6 +564,7 @@ function RequireInfluencer({
 function RequireAdmin({
   children,
 }) {
+  const location = useLocation();
   const {
     me,
     loading,
@@ -570,10 +582,11 @@ function RequireAdmin({
     );
   }
 
+  // după login, înapoi EXACT la pagina cerută (ex. link din email)
   if (!me) {
     return (
       <Navigate
-        to="/autentificare"
+        to={loginPathFor(location)}
         replace
       />
     );
@@ -882,6 +895,15 @@ export default function App() {
   element={
     <RequireInfluencer>
       <InfluencerDashboardPage />
+    </RequireInfluencer>
+  }
+/>
+{/* formular de conformitate (ex. acord părinte/tutore), cerut manual de admin */}
+<Route
+  path="/influencer/conformitate"
+  element={
+    <RequireInfluencer>
+      <InfluencerCompliancePage />
     </RequireInfluencer>
   }
 />

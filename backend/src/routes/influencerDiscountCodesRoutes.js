@@ -12,6 +12,7 @@ import {
 } from "../api/auth.js";
 
 import { enforceInfluencerTermsGate } from "../middleware/enforceInfluencerTermsGate.js";
+import { enforceInfluencerComplianceGate } from "../middleware/enforceInfluencerComplianceGate.js";
 import {
   collaborationGateErrorBody,
   resolveCollaborationGate,
@@ -886,6 +887,7 @@ router.post(
   authRequired,
   enforceTokenVersion,
   enforceInfluencerTermsGate,
+  enforceInfluencerComplianceGate,
 
   async (
     req,
@@ -1315,6 +1317,7 @@ router.patch(
   authRequired,
   enforceTokenVersion,
   enforceInfluencerTermsGate,
+  enforceInfluencerComplianceGate,
 
   async (
     req,
@@ -1798,6 +1801,7 @@ router.patch(
   authRequired,
   enforceTokenVersion,
   enforceInfluencerTermsGate,
+  enforceInfluencerComplianceGate,
 
   async (
     req,
@@ -1964,6 +1968,7 @@ router.delete(
   authRequired,
   enforceTokenVersion,
   enforceInfluencerTermsGate,
+  enforceInfluencerComplianceGate,
 
   async (
     req,

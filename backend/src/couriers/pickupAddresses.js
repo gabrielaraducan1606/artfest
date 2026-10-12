@@ -94,7 +94,7 @@ function sanitizeAddress(body = {}, { partial = false } = {}) {
 }
 
 async function lockVendorScope(tx, vendorId) {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`pickup-default:${vendorId}`}))`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`pickup-default:${vendorId}`}))`;
 }
 
 async function assertOwnedService(db, vendorId, serviceId) {

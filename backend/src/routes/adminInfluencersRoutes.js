@@ -29,6 +29,16 @@ import {
   computeCollaborationState,
   validateCollaborationExtension,
 } from "../services/influencerCollaboration.js";
+import {
+  ComplianceGateError,
+  cancelComplianceGate,
+  complianceSummariesByInfluencer,
+  getComplianceResponse,
+  listComplianceGates,
+  rejectComplianceResponse,
+  resendComplianceGate,
+  sendComplianceGate,
+} from "../services/influencerComplianceGate.js";
 
 const router = Router();
 
@@ -803,6 +813,14 @@ router.get(
         )
       );
 
+      // conformitate: status pentru badge / filtre (fără datele părintelui)
+      const complianceByInfluencerId = await complianceSummariesByInfluencer(
+        profiles.map((profile) => profile.id)
+      ).catch((e) => {
+        console.error("admin influencers compliance summary failed:", e?.message || e);
+        return new Map();
+      });
+
       const profileItems =
         profiles.map(
           (profile) => {
@@ -891,6 +909,13 @@ router.get(
 
               type:
                 "PROFILE",
+
+              compliance: (() => {
+                const c = complianceByInfluencerId.get(profile.id);
+                return c
+                  ? { status: c.status, blocking: c.blocking, gate: c.gate }
+                  : { status: "NOT_REQUIRED", blocking: false, gate: null };
+              })(),
 
               userId:
                 profile.userId,
@@ -2694,5 +2719,107 @@ router.patch(
     }
   }
 );
+
+/* =========================================================
+   CONFORMITATE (gate manual, ex. acord părinte/tutore pentru minori)
+
+   GET  /api/admin/influencers/:id/compliance                         istoric
+   POST /api/admin/influencers/:id/compliance-gates                   trimite
+   POST /api/admin/influencers/:id/compliance-gates/:gateId/resend    retrimite
+   POST /api/admin/influencers/:id/compliance-gates/:gateId/cancel    anulează
+   POST /api/admin/influencers/:id/compliance-gates/:gateId/reject    respinge (motiv)
+   GET  /api/admin/influencers/:id/compliance-gates/:gateId/response  răspunsul complet
+
+   Logica: services/influencerComplianceGate.js. Acțiunile cer flag-ul
+   INFLUENCER_COMPLIANCE_GATE_ENABLED (oprit implicit -> 409).
+   Datele părintelui/tutorelui apar DOAR în /response.
+========================================================= */
+
+function sendAdminComplianceError(res, e, label) {
+  if (e instanceof ComplianceGateError) {
+    return res.status(e.httpStatus).json({
+      ok: false,
+      error: e.code,
+      message: e.message,
+      ...(e.fields ? { fields: e.fields } : {}),
+    });
+  }
+  console.error(`${label} failed:`, e?.message || e);
+  return res.status(500).json({ ok: false, error: "server_error" });
+}
+
+router.get("/:id/compliance", authRequired, adminOnly, async (req, res) => {
+  try {
+    res.json({ ok: true, ...(await listComplianceGates(String(req.params.id || ""))) });
+  } catch (e) {
+    sendAdminComplianceError(res, e, "GET /:id/compliance");
+  }
+});
+
+router.post("/:id/compliance-gates", authRequired, adminOnly, async (req, res) => {
+  try {
+    const gate = await sendComplianceGate({
+      influencerId: req.params.id,
+      adminId: req.user.sub,
+      // opțional: data nașterii cunoscută de admin (sub 16 ani -> 409), nu se salvează
+      birthDate: req.body?.influencerBirthDate || null,
+    });
+    res.status(201).json({ ok: true, gate });
+  } catch (e) {
+    sendAdminComplianceError(res, e, "POST /:id/compliance-gates");
+  }
+});
+
+router.post("/:id/compliance-gates/:gateId/resend", authRequired, adminOnly, async (req, res) => {
+  try {
+    const gate = await resendComplianceGate({
+      influencerId: req.params.id,
+      gateId: req.params.gateId,
+      adminId: req.user.sub,
+      birthDate: req.body?.influencerBirthDate || null,
+    });
+    res.status(201).json({ ok: true, gate });
+  } catch (e) {
+    sendAdminComplianceError(res, e, "POST /:id/compliance-gates/:gateId/resend");
+  }
+});
+
+router.post("/:id/compliance-gates/:gateId/cancel", authRequired, adminOnly, async (req, res) => {
+  try {
+    const gate = await cancelComplianceGate({
+      influencerId: req.params.id,
+      gateId: req.params.gateId,
+      adminId: req.user.sub,
+    });
+    res.json({ ok: true, gate });
+  } catch (e) {
+    sendAdminComplianceError(res, e, "POST /:id/compliance-gates/:gateId/cancel");
+  }
+});
+
+router.post("/:id/compliance-gates/:gateId/reject", authRequired, adminOnly, async (req, res) => {
+  try {
+    const gate = await rejectComplianceResponse({
+      influencerId: req.params.id,
+      gateId: req.params.gateId,
+      adminId: req.user.sub,
+      reason: req.body?.reason,
+    });
+    res.json({ ok: true, gate });
+  } catch (e) {
+    sendAdminComplianceError(res, e, "POST /:id/compliance-gates/:gateId/reject");
+  }
+});
+
+router.get("/:id/compliance-gates/:gateId/response", authRequired, adminOnly, async (req, res) => {
+  try {
+    res.json({
+      ok: true,
+      response: await getComplianceResponse({ influencerId: req.params.id, gateId: req.params.gateId }),
+    });
+  } catch (e) {
+    sendAdminComplianceError(res, e, "GET /:id/compliance-gates/:gateId/response");
+  }
+});
 
 export default router;

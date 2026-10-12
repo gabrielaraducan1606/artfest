@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import styles from "./Orders.module.css";
+import { COURIER_AUTOMATION_ENABLED, COURIER_AUTOMATION_SOON_MESSAGE } from "../../../config/features.js";
 import CourierConnectCta from "./components/CourierConnectCta.jsx";
 import SubscriptionBanner from "../Onboarding/OnBoardingDetails/tabs/SubscriptionBanner/SubscriptionBanner.jsx";
 import { useSmartPrefetchItem } from "../../../hooks/useSmartPrefetch.js";
@@ -66,7 +67,8 @@ function formatDate(d) {
   }
 }
 
-const COURIER_ENABLED = false;
+// programarea curierului = integrare automată: vizibilă, dar indisponibilă (greyed out)
+const COURIER_ENABLED = COURIER_AUTOMATION_ENABLED;
 
 async function withLockHandling(promiseFn) {
   try {
@@ -505,13 +507,16 @@ const OrderRow = memo(function OrderRow({
         )}
         {(o.status === "preparing" || o.status === "confirmed") && (
           <button
-            className={styles.primaryBtn}
+            className={`${styles.primaryBtn} ${COURIER_ENABLED ? "" : styles.courierUnavailableBtn}`}
             onClick={(e) => e.stopPropagation()}
             disabled={!COURIER_ENABLED || o.canProcess === false}
+            aria-disabled={!COURIER_ENABLED || o.canProcess === false}
             title={
-              o.waitingForCardPayment
+              !COURIER_ENABLED
+                ? COURIER_AUTOMATION_SOON_MESSAGE
+                : o.waitingForCardPayment
                 ? "Clientul trebuie să finalizeze plata înainte să programezi curierul."
-                : "Funcționalitate temporar indisponibilă"
+                : "Programează curier"
             }
           >
             <PackageCheck size={16} /> Programează curier

@@ -135,6 +135,7 @@ import { runReturnVendorReminderJob } from "./src/jobs/returnVendorReminderJob.j
 // 🔔 JOB: notificare vendor/influencer la expirarea unui cod de reducere
 import { runDiscountCodeExpiryJob } from "./src/jobs/discountCodeExpiryJob.js";
 import { runHomepageFeatureEmailJob } from "./src/jobs/homepageFeatureEmailJob.js";
+import { retryFailedMessageEmails } from "./src/services/messageEmailNotifications.js";
 import vendorCatalogProductsRoutes
   from "./src/routes/vendorCatalogProductsRoutes.js";
 import customerRequestsRouter
@@ -902,6 +903,19 @@ setInterval(() => {
     console.error("homepageFeatureEmailJob (interval) failed:", err)
   );
 }, homepageFeatureEmailIntervalMs);
+
+/*
+ * Email „mesaj nou” - reia trimiterile FAILED din ultimele 24h (max 3
+ * încercări per mesaj, fără duplicate) - vezi
+ * services/messageEmailNotifications.js.
+ */
+const messageEmailRetryIntervalMs = 10 * 60 * 1000;
+
+setInterval(() => {
+  retryFailedMessageEmails().catch((err) =>
+    console.error("messageEmailRetry (interval) failed:", err)
+  );
+}, messageEmailRetryIntervalMs);
 
 });
 

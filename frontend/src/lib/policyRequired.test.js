@@ -147,3 +147,17 @@ test("api.js apelează reportPolicyRequired pe răspunsurile non-2xx (legătura 
   // evenimentul se emite ÎNAINTE de throw, altfel nu ar rula niciodată
   assert.ok(failureBranch.indexOf("reportPolicyRequired") < failureBranch.indexOf("throw err"));
 });
+
+test("428 influencer_compliance_required: tip separat (formularul de conformitate), nu deschide gate-urile de documente", () => {
+  const detail = describePolicyRequired(428, {
+    error: "influencer_compliance_required",
+    compliance: { status: "PENDING", gateId: "g1", formUrl: "/influencer/conformitate" },
+  });
+
+  assert.equal(detail.kind, "influencer_compliance");
+  assert.deepEqual(detail.compliance, { status: "PENDING", gateId: "g1", formUrl: "/influencer/conformitate" });
+  assert.deepEqual(detail.scopes, []);
+  assert.equal(detail.terms, null); // modalul acordului influencerilor nu reacționează
+  assert.equal(isPolicyRequiredResponse(428, { error: "influencer_compliance_required" }), true);
+  assert.equal(isPolicyRequiredResponse(409, { error: "influencer_compliance_required" }), false);
+});

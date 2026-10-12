@@ -1298,3 +1298,116 @@
     gap: 8px;
   }
 }
+
+/* ---------- Conformitate (gate manual, ex. acord părinte/tutore) ---------- */
+
+.complianceFilter {
+  min-width: 0;
+  width: auto;
+}
+
+.complianceBadgeRow {
+  margin-top: 6px;
+}
+
+.complianceNotice {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.payoutBlocked,
+.compliancePayoutsBlocked {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--color-danger);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.complianceActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.complianceReject {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.complianceReject label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.complianceReject textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+}
+
+.complianceResponse {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.complianceBirthDate {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+  font-size: 13px;
+}
+
+.complianceBirthDate small {
+  color: var(--color-muted);
+}
+
+.complianceHistory {
+  margin: 10px 0;
+  font-size: 13px;
+}
+
+.complianceHistory > span {
+  color: var(--color-muted);
+}
+
+.complianceHistory ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.complianceHistory li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.complianceHistory small {
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+@media (max-width: 600px) {
+  .complianceActions > button {
+    width: 100%;
+  }
+}

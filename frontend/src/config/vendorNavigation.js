@@ -25,6 +25,17 @@ import { VENDOR_COURIERS_ENABLED } from "./features.js";
  */
 export const VENDOR_COURIERS_SETTINGS_URL = "/setari?tab=shipping#couriers";
 
+/*
+ * Același link, cu pagina de întoarcere (ex. comanda din care a plecat
+ * vendorul) - folosit de „Trimite coletul fără integrare” din ajutorul
+ * eAWB. Validarea returnTo se face la citire (courierSettingsLogic.js).
+ */
+export function vendorCouriersSettingsUrl({ returnTo } = {}) {
+  if (!returnTo) return VENDOR_COURIERS_SETTINGS_URL;
+  const [base, hash] = VENDOR_COURIERS_SETTINGS_URL.split("#");
+  return `${base}&returnTo=${encodeURIComponent(returnTo)}${hash ? `#${hash}` : ""}`;
+}
+
 export const VENDOR_DASHBOARD_LINK = {
   label: "Dashboard",
   to: "/desktop",

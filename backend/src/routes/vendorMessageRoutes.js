@@ -3,6 +3,7 @@ import express from "express";
 import { prisma } from "../db.js";
 import { authRequired, enforceTokenVersion, requireRole } from "../api/auth.js";
 import { createUserNotification } from "../services/notifications.js";
+import { queueNewMessageEmail } from "../services/messageEmailNotifications.js";
 import {
   moderateMarketplaceMessage,
   moderateMarketplaceImage,
@@ -1479,6 +1480,8 @@ if (
         console.error("Nu am putut crea notificarea pentru user (mesaj nou):", e);
       }
 
+      queueNewMessageEmail(out.msg.id);
+
       return res.status(201).json({
         ok: true,
         id: out.msg.id,
@@ -2089,6 +2092,8 @@ if (attachmentQuotaErr) {
       } catch (e) {
         console.error("Nu am putut crea notificarea pentru user (atașament):", e);
       }
+
+      queueNewMessageEmail(result.msg.id);
 
       return res.status(201).json({
         ok: true,
@@ -3344,6 +3349,14 @@ router.post(
           "Nu am putut crea notificarea pentru vendor:",
           e
         );
+      }
+
+      /*
+       * Email doar pentru conversația CUSTOMER (vendorul scrie ca și
+       * cumpărător -> magazinul primește email). Vendor ↔ vendor: fără email.
+       */
+      if (out.isBuyerThread) {
+        queueNewMessageEmail(out.msg.id);
       }
 
       return res

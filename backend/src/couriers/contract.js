@@ -14,6 +14,7 @@ import { CourierValidationError } from "./errors.js";
  * @property {boolean} required
  * @property {boolean} secret       - true => nu se afișează niciodată după salvare
  * @property {number}  [maxLength]
+ * @property {string}  [placeholder]
  * @property {string}  [help]
  *
  * @typedef {Object} PublicConfigField   - configurație NE-secretă (publicConfig)
@@ -49,6 +50,9 @@ import { CourierValidationError } from "./errors.js";
  *   listServices(ctx)     -> [{ id, name, code, isDefault }]
  *   createShipment(ctx, CreateShipmentInput) -> { awbNumber, parcelNumbers, cost }
  *   getLabel(ctx, awbNumber, { format }) -> { buffer, contentType }
+ *   cancelShipment(ctx, awbNumber) -> { cancelled: true }; refuz definitiv al
+ *     curierului -> eroare cu code "awb_not_cancellable" (starea locală NU se schimbă)
+ *   trackingUrl(awbNumber) -> string|null (link public, fără apel la curier)
  *
  * @typedef {Object} CreateShipmentInput
  * @property {string} clientReference     - referință Artfest trimisă curierului
@@ -62,7 +66,7 @@ import { CourierValidationError } from "./errors.js";
  * @property {string} [lockerId]
  * @property {string} [observation]
  *
- * Etapele următoare (NU acum): trackShipments, cancelShipment,
+ * Etapele următoare (NU acum): trackShipments (sincronizare status),
  * requestPickup, listLockers, quote.
  */
 
@@ -195,6 +199,7 @@ export function describeProvider(def) {
       required: !!f.required,
       secret: !!f.secret,
       maxLength: f.maxLength || 256,
+      ...(f.placeholder ? { placeholder: f.placeholder } : {}),
       ...(f.help ? { help: f.help } : {}),
     })),
     publicConfigFields: (def.publicConfigFields || []).map((f) => ({

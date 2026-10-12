@@ -169,12 +169,32 @@ export default function AdminPickupsPage() {
     setDetailsLoading(true);
     try {
       const res = await api(`/api/admin/pickups/${row.shipmentId}`);
-      setSelected(res?.shipment ? normalizeShipment(res.shipment) : null);
+      setSelected(res?.shipment ? withCourierAwbs(normalizeShipment(res.shipment), res.courierAwbs) : null);
     } catch {
       setDetailsErr("Nu am putut încărca detaliile coletului.");
       setSelected(null);
     } finally {
       setDetailsLoading(false);
+    }
+  }
+
+  // reîncarcă detaliile fără să închidă modalul (după rezolvarea unui AWB)
+  async function reloadDetails(shipmentId) {
+    try {
+      const res = await api(`/api/admin/pickups/${shipmentId}`);
+      if (!res?.shipment) return;
+      const next = withCourierAwbs(normalizeShipment(res.shipment), res.courierAwbs);
+      setSelected(next);
+      setData((prev) => ({
+        ...prev,
+        items: (prev.items || []).map((it) =>
+          it.shipmentId === shipmentId
+            ? { ...it, awb: next.awb, trackingUrl: next.trackingUrl, courierAwb: next.courierAwbs[0] || null }
+            : it
+        ),
+      }));
+    } catch {
+      // detaliile vechi rămân afișate
     }
   }
 
@@ -348,6 +368,11 @@ export default function AdminPickupsPage() {
                     <td className={styles.td} onClick={(e) => e.stopPropagation()}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <code className={styles.code}>{p.awb || "—"}</code>
+                        {p.courierAwb?.status === "UNKNOWN" && (
+                          <span className={styles.error} style={{ fontSize: 12 }} title={p.courierAwb.errorMessage || ""}>
+                            AWB necunoscut – verifică
+                          </span>
+                        )}
                         {p.awb && (
                           <button
                             type="button"
@@ -414,6 +439,7 @@ export default function AdminPickupsPage() {
           loading={detailsLoading}
           error={detailsErr}
           shipment={selected}
+          onReload={() => selected?.shipmentId && reloadDetails(selected.shipmentId)}
           onClose={() => {
             setSelected(null);
             setDetailsErr("");
@@ -437,7 +463,9 @@ export default function AdminPickupsPage() {
 /* ----------------------------
    Modal detalii (inline)
 ----------------------------- */
-function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved }) {
+function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved, onReload }) {
+  // AWB generat prin integrarea de curier, încă activ -> fără editare manuală (backend: 409)
+  const integrationAwbActive = (shipment?.courierAwbs || []).some((r) => r.active || r.stale);
   const [providerDraft, setProviderDraft] = useState("");
   const [serviceDraft, setServiceDraft] = useState("");
 
@@ -580,7 +608,9 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved })
       });
     } catch (e) {
       const msg =
-        e?.status === 409
+        e?.data?.error === "courier_awb_active"
+          ? e.data.message
+          : e?.status === 409
           ? "Nu pot salva: status nepotrivit sau AWB duplicat."
           : e?.status === 400
           ? "Payload invalid (verifică datele/URL-urile)."
@@ -679,6 +709,14 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved })
                   </span>
                 </KV>
 
+                <KV label="AWB integrare curier">
+                  <CourierAwbSection
+                    shipmentId={shipment.shipmentId}
+                    rows={shipment.courierAwbs}
+                    onResolved={onReload}
+                  />
+                </KV>
+
                 {/* ✅ NEW: show timestamps */}
                 <KV label="Istoric status">
                   <div className={styles.muted} style={{ fontSize: 12, display: "grid", gap: 4 }}>
@@ -699,9 +737,16 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved })
 
                 <KV label="Curier (admin)">
                   <div style={{ display: "grid", gap: 8 }}>
+                    {integrationAwbActive && (
+                      <div className={styles.muted} style={{ fontSize: 12 }}>
+                        Curierul și AWB-ul sunt gestionate de integrarea de curier (AWB activ). Nu pot fi
+                        suprascrise manual; vendorul îl poate anula, iar un AWB neconfirmat se rezolvă mai sus.
+                      </div>
+                    )}
                     <select
                       className={styles.select}
                       value={providerDraft}
+                      disabled={integrationAwbActive}
                       onChange={(e) => setProviderDraft(e.target.value)}
                       aria-label="Courier Provider"
                     >
@@ -715,6 +760,7 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved })
                     <input
                       className={styles.input}
                       value={serviceDraft}
+                      disabled={integrationAwbActive}
                       onChange={(e) => setServiceDraft(e.target.value)}
                       placeholder="Serviciu (ex: standard24h) (opțional)"
                       aria-label="Courier Service"
@@ -761,6 +807,7 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved })
                       <input
                         className={styles.input}
                         value={awbDraft}
+                      disabled={integrationAwbActive}
                         onChange={(e) => setAwbDraft(e.target.value)}
                         placeholder="AWB (opțional, dar recomandat)"
                         aria-label="AWB"
@@ -784,6 +831,7 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved })
                     <input
                       className={styles.input}
                       value={labelDraft}
+                      disabled={integrationAwbActive}
                       onChange={(e) => setLabelDraft(e.target.value)}
                       placeholder="Label URL (opțional)"
                       aria-label="Label URL"
@@ -791,6 +839,7 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved })
                     <input
                       className={styles.input}
                       value={trackDraft}
+                      disabled={integrationAwbActive}
                       onChange={(e) => setTrackDraft(e.target.value)}
                       placeholder="Tracking URL (opțional)"
                       aria-label="Tracking URL"
@@ -921,6 +970,175 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved })
       </div>
     </div>
   );
+}
+
+/* ----------------------------
+   AWB-uri generate prin integrarea de curier (CourierAwb)
+   Doar vizualizare + rezolvarea celor UNKNOWN (după verificarea
+   manuală în contul curierului). Adminul NU generează AWB aici.
+----------------------------- */
+const COURIER_AWB_STATUS = {
+  REQUESTED: { label: "În curs", tone: "warning" },
+  CREATED: { label: "Creat", tone: "success" },
+  FAILED: { label: "Eșuat", tone: "danger" },
+  UNKNOWN: { label: "Necesită verificare", tone: "warning" },
+  CANCELLED: { label: "Anulat", tone: "muted" },
+};
+
+function CourierAwbBadge({ status }) {
+  const meta = COURIER_AWB_STATUS[status] || { label: status, tone: "muted" };
+  return <span className={`${styles.awbBadge} ${styles[`awbTone_${meta.tone}`]}`}>{meta.label}</span>;
+}
+
+// rezolvarea unui AWB UNKNOWN, după verificarea în contul curierului
+function ResolveAwbForm({ shipmentId, row, onDone, onCancel }) {
+  const [outcome, setOutcome] = useState("");
+  const [awbNumber, setAwbNumber] = useState(row.awbNumber || "");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const numberOk = /^[A-Za-z0-9-]{4,60}$/.test(awbNumber.trim());
+  const canSubmit = !busy && (outcome === "FAILED" || (outcome === "CREATED" && numberOk));
+
+  async function submit() {
+    if (!canSubmit) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await api(
+        `/api/admin/pickups/${encodeURIComponent(shipmentId)}/courier-awb/${encodeURIComponent(row.id)}/resolve`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            outcome,
+            awbNumber: outcome === "CREATED" ? awbNumber.trim() : undefined,
+            note,
+          }),
+        }
+      );
+      await onDone?.();
+    } catch (e) {
+      setErr(e?.data?.message || "Nu am putut rezolva AWB-ul.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={styles.resolveBox}>
+      <div className={styles.muted} style={{ fontSize: 12 }}>
+        Verifică mai întâi în contul curierului (eAWB) după referința comenzii.
+      </div>
+      <label className={styles.resolveOption}>
+        <input type="radio" name={`resolve-${row.id}`} checked={outcome === "FAILED"} onChange={() => setOutcome("FAILED")} />
+        AWB nu există – expedierea poate genera un AWB nou
+      </label>
+      <label className={styles.resolveOption}>
+        <input type="radio" name={`resolve-${row.id}`} checked={outcome === "CREATED"} onChange={() => setOutcome("CREATED")} />
+        AWB există
+      </label>
+      {outcome === "CREATED" && (
+        <input
+          className={styles.input}
+          value={awbNumber}
+          onChange={(e) => setAwbNumber(e.target.value)}
+          placeholder="Număr AWB"
+          aria-label="Număr AWB"
+          aria-invalid={!!awbNumber && !numberOk}
+        />
+      )}
+      <input
+        className={styles.input}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Notă pentru audit (opțional)"
+        aria-label="Notă pentru audit"
+        maxLength={500}
+      />
+      {err && <div className={styles.error} style={{ fontSize: 12 }}>{err}</div>}
+      <div className={styles.resolveActions}>
+        <button type="button" className={styles.primaryBtn} disabled={!canSubmit} onClick={submit}>
+          {busy ? <Loader2 size={16} className={styles.spin} /> : null} Confirmă
+        </button>
+        <button type="button" className={styles.secondaryBtn} disabled={busy} onClick={onCancel}>
+          Renunță
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CourierAwbSection({ shipmentId, rows, onResolved }) {
+  const [resolvingId, setResolvingId] = useState("");
+
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return <span className={styles.muted}>—</span>;
+
+  return (
+    <div className={styles.awbList}>
+      {list.map((row) => (
+        <div key={row.id} className={styles.awbItem}>
+          <div className={styles.awbHead}>
+            <strong>{row.provider}</strong>
+            <code className={styles.code}>{row.awbNumber || "—"}</code>
+            <CourierAwbBadge status={row.status} />
+          </div>
+          <div className={styles.muted} style={{ fontSize: 12 }}>
+            Creat: {row.createdAt ? formatDate(row.createdAt) : "—"}
+            {row.cost != null ? ` · cost curier: ${row.cost} RON` : ""}
+          </div>
+          {row.errorMessage && <div className={styles.error} style={{ fontSize: 12 }}>{row.errorMessage}</div>}
+          {row.trackingUrl && (
+            <a href={row.trackingUrl} target="_blank" rel="noreferrer" className={styles.awbLink}>
+              <ExternalLink size={14} /> Tracking
+            </a>
+          )}
+
+          {row.status === "UNKNOWN" &&
+            (resolvingId === row.id ? (
+              <ResolveAwbForm
+                shipmentId={shipmentId}
+                row={row}
+                onCancel={() => setResolvingId("")}
+                onDone={async () => {
+                  setResolvingId("");
+                  await onResolved?.();
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                className={styles.primaryBtn}
+                disabled={!!resolvingId}
+                onClick={() => setResolvingId(row.id)}
+              >
+                Rezolvă AWB
+              </button>
+            ))}
+
+          {row.audit?.length > 0 && (
+            <details style={{ fontSize: 12 }}>
+              <summary className={styles.muted}>Istoric ({row.audit.length})</summary>
+              <ul style={{ margin: "4px 0 0", paddingLeft: 16 }}>
+                {row.audit.map((a, i) => (
+                  <li key={i}>
+                    {a.at ? formatDate(a.at) : "—"} · {a.action} · {a.actor}
+                    {a.userId ? ` (${a.userId})` : ""}
+                    {a.note ? ` – ${a.note}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function withCourierAwbs(shipment, courierAwbs) {
+  return { ...shipment, courierAwbs: Array.isArray(courierAwbs) ? courierAwbs : [] };
 }
 
 function KV({ label, children }) {

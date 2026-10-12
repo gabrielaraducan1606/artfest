@@ -97,9 +97,9 @@ export async function listInfluencerPayouts(influencerId) {
  *
  * @returns {Promise<{status: "CREATED"|"NO_ENTRIES"|"ZERO_OR_NEGATIVE"|"CONCURRENT_CONFLICT", ...}>}
  */
-export async function prepareInfluencerPayout({ influencerId }) {
+export async function prepareInfluencerPayout({ influencerId }, { db = prisma } = {}) {
   try {
-    return await prisma.$transaction(
+    return await db.$transaction(
       async (tx) => {
         const entries = await tx.influencerEarningEntry.findMany({
           where: { influencerId, payoutId: null },
@@ -181,18 +181,25 @@ export class InfluencerPayoutStateError extends Error {
   }
 }
 
+/*
+ * Regula Artfest (temporară, pentru orice tip de beneficiar): fără
+ * factură -> fără plată. Payout-ul UNPAID se poate crea fără factură
+ * (centralizează earning-urile), dar NU poate fi marcat PAID până când
+ * influencerul nu încarcă factura pentru ACEL payout.
+ */
+export const PAYOUT_INVOICE_MISSING_MESSAGE = "Plata este blocată până la încărcarea facturii.";
+
 /**
  * "Marchează ca plătit" - STRICT bookkeeping manual, NU declanșează
- * niciun transfer (Stripe/bancar). Doar UNPAID -> PAID e permis;
- * idempotent pe un payout deja PAID (nu suprascrie paidAt/referința
- * dintr-un al doilea click accidental).
+ * niciun transfer (Stripe/bancar). Doar UNPAID -> PAID e permis, și
+ * doar cu factură încărcată; idempotent pe un payout deja PAID (nu
+ * suprascrie paidAt/referința dintr-un al doilea click accidental).
  */
-export async function markInfluencerPayoutAsPaid({
-  payoutId,
-  paidAt,
-  paymentReference,
-}) {
-  const payout = await prisma.influencerPayout.findUnique({
+export async function markInfluencerPayoutAsPaid(
+  { payoutId, paidAt, paymentReference },
+  { db = prisma } = {}
+) {
+  const payout = await db.influencerPayout.findUnique({
     where: { id: payoutId },
   });
 
@@ -214,11 +221,15 @@ export async function markInfluencerPayoutAsPaid({
     );
   }
 
+  if (!payout.invoiceId) {
+    throw new InfluencerPayoutStateError("payout_invoice_missing", PAYOUT_INVOICE_MISSING_MESSAGE);
+  }
+
   const resolvedPaidAt = paidAt ? new Date(paidAt) : new Date();
   const resolvedReference = paymentReference?.trim() || null;
 
-  const [updatedPayout] = await prisma.$transaction([
-    prisma.influencerPayout.update({
+  const [updatedPayout] = await db.$transaction([
+    db.influencerPayout.update({
       where: { id: payoutId },
       data: {
         status: "PAID",
@@ -235,7 +246,7 @@ export async function markInfluencerPayoutAsPaid({
      */
     ...(payout.invoiceId
       ? [
-          prisma.invoice.update({
+          db.invoice.update({
             where: { id: payout.invoiceId },
             data: { status: "PAID", paidAt: resolvedPaidAt },
           }),
@@ -244,4 +255,77 @@ export async function markInfluencerPayoutAsPaid({
   ]);
 
   return updatedPayout;
+}
+
+/* =========================================================
+   Factura încărcată de influencer - acces DOAR prin link semnat
+   cu expirare (ca „Fișierele mele”). URL-ul public R2 salvat în
+   Invoice.pdfUrl / meta.xmlUrl NU se mai returnează în API; fișierele
+   existente rămân neatinse (doar cheia e derivată din URL).
+========================================================= */
+
+export const INVOICE_FILE_LINK_TTL_SECONDS = 300;
+
+export function invoiceFileKeyFromUrl(url, env = process.env) {
+  const base = env.R2_PUBLIC_BASE_URL
+    ? env.R2_PUBLIC_BASE_URL.replace(/\/+$/, "")
+    : `https://${env.R2_BUCKET_NAME}.${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+  const value = String(url || "");
+  if (!value.startsWith(`${base}/`)) return null;
+  const key = value.slice(base.length + 1);
+  // doar fișierele de factură ale influencerilor, fără traversare
+  return key.startsWith("influencer-invoices/") && !key.includes("..") ? key : null;
+}
+
+/** Factura pentru API (influencer + admin) - fără URL-uri de fișier. */
+export function serializePayoutInvoice(invoice) {
+  if (!invoice) return null;
+  return {
+    id: invoice.id,
+    number:
+      invoice.providerSeries && invoice.providerNumber
+        ? `${invoice.providerSeries}-${invoice.providerNumber}`
+        : invoice.series && invoice.number
+        ? `${invoice.series} ${invoice.number}`
+        : invoice.number,
+    issueDate: invoice.issueDate,
+    totalGross: Number(invoice.totalGross || 0),
+    originalFilename: invoice.meta?.originalFilename || null,
+    uploadedAt: invoice.meta?.uploadedAt || invoice.createdAt || null,
+    hasPdf: Boolean(invoice.providerPdfUrl || invoice.pdfUrl),
+    hasXml: Boolean(invoice.meta?.xmlUrl),
+  };
+}
+
+/**
+ * Link semnat (5 min) pentru PDF/XML-ul facturii unui payout.
+ * `influencerId` = proprietarul așteptat (influencerul logat sau
+ * :id din ruta admin) - alt influencer -> 404 (nu dezvăluim existența).
+ */
+export async function getPayoutInvoiceFileLink(
+  { payoutId, influencerId, kind = "pdf" },
+  { db = prisma, env = process.env, sign = null } = {}
+) {
+  const payout = await db.influencerPayout.findUnique({
+    where: { id: String(payoutId || "") },
+    include: { invoice: { select: { id: true, pdfUrl: true, providerPdfUrl: true, meta: true } } },
+  });
+  if (!payout || !influencerId || payout.influencerId !== influencerId || !payout.invoice) {
+    throw new InfluencerPayoutStateError("invoice_file_not_found", "Factura nu a fost găsită.");
+  }
+
+  const isXml = kind === "xml";
+  const source = isXml ? payout.invoice.meta?.xmlUrl : payout.invoice.providerPdfUrl || payout.invoice.pdfUrl;
+  const key = source ? invoiceFileKeyFromUrl(source, env) : null;
+  if (!key) {
+    throw new InfluencerPayoutStateError("invoice_file_not_found", "Factura nu a fost găsită.");
+  }
+
+  const signer = sign || (async (args) => (await import("./r2Storage.js")).getSignedDownloadUrl(args));
+  const url = await signer({
+    key,
+    filename: isXml ? payout.invoice.meta?.xmlOriginalFilename : payout.invoice.meta?.originalFilename,
+    expiresInSeconds: INVOICE_FILE_LINK_TTL_SECONDS,
+  });
+  return { url, expiresInSeconds: INVOICE_FILE_LINK_TTL_SECONDS };
 }

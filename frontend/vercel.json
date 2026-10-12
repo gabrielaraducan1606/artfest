@@ -205,6 +205,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/influencer/conformitate",
+      "destination": "/index.html"
+    },
+    {
       "source": "/inregistrare",
       "destination": "/index.html"
     },

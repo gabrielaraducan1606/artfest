@@ -26,26 +26,114 @@ export function isInputBlocker(b) {
 }
 
 /**
- * Ce afișează panoul:
- *  - "loading"   : încă încărcăm conturile
- *  - "created"   : Shipment are deja AWB -> AWB + Descarcă eticheta
- *  - "pending"   : generare în curs / rezultat neconfirmat (REQUESTED / UNKNOWN)
- *  - "connect"   : niciun cont de curier activ -> CTA „Conectează un curier”
- *  - "generate"  : buton „Generează AWB”
- *  - "hidden"    : comandă anulată / eroare la încărcare (fără CTA-uri false)
+ * Ce afișează secțiunea „Curier / Livrare” (o singură stare, deci un singur
+ * set de acțiuni - niciun buton activ pentru o acțiune care nu poate rula):
+ *  - "manual"       : expediată fără integrare (Shipment.manualShipment) ->
+ *                     doar datele introduse de vendor; fără AWB retroactiv
+ *  - "loading"      : încărcăm conturile / adresele / statusul AWB
+ *  - "disabled"     : integrarea e oprită pe server -> „În curs de activare”
+ *  - "error"        : nu am putut încărca datele -> doar „Reîncearcă”
+ *  - "created"      : expedierea are AWB -> număr, status, etichetă, tracking, anulare
+ *  - "requested"    : generare în curs (recentă) -> doar „Reîmprospătează”
+ *  - "unknown"      : rezultat neconfirmat de curier -> „Necesită verificare”,
+ *                     FĂRĂ generare (rezolvă adminul)
+ *  - "hidden"       : comandă anulată, fără AWB
+ *  - "connect"      : niciun cont de curier -> „Conectează un curier”
+ *  - "reconnect"    : conturi existente, niciunul activ -> „Reconectează contul”
+ *  - "setup_pickup" : nicio adresă de ridicare -> „Configurează punctul de ridicare”
+ *  - "ready"        : formularul AWB (eventual cu ultima încercare FAILED /
+ *                     CANCELLED afișată deasupra) -> „Generează AWB”
  */
-export function decideAwbPanelState({ shipment, orderStatus, accounts, accountsLoading, accountsError, activeStatus }) {
-  if (shipment?.awb) return "created";
-  if (activeStatus === "REQUESTED" || activeStatus === "UNKNOWN") return "pending";
+export function decideAwbPanelState({
+  shipment,
+  orderStatus,
+  accounts,
+  pickupAddresses,
+  loading,
+  loadError,
+  awbStatus,
+}) {
+  if (shipment?.manualShipment) return "manual";
+  if (loadError?.code === "courier_integration_disabled") return "disabled";
+  const awb = awbStatus?.shipment?.awb || shipment?.awb;
+  if (awb) return "created";
+  if (awbStatus?.active === "UNKNOWN") return "unknown";
+  if (awbStatus?.active === "REQUESTED") return "requested";
   if (orderStatus === "cancelled") return "hidden";
-  if (accountsLoading) return "loading";
-  if (accountsError || !Array.isArray(accounts)) return "hidden";
-  return hasActiveCourierAccount(accounts) ? "generate" : "connect";
+  if (loading) return "loading";
+  if (loadError || !Array.isArray(accounts)) return "error";
+  const connected = accounts.filter((a) => a && !a.disabledAt);
+  if (!connected.length) return "connect";
+  if (!hasActiveCourierAccount(connected)) return "reconnect";
+  if (!Array.isArray(pickupAddresses) || !pickupAddresses.length) return "setup_pickup";
+  return "ready";
+}
+
+// ultima încercare încheiată fără AWB activ (afișată deasupra formularului)
+export function lastAttemptNotice(awbStatus) {
+  const latest = awbStatus?.latest;
+  if (!latest || awbStatus?.active) return null;
+  if (latest.status === "FAILED") {
+    return {
+      tone: "danger",
+      title: "Ultima generare a eșuat",
+      message: latest.errorMessage || "Curierul a respins cererea.",
+      retryLabel: "Încearcă din nou",
+    };
+  }
+  if (latest.status === "CANCELLED") {
+    return {
+      tone: "muted",
+      title: `AWB-ul ${latest.awbNumber || ""} a fost anulat`.replace(/\s+/g, " ").trim(),
+      message: "Poți genera un AWB nou pentru această expediere.",
+      retryLabel: "Generează AWB nou",
+    };
+  }
+  return null;
+}
+
+const AWB_STATUS_BADGE = {
+  CREATED: { label: "Creat", tone: "success" },
+  REQUESTED: { label: "În curs", tone: "warning" },
+  UNKNOWN: { label: "Necesită verificare", tone: "warning" },
+  FAILED: { label: "Eșuat", tone: "danger" },
+  CANCELLED: { label: "Anulat", tone: "muted" },
+};
+
+export function awbStatusBadge(status) {
+  return AWB_STATUS_BADGE[status] || { label: "Fără AWB", tone: "muted" };
+}
+
+/*
+ * Blockerele din previzualizare care se rezolvă în Setări (nu în
+ * formular) -> un singur link clar, în locul unui buton inactiv.
+ */
+const PICKUP_SETUP_CODES = new Set(["pickup_address_missing", "pickup_address_incomplete", "pickup_point_missing"]);
+const ACCOUNT_SETUP_CODES = new Set([
+  "no_courier_account",
+  "courier_account_not_found",
+  "courier_account_inactive",
+  "courier_auth_failed",
+  "courier_credentials_unreadable",
+]);
+
+export function settingsActionForBlockers(blockers) {
+  const codes = (blockers || []).map((b) => b?.code);
+  if (codes.some((c) => ACCOUNT_SETUP_CODES.has(c))) return { kind: "account", label: "Reconectează contul de curier" };
+  if (codes.some((c) => PICKUP_SETUP_CODES.has(c))) return { kind: "pickup", label: "Configurează punctul de ridicare" };
+  return null;
 }
 
 // eticheta generată de Artfest se descarcă prin ruta protejată (PDF de la curier)
 export function isArtfestLabel(shipment) {
   return typeof shipment?.labelUrl === "string" && shipment.labelUrl.startsWith("/api/vendor/shipments/");
+}
+
+// „Anulează AWB”: serverul decide (awbStatus.canCancel: AWB Artfest activ,
+// coletul nepredat); UI-ul îl mai ascunde după expediere / anularea comenzii
+const AWB_NOT_CANCELLABLE_ORDER_STATUSES = new Set(["shipped", "fulfilled", "cancelled"]);
+export function canCancelArtfestAwb({ awbStatus, orderStatus }) {
+  return awbStatus?.canCancel === true && !AWB_NOT_CANCELLABLE_ORDER_STATUSES.has(String(orderStatus || ""));
 }
 
 export function initialAwbForm(preview) {
@@ -136,4 +224,127 @@ export function shouldKeepIdempotencyKey(error) {
 export function formatMoneyRon(value) {
   const n = Number(value || 0);
   return new Intl.NumberFormat("ro-RO", { style: "currency", currency: "RON" }).format(n);
+}
+
+/* =========================================================
+   Expediere FĂRĂ integrare („Trimite fără integrare”)
+   Backend: PATCH /api/vendor/orders/:id/status cu
+   { status: "shipped", manualShipping } (couriers/manualShipment.js).
+   Nu creează CourierAwb, nu apelează curierul, nimic financiar.
+========================================================= */
+
+// etapele în care comanda poate fi expediată (înainte de predare)
+const MANUAL_SHIP_ORDER_STATUSES = new Set(["new", "preparing", "confirmed"]);
+// stările panoului în care un AWB al integrării există / e în curs -> fără flux manual
+const NO_MANUAL_PANEL_STATES = new Set(["manual", "created", "requested", "unknown", "hidden"]);
+
+/**
+ * „Trimite fără integrare” e disponibil? Fără AWB (manual sau al
+ * integrării), fără generare în curs, comanda încă nepredată.
+ */
+export function canShipManually({ shipment, orderStatus, panelState = null }) {
+  if (!shipment?.id || shipment.manualShipment || shipment.awb) return false;
+  if (!MANUAL_SHIP_ORDER_STATUSES.has(String(orderStatus || ""))) return false;
+  if (panelState && NO_MANUAL_PANEL_STATES.has(panelState)) return false;
+  return true;
+}
+
+/**
+ * Cât de vizibil e „Trimite fără integrare”:
+ *  - "primary"  : niciun curier utilizabil (fără cont / cont inactiv / fără
+ *                 adresă / integrare oprită / eroare) -> acțiune clară
+ *  - "discreet" : curier conectat, formularul AWB e acțiunea principală
+ *  - null       : indisponibil
+ */
+export function manualShipVisibility({ shipment, orderStatus, panelState }) {
+  if (!canShipManually({ shipment, orderStatus, panelState })) return null;
+  if (panelState === "loading") return null;
+  return panelState === "ready" ? "discreet" : "primary";
+}
+
+/**
+ * Dialogul „Nu ai conectat încă un curier” - o singură dată: doar fără
+ * niciun cont de curier, doar dacă preferința s-a încărcat și vendorul nu a
+ * ales deja „Continuă fără integrare”, și cel mult o dată pe sesiune.
+ */
+export function shouldShowCourierPrompt({ panelState, preference, sessionShown, manualAvailable }) {
+  if (panelState !== "connect" || !manualAvailable || sessionShown) return false;
+  if (!preference || typeof preference.courierPromptDismissed !== "boolean") return false;
+  return preference.courierPromptDismissed === false;
+}
+
+export const MANUAL_COURIER_SUGGESTIONS = ["Sameday", "FAN Courier", "Cargus", "DPD", "GLS", "Poșta Română"];
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+// data locală „YYYY-MM-DD” (valoarea pentru input type=date)
+export function localIsoDate(d = new Date()) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+export function initialManualShipForm(now = new Date()) {
+  return { courierName: "", awb: "", trackingUrl: "", shippedAt: localIsoDate(now) };
+}
+
+// aceleași reguli ca backend-ul (couriers/manualShipment.js)
+export function validateManualShipForm(form, now = new Date()) {
+  const errors = {};
+  const courierName = String(form?.courierName ?? "").trim();
+  if (courierName.length > 80) errors.courierName = "Maximum 80 de caractere.";
+
+  const awb = String(form?.awb ?? "").replace(/\s+/g, "");
+  if (awb &&!/^[A-Za-z0-9-]{3,60}$/.test(awb)) errors.awb = "3-60 caractere: litere, cifre, cratimă.";
+
+  const url = String(form?.trackingUrl ?? "").trim();
+  if (url) {
+    let ok = false;
+    try {
+      ok = ["http:", "https:"].includes(new URL(url).protocol) && url.length <= 500;
+    } catch {
+      ok = false;
+    }
+    if (!ok) errors.trackingUrl = "Introdu un link complet (https://…).";
+  }
+
+  const date = String(form?.shippedAt ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    errors.shippedAt = "Alege data expedierii.";
+  } else {
+    const today = localIsoDate(now);
+    const min = localIsoDate(new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000));
+    if (date > today) errors.shippedAt = "Data nu poate fi în viitor.";
+    else if (date < min) errors.shippedAt = "Maximum 60 de zile în urmă.";
+  }
+  return errors;
+}
+
+/*
+ * Data expedierii afișată (zz.ll.aaaa) în Europe/Bucharest - aceeași zi ca
+ * în email (backend: formatShipmentDateRo), indiferent de fusul browserului.
+ * Backend-ul salvează ziua aleasă la 12:00 UTC (= 14:00/15:00 în România).
+ */
+export function formatShippedDate(value) {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("ro-RO", {
+    timeZone: "Europe/Bucharest",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
+}
+
+/** Body pentru PATCH status: DOAR câmpurile de livrare (nimic financiar). */
+export function buildManualShipBody(form) {
+  const manualShipping = { shippedAt: String(form?.shippedAt || "").trim() };
+  const courierName = String(form?.courierName ?? "").trim();
+  const awb = String(form?.awb ?? "").replace(/\s+/g, "");
+  const trackingUrl = String(form?.trackingUrl ?? "").trim();
+  if (courierName) manualShipping.courierName = courierName;
+  if (awb) manualShipping.awb = awb;
+  if (trackingUrl) manualShipping.trackingUrl = trackingUrl;
+  return { status: "shipped", manualShipping };
 }

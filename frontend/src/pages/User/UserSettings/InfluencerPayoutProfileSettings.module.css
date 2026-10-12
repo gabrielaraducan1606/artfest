@@ -315,6 +315,22 @@
   cursor: not-allowed;
 }
 
+/* link-uri către factură (PDF/XML prin link semnat) */
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-primary, #6f4e43);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.linkButton:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 /* =========================================================
    DATE DE FACTURARE ARTFEST (read-only)
 ========================================================= */

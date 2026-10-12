@@ -35,6 +35,15 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_TOKEN_TTL_MS = 60 * 60 * 1000;
 const TOKEN_SAFETY_MS = 5 * 60 * 1000;
 
+/*
+ * Sameday a respins utilizatorul/parola la /api/authenticate. Câmpul
+ * acceptă utilizator eAWB sau email și trimitem exact valoarea introdusă -
+ * dacă vendorul a pus emailul și Sameday nu-l acceptă, îl îndrumăm spre
+ * numele de utilizator eAWB (fără a încerca alte variante automat).
+ */
+export const SAMEDAY_AUTH_REJECTED_MESSAGE =
+  "Sameday nu a acceptat aceste date. Dacă ai introdus emailul, încearcă numele de utilizator eAWB primit de la Sameday.";
+
 /** @type {Map<string, {token:string, expiresAt:number, fingerprint:string}>} */
 const sessions = new Map();
 
@@ -116,7 +125,9 @@ async function authenticate(credentials, baseUrl) {
   });
 
   // Sameday răspunde cu 400/401/403 la credentiale greșite
-  if ([400, 401, 403].includes(res.status)) throw new CourierAuthError();
+  if ([400, 401, 403].includes(res.status)) {
+    throw new CourierAuthError(SAMEDAY_AUTH_REJECTED_MESSAGE);
+  }
   if (!res.ok) throw new CourierUnavailableError();
 
   const data = await readJson(res);
@@ -181,9 +192,10 @@ export function collectSamedayErrorFields(body) {
  * Dacă tot 401/403 -> credentiale invalide.
  *
  * @param {Object} ctx
- * @param {{ method?: string, path: string, form?: URLSearchParams, binary?: boolean }} req
+ * @param {{ method?: string, path: string, form?: URLSearchParams, binary?: boolean, allowEmpty?: boolean }} req
+ *   allowEmpty: răspuns 2xx fără corp (ex. DELETE) -> null, nu eroare
  */
-export async function samedayRequest(ctx, { method = "GET", path, form, binary = false }) {
+export async function samedayRequest(ctx, { method = "GET", path, form, binary = false, allowEmpty = false }) {
   let session = await getSamedaySession(ctx);
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -240,6 +252,16 @@ export async function samedayRequest(ctx, { method = "GET", path, form, binary =
       const buf = Buffer.from(await res.arrayBuffer());
       if (!buf.length) throw new CourierUnavailableError();
       return { buffer: buf, contentType: res.headers.get("content-type") || "application/pdf" };
+    }
+
+    if (allowEmpty) {
+      const text = await res.text();
+      if (!text.trim()) return null;
+      try {
+        return JSON.parse(text);
+      } catch {
+        return null;
+      }
     }
 
     return readJson(res);

@@ -541,14 +541,6 @@ function PayoutDetailsDrawer({ item, onClose, onChanged }) {
                     }}
                   >
                     {getBeneficiaryTypeLabel(profile.beneficiaryType)}
-
-                    {profile.beneficiaryType === "INDIVIDUAL" && (
-                      <span
-                        className={`${styles.status} ${styles.statusDisabled}`}
-                      >
-                        Procesare fiscală manuală
-                      </span>
-                    )}
                   </span>
                 </DrawerField>
 
@@ -679,6 +671,7 @@ function PayoutDetailsDrawer({ item, onClose, onChanged }) {
                   <PayoutHistoryRow
                     key={payout.id}
                     payout={payout}
+                    influencerId={influencerId}
                     influencerName={item.displayName}
                     iban={profile?.iban}
                     onChanged={async () => {
@@ -702,9 +695,37 @@ function PayoutDetailsDrawer({ item, onClose, onChanged }) {
    RÂND ISTORIC PAYOUT (Vezi factura / Marchează ca plătit)
 ========================================================= */
 
-function PayoutHistoryRow({ payout, influencerName, iban, onChanged }) {
+function PayoutHistoryRow({ payout, influencerId, influencerName, iban, onChanged }) {
   const [markingOpen, setMarkingOpen] = useState(false);
   const [marking, setMarking] = useState(false);
+  const [opening, setOpening] = useState("");
+
+  // backend: invoiceUploaded / payoutAllowed / payoutBlockedMessages (factură + conformitate)
+  const invoiceUploaded = Boolean(payout.invoiceUploaded ?? payout.invoice);
+  const payoutAllowed = payout.status === "UNPAID" && payout.payoutAllowed === true;
+  const blockedMessages = Array.isArray(payout.payoutBlockedMessages)
+    ? payout.payoutBlockedMessages
+    : [];
+
+  // factura doar prin link semnat cu expirare (fără URL public R2)
+  async function openInvoiceFile(kind) {
+    setOpening(kind);
+
+    try {
+      const data = await api(
+        `/api/admin/influencers/${encodeURIComponent(
+          influencerId
+        )}/payouts/${encodeURIComponent(payout.id)}/invoice/file?kind=${kind}`
+      );
+      window.open(data.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast.error(
+        err?.data?.message || err?.message || "Nu am putut deschide factura."
+      );
+    } finally {
+      setOpening("");
+    }
+  }
   const [paidAt, setPaidAt] = useState(
     () => new Date().toISOString().slice(0, 10)
   );
@@ -810,32 +831,30 @@ function PayoutHistoryRow({ payout, influencerName, iban, onChanged }) {
           {payout.invoice.uploadedAt && (
             <> · încărcată {formatDate(payout.invoice.uploadedAt)}</>
           )}
-          {payout.invoice.pdfUrl && (
+          {payout.invoice.hasPdf && (
             <>
               {" — "}
-              <a
-                href={payout.invoice.pdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
                 className={styles.smallButton}
-                style={{ textDecoration: "none", display: "inline-block" }}
+                disabled={!!opening}
+                onClick={() => openInvoiceFile("pdf")}
               >
-                Vezi factura
-              </a>
+                {opening === "pdf" ? "Se deschide..." : "Vezi factura"}
+              </button>
             </>
           )}
-          {payout.invoice.xmlUrl && (
+          {payout.invoice.hasXml && (
             <>
               {" "}
-              <a
-                href={payout.invoice.xmlUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
                 className={styles.smallButton}
-                style={{ textDecoration: "none", display: "inline-block" }}
+                disabled={!!opening}
+                onClick={() => openInvoiceFile("xml")}
               >
-                XML
-              </a>
+                {opening === "xml" ? "Se deschide..." : "XML"}
+              </button>
             </>
           )}
         </div>
@@ -847,19 +866,36 @@ function PayoutHistoryRow({ payout, influencerName, iban, onChanged }) {
         )
       )}
 
+      {payout.status === "UNPAID" && (
+        <div className={styles.subtitle} style={{ fontSize: 12 }}>
+          Factură: <strong>{invoiceUploaded ? "Încărcată" : "Lipsă"}</strong>
+          {" · "}
+          Payout permis: <strong>{payoutAllowed ? "DA" : "NU"}</strong>
+        </div>
+      )}
+
+      {payout.status === "UNPAID" &&
+        blockedMessages.map((message) => (
+          <div key={message} className={styles.payoutBlocked} role="status">
+            {message}
+          </div>
+        ))}
+
       {payout.status === "UNPAID" && !markingOpen && (
         <div>
           <button
             type="button"
             className={styles.smallButton}
             onClick={() => setMarkingOpen(true)}
+            disabled={!payoutAllowed}
+            title={payoutAllowed ? undefined : blockedMessages.join(" ")}
           >
             Marchează ca plătit
           </button>
         </div>
       )}
 
-      {markingOpen && (
+      {markingOpen && payoutAllowed && (
         <div
           style={{
             border: "1px solid var(--color-border)",

@@ -4,7 +4,11 @@ import { Link } from "react-router-dom";
 import { Truck, ArrowRight } from "lucide-react";
 import { api } from "../../../../lib/api";
 import { VENDOR_COURIERS_SETTINGS_URL } from "../../../../config/vendorNavigation.js";
-import { VENDOR_COURIERS_ENABLED } from "../../../../config/features.js";
+import {
+  COURIER_AUTOMATION_ENABLED,
+  COURIER_AUTOMATION_SOON_MESSAGE,
+  COURIER_MANUAL_SHIPPING_MESSAGE,
+} from "../../../../config/features.js";
 import { shouldShowCourierCta } from "../utils/courierCta.js";
 import styles from "./CourierConnectCta.module.css";
 
@@ -23,10 +27,38 @@ async function loadAccounts() {
   return Array.isArray(res?.items) ? res.items : [];
 }
 
-// flag oprit => nimic randat și niciun apel API (vezi config/features.js)
+// integrarea automată indisponibilă => CTA vizibil, dar dezactivat; niciun apel API (vezi config/features.js)
 export default function CourierConnectCta(props) {
-  if (!VENDOR_COURIERS_ENABLED) return null;
+  if (!COURIER_AUTOMATION_ENABLED) return <CourierConnectCtaUnavailable {...props} />;
   return <CourierConnectCtaInner {...props} />;
+}
+
+function CourierConnectCtaUnavailable({ variant = "banner" }) {
+  return (
+    <section
+      className={`${styles.cta} ${styles.unavailable} ${variant === "compact" ? styles.compact : ""}`}
+      aria-label="Conectează un curier - disponibil în curând"
+    >
+      <span className={styles.icon} aria-hidden="true">
+        <Truck size={20} />
+      </span>
+      <div className={styles.text}>
+        <strong className={styles.title}>Conectează un curier</strong>
+        <span className={styles.subtitle}>
+          {COURIER_AUTOMATION_SOON_MESSAGE} {COURIER_MANUAL_SHIPPING_MESSAGE}
+        </span>
+      </div>
+      <button
+        type="button"
+        className={`${styles.btn} ${styles.btnUnavailable}`}
+        disabled
+        aria-disabled="true"
+        title={COURIER_AUTOMATION_SOON_MESSAGE}
+      >
+        Conectează un curier <ArrowRight size={16} aria-hidden="true" />
+      </button>
+    </section>
+  );
 }
 
 function CourierConnectCtaInner({ variant = "banner" }) {

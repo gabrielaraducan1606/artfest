@@ -12,6 +12,7 @@ import {
 import {
   createVendorNotification,
 } from "../../../services/notifications.js";
+import { queueNewMessageEmail } from "../../../services/messageEmailNotifications.js";
 
 import {
   moderateMarketplaceMessage,
@@ -1808,6 +1809,10 @@ if (
           notificationError
         );
       }
+
+      // email doar pentru mesajele reale din cerere (cererea nouă și
+      // comanda din ofertă au deja emailurile lor)
+      queueNewMessageEmail(message.id);
 
       return res
         .status(201)

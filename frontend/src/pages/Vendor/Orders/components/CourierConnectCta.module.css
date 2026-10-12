@@ -79,3 +79,26 @@
     justify-content: center;
   }
 }
+
+/* integrarea automată indisponibilă: card vizibil, buton greyed out */
+.unavailable {
+  border-color: var(--color-border);
+  background: var(--surface);
+}
+
+.unavailable .icon {
+  color: var(--color-muted);
+  background: var(--surface-muted);
+}
+
+.btnUnavailable,
+.btnUnavailable:hover,
+.btnUnavailable:disabled {
+  border-color: var(--color-border);
+  background: var(--surface-muted);
+  color: var(--color-muted);
+  filter: none;
+  cursor: not-allowed;
+  font: inherit;
+  font-weight: 700;
+}

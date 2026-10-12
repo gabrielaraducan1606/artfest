@@ -48,13 +48,17 @@ import { z } from "zod";
 
 import { prisma } from "../db.js";
 import { authRequired, enforceTokenVersion } from "../api/auth.js";
+import { enforceInfluencerComplianceGate } from "../middleware/enforceInfluencerComplianceGate.js";
 import { uploadToR2 } from "../services/r2Storage.js";
 import { getPlatformBillingOrThrow } from "../lib/platformBilling.js";
-import { listInfluencerPayouts } from "../services/influencerPayoutService.js";
+import {
+  InfluencerPayoutStateError,
+  getPayoutInvoiceFileLink,
+  listInfluencerPayouts,
+  serializePayoutInvoice,
+} from "../services/influencerPayoutService.js";
 
 const router = Router();
-
-const SELF_INVOICE_ELIGIBLE_TYPES = new Set(["PFA", "COMPANY"]);
 
 async function requireInfluencer(req, res) {
   const userId = req.user?.sub;
@@ -169,23 +173,8 @@ router.get(
           issuedAt: p.issuedAt,
           paidAt: p.paidAt,
           paymentReference: p.paymentReference,
-          invoice: p.invoice
-            ? {
-                id: p.invoice.id,
-                number:
-                  p.invoice.providerSeries && p.invoice.providerNumber
-                    ? `${p.invoice.providerSeries}-${p.invoice.providerNumber}`
-                    : p.invoice.series && p.invoice.number
-                    ? `${p.invoice.series} ${p.invoice.number}`
-                    : p.invoice.number,
-                issueDate: p.invoice.issueDate,
-                pdfUrl: p.invoice.providerPdfUrl || p.invoice.pdfUrl || null,
-                xmlUrl: p.invoice.meta?.xmlUrl || null,
-                originalFilename: p.invoice.meta?.originalFilename || null,
-                uploadedAt:
-                  p.invoice.meta?.uploadedAt || p.invoice.createdAt || null,
-              }
-            : null,
+          // fără URL-uri de fișier - PDF/XML doar prin link semnat (mai jos)
+          invoice: serializePayoutInvoice(p.invoice),
         })),
       });
     } catch (error) {
@@ -206,9 +195,9 @@ router.get(
    POST /api/influencer/payouts/:payoutId/invoice
 
    "Trimite factura" - STRICT upload + înregistrare, FĂRĂ OCR, FĂRĂ
-   parsare, FĂRĂ validare fiscală automată. Doar PFA/COMPANY (vezi
-   SELF_INVOICE_ELIGIBLE_TYPES) - pentru INDIVIDUAL/OTHER, blocat
-   explicit mai jos, cu mesajele cerute.
+   parsare, FĂRĂ validare fiscală automată. Disponibil pentru ORICE
+   tip de beneficiar - regula Artfest: fără factură -> fără plată
+   (tipul beneficiarului nu schimbă regula).
 ========================================================= */
 
 function getFileExtension(name = "") {
@@ -261,6 +250,8 @@ router.post(
   "/payouts/:payoutId/invoice",
   authRequired,
   enforceTokenVersion,
+  // conformitate: payout blocat până la COMPLETED
+  enforceInfluencerComplianceGate,
   (req, res) => {
     uploadInvoiceFiles.fields([
       { name: "file", maxCount: 1 },
@@ -330,11 +321,6 @@ router.post(
 
         const payout = await prisma.influencerPayout.findUnique({
           where: { id: payoutId },
-          include: {
-            influencer: {
-              include: { payoutProfile: true },
-            },
-          },
         });
 
         if (!payout || payout.influencerId !== influencer.id) {
@@ -357,23 +343,6 @@ router.post(
             ok: false,
             error: "payout_already_has_invoice",
             message: "Ai încărcat deja o factură pentru acest payout.",
-          });
-        }
-
-        const beneficiaryType =
-          payout.influencer.payoutProfile?.beneficiaryType || null;
-
-        if (!SELF_INVOICE_ELIGIBLE_TYPES.has(beneficiaryType)) {
-          return res.status(409).json({
-            ok: false,
-            error:
-              beneficiaryType === "INDIVIDUAL"
-                ? "individual_not_eligible"
-                : "beneficiary_type_not_eligible",
-            message:
-              beneficiaryType === "INDIVIDUAL"
-                ? "Plata acestui tip de beneficiar este procesată separat."
-                : "Necesită procesare manuală.",
           });
         }
 
@@ -439,7 +408,6 @@ router.post(
             id: created.id,
             number: created.number,
             issueDate: created.issueDate,
-            pdfUrl: created.pdfUrl,
           },
         });
       } catch (error) {
@@ -463,6 +431,47 @@ router.post(
         });
       }
     });
+  }
+);
+
+/* =========================================================
+   GET /api/influencer/payouts/:payoutId/invoice/file?kind=pdf|xml
+
+   Doar influencerul PROPRIETAR: link semnat cu expirare scurtă
+   (5 minute), ca la „Fișierele mele”. Alt influencer -> 404.
+========================================================= */
+
+router.get(
+  "/payouts/:payoutId/invoice/file",
+  authRequired,
+  enforceTokenVersion,
+  async (req, res) => {
+    try {
+      const influencer = await requireInfluencer(req, res);
+      if (!influencer) return;
+
+      const link = await getPayoutInvoiceFileLink({
+        payoutId: req.params.payoutId,
+        influencerId: influencer.id,
+        kind: req.query?.kind === "xml" ? "xml" : "pdf",
+      });
+
+      return res.json({ ok: true, ...link });
+    } catch (error) {
+      if (error instanceof InfluencerPayoutStateError) {
+        return res.status(404).json({ ok: false, error: error.code, message: error.message });
+      }
+
+      console.error(
+        "[influencerPayoutsRoutes] GET /payouts/:payoutId/invoice/file error:",
+        error
+      );
+
+      return res.status(500).json({
+        ok: false,
+        error: "influencer_invoice_file_failed",
+      });
+    }
   }
 );
 

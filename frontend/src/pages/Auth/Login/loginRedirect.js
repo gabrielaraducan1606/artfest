@@ -42,6 +42,31 @@ export function withLoginRedirect(path, redirect) {
 }
 
 /*
+ * Pagina de login pentru o rută protejată, cu întoarcere EXACT la pagina
+ * cerută (pathname + search + hash) - ex. linkul din emailul „mesaj nou”
+ * (/cont/mesaje?threadId=..., /mesaje?threadId=..., /mesaje?vendorThreadId=...).
+ * Același ?redirect= citit de getSafeLoginRedirect în <LoginPage>.
+ */
+export function loginPathFor(location) {
+  const current = `${location?.pathname || "/"}${location?.search || ""}${location?.hash || ""}`;
+  return withLoginRedirect("/autentificare", current);
+}
+
+/*
+ * Deep-link la conversația unei cereri de ofertă (?assistant=quote|vendor-quote
+ * &quoteId=...) - deschis de asistent doar pentru un cont autentificat.
+ */
+export function isQuoteDeepLink(search) {
+  try {
+    const params = new URLSearchParams(search || "");
+    const target = params.get("assistant");
+    return (target === "quote" || target === "vendor-quote") && Boolean(params.get("quoteId"));
+  } catch {
+    return false;
+  }
+}
+
+/*
  * Destinația finală după înregistrare / confirmarea emailului:
  *  - cont de VÂNZĂTOR -> fluxul lui (onboarding), neschimbat;
  *  - altfel, redirect contextual valid (ex. /produs/abc?vcol=x) -> acolo;

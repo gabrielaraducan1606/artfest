@@ -617,3 +617,70 @@ test("starea goală nu mai afirmă „Coșul tău este gol” când produsul e Q
   assert.match(checkoutSrc, /Elimină produsul din coș și cere o ofertă din pagina lui\./);
   assert.match(checkoutSrc, /<Link to="\/cos" className=\{styles\.linkPrimary\}>\s*Mergi la coș/);
 });
+
+/* =========================================================
+   Email „mesaj nou” -> conversație -> login -> înapoi EXACT în conversație.
+   Același mecanism (?redirect= + getSafeLoginRedirect -> <Login redirectTo>),
+   fără alt sistem de redirect: gărzile din App.jsx și deep-link-ul de
+   cerere de ofertă din AppLayout trimit la loginPathFor(location).
+========================================================= */
+
+const { loginPathFor, isQuoteDeepLink } = await import("../pages/Auth/Login/loginRedirect.js");
+const appLayoutSrc = readQL("../components/Navbar/AppLayout.jsx");
+
+const MESSAGE_EMAIL_LINKS = [
+  ["USER", "/cont/mesaje", "?threadId=cmthread123"],
+  ["VENDOR", "/mesaje", "?threadId=cmthread123"],
+  ["vendor care cumpără", "/mesaje", "?vendorThreadId=cmthread123"],
+  ["quote USER", "/", "?assistant=quote&quoteId=cmquote456"],
+  ["quote VENDOR", "/", "?assistant=vendor-quote&quoteId=cmquote456"],
+];
+
+test("link din email fără sesiune -> /autentificare?redirect=... -> după login EXACT linkul inițial", () => {
+  for (const [label, pathname, search] of MESSAGE_EMAIL_LINKS) {
+    const original = `${pathname}${search}`;
+    const loginUrl = loginPathFor({ pathname, search, hash: "" });
+
+    assert.ok(loginUrl.startsWith("/autentificare?redirect="), label);
+    const loginSearch = loginUrl.slice("/autentificare".length);
+    // exact ce primește <Login redirectTo> din <LoginPage> / Navbar
+    assert.equal(getSafeLoginRedirect(loginSearch), original, label);
+  }
+});
+
+test("loginPathFor păstrează și hash-ul; fără location -> /", () => {
+  const url = loginPathFor({ pathname: "/cont/mesaje", search: "?threadId=a", hash: "#ultimul" });
+  assert.equal(getSafeLoginRedirect(url.slice("/autentificare".length)), "/cont/mesaje?threadId=a#ultimul");
+  assert.equal(getSafeLoginRedirect(loginPathFor(undefined).slice("/autentificare".length)), "/");
+});
+
+test("isQuoteDeepLink: doar ?assistant=quote|vendor-quote cu quoteId", () => {
+  assert.equal(isQuoteDeepLink("?assistant=quote&quoteId=q1"), true);
+  assert.equal(isQuoteDeepLink("?assistant=vendor-quote&quoteId=q1"), true);
+  assert.equal(isQuoteDeepLink("?assistant=quote"), false);
+  assert.equal(isQuoteDeepLink("?assistant=contact-info&quoteId=q1"), false);
+  assert.equal(isQuoteDeepLink(""), false);
+  // pagina de login nu e ea însăși un deep-link (fără buclă)
+  const loginUrl = loginPathFor({ pathname: "/", search: "?assistant=quote&quoteId=q1" });
+  assert.equal(isQuoteDeepLink(loginUrl.slice("/autentificare".length)), false);
+});
+
+test("gărzile din App.jsx trimit la login CU redirect (nu mai pierd conversația)", () => {
+  for (const guard of ["RequireUser", "RequireVendor", "RequireAuthenticated", "RequireInfluencer", "RequireAdmin"]) {
+    const start = appSrc.indexOf(`function ${guard}({`);
+    assert.ok(start > 0, guard);
+    const body = appSrc.slice(start, appSrc.indexOf("\nfunction ", start + 10));
+    assert.match(body, /const location = useLocation\(\);/, guard);
+    assert.match(body, /if \(!me\) \{[\s\S]*?<Navigate\s+to=\{loginPathFor\(location\)\}\s+replace/, guard);
+    assert.doesNotMatch(body, /to="\/autentificare"/, guard);
+  }
+  assert.match(appSrc, /path="\/cont\/mesaje"\s*element=\{\s*<RequireUser>/);
+  assert.match(appSrc, /path="\/mesaje"\s*element=\{\s*<RequireVendor>/);
+});
+
+test("AppLayout: deep-link cerere de ofertă fără sesiune -> login cu redirect (după încărcarea sesiunii)", () => {
+  assert.match(
+    appLayoutSrc,
+    /if \(!loading && !me && isQuoteDeepLink\(location\.search\)\) \{\s*return <Navigate to=\{loginPathFor\(location\)\} replace \/>;/
+  );
+});

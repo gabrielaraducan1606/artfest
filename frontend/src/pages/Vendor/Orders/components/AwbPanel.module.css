@@ -1,33 +1,87 @@
-/* Panou AWB + modal - doar variabile de temă (merge și în dark mode) */
+/* Secțiunea „Curier / Livrare” - doar variabile de temă (merge și în dark mode) */
 
-.panel {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+.section {
+  display: grid;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   border-radius: 14px;
   border: 1px solid var(--color-border);
   background: var(--surface);
   color: var(--color-text);
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .icon {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
   color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 14%, transparent);
 }
 
+.title {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+/* ---------- badge status ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+  background: var(--surface-muted);
+}
+
+.tone_success {
+  color: var(--color-success);
+  background: var(--success-bg-soft);
+  border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+}
+
+.tone_warning {
+  color: var(--color-warning);
+  background: var(--warning-bg-soft);
+  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+}
+
+.tone_danger {
+  color: var(--color-danger);
+  background: var(--danger-bg-soft);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+}
+
+.tone_muted {
+  color: var(--color-muted);
+  background: var(--surface-muted);
+}
+
+/* ---------- text / mesaje ---------- */
 .text {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
-  flex: 1 1 220px;
+  font-size: 14px;
 }
 
 .muted {
@@ -36,43 +90,127 @@
   overflow-wrap: anywhere;
 }
 
+.notice {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  border: 1px solid var(--color-border);
+  background: var(--surface-muted);
+}
+
+.notice strong {
+  font-size: 14px;
+}
+
+.notice_danger {
+  color: var(--color-danger);
+  background: var(--danger-bg-soft);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+}
+
+.notice_warning {
+  background: var(--warning-bg-soft);
+  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+}
+
+/* ---------- detalii (fără tabel) ---------- */
+.details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.detail {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg);
+}
+
+.detail dt {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+}
+
+.detail dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.cod {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+/* ---------- acțiuni ---------- */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .primaryBtn,
-.ghostBtn {
+.secondaryBtn,
+.dangerBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 14px;
+  padding: 9px 14px;
   border-radius: 999px;
   font: inherit;
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
+  text-decoration: none;
+  box-sizing: border-box;
 }
 
 .primaryBtn {
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
-  color: var(--on-primary, #fff);
+  color: var(--on-primary);
 }
 
 .primaryBtn:hover:not(:disabled) {
   filter: brightness(0.95);
 }
 
-.ghostBtn {
+.secondaryBtn {
   border: 1px solid var(--color-border);
-  background: transparent;
+  background: var(--surface);
   color: var(--color-text);
 }
 
-.ghostBtn:hover:not(:disabled) {
+.secondaryBtn:hover:not(:disabled) {
   background: var(--hover-bg);
 }
 
+.dangerBtn {
+  border: 1px solid color-mix(in srgb, var(--color-danger) 45%, transparent);
+  background: transparent;
+  color: var(--color-danger);
+}
+
+.dangerBtn:hover:not(:disabled) {
+  background: var(--danger-bg-soft);
+}
+
 .primaryBtn:disabled,
-.ghostBtn:disabled {
+.secondaryBtn:disabled,
+.dangerBtn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -90,12 +228,13 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .primaryBtn:focus-visible,
-.ghostBtn:focus-visible,
-.linkBtn:focus-visible,
-.iconBtn:focus-visible {
+.secondaryBtn:focus-visible,
+.dangerBtn:focus-visible,
+.linkBtn:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
@@ -110,75 +249,10 @@
   }
 }
 
-/* ---------- modal ---------- */
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: var(--overlay-bg);
-}
-
-.modal {
-  width: min(680px, 100%);
-  max-height: calc(100dvh - 32px);
-  display: flex;
-  flex-direction: column;
-  background: var(--surface-elevated);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: 16px;
-  box-shadow: var(--shadow-md);
-  overflow: hidden;
-}
-
-.modalHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.modalTitle {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 800;
-}
-
-.modalBody {
-  padding: 16px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.modalFoot {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--color-border);
-}
-
-.iconBtn {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-muted);
-  cursor: pointer;
-}
-
+/* ---------- formular AWB ---------- */
 .body {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .loading {
@@ -218,36 +292,6 @@
   padding-left: 20px;
   display: grid;
   gap: 2px;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.block {
-  display: grid;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: var(--color-bg);
-  font-size: 14px;
-  min-width: 0;
-}
-
-.blockTitle {
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-muted);
-}
-
-.cod {
-  font-size: 18px;
-  font-weight: 800;
 }
 
 .fieldset {
@@ -294,9 +338,9 @@
   background: var(--input-bg);
   color: var(--color-text);
   border-radius: 10px;
-  padding: 8px 10px;
+  padding: 9px 10px;
   font: inherit;
-  font-size: 14px;
+  font-size: 16px; /* fără zoom automat pe iOS */
 }
 
 .input:focus {
@@ -313,38 +357,157 @@
   color: var(--color-danger);
 }
 
+.dims summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.dims[open] summary {
+  margin-bottom: 8px;
+}
+
+/* ---------- dialog „Nu ai conectat încă un curier” ---------- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--overlay-bg, rgba(15, 23, 42, 0.5));
+}
+
+.dialog {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  max-width: 440px;
+  box-sizing: border-box;
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+.dialogTitle {
+  margin: 0;
+  padding-right: 32px;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.dialogClose {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.dialogClose:hover {
+  background: var(--hover-bg);
+}
+
+.dialogClose:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.dialogActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* ---------- mobil ---------- */
 @media (max-width: 600px) {
-  .overlay {
-    padding: 0;
-    place-items: end stretch;
+  .section {
+    padding: 12px;
   }
 
-  .modal {
+  /* acțiunile principale: pe lățime completă, una sub alta */
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .actions > .primaryBtn,
+  .actions > .secondaryBtn,
+  .actions > .dangerBtn {
     width: 100%;
-    max-height: 92dvh;
-    border-radius: 16px 16px 0 0;
-    border-bottom: none;
   }
 
-  .grid,
+  .details,
   .row {
     grid-template-columns: 1fr;
+  }
+
+  /* dialogul: foaie de jos, butoane pe lățime completă (principalul primul) */
+  .overlay {
+    place-items: end stretch;
+    padding: 0;
+  }
+
+  .dialog {
+    max-width: none;
+    border-radius: 16px 16px 0 0;
+    padding: 20px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .dialogActions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .dialogActions > .primaryBtn,
+  .dialogActions > .secondaryBtn {
+    width: 100%;
   }
 
   .row3 {
     grid-template-columns: 1fr 1fr 1fr;
   }
+}
 
-  .panel .primaryBtn {
+/* ===== Integrare automată indisponibilă (greyed out, fără request) ===== */
+.automationUnavailable {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-border);
+}
+
+.unavailableBtn,
+.unavailableBtn:disabled,
+.unavailableBtn:hover,
+.unavailableBtn:active {
+  background: var(--surface-muted);
+  border-color: var(--color-border);
+  color: var(--color-muted);
+  box-shadow: none;
+  transform: none;
+  filter: none;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+  .automationUnavailable .actions > button {
     width: 100%;
-  }
-
-  .modalFoot {
-    flex-direction: column-reverse;
-  }
-
-  .modalFoot > button {
-    width: 100%;
+    justify-content: center;
   }
 }

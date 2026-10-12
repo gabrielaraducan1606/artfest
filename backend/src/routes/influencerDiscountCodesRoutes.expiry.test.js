@@ -8,6 +8,8 @@
 
 process.env.DATABASE_URL = "postgresql://test:test@127.0.0.1:5";
 process.env.JWT_SECRET = "test-secret";
+// matricea de expirare se testează fără gate-ul de conformitate (acoperit separat)
+process.env.INFLUENCER_COMPLIANCE_GATE_ENABLED = "0";
 
 import { test, mock, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";

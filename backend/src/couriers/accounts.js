@@ -40,7 +40,7 @@ function sanitizeLabel(raw, fallback) {
 
 // un singur default per vendor: serializăm operațiile pe vendor (advisory lock)
 async function lockVendorScope(tx, scope, vendorId) {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`${scope}:${vendorId}`}))`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${scope}:${vendorId}`}))`;
 }
 
 async function findOwnedAccount(db, vendorId, id, { includeDisabled = false } = {}) {

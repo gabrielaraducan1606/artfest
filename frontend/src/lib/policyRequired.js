@@ -17,6 +17,7 @@ export const POLICY_REQUIRED_EVENT = "policy:required";
 const POLICY_CODES_428 = new Set([
   "policy_acceptance_required",
   "influencer_terms_acceptance_required",
+  "influencer_compliance_required",
 ]);
 
 function isGateScope(value) {
@@ -40,6 +41,20 @@ export function describePolicyRequired(status, data) {
   const code = data && typeof data === "object" ? data.error : null;
 
   if (status === 428 && POLICY_CODES_428.has(code)) {
+    // gate de conformitate (ex. acord părinte/tutore) - formular dedicat
+    if (code === "influencer_compliance_required") {
+      return {
+        status,
+        kind: "influencer_compliance",
+        code,
+        scopes: [],
+        missing: [],
+        document: null,
+        terms: null,
+        compliance: data.compliance || null,
+      };
+    }
+
     if (code === "influencer_terms_acceptance_required") {
       return {
         status,

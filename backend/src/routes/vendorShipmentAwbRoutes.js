@@ -3,12 +3,19 @@
 import { Router } from "express";
 import { authRequired, optionalAuth } from "../api/auth.js";
 import { prisma } from "../db.js";
-import { requireVendorAccount, courierApiLimiter, handleCourier } from "../couriers/http.js";
+import {
+  requireVendorAccount,
+  courierApiLimiter,
+  handleCourier,
+  requireCourierIntegration,
+  isCourierIntegrationEnabled,
+} from "../couriers/http.js";
 import {
   previewAwb,
   createAwbForShipment,
   getAwbStatus,
   getAwbLabel,
+  cancelAwbForShipment,
 } from "../couriers/awb/awbService.js";
 
 /*
@@ -17,6 +24,8 @@ import {
  *   POST /shipments/:id/awb/preview  - previzualizare + blockere (nu creează nimic)
  *   POST /shipments/:id/awb          - creare (header Idempotency-Key obligatoriu)
  *   GET  /shipments/:id/awb          - statusul AWB curent
+ *   POST /shipments/:id/awb/cancel   - anulare (doar înainte de predarea coletului;
+ *                                      starea se schimbă doar după confirmarea curierului)
  *   GET  /shipments/:id/label        - PDF-ul etichetei (AWB generat de Artfest);
  *                                      altfel lasă cererea să continue spre
  *                                      handlerul existent (labelUrl manual, admin).
@@ -26,7 +35,13 @@ import {
 
 const router = Router();
 const limiter = courierApiLimiter({ max: 40 });
+// previzualizarea se încarcă automat în detaliul comenzii (doar citiri la
+// curier) - limită separată, ca navigarea să nu blocheze generarea/anularea
+const previewLimiter = courierApiLimiter({ max: 120 });
 const handle = (fn) => handleCourier(fn, "vendorShipmentAwbRoutes");
+
+// flag backend (COURIER_INTEGRATION_ENABLED): /awb, /awb/preview, /awb/cancel
+router.use("/shipments/:id/awb", requireCourierIntegration);
 
 // doar câmpurile permise vendorului (fără codAmount / adrese / sume)
 function pickAwbInput(body = {}) {
@@ -40,7 +55,7 @@ router.post(
   "/shipments/:id/awb/preview",
   authRequired,
   requireVendorAccount,
-  limiter,
+  previewLimiter,
   handle(async (req, res) => {
     const preview = await previewAwb({
       vendorId: req.vendorId,
@@ -68,6 +83,22 @@ router.post(
   })
 );
 
+router.post(
+  "/shipments/:id/awb/cancel",
+  authRequired,
+  requireVendorAccount,
+  limiter,
+  handle(async (req, res) => {
+    res.json(
+      await cancelAwbForShipment({
+        vendorId: req.vendorId,
+        userId: req.user?.sub || null,
+        shipmentId: req.params.id,
+      })
+    );
+  })
+);
+
 router.get(
   "/shipments/:id/awb",
   authRequired,
@@ -83,6 +114,8 @@ router.get(
  * de Artfest, cererea continuă spre handlerul existent (next()).
  */
 router.get("/shipments/:id/label", optionalAuth, async (req, res, next) => {
+  // integrare oprită -> handlerul existent (labelUrl manual setat de admin)
+  if (!isCourierIntegrationEnabled()) return next();
   try {
     const vendor = req.user?.sub
       ? await prisma.vendor.findUnique({ where: { userId: req.user.sub }, select: { id: true } })

@@ -526,12 +526,14 @@
     padding: 14px;
   }
 
+  /* acțiunile contului: una sub alta, pe lățime completă */
   .actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
   .actionBtn {
+    width: 100%;
     white-space: normal;
     text-align: center;
   }
@@ -548,5 +550,174 @@
 
   .item {
     padding: 12px;
+  }
+}
+
+/* ---------- ajutor „Nu găsești datele eAWB?” (Sameday) ---------- */
+
+.eawbHelp {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  scroll-margin-top: 12px;
+}
+
+.eawbHelp:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.eawbHelpTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 15px;
+  color: var(--color-text);
+}
+
+.eawbHelpText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.eawbHelpNote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+
+.eawbHelpList {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.eawbHelpItem {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.eawbHelpBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.eawbHelpBtn:hover {
+  background: var(--hover-bg);
+  border-color: var(--border-strong);
+}
+
+.eawbHelpBtn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.authHelpAction {
+  margin-top: 8px;
+}
+
+/* mobil: acțiuni pe toată lățimea, ușor de atins */
+@media (max-width: 600px) {
+  .eawbHelp {
+    padding: 12px;
+  }
+
+  .eawbHelpItem {
+    justify-items: stretch;
+  }
+
+  .eawbHelpBtn,
+  .eawbHelpItem > button {
+    width: 100%;
+  }
+}
+
+/* ===== Integrare automată indisponibilă (greyed out, nu pare stricat) ===== */
+.unavailableBtn,
+.unavailableBtn:disabled,
+.unavailableBtn:hover,
+.unavailableBtn:active {
+  background: var(--surface-muted);
+  border-color: var(--color-border);
+  color: var(--color-muted);
+  box-shadow: none;
+  transform: none;
+  filter: none;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.unavailableNote {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.unavailableProvider {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.unavailableProviderHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.unavailableBadge {
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.unavailableActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .unavailableActions > button {
+    width: 100%;
+    justify-content: center;
   }
 }

@@ -11,6 +11,35 @@ import styles from "./AdminInfluencersTab.module.css";
 import AdminInfluencerResourcesTab from "./AdminInfluencerResourcesTab.jsx";
 import AdminInfluencerPayoutsTab from "./AdminInfluencerPayoutsTab.jsx";
 import ExtendCollaborationModal from "./ExtendCollaborationModal.jsx";
+import {
+  COMPLIANCE_FILTERS,
+  COMPLIANCE_RELATIONSHIP_LABELS,
+  complianceActions,
+  complianceHistoryRows,
+  complianceStatusMeta,
+  complianceSummaryFields,
+  formatComplianceDateTime,
+  matchesComplianceFilter,
+  compliancePayoutsBlocked,
+  COMPLIANCE_PAYOUTS_BLOCKED_MESSAGE,
+} from "./complianceGate.js";
+import { AGE_MESSAGES, classifyBirthDate } from "../../Influencer/InfluencerCompliancePage/complianceAge.js";
+
+const COMPLIANCE_TONE_CLASS = {
+  success: styles.statusActive,
+  warning: styles.statusInvited,
+  danger: styles.statusExpired,
+  neutral: styles.statusDisabled,
+};
+
+function ComplianceBadge({ status }) {
+  const meta = complianceStatusMeta(status);
+  return (
+    <span className={`${styles.status} ${COMPLIANCE_TONE_CLASS[meta.tone]}`}>
+      Conformitate: {meta.label}
+    </span>
+  );
+}
 
 const SUB_TABS = [
   { id: "overview", label: "Overview" },
@@ -491,6 +520,9 @@ export default function AdminInfluencersTab() {
     setQuery,
   ] = useState("");
 
+  // filtru conformitate: "" | required | pending | completed
+  const [complianceFilter, setComplianceFilter] = useState("");
+
   const [
     selectedInfluencer,
     setSelectedInfluencer,
@@ -786,11 +818,15 @@ export default function AdminInfluencersTab() {
           .trim()
           .toLowerCase();
 
+      const byCompliance = items.filter((item) =>
+        matchesComplianceFilter(item, complianceFilter)
+      );
+
       if (!q) {
-        return items;
+        return byCompliance;
       }
 
-      return items.filter(
+      return byCompliance.filter(
         (item) => {
           const values = [
             item.name,
@@ -814,6 +850,7 @@ export default function AdminInfluencersTab() {
     }, [
       items,
       query,
+      complianceFilter,
     ]);
 
   /* =========================================================
@@ -1980,6 +2017,19 @@ export default function AdminInfluencersTab() {
               }
             />
 
+            <select
+              value={complianceFilter}
+              onChange={(event) => setComplianceFilter(event.target.value)}
+              className={`${styles.searchInput} ${styles.complianceFilter}`}
+              aria-label="Filtru conformitate"
+            >
+              {COMPLIANCE_FILTERS.map((f) => (
+                <option key={f.value || "all"} value={f.value}>
+                  {f.value ? f.label : "Conformitate: toate"}
+                </option>
+              ))}
+            </select>
+
             <button
               type="button"
               onClick={
@@ -2118,6 +2168,14 @@ export default function AdminInfluencersTab() {
                               item.status
                             )}
                           </span>
+
+                          {isProfile &&
+                            item.compliance?.status &&
+                            item.compliance.status !== "NOT_REQUIRED" && (
+                              <div className={styles.complianceBadgeRow}>
+                                <ComplianceBadge status={item.compliance.status} />
+                              </div>
+                            )}
                         </td>
 
                         <td>
@@ -2958,6 +3016,7 @@ export default function AdminInfluencersTab() {
           onCopyInvite={
             copyInvite
           }
+          onComplianceChanged={loadInfluencers}
           onResendInvite={
             resendInvite
           }
@@ -3056,6 +3115,7 @@ function InfluencerDetailsDrawer({
   onDeleteInvite,
   onCommission,
   onExtendCollaboration,
+  onComplianceChanged,
 }) {
   if (!item) {
     return null;
@@ -3239,6 +3299,13 @@ function InfluencerDetailsDrawer({
               </code>
             </DrawerField>
           </section>
+
+          {isProfile && (
+            <InfluencerComplianceDrawerSection
+              influencerId={item.id}
+              onChanged={onComplianceChanged}
+            />
+          )}
 
           {isProfile && (
             <InfluencerFilesDrawerSection
@@ -3582,6 +3649,296 @@ function formatFileSize(value) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/* =========================================================
+   CONFORMITATE (gate manual, ex. acord părinte/tutore)
+   Backend: /api/admin/influencers/:id/compliance(-gates) - vezi
+   services/influencerComplianceGate.js. Datele părintelui apar DOAR
+   la „Vezi răspunsul”.
+========================================================= */
+
+function InfluencerComplianceDrawerSection({ influencerId, onChanged }) {
+  const [state, setState] = useState({ loading: true, error: "", data: null });
+  const [busy, setBusy] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [response, setResponse] = useState(null);
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+
+  const load = useCallback(async () => {
+    if (!influencerId) return;
+    setState((s) => ({ ...s, loading: true, error: "" }));
+    try {
+      const data = await api(`/api/admin/influencers/${encodeURIComponent(influencerId)}/compliance`);
+      setState({ loading: false, error: "", data });
+    } catch (err) {
+      setState({
+        loading: false,
+        error: err?.data?.message || err?.message || "Nu am putut încărca statusul de conformitate.",
+        data: null,
+      });
+    }
+  }, [influencerId]);
+
+  useEffect(() => {
+    setResponse(null);
+    setRejecting(false);
+    load();
+  }, [load]);
+
+  const data = state.data;
+  const latest = data?.history?.[0] || null;
+  const status = data?.status || "NOT_REQUIRED";
+  const actions = complianceActions({
+    status,
+    hasResponse: Boolean(latest?.hasResponse),
+    enabled: data?.enabled !== false,
+  });
+  const base = `/api/admin/influencers/${encodeURIComponent(influencerId)}`;
+
+  async function run(key, request, confirmText) {
+    if (busy) return;
+    if (confirmText && !window.confirm(confirmText)) return;
+    setBusy(key);
+    setActionError("");
+    try {
+      await request();
+      setRejecting(false);
+      setReason("");
+      setResponse(null);
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setActionError(err?.data?.message || err?.message || "Acțiunea nu a reușit.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  // data nașterii (opțional, dacă adminul o cunoaște) - sub 16 ani blocat și pe server; nu se salvează
+  const ageCheck = () => {
+    if (!birthDate) return { ok: true, body: {} };
+    const category = classifyBirthDate(birthDate);
+    if (category === "UNDER_MIN") return { ok: false, message: AGE_MESSAGES.UNDER_MIN };
+    if (category === "INVALID") return { ok: false, message: "Data nașterii nu este validă." };
+    return { ok: true, body: { influencerBirthDate: birthDate } };
+  };
+  const guarded = (key, path, confirmText) => {
+    const check = ageCheck();
+    if (!check.ok) {
+      setActionError(check.message);
+      return;
+    }
+    run(key, () => api(path, { method: "POST", body: check.body }), confirmText);
+  };
+  const send = () =>
+    guarded(
+      "send",
+      `${base}/compliance-gates`,
+      "Trimiți gate-ul de conformitate? Influencerul primește notificare și email, iar plățile și acțiunile comerciale sensibile se blochează până la completare."
+    );
+  const resend = () =>
+    guarded(
+      "resend",
+      `${base}/compliance-gates/${encodeURIComponent(latest.id)}/resend`,
+      "Retrimiți gate-ul? Solicitarea curentă se anulează și se trimite una nouă."
+    );
+  const cancel = () =>
+    run(
+      "cancel",
+      () => api(`${base}/compliance-gates/${encodeURIComponent(latest.id)}/cancel`, { method: "POST" }),
+      "Anulezi gate-ul? Plățile și acțiunile comerciale rămân blocate până la un gate nou completat."
+    );
+  const reject = () =>
+    run("reject", () =>
+      api(`${base}/compliance-gates/${encodeURIComponent(latest.id)}/reject`, {
+        method: "POST",
+        body: { reason },
+      })
+    );
+
+  async function viewResponse() {
+    if (response) {
+      setResponse(null);
+      return;
+    }
+    const gate = data.history.find((g) => g.hasResponse) || latest;
+    setBusy("view");
+    setActionError("");
+    try {
+      const res = await api(`${base}/compliance-gates/${encodeURIComponent(gate.id)}/response`);
+      setResponse(res?.response || null);
+    } catch (err) {
+      setActionError(err?.data?.message || err?.message || "Nu am putut încărca răspunsul.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <section className={styles.drawerSection}>
+      <h4>Conformitate</h4>
+
+      {state.loading ? (
+        <div>Se încarcă...</div>
+      ) : state.error ? (
+        <div>{state.error}</div>
+      ) : (
+        <>
+          {data?.enabled === false && (
+            <div className={styles.complianceNotice}>
+              Gate-ul de conformitate este dezactivat până la aprobarea documentelor legale aplicabile. Nu se pot
+              trimite solicitări.
+            </div>
+          )}
+
+          {compliancePayoutsBlocked(status) && (
+            <div className={styles.compliancePayoutsBlocked} role="status">
+              {COMPLIANCE_PAYOUTS_BLOCKED_MESSAGE}
+            </div>
+          )}
+
+          <DrawerField label="Status">
+            <ComplianceBadge status={status} />
+          </DrawerField>
+          {complianceSummaryFields(latest).map(([label, value]) => (
+            <DrawerField key={label} label={label} value={value} />
+          ))}
+          {data?.guardianPayoutNotifiedAt && (
+            <DrawerField
+              label="Date de plată actualizate"
+              value={`Părinte/tutore informat la ${formatComplianceDateTime(data.guardianPayoutNotifiedAt)}`}
+            />
+          )}
+
+          {data?.history?.length > 1 && (
+            <div className={styles.complianceHistory}>
+              <span>Istoric</span>
+              <ul>
+                {complianceHistoryRows(data.history).map((row) => (
+                  <li key={row.id}>
+                    <ComplianceBadge status={row.status} />
+                    <small>{row.details.join(" · ")}</small>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {(actions.includes("send") || actions.includes("resend")) && (
+            <label className={styles.complianceBirthDate}>
+              <span>Data nașterii influencerului (opțional, dacă o cunoști)</span>
+              <input
+                type="date"
+                value={birthDate}
+                onChange={(e) => {
+                  setBirthDate(e.target.value);
+                  setActionError("");
+                }}
+                className={styles.searchInput}
+              />
+              <small>
+                Programul este disponibil de la 16 ani împliniți; acordul parental se cere între 16 și 18 ani.
+              </small>
+            </label>
+          )}
+
+          {actions.length > 0 && (
+            <div className={styles.complianceActions}>
+              {actions.includes("send") && (
+                <button type="button" className={styles.primaryButton} onClick={send} disabled={!!busy}>
+                  {busy === "send" ? "Se trimite..." : "Trimite gate de conformitate"}
+                </button>
+              )}
+              {actions.includes("resend") && (
+                <button type="button" className={styles.secondaryButton} onClick={resend} disabled={!!busy}>
+                  {busy === "resend" ? "Se retrimite..." : "Retrimite"}
+                </button>
+              )}
+              {actions.includes("cancel") && (
+                <button type="button" className={styles.secondaryButton} onClick={cancel} disabled={!!busy}>
+                  {busy === "cancel" ? "Se anulează..." : "Anulează gate"}
+                </button>
+              )}
+              {actions.includes("viewResponse") && (
+                <button type="button" className={styles.secondaryButton} onClick={viewResponse} disabled={!!busy}>
+                  {busy === "view" ? "Se încarcă..." : response ? "Ascunde răspunsul" : "Vezi răspunsul"}
+                </button>
+              )}
+              {actions.includes("reject") && !rejecting && (
+                <button
+                  type="button"
+                  className={styles.secondaryButton}
+                  onClick={() => setRejecting(true)}
+                  disabled={!!busy}
+                >
+                  Respinge răspunsul
+                </button>
+              )}
+            </div>
+          )}
+
+          {rejecting && (
+            <div className={styles.complianceReject}>
+              <label>
+                <span>Motivul respingerii *</span>
+                <textarea
+                  value={reason}
+                  maxLength={500}
+                  rows={3}
+                  onChange={(e) => setReason(e.target.value)}
+                  className={styles.searchInput}
+                />
+              </label>
+              <div className={styles.complianceActions}>
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  onClick={reject}
+                  disabled={!!busy || reason.trim().length < 3}
+                >
+                  {busy === "reject" ? "Se respinge..." : "Confirmă respingerea"}
+                </button>
+                <button type="button" className={styles.secondaryButton} onClick={() => setRejecting(false)}>
+                  Renunță
+                </button>
+              </div>
+            </div>
+          )}
+
+          {actionError && <div className={styles.error}>{actionError}</div>}
+
+          {response && (
+            <div className={styles.complianceResponse}>
+              <DrawerField label="Influencer (declarat)" value={`${response.influencerName} · ${response.influencerEmail}`} />
+              <DrawerField
+                label="Data nașterii"
+                value={String(response.influencerBirthDate || "").slice(0, 10).split("-").reverse().join(".")}
+              />
+              <DrawerField label="Minor la completare" value={response.declaredMinor ? "Da" : "Nu"} />
+              <DrawerField
+                label="Părinte / tutore"
+                value={`${response.guardianName} (${COMPLIANCE_RELATIONSHIP_LABELS[response.guardianRelationship] || response.guardianRelationship})`}
+              />
+              <DrawerField label="Email părinte / tutore" value={response.guardianEmail} />
+              <DrawerField label="Telefon părinte / tutore" value={response.guardianPhone} />
+              <DrawerField label="Acceptat la" value={formatComplianceDateTime(response.acceptedAt)} />
+              <DrawerField
+                label="Document"
+                value={`${response.documentKey} v${response.documentVersion} · ${String(response.documentChecksum).slice(0, 12)}…`}
+              />
+              <DrawerField
+                label="Confirmare trimisă părintelui"
+                value={response.guardianEmailSentAt ? formatComplianceDateTime(response.guardianEmailSentAt) : "Nu"}
+              />
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
 }
 
 function InfluencerFilesDrawerSection({ influencerId }) {

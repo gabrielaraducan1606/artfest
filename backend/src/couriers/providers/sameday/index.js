@@ -7,16 +7,33 @@ import {
   samedayGet,
   samedayRequest,
 } from "./client.js";
-import { CourierUnavailableError } from "../../errors.js";
+import {
+  CourierError,
+  CourierUnavailableError,
+  CourierValidationError,
+} from "../../errors.js";
 import { buildSamedayAwbForm, parseSamedayAwbResponse, mapSamedayService } from "./awbMapper.js";
 
 /*
- * Provider Sameday: conectare/testare cont + creare AWB + etichetă.
- * Tracking / pickup / lockers / anulare vin în etapele următoare;
+ * Provider Sameday: conectare/testare cont + creare AWB + etichetă +
+ * anulare AWB + link public de urmărire. Sincronizarea statusului
+ * (tracking prin API) / pickup / lockers vin în etapele următoare;
  * capabilities le marchează false până sunt implementate.
  */
 
 const LABEL_FORMATS = new Set(["A4", "A6"]);
+
+// pagina publică de urmărire Sameday (DE VALIDAT pe demo, vezi checklist)
+const SAMEDAY_TRACKING_BASE = "https://www.sameday.ro/#awb=";
+// numerele AWB Sameday sunt alfanumerice; orice altceva -> fără link
+const AWB_NUMBER_RE = /^[A-Za-z0-9]{4,40}$/;
+
+export class AwbNotCancellableError extends CourierError {
+  constructor(message = "Sameday nu mai permite anularea acestui AWB (probabil coletul a fost deja preluat). Starea din Artfest nu a fost modificată.") {
+    super("awb_not_cancellable", message, { httpStatus: 409 });
+    this.name = "AwbNotCancellableError";
+  }
+}
 
 function mapPickupPoint(p) {
   return {
@@ -35,13 +52,16 @@ export const samedayProvider = {
 
   credentialFields: [
     {
+      // trimis NESCHIMBAT (doar fără spații la capete) ca X-Auth-Username:
+      // poate fi utilizatorul eAWB sau emailul, dacă Sameday îl acceptă
       key: "username",
-      label: "Utilizator eAWB Sameday",
+      label: "Utilizator eAWB sau email",
+      placeholder: "ex. user123 sau nume@firma.ro",
       type: "text",
       required: true,
       secret: true,
       maxLength: 120,
-      help: "Folosește datele cu care te autentifici în eAWB Sameday. Utilizatorul poate fi diferit de adresa de email.",
+      help: "Contul eAWB poate avea un nume de utilizator diferit de adresa de email folosită la onboarding.",
     },
     {
       key: "password",
@@ -73,9 +93,9 @@ export const samedayProvider = {
     label: true,
     cashOnDelivery: true,
     pickupPoints: true,
-    // etapele următoare:
+    cancelShipment: true,
+    // etapele următoare (tracking = sincronizare status prin API):
     tracking: false,
-    cancelShipment: false,
     pickupRequest: false,
     lockers: false,
     quote: false,
@@ -141,6 +161,34 @@ export const samedayProvider = {
       path: `/api/awb/download/${encodeURIComponent(String(awbNumber))}/${fmt}`,
       binary: true,
     });
+  },
+
+  /**
+   * Anulare AWB: DELETE /api/awb/{awbNumber} (SDK SamedayDeleteAwbRequest).
+   * Sameday refuză (400/404/422) -> AwbNotCancellableError: apelantul NU
+   * modifică starea locală. Timeout / 5xx -> erorile generice (rezultat
+   * necunoscut, la fel fără modificare locală).
+   */
+  async cancelShipment(ctx, awbNumber) {
+    try {
+      await samedayRequest(ctx, {
+        method: "DELETE",
+        path: `/api/awb/${encodeURIComponent(String(awbNumber))}`,
+        allowEmpty: true,
+      });
+    } catch (e) {
+      if (e instanceof CourierValidationError || e?.providerStatus === 404) {
+        throw new AwbNotCancellableError();
+      }
+      throw e;
+    }
+    return { cancelled: true };
+  },
+
+  // link public de urmărire, doar pentru un număr AWB cu format sigur
+  trackingUrl(awbNumber) {
+    const awb = String(awbNumber || "").trim();
+    return AWB_NUMBER_RE.test(awb) ? `${SAMEDAY_TRACKING_BASE}${awb}` : null;
   },
 
   invalidateSession(accountId) {

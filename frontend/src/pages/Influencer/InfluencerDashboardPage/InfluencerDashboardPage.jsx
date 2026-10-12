@@ -525,6 +525,39 @@ export default function InfluencerDashboardPage() {
       window.removeEventListener(POLICY_REQUIRED_EVENT, onRequired);
   }, []);
 
+  // 428 influencer_compliance_required: banner + mesaj cu drum spre formular
+  useEffect(() => {
+    const onCompliance = (event) => {
+      const detail = event?.detail;
+      if (detail?.kind !== "influencer_compliance") return;
+
+      const status = detail.compliance?.status || "PENDING";
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              compliance: {
+                ...(current.compliance || {}),
+                status,
+                blocking: true,
+                canSubmit: status === "PENDING",
+              },
+            }
+          : current
+      );
+      toast.info(
+        status === "PENDING"
+          ? "Acțiunea va fi disponibilă după completarea acordului părintelui sau tutorelui."
+          : "Acțiunea nu este disponibilă până la un acord de conformitate valid."
+      );
+    };
+
+    window.addEventListener(POLICY_REQUIRED_EVENT, onCompliance);
+
+    return () =>
+      window.removeEventListener(POLICY_REQUIRED_EVENT, onCompliance);
+  }, []);
+
   /* =========================================================
      LOAD AGREEMENT
   ========================================================= */
@@ -1384,6 +1417,33 @@ export default function InfluencerDashboardPage() {
           styles.shell
         }
       >
+        {/* conformitate (ex. acord părinte/tutore), cerută manual de admin */}
+        {data.compliance?.blocking && (
+          <section className={styles.complianceBanner} role="status">
+            <div>
+              <strong>
+                {data.compliance.status === "PENDING"
+                  ? "Este necesar acordul părintelui sau tutorelui"
+                  : "Acordul de conformitate nu este activ"}
+              </strong>
+              <p>
+                {data.compliance.status === "PENDING"
+                  ? "Până la completare, plățile și unele acțiuni comerciale (date de plată, coduri și colecții noi) sunt indisponibile. Linkurile și codurile existente funcționează în continuare."
+                  : "Plățile și unele acțiuni comerciale sunt indisponibile. Contactează echipa Artfest pentru o solicitare nouă."}
+              </p>
+            </div>
+            {data.compliance.canSubmit && (
+              <button
+                type="button"
+                className={styles.complianceBannerBtn}
+                onClick={() => navigate("/influencer/conformitate")}
+              >
+                Completează formularul
+              </button>
+            )}
+          </section>
+        )}
+
         {/* =====================================================
             HEADER
         ===================================================== */}

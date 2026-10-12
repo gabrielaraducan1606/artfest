@@ -8,6 +8,31 @@ import { isCourierError } from "./errors.js";
  * Helperi HTTP comuni rutelor de curier (conturi, adrese, AWB).
  */
 
+/*
+ * Flag backend pentru integrarea de curierat a VENDORILOR (conturi, adrese
+ * de ridicare, generare / anulare AWB, etichete Artfest):
+ *   COURIER_INTEGRATION_ENABLED = "1" / "true"  -> pornit
+ *                               = "0" / "false" -> oprit
+ *   nesetat -> pornit DOAR când NODE_ENV=development (backend/.env local);
+ *              Render rulează cu NODE_ENV=production (Dockerfile) => OPRIT
+ *              până la setarea explicită a variabilei.
+ * Rutele de admin (vizualizare / rezolvare AWB UNKNOWN) nu depind de flag.
+ */
+export function isCourierIntegrationEnabled(env = process.env) {
+  const raw = String(env.COURIER_INTEGRATION_ENABLED ?? "").trim().toLowerCase();
+  if (raw === "1" || raw === "true") return true;
+  if (raw === "0" || raw === "false") return false;
+  return env.NODE_ENV === "development";
+}
+
+export function requireCourierIntegration(_req, res, next) {
+  if (isCourierIntegrationEnabled()) return next();
+  return res.status(503).json({
+    error: "courier_integration_disabled",
+    message: "Integrarea de curierat este în curs de activare.",
+  });
+}
+
 // req.user (din authRequired / optionalAuth) -> req.vendorId; 403 dacă nu e vendor
 export async function requireVendorAccount(req, res, next) {
   try {

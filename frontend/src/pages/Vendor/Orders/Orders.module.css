@@ -385,6 +385,19 @@ padding: 5px 9px;
   box-shadow: none;
 }
 
+/* integrarea automată cu curierii: vizibilă, dar indisponibilă (greyed out) */
+.courierUnavailableBtn.courierUnavailableBtn,
+.courierUnavailableBtn.courierUnavailableBtn:hover,
+.courierUnavailableBtn.courierUnavailableBtn:disabled {
+  background: var(--surface-muted);
+  border-color: var(--color-border);
+  color: var(--color-muted);
+  box-shadow: none;
+  transform: none;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
 /* butoane icon în tabel */
 .iconActionBtn {
   border: 1px solid transparent;

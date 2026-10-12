@@ -58,9 +58,9 @@ function formatFileSize(value) {
  * PlatformBilling - vezi GET /api/influencer/billing-info) și suma/
  * perioada de facturat per payout („Sume de facturat”), își emite
  * EL factura în afara platformei și o încarcă (PDF, + XML opțional) -
- * STRICT stocare, fără OCR/parsare/validare fiscală automată. Doar
- * pentru PFA/COMPANY - INDIVIDUAL/OTHER văd un mesaj, nu formularul
- * de upload.
+ * STRICT stocare, fără OCR/parsare/validare fiscală automată. Pentru
+ * ORICE tip de beneficiar - regula Artfest: fără factură -> fără plată.
+ * PDF/XML se deschid doar prin link semnat cu expirare.
  */
 
 const PAYOUT_WORKFLOW = {
@@ -181,6 +181,7 @@ export default function InfluencerPayoutProfileSettings() {
   const [docFilesLoading, setDocFilesLoading] = useState(true);
   const [docFilesError, setDocFilesError] = useState("");
   const [deletingFileId, setDeletingFileId] = useState("");
+  const [openingFileId, setOpeningFileId] = useState("");
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -290,6 +291,26 @@ export default function InfluencerPayoutProfileSettings() {
   useEffect(() => {
     loadDocFiles();
   }, [loadDocFiles]);
+
+  // link semnat, temporar (5 min) - API-ul nu mai expune fileUrl
+  async function openDocFile(file) {
+    setOpeningFileId(file.id);
+
+    try {
+      const data = await api(
+        `/api/influencer/files/${encodeURIComponent(file.id)}/download`
+      );
+      window.open(data.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast.error(
+        err?.data?.message ||
+          err?.message ||
+          "Nu am putut deschide documentul."
+      );
+    } finally {
+      setOpeningFileId("");
+    }
+  }
 
   async function deleteDocFile(file) {
     const confirmed = window.confirm(
@@ -766,7 +787,6 @@ export default function InfluencerPayoutProfileSettings() {
               <PayoutInvoiceCard
                 key={payout.id}
                 payout={payout}
-                beneficiaryType={form.beneficiaryType}
                 onUploaded={loadPayouts}
               />
             ))}
@@ -848,14 +868,14 @@ export default function InfluencerPayoutProfileSettings() {
                 </div>
 
                 <div className={styles.docFileActions}>
-                  <a
-                    href={file.fileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
                     className={styles.smallButton}
+                    disabled={openingFileId === file.id}
+                    onClick={() => openDocFile(file)}
                   >
-                    Deschide
-                  </a>
+                    {openingFileId === file.id ? "Se deschide…" : "Deschide"}
+                  </button>
 
                   <button
                     type="button"
@@ -893,40 +913,32 @@ export default function InfluencerPayoutProfileSettings() {
    CARD PAYOUT + CELE DOUĂ METODE DE FACTURARE
 ========================================================= */
 
-function PayoutInvoiceCard({ payout, beneficiaryType, onUploaded }) {
+const PAYOUT_INVOICE_REQUIRED_MESSAGE =
+  "Pentru procesarea plății este necesară încărcarea unei facturi.";
+
+function PayoutInvoiceCard({ payout, onUploaded }) {
   const [formOpen, setFormOpen] = useState(false);
+  const [opening, setOpening] = useState("");
+  const [fileError, setFileError] = useState("");
 
   const workflow = getPayoutWorkflow(payout);
-  const canSelfInvoice =
-    beneficiaryType === "PFA" || beneficiaryType === "COMPANY";
 
-  /*
-   * INDIVIDUAL: nu intră deloc în fluxul de factură - nici status de
-   * factură, nici SmartBill, nici upload. Doar suma/perioada + mesajul
-   * cerut explicit.
-   */
-  if (beneficiaryType === "INDIVIDUAL") {
-    return (
-      <div className={styles.payoutCard}>
-        <div className={styles.payoutCardHeader}>
-          <div>
-            <div className={styles.payoutAmount}>
-              {formatMoney(payout.amount, payout.currency)}
-            </div>
-
-            <div className={styles.payoutPeriod}>
-              {formatDate(payout.periodFrom)} – {formatDate(payout.periodTo)}
-            </div>
-          </div>
-        </div>
-
-        <p className={styles.note} style={{ margin: 0 }}>
-          Pentru persoanele fizice fără formă juridică, documentele și
-          modalitatea de procesare a plății se stabilesc separat, în
-          funcție de situația fiscală aplicabilă.
-        </p>
-      </div>
-    );
+  // factura se deschide doar prin link semnat cu expirare (fără URL public)
+  async function openInvoiceFile(kind) {
+    setOpening(kind);
+    setFileError("");
+    try {
+      const data = await api(
+        `/api/influencer/payouts/${encodeURIComponent(payout.id)}/invoice/file?kind=${kind}`
+      );
+      window.open(data.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setFileError(
+        err?.data?.message || err?.message || "Nu am putut deschide factura."
+      );
+    } finally {
+      setOpening("");
+    }
   }
 
   return (
@@ -959,74 +971,58 @@ function PayoutInvoiceCard({ payout, beneficiaryType, onUploaded }) {
             <> · încărcată {formatDate(payout.invoice.uploadedAt)}</>
           )}
           <br />
-          {payout.invoice.pdfUrl && (
-            <a
-              href={payout.invoice.pdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+          {payout.invoice.hasPdf && (
+            <button
+              type="button"
+              className={styles.linkButton}
+              onClick={() => openInvoiceFile("pdf")}
+              disabled={!!opening}
             >
-              Vezi PDF
-            </a>
+              {opening === "pdf" ? "Se deschide…" : "Vezi PDF"}
+            </button>
           )}
-          {payout.invoice.xmlUrl && (
+          {payout.invoice.hasXml && (
             <>
               {" · "}
-              <a
-                href={payout.invoice.xmlUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                className={styles.linkButton}
+                onClick={() => openInvoiceFile("xml")}
+                disabled={!!opening}
               >
-                Vezi XML
-              </a>
+                {opening === "xml" ? "Se deschide…" : "Vezi XML"}
+              </button>
             </>
           )}
+          {fileError && <div className={styles.errorBox}>{fileError}</div>}
         </div>
       )}
 
       {payout.status === "UNPAID" && !payout.invoice && (
         <>
-          {canSelfInvoice ? (
-            formOpen ? (
-              <PayoutInvoiceUploadForm
-                payoutId={payout.id}
-                onCancel={() => setFormOpen(false)}
-                onUploaded={() => {
-                  setFormOpen(false);
-                  onUploaded?.();
-                }}
-              />
-            ) : (
-              <div style={{ display: "grid", gap: 8 }}>
-                <p className={styles.note} style={{ margin: 0 }}>
-                  Poți conecta propriul cont SmartBill pentru a simplifica
-                  emiterea facturilor sau poți emite factura în orice
-                  program de facturare și o poți încărca manual.
-                </p>
+          <p className={styles.note} style={{ margin: 0 }}>
+            {PAYOUT_INVOICE_REQUIRED_MESSAGE}
+          </p>
 
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    className={styles.secondaryButton}
-                    disabled
-                    title="Disponibil într-o etapă viitoare"
-                  >
-                    Conectează SmartBill
-                  </button>
-
-                  <button
-                    type="button"
-                    className={styles.smallButton}
-                    onClick={() => setFormOpen(true)}
-                  >
-                    Încarcă factura manual
-                  </button>
-                </div>
-              </div>
-            )
+          {formOpen ? (
+            <PayoutInvoiceUploadForm
+              payoutId={payout.id}
+              onCancel={() => setFormOpen(false)}
+              onUploaded={() => {
+                setFormOpen(false);
+                onUploaded?.();
+              }}
+            />
           ) : (
-            <p className={styles.note} style={{ margin: 0 }}>
-              Necesită procesare manuală.
-            </p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className={styles.smallButton}
+                onClick={() => setFormOpen(true)}
+              >
+                Încarcă factura
+              </button>
+            </div>
           )}
         </>
       )}

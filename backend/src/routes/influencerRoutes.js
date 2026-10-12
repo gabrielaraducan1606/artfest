@@ -47,6 +47,15 @@ import {
   getNewVendorsToday,
 } from "../services/influencerGeneratedContent.js";
 
+import { enforceInfluencerComplianceGate } from "../middleware/enforceInfluencerComplianceGate.js";
+import {
+  ComplianceGateError,
+  getComplianceForUser,
+  getInfluencerComplianceStatus,
+  notifyGuardianOfPayoutProfileChange,
+  submitComplianceResponse,
+} from "../services/influencerComplianceGate.js";
+
 const router = Router();
 
 /* =========================================================
@@ -2180,6 +2189,15 @@ router.get(
         collaboration,
 
         /*
+         * Aditiv - gate de conformitate (services/influencerComplianceGate.js).
+         * Flag oprit -> { enabled:false, status:"NOT_REQUIRED" }, fără DB.
+         */
+        compliance: await getInfluencerComplianceStatus(profile.id).catch((e) => {
+          console.error("GET /me compliance status failed:", e?.message || e);
+          return { enabled: false, status: "NOT_REQUIRED", blocking: false, canSubmit: false, gate: null };
+        }),
+
+        /*
          * Aditiv - shape MINIM, fără IBAN/taxId/adresă (vezi
          * services/influencerPayoutProfile.js). Detaliile complete
          * vin STRICT din GET /payout-profile.
@@ -2337,6 +2355,64 @@ router.get(
    istoric, ca rând separat în UserConsent) - se creează/actualizează
    strict rândul versiunii curente.
 ========================================================= */
+
+/* =========================================================
+   GET  /api/influencer/compliance
+   POST /api/influencer/compliance/:gateId/submit
+
+   Gate de conformitate (ex. acord părinte/tutore), aplicat manual de
+   admin - services/influencerComplianceGate.js. Doar după login, doar
+   propriul gate (alt influencer -> 404). NU au gate-ul pe ele (ar bloca
+   exact formularul care rezolvă blocarea).
+========================================================= */
+
+function sendComplianceError(res, e, label) {
+  if (e instanceof ComplianceGateError) {
+    return res.status(e.httpStatus).json({
+      ok: false,
+      error: e.code,
+      message: e.message,
+      ...(e.fields ? { fields: e.fields } : {}),
+      ...(e.ageCategory ? { ageCategory: e.ageCategory } : {}),
+      ...(e.compliance ? { compliance: e.compliance } : {}),
+    });
+  }
+  console.error(`${label} failed:`, e?.message || e);
+  return res.status(500).json({ ok: false, error: "server_error" });
+}
+
+router.get(
+  "/compliance",
+  authRequired,
+  enforceTokenVersion,
+  async (req, res) => {
+    try {
+      res.json({ ok: true, ...(await getComplianceForUser(req.user?.sub)) });
+    } catch (e) {
+      sendComplianceError(res, e, "GET /compliance");
+    }
+  }
+);
+
+router.post(
+  "/compliance/:gateId/submit",
+  authRequired,
+  enforceTokenVersion,
+  async (req, res) => {
+    try {
+      const result = await submitComplianceResponse({
+        userId: req.user?.sub,
+        gateId: req.params.gateId,
+        body: req.body || {},
+        ipHash: hashRequestIp(req),
+        userAgent: truncateUserAgent(req.headers["user-agent"]),
+      });
+      res.json(result);
+    } catch (e) {
+      sendComplianceError(res, e, "POST /compliance/:gateId/submit");
+    }
+  }
+);
 
 router.post(
   "/terms/accept",
@@ -2619,6 +2695,8 @@ router.patch(
   "/payout-profile",
   authRequired,
   enforceTokenVersion,
+  // conformitate: IBAN / date fiscale blocate până la COMPLETED
+  enforceInfluencerComplianceGate,
   async (req, res) => {
     try {
       const influencer = await requireInfluencerForPayoutProfile(req, res);
@@ -2795,6 +2873,15 @@ router.patch(
           verifiedAt,
         },
       });
+
+      // după salvare, fără await: părintele/tutorele (acord minor COMPLETED)
+      // e informat doar dacă s-a schimbat ceva; un email eșuat nu afectează salvarea
+      notifyGuardianOfPayoutProfileChange({
+        influencerId: influencer.id,
+        before: existing,
+        after: row,
+        changedAt: row.updatedAt,
+      }).catch(() => {});
 
       return res.json({
         ok: true,
@@ -3641,6 +3728,8 @@ router.post(
   "/commission-agreement/:id/accept",
   authRequired,
   enforceTokenVersion,
+  // conformitate: mecanism nou de monetizare blocat până la COMPLETED
+  enforceInfluencerComplianceGate,
   async (
     req,
     res
