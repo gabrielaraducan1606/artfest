@@ -11,18 +11,16 @@ import { isCourierError } from "./errors.js";
 /*
  * Flag backend pentru integrarea de curierat a VENDORILOR (conturi, adrese
  * de ridicare, generare / anulare AWB, etichete Artfest):
- *   COURIER_INTEGRATION_ENABLED = "1" / "true"  -> pornit
- *                               = "0" / "false" -> oprit
- *   nesetat -> pornit DOAR când NODE_ENV=development (backend/.env local);
- *              Render rulează cu NODE_ENV=production (Dockerfile) => OPRIT
- *              până la setarea explicită a variabilei.
+ *   COURIER_INTEGRATION_ENABLED = "1" / "true" -> pornit
+ *   orice altă valoare sau nesetat             -> OPRIT (și local: NODE_ENV
+ *                                                 nu mai activează nimic singur)
+ * Oprit -> rutele răspund 503 courier_integration_disabled, iar UI-ul afișează
+ * secțiunile cu acțiunile automate dezactivate.
  * Rutele de admin (vizualizare / rezolvare AWB UNKNOWN) nu depind de flag.
  */
 export function isCourierIntegrationEnabled(env = process.env) {
   const raw = String(env.COURIER_INTEGRATION_ENABLED ?? "").trim().toLowerCase();
-  if (raw === "1" || raw === "true") return true;
-  if (raw === "0" || raw === "false") return false;
-  return env.NODE_ENV === "development";
+  return raw === "1" || raw === "true";
 }
 
 export function requireCourierIntegration(_req, res, next) {

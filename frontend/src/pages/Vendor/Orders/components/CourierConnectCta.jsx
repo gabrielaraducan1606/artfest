@@ -7,6 +7,7 @@ import { VENDOR_COURIERS_SETTINGS_URL } from "../../../../config/vendorNavigatio
 import {
   COURIER_AUTOMATION_ENABLED,
   COURIER_AUTOMATION_SOON_MESSAGE,
+  COURIER_SOON_SHORT,
   COURIER_MANUAL_SHIPPING_MESSAGE,
 } from "../../../../config/features.js";
 import { shouldShowCourierCta } from "../utils/courierCta.js";
@@ -53,7 +54,7 @@ function CourierConnectCtaUnavailable({ variant = "banner" }) {
         className={`${styles.btn} ${styles.btnUnavailable}`}
         disabled
         aria-disabled="true"
-        title={COURIER_AUTOMATION_SOON_MESSAGE}
+        title={COURIER_SOON_SHORT}
       >
         Conectează un curier <ArrowRight size={16} aria-hidden="true" />
       </button>
@@ -68,12 +69,23 @@ function CourierConnectCtaInner({ variant = "banner" }) {
     let alive = true;
     loadAccounts()
       .then((accounts) => alive && setState({ loading: false, error: false, accounts }))
-      .catch(() => alive && setState({ loading: false, error: true, accounts: null }));
+      .catch(
+        (e) =>
+          alive &&
+          setState({
+            loading: false,
+            error: true,
+            accounts: null,
+            backendDisabled: e?.data?.error === "courier_integration_disabled",
+          })
+      );
     return () => {
       alive = false;
     };
   }, []);
 
+  // backend oprit (COURIER_INTEGRATION_ENABLED, 503): CTA vizibil, dar dezactivat
+  if (state.backendDisabled) return <CourierConnectCtaUnavailable variant={variant} />;
   if (!shouldShowCourierCta(state)) return null;
 
   return (

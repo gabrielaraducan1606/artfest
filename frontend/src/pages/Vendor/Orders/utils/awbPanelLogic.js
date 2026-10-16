@@ -31,7 +31,8 @@ export function isInputBlocker(b) {
  *  - "manual"       : expediată fără integrare (Shipment.manualShipment) ->
  *                     doar datele introduse de vendor; fără AWB retroactiv
  *  - "loading"      : încărcăm conturile / adresele / statusul AWB
- *  - "disabled"     : integrarea e oprită pe server -> „În curs de activare”
+ *  - "disabled"     : integrarea e oprită pe server (503) -> acțiunile automate
+ *                     vizibile, dar dezactivate; „Trimite fără integrare” activ
  *  - "error"        : nu am putut încărca datele -> doar „Reîncearcă”
  *  - "created"      : expedierea are AWB -> număr, status, etichetă, tracking, anulare
  *  - "requested"    : generare în curs (recentă) -> doar „Reîmprospătează”

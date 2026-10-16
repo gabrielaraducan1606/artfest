@@ -19,6 +19,7 @@ import { apiErrorMessage, formatDateTime } from "../../Settings/couriers/courier
 import {
   COURIER_AUTOMATION_ENABLED,
   COURIER_AUTOMATION_SOON_MESSAGE,
+  COURIER_SOON_SHORT,
   COURIER_MANUAL_SHIPPING_MESSAGE,
 } from "../../../../config/features.js";
 import { vendorCouriersSettingsUrl } from "../../../../config/vendorNavigation.js";
@@ -855,36 +856,47 @@ export default function AwbPanel(props) {
         </div>
         <ManualShipEntry visibility="primary" orderId={orderId} canProcess={canProcess} onDone={onChanged} />
 
-        <div className={styles.automationUnavailable}>
-          <span className={styles.muted} role="status">
-            {COURIER_AUTOMATION_SOON_MESSAGE} {COURIER_MANUAL_SHIPPING_MESSAGE}
-          </span>
-          <div className={styles.actions}>
-            <button
-              type="button"
-              className={`${styles.secondaryBtn} ${styles.unavailableBtn}`}
-              disabled
-              aria-disabled="true"
-              title={COURIER_AUTOMATION_SOON_MESSAGE}
-            >
-              <Truck size={16} aria-hidden="true" /> Generează AWB
-            </button>
-            <button
-              type="button"
-              className={`${styles.secondaryBtn} ${styles.unavailableBtn}`}
-              disabled
-              aria-disabled="true"
-              title={COURIER_AUTOMATION_SOON_MESSAGE}
-            >
-              <Settings2 size={16} aria-hidden="true" /> Conectează curier
-            </button>
-          </div>
-        </div>
+        <AutomationUnavailable />
       </SectionShell>
     );
   }
 
   return <AwbPanelInner {...props} />;
+}
+
+/*
+ * Acțiunile automate (Generează AWB / Conectează curier) vizibile, dar
+ * indisponibile: flag-urile frontend oprite sau backend-ul răspunde 503.
+ * Greyed out, disabled + aria-disabled, fără niciun request.
+ */
+function AutomationUnavailable() {
+  return (
+    <div className={styles.automationUnavailable}>
+      <span className={styles.muted} role="status">
+        {COURIER_AUTOMATION_SOON_MESSAGE} {COURIER_MANUAL_SHIPPING_MESSAGE}
+      </span>
+      <div className={styles.actions}>
+        <button
+          type="button"
+          className={`${styles.secondaryBtn} ${styles.unavailableBtn}`}
+          disabled
+          aria-disabled="true"
+          title={COURIER_SOON_SHORT}
+        >
+          <Truck size={16} aria-hidden="true" /> Generează AWB
+        </button>
+        <button
+          type="button"
+          className={`${styles.secondaryBtn} ${styles.unavailableBtn}`}
+          disabled
+          aria-disabled="true"
+          title={COURIER_SOON_SHORT}
+        >
+          <Settings2 size={16} aria-hidden="true" /> Conectează curier
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function AwbPanelInner({ shipment, orderStatus, orderId, canProcess = true, onChanged }) {
@@ -1011,12 +1023,8 @@ function AwbPanelInner({ shipment, orderStatus, orderId, canProcess = true, onCh
         </div>
       )}
 
-      {state === "disabled" && (
-        <div className={styles.text}>
-          <strong>În curs de activare</strong>
-          <span className={styles.muted}>Generarea AWB direct din Artfest va fi disponibilă în curând.</span>
-        </div>
-      )}
+      {/* backend oprit (COURIER_INTEGRATION_ENABLED, 503): acțiunile automate vizibile, dar dezactivate */}
+      {state === "disabled" && <AutomationUnavailable />}
 
       {state === "error" && (
         <div className={styles.error} role="alert">

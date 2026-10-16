@@ -2,53 +2,67 @@
 
 /*
  * Feature flags frontend (constante de build, fără logică de runtime).
+ * Variabilele Vite se aplică la BUILD (frontend/.env local, Vercel ->
+ * Environment Variables), nu la runtime. Activare DOAR explicită
+ * ("1" / "true"); nesetată sau orice altă valoare -> OPRIT, inclusiv în
+ * `vite dev` (nu se mai pornește nimic doar pentru că e mediu de dezvoltare).
  *
- * VENDOR_COURIERS_ENABLED - integrarea de curierat pentru vendori
- * (conturi de curier, adrese de ridicare, „Generează AWB”, etichete,
- * anulare AWB). Controlat de variabila de BUILD Vite
- * VITE_VENDOR_COURIERS_ENABLED (frontend/.env sau Vercel -> Environment
- * Variables; se aplică la build, nu la runtime):
- *   "1" / "true"  -> pornit
- *   "0" / "false" -> oprit
- *   nesetată      -> pornit DOAR în `vite dev` (import.meta.env.DEV);
- *                    orice build (`vite build`, deci Vercel producție și
- *                    preview) e OPRIT dacă variabila nu e setată explicit.
- * Backend-ul are un flag separat (COURIER_INTEGRATION_ENABLED, vezi
- * backend/src/couriers/http.js) - API-ul refuză oricum cererile când e
- * oprit acolo.
+ * VENDOR_COURIERS_ENABLED (VITE_VENDOR_COURIERS_ENABLED) - secțiunile de
+ * curierat ale vendorului (meniul „Curieri”, Setări → Livrare și retururi,
+ * panoul „Livrare” din comandă). Oprit -> secțiunile rămân vizibile, dar
+ * acțiunile automate sunt dezactivate.
+ *
+ * COURIER_AUTO_INTEGRATION_AVAILABLE (VITE_COURIER_AUTO_INTEGRATION_AVAILABLE) -
+ * acțiunile AUTOMATE (conectare / testare cont, adrese de ridicare,
+ * „Generează AWB”, anulare AWB). Oprit -> butoanele sunt vizibile, dar
+ * dezactivate (greyed out), fără niciun request.
+ *
+ * Acțiunile automate cer AMBELE flag-uri. Backend-ul are în plus
+ * COURIER_INTEGRATION_ENABLED (backend/src/couriers/http.js): dacă e oprit,
+ * API-ul răspunde 503 courier_integration_disabled, iar UI-ul afișează
+ * secțiunile cu acțiunile dezactivate. Fluxul manual („Trimite fără
+ * integrare”) rămâne activ mereu, indiferent de flag-uri.
  *
  * Unde e folosit:
  *   - config/vendorNavigation.js           itemul „Curieri” din meniul vendor
  *   - components/Navbar/Navbar.jsx         linkul „Curieri” din dropdown-ul avatarului
- *   - Settings/couriers/CourierSettings    secțiunea din Setări (altfel: „În curs de activare”)
- *   - Orders/components/CourierConnectCta  CTA „Conectează un curier” (Comenzi + detaliu)
- *   - Orders/components/AwbPanel           secțiunea „Curier / Livrare” din detaliul comenzii
+ *   - Settings/couriers/CourierSettings    secțiunea din Setări
+ *   - Orders/components/CourierConnectCta  CTA „Conectează un curier” (Comenzi)
+ *   - Orders/components/AwbPanel           secțiunea „Livrare” din detaliul comenzii
  */
-export function resolveVendorCouriersEnabled(env = {}) {
-  const raw = String(env?.VITE_VENDOR_COURIERS_ENABLED ?? "").trim().toLowerCase();
-  if (raw === "1" || raw === "true") return true;
-  if (raw === "0" || raw === "false") return false;
-  return env?.DEV === true;
+function isExplicitlyOn(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true";
 }
 
-export const VENDOR_COURIERS_ENABLED = resolveVendorCouriersEnabled(
-  (typeof import.meta !== "undefined" && import.meta.env) || {}
-);
+export function resolveVendorCouriersEnabled(env = {}) {
+  return isExplicitlyOn(env?.VITE_VENDOR_COURIERS_ENABLED);
+}
 
+export function resolveCourierAutoIntegrationAvailable(env = {}) {
+  return isExplicitlyOn(env?.VITE_COURIER_AUTO_INTEGRATION_AVAILABLE);
+}
+
+const BUILD_ENV = (typeof import.meta !== "undefined" && import.meta.env) || {};
+
+export const VENDOR_COURIERS_ENABLED = resolveVendorCouriersEnabled(BUILD_ENV);
+export const COURIER_AUTO_INTEGRATION_AVAILABLE = resolveCourierAutoIntegrationAvailable(BUILD_ENV);
 /*
- * COURIER_AUTO_INTEGRATION_AVAILABLE - integrarea AUTOMATĂ cu curierii
- * (conectare / testare cont, adrese de ridicare, „Generează AWB”, anulare
- * AWB) e momentan INDISPONIBILĂ: secțiunile rămân vizibile, dar acțiunile
- * sunt dezactivate (greyed out) și nu fac niciun request. Fluxul manual
- * („Trimite fără integrare”) rămâne activ mereu.
- *
- * Acțiunile automate cer AMBELE: VENDOR_COURIERS_ENABLED (build) ȘI această
- * constantă. Backend-ul are în plus COURIER_INTEGRATION_ENABLED (oprit în
- * producție) - protecție și dacă UI-ul e schimbat accidental.
+ * COURIER_ACTIONS_HARD_DISABLED - oprire TEMPORARĂ, fixă în cod, a TUTUROR
+ * acțiunilor automate de curier (Programează curier, Generează AWB, Anulează
+ * AWB, Conectează curier, Testează și conectează, adrese de ridicare),
+ * INDIFERENT de variabilele VITE_* sau de mediu (dev / prod). Butoanele rămân
+ * vizibile, greyed out, disabled + aria-disabled, fără onClick / request.
+ * Se schimbă în false DOAR la decizia explicită de activare a curierilor.
+ * Rămân active: „Trimite fără integrare”, tracking, „Predată curierului”.
  */
-export const COURIER_AUTO_INTEGRATION_AVAILABLE = false;
-export const COURIER_AUTOMATION_ENABLED = VENDOR_COURIERS_ENABLED && COURIER_AUTO_INTEGRATION_AVAILABLE;
+export const COURIER_ACTIONS_HARD_DISABLED = true;
+
+export const COURIER_AUTOMATION_ENABLED =
+  !COURIER_ACTIONS_HARD_DISABLED && VENDOR_COURIERS_ENABLED && COURIER_AUTO_INTEGRATION_AVAILABLE;
 export const COURIER_AUTOMATION_SOON_MESSAGE = "Integrarea automată cu curierii va fi disponibilă în curând.";
+// text scurt pentru tooltip-ul butoanelor dezactivate
+export const COURIER_SOON_SHORT = "În curând - funcție în curs de activare";
 export const COURIER_MANUAL_SHIPPING_MESSAGE = "Momentan poți expedia comanda fără integrare.";
 
 /*

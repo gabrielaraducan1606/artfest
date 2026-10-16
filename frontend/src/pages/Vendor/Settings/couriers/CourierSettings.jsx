@@ -30,6 +30,7 @@ import styles from "./CourierSettings.module.css";
 import {
   COURIER_AUTOMATION_ENABLED,
   COURIER_AUTOMATION_SOON_MESSAGE,
+  COURIER_SOON_SHORT,
   COURIER_MANUAL_SHIPPING_MESSAGE,
 } from "../../../../config/features.js";
 import {
@@ -807,7 +808,7 @@ function UnavailableAction({ icon, label }) {
       className={`${settingsStyles.primary} ${styles.unavailableBtn}`}
       disabled
       aria-disabled="true"
-      title={COURIER_AUTOMATION_SOON_MESSAGE}
+      title={COURIER_SOON_SHORT}
     >
       {icon}
       {label}
@@ -1106,15 +1107,8 @@ function CourierSettingsInner() {
     );
   }
 
-  if (integrationDisabled) {
-    return (
-      <div {...anchorProps}>
-        <SectionCard icon={<PlugZap size={18} />} title="Curieri conectați">
-          <p className={styles.hint}>În curs de activare.</p>
-        </SectionCard>
-      </div>
-    );
-  }
+  // backend oprit (COURIER_INTEGRATION_ENABLED, 503): secțiunea rămâne vizibilă, acțiunile dezactivate
+  if (integrationDisabled) return <CourierSettingsUnavailable />;
 
   if (loadError) {
     return (

@@ -21,7 +21,6 @@ export default function OrdersTable({
 
   onContactClient,
   onMarkPreparing,
-  onOpenCourier,
   onMarkFulfilled,
   onOpenInvoice,
   onOpenCancel,
@@ -284,23 +283,13 @@ export default function OrdersTable({
 )}
 
                       {(o.status === "preparing" || o.status === "confirmed") && (
+                        // curieri dezactivați temporar (hard-disabled): fără onClick, fără request
                         <button
-                          className={styles.primaryBtn}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenCourier(o);
-                          }}
-                          disabled={
-  courierScheduled ||
-  o.canProcess === false
-}
-title={
-  o.waitingForCardPayment
-    ? "Clientul trebuie să finalizeze plata înainte să programezi curierul."
-    : courierScheduled
-      ? "Curierul este deja programat"
-      : "Programează curier"
-}
+                          type="button"
+                          className={`${styles.primaryBtn} ${styles.courierUnavailableBtn}`}
+                          disabled={true}
+                          aria-disabled="true"
+                          title="În curând - funcție în curs de activare"
                         >
                           <PackageCheck size={16} /> {courierScheduled ? "Curier programat" : "Programează curier"}
                         </button>

@@ -18,11 +18,15 @@ import {
 import styles from "./Orders.module.css";
 import VendorReturnRequestsSection from "./VendorReturnRequestsSection.jsx";
 import AwbPanel from "./components/AwbPanel.jsx";
-import { COURIER_AUTOMATION_ENABLED, COURIER_AUTOMATION_SOON_MESSAGE } from "../../../config/features.js";
+import { COURIER_AUTOMATION_ENABLED, COURIER_SOON_SHORT } from "../../../config/features.js";
 import { isArtfestLabel } from "./utils/awbPanelLogic.js";
 
-// programarea curierului = integrare automată: vizibilă, dar indisponibilă (greyed out)
-const COURIER_ENABLED = COURIER_AUTOMATION_ENABLED;
+// flux vechi de programare a ridicării (modal "Programează curier"): rămâne indisponibil;
+// AWB-ul automat se generează din secțiunea „Livrare” (AwbPanel), după flag-uri
+const COURIER_ENABLED = false;
+const COURIER_LEGACY_HINT = COURIER_AUTOMATION_ENABLED
+  ? "Generează AWB-ul din secțiunea „Livrare” a comenzii."
+  : COURIER_SOON_SHORT;
 const INVOICE_ENABLED = false;
 
 /*
@@ -868,7 +872,7 @@ const contactPerson =
               aria-disabled={!COURIER_ENABLED || !canProcess}
               title={
                 !COURIER_ENABLED
-                  ? COURIER_AUTOMATION_SOON_MESSAGE
+                  ? COURIER_LEGACY_HINT
                   : waitingForCardPayment
                   ? "Clientul trebuie să finalizeze plata înainte să programezi curierul."
                   : "Programează curier"
@@ -2072,7 +2076,8 @@ function CourierModal({ order, onClose, onDone }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
-  async function handleSubmit() {
+  // păstrat pentru reactivarea curierilor; nefolosit cât timp butonul e hard-disabled
+  async function _handleSubmit() {
     setSaving(true);
     setErr("");
     try {
@@ -2292,17 +2297,15 @@ function CourierModal({ order, onClose, onDone }) {
           >
             Anulează
           </button>
+          {/* curieri dezactivați temporar (hard-disabled): fără onClick, fără request */}
           <button
-            className={styles.primaryBtn}
-            onClick={handleSubmit}
-            disabled={saving}
+            type="button"
+            className={`${styles.primaryBtn} ${styles.courierUnavailableBtn}`}
+            disabled={true}
+            aria-disabled="true"
+            title={COURIER_SOON_SHORT}
           >
-            {saving ? (
-              <Loader2 className={styles.spin} size={16} />
-            ) : (
-              <PackageCheck size={16} />
-            )}{" "}
-            Programează curierul
+            <PackageCheck size={16} /> Programează curierul
           </button>
         </div>
         <p className={styles.muted}>

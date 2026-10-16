@@ -33,7 +33,8 @@ export default function CourierModal({ order, onClose, onDone }) {
 
   const alreadyScheduled = useMemo(() => isCourierAlreadyScheduled(order), [order]);
 
-  async function handleSubmit() {
+  // păstrat pentru reactivarea curierilor; nefolosit cât timp butonul e hard-disabled
+  async function _handleSubmit() {
     if (!order?.shipmentId || !order?.id) {
       setErr("Lipsește shipmentId / orderId pentru această comandă.");
       return;
@@ -233,14 +234,15 @@ export default function CourierModal({ order, onClose, onDone }) {
             Anulează
           </button>
 
+          {/* curieri dezactivați temporar (hard-disabled): fără onClick, fără request */}
           <button
-            className={styles.primaryBtn}
-            onClick={handleSubmit}
-            disabled={saving || alreadyScheduled}
-            title={alreadyScheduled ? "Curierul este deja programat" : "Programează curierul"}
+            type="button"
+            className={`${styles.primaryBtn} ${styles.courierUnavailableBtn}`}
+            disabled={true}
+            aria-disabled="true"
+            title="În curând - funcție în curs de activare"
           >
-            {saving ? <Loader2 className={styles.spin} size={16} /> : <PackageCheck size={16} />}{" "}
-            Programează curierul
+            <PackageCheck size={16} /> Programează curierul
           </button>
         </div>
 
