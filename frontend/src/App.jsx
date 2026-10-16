@@ -99,6 +99,8 @@ import MyOrderDetailsPage from "./pages/User/Orders/UserOrderDetails.jsx";
 const VendorOrdersPlanningPage = lazy(() =>
   import("./pages/Vendor/Orders/VendorOrdersPlaningPage.jsx")
 );
+const VendorFairPage = lazy(() => import("./pages/Vendor/Fair/FairPage.jsx"));
+const FairRulesDraftPage = lazy(() => import("./pages/Vendor/Fair/FairRulesDraftPage.jsx"));
 import ProductsPage from "./pages/Products/Products";
 import StoresPage from "./pages/Stores/StoresPage";
 import AccountPage from "./pages/AccountPage/AccountPage";
@@ -360,6 +362,22 @@ function LegalHtmlRoute({
         }}
       />
     </section>
+  );
+}
+
+/*
+ * Regulamentul Târgului Artfest, pe versiuni: /targ-artfest/regulament/v1.0.0.
+ * Backend-ul servește doar versiunile PUBLICATE (altfel 404 => mesaj de eroare).
+ */
+function FairRulesRoute() {
+  const { version = "" } = useParams();
+  const clean = /^v?\d+\.\d+\.\d+$/i.test(version) ? version.replace(/^v/i, "") : "";
+
+  return (
+    <LegalHtmlRoute
+      path={`/legal/artfest-fair-rules/v/${clean || "0.0.0"}.html`}
+      title="regulamentul Târgului Artfest"
+    />
   );
 }
 
@@ -861,6 +879,18 @@ export default function App() {
               }
             />
 
+            {/* Regulamentul Târgului Artfest - versiuni publicate */}
+            <Route
+              path="/targ-artfest/regulament/:version"
+              element={<FairRulesRoute />}
+            />
+
+            {/* Draftul regulamentului - doar citire, autentificat; NU e versiunea oficială */}
+            <Route
+              path="/targ-artfest/regulament-draft"
+              element={<FairRulesDraftPage />}
+            />
+
             {/* Servicii digitale */}
 
             <Route
@@ -1190,6 +1220,16 @@ export default function App() {
               element={
                 <RequireVendor>
                   <VendorOrdersPlanningPage />
+                </RequireVendor>
+              }
+            />
+
+            {/* Târgul de Crăciun Artfest - înscrierea vendorului */}
+            <Route
+              path="/vendor/targ-artfest"
+              element={
+                <RequireVendor>
+                  <VendorFairPage />
                 </RequireVendor>
               }
             />

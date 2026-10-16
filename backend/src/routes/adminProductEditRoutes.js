@@ -19,6 +19,10 @@ import {
   pickGpsrPatchFromBody,
   validateGpsrConsistency,
 } from "../lib/gpsrCompliance.js";
+import {
+  guardedProductUpdate,
+  sendFairLockError,
+} from "../services/fairProductLock.js";
 
 const router = Router();
 
@@ -1055,32 +1059,35 @@ if (
          UPDATE
       ================================================= */
 
+      // Târg Artfest: preț blocat după termen / unicat rezervat la târg
       const updated =
-        await prisma.product.update({
-          where: {
-            id: productId,
-          },
+        await guardedProductUpdate(productId, data, (db) =>
+          db.product.update({
+            where: {
+              id: productId,
+            },
 
-          data,
+            data,
 
-          include: {
-            additionalCategories: true,
-            service: {
-              include: {
-                type: true,
+            include: {
+              additionalCategories: true,
+              service: {
+                include: {
+                  type: true,
 
-                vendor: {
-                  select: {
-                    id: true,
-                    displayName: true,
+                  vendor: {
+                    select: {
+                      id: true,
+                      displayName: true,
+                    },
                   },
-                },
 
-                profile: true,
+                  profile: true,
+                },
               },
             },
-          },
-        });
+          })
+        );
 
       // titlul pentru feed-ul Google: în fundal, doar dacă datele s-au schimbat
       queueFeedTitleRefresh(updated.id);
@@ -1131,6 +1138,8 @@ if (
         },
       });
     } catch (error) {
+      if (sendFairLockError(res, error)) return;
+
       console.error(
         "PATCH /api/admin/products/:id error:",
         error

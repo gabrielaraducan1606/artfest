@@ -39,6 +39,7 @@ export const ADMIN_NAV_SECTIONS = [
       { label: "Produse", to: "/admin?tab=products", icon: "Package" },
       { label: "Colecții & promoții", to: "/admin?tab=collections", icon: "Layers" },
       { label: "Vendori", to: "/admin?tab=vendors", icon: "Users" },
+      { label: "Târg Artfest", to: "/admin?tab=artfestFair", icon: "Gift" },
       { label: "Useri (clienți)", to: "/admin?tab=users", icon: "UserIcon" },
     ],
   },

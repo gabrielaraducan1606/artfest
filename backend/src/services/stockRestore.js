@@ -61,7 +61,34 @@ export function aggregateQtyByProductId(items) {
  * consistență cu restul modificărilor din același cancel.
  */
 export async function restoreProductStock(tx, qtyByProductId) {
+  const fairHeld = await fairForcedUnavailableLines(tx, [...qtyByProductId.keys()]);
+
   for (const [productId, qty] of qtyByProductId) {
+    /*
+     * Târgul Artfest: un unicat aflat la târg (FORCED_UNAVAILABLE) NU
+     * redevine cumpărabil online la anularea unei comenzi vechi. Cantitatea
+     * se amână pe linia de inventar (onlineDeferredRestoreQty) și se aplică
+     * abia la restaurarea stării anterioare a produsului.
+     */
+    const fairLine = fairHeld.get(productId);
+    if (fairLine) {
+      await tx.artfestFairInventoryItem.update({
+        where: { id: fairLine.id },
+        data: { onlineDeferredRestoreQty: { increment: qty } },
+      });
+      await tx.artfestFairInventoryEvent.create({
+        data: {
+          inventoryItemId: fairLine.id,
+          fairId: fairLine.fairId,
+          vendorId: fairLine.vendorId,
+          type: "ONLINE_RESTORE_DEFERRED",
+          after: { deferredQty: qty },
+          note: "order_cancelled_while_reserved_for_fair",
+        },
+      });
+      continue;
+    }
+
     await tx.product.updateMany({
       where: {
         id: productId,
@@ -86,6 +113,27 @@ export async function restoreProductStock(tx, qtyByProductId) {
       },
     });
   }
+}
+
+// productId -> linia de târg care ține produsul indisponibil online (unicat la târg)
+async function fairForcedUnavailableLines(tx, productIds) {
+  const held = new Map();
+  if (!productIds.length) return held;
+
+  const lines = await tx.artfestFairInventoryItem.findMany({
+    where: {
+      productId: { in: productIds },
+      status: { in: ["SUBMITTED", "RECEIVED"] },
+      onlineReservationMode: "FORCED_UNAVAILABLE",
+      onlineReleasedAt: null,
+      onlineRestoredAt: null,
+    },
+    select: { id: true, productId: true, fairId: true, vendorId: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  for (const line of lines) if (!held.has(line.productId)) held.set(line.productId, line);
+  return held;
 }
 
 /**

@@ -32,6 +32,7 @@ import { prisma } from "../db.js";
 import { findMatchingItems } from "../lib/textMatch.js";
 import { getActivePlanForVendor } from "../payments/marketplaceCalc.js";
 import { calculateVendorLineFinancials } from "./vendorCommissionService.js";
+import { guardedProductUpdate } from "./fairProductLock.js";
 
 /* =========================================================
    ============================================================
@@ -1252,18 +1253,24 @@ export async function applyRecommendedPrice({
 
   const previousPriceCents = product.priceCents;
 
-  const updated = await prisma.product.update({
-    where: { id: productId },
+  // Târg Artfest: preț blocat după termen pentru produsele din inventar
+  const updated = await guardedProductUpdate(
+    productId,
+    { priceCents: costing.recommendedPriceCents },
+    (db) =>
+      db.product.update({
+        where: { id: productId },
 
-    data: {
-      priceCents: costing.recommendedPriceCents,
-    },
+        data: {
+          priceCents: costing.recommendedPriceCents,
+        },
 
-    select: {
-      id: true,
-      priceCents: true,
-    },
-  });
+        select: {
+          id: true,
+          priceCents: true,
+        },
+      })
+  );
 
   return {
     productId,

@@ -1,0 +1,23 @@
+# Regulamentul și condițiile de participare la Târgul Artfest - versiuni PUBLICATE.
+#
+# Document separat de documentele legale generale (NU e în manifest.yml, deci
+# nu intră în PolicyGate). Fiecare versiune publicată are propriul fișier și
+# propria adresă publică: /targ-artfest/regulament/v<versiune>.
+#
+# Lista goală = nimic publicat (ruta răspunde 404 pentru orice versiune).
+#
+# Publicare (doar după închiderea punctelor [DE STABILIT] și a revizuirii juridice):
+#   1. copiază draftul final în legal/artfest_fair_rules/v<versiune>.md
+#      (fără marcaje; variabilele {{company.*}} rămân, se completează din legal/vars);
+#   2. adaugă intrarea aici, de ex.:
+#        - version: "1.0.0"
+#          path: "artfest_fair_rules/v1.0.0.md"
+#          vars: 1
+#          publishedAt: "2026-11-01"
+#   3. leagă versiunea de târg (setează ÎMPREUNĂ termsVersion + termsUrl, URL derivat din versiune):
+#        node --env-file=.env scripts/linkFairTerms.mjs --version 1.0.0                      (verificare)
+#        node --env-file=.env scripts/linkFairTerms.mjs --version 1.0.0 --apply --confirm-host <host>
+#      Nu edita câmpurile manual: CHECK-ul ArtfestFair_terms_pair_chk refuză starea „doar unul setat”.
+# O versiune publicată nu se modifică: o schimbare = versiune nouă.
+
+versions: []

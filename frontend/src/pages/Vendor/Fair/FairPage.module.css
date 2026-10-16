@@ -1,0 +1,455 @@
+/* Pagina „Târg Artfest” - doar variabile de temă (merge și în dark mode) */
+
+.page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  color: var(--color-text);
+  display: grid;
+  gap: 16px;
+}
+
+.hero {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--surface));
+}
+
+.heroIcon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.heroText {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(22px, 4vw, 28px);
+  line-height: 1.2;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.meta {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.option {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+.optionIcon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--color-primary);
+  background: var(--surface-muted);
+}
+
+.optionTitle {
+  margin: 0;
+  font-size: 16px;
+}
+
+.optionText {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 18px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.tone_info {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.tone_success {
+  color: var(--color-success);
+  background: var(--success-bg-soft);
+}
+
+.tone_danger {
+  color: var(--color-danger);
+  background: var(--danger-bg-soft);
+}
+
+.tone_muted {
+  color: var(--color-muted);
+  background: var(--surface-muted);
+  border-color: var(--color-border);
+}
+
+.summary {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.summary div {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.summary dt {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.summary dd {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.preWrap {
+  white-space: pre-wrap;
+}
+
+.nextStep {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--color-border);
+  background: var(--surface-muted);
+  font-size: 14px;
+}
+
+.nextStep span {
+  color: var(--color-muted);
+}
+
+.muted {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+.muted a {
+  color: var(--color-primary);
+}
+
+.successBox,
+.errorBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.successBox {
+  color: var(--color-success);
+  background: var(--success-bg-soft);
+}
+
+.errorBox {
+  color: var(--color-danger);
+  background: var(--danger-bg-soft);
+}
+
+.ctaRow,
+.cardActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.ctaRow {
+  justify-content: flex-start;
+}
+
+.btn,
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn {
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: var(--on-primary);
+}
+
+.btnGhost {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+}
+
+.btn:disabled,
+.btnGhost:disabled {
+  cursor: not-allowed;
+  background: var(--surface-muted);
+  border-color: var(--color-border);
+  color: var(--text-disabled);
+}
+
+.btn:focus-visible,
+.btnGhost:focus-visible,
+.iconBtn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.iconBtn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.radioGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.radioCard {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.radioCard input {
+  margin-top: 3px;
+  accent-color: var(--color-primary);
+}
+
+.radioCard span {
+  display: grid;
+  gap: 2px;
+}
+
+.radioCard small {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
+.radioCardActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--surface));
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.input,
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--input-border, var(--color-border));
+  background: var(--input-bg, var(--surface));
+  color: var(--color-text);
+  font: inherit;
+  font-size: 15px;
+}
+
+.textarea {
+  resize: vertical;
+}
+
+.input[aria-invalid="true"],
+.textarea[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+.inline {
+  display: flex;
+  gap: 8px;
+}
+
+.inline .input {
+  flex: 1 1 auto;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface-muted);
+  font-size: 13px;
+}
+
+.chip button {
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.checkbox {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.checkbox input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+
+.checkbox a {
+  color: var(--color-primary);
+}
+
+.fieldError {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-danger);
+}
+
+@media (max-width: 640px) {
+  .options,
+  .radioGrid,
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .summary div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .hero {
+    padding: 16px;
+  }
+
+  .cardActions .btn,
+  .cardActions .btnGhost,
+  .ctaRow .btn {
+    flex: 1 1 auto;
+  }
+}

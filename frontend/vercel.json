@@ -281,6 +281,14 @@
       "destination": "/index.html"
     },
     {
+      "source": "/targ-artfest/regulament-draft",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/targ-artfest/regulament/:version",
+      "destination": "/index.html"
+    },
+    {
       "source": "/vendor/catalog",
       "destination": "/index.html"
     },
@@ -334,6 +342,10 @@
     },
     {
       "source": "/vendor/support",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/targ-artfest",
       "destination": "/index.html"
     },
     {

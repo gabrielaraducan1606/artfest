@@ -42,6 +42,17 @@ export const VENDOR_DASHBOARD_LINK = {
   icon: "LayoutGrid",
 };
 
+/*
+ * Târgul de Crăciun Artfest - o singură pagină pentru toate punctele de
+ * acces (burger, cardul din Dashboard, bannerul din Comenzi).
+ */
+export const VENDOR_FAIR_URL = "/vendor/targ-artfest";
+
+// link de nivel 1 în burger (sub Dashboard), vizibil fără a deschide o secțiune
+export const VENDOR_FEATURED_LINKS = [
+  { label: "Târg Artfest", to: VENDOR_FAIR_URL, icon: "Gift" },
+];
+
 export const VENDOR_NAV_SECTIONS = [
   {
     key: "magazin",

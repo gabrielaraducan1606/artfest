@@ -123,7 +123,33 @@ model User {
 
   quoteRequests QuoteRequest[]
 
-  customerRequests CustomerRequest[]
+  customerRequests           CustomerRequest[]
+  submittedFairRegistrations ArtfestFairRegistration[]  @relation("ArtfestFairSubmittedBy")
+  reviewedFairRegistrations  ArtfestFairRegistration[]  @relation("ArtfestFairReviewedBy")
+  fairBroadcastDeliveries    ArtfestBroadcastDelivery[]
+
+  // ==================== Târg Artfest - inventar ====================
+  receivedFairInventoryItems    ArtfestFairInventoryItem[]        @relation("ArtfestInventoryReceivedBy")
+  confirmedFairInventoryReturns ArtfestFairInventoryItem[]        @relation("ArtfestInventoryReturnConfirmedBy")
+  blockedFairInventoryItems     ArtfestFairInventoryItem[]        @relation("ArtfestInventorySaleBlockedBy")
+  fairStockMovements            ArtfestFairStockMovement[]        @relation("ArtfestStockMovementActor")
+  fairInventoryEvents           ArtfestFairInventoryEvent[]       @relation("ArtfestInventoryEventActor")
+  fairSalesCreated              ArtfestFairSale[]                 @relation("ArtfestSaleCreatedBy")
+  fairSalesVoided               ArtfestFairSale[]                 @relation("ArtfestSaleVoidedBy")
+  fairSaleReturnsCreated        ArtfestFairSaleReturn[]           @relation("ArtfestSaleReturnCreatedBy")
+  fairDiscountsCreated          ArtfestFairDiscount[]             @relation("ArtfestDiscountCreatedBy")
+  fairDiscountsApproved         ArtfestFairDiscount[]             @relation("ArtfestDiscountApprovedBy")
+  fairSettlementsFinalized      ArtfestFairSettlement[]           @relation("ArtfestSettlementFinalizedBy")
+  fairSettlementsPaid           ArtfestFairSettlement[]           @relation("ArtfestSettlementPaidBy")
+  fairSettlementAdjustments     ArtfestFairSettlementAdjustment[] @relation("ArtfestSettlementAdjustmentCreatedBy")
+
+  // ==================== Târg Artfest - anulare + retur ====================
+  cancelledFairRegistrations ArtfestFairRegistration[]      @relation("ArtfestFairCancelledBy")
+  fairRegistrationEvents     ArtfestFairRegistrationEvent[] @relation("ArtfestFairRegistrationEventActor")
+  fairReturnsCreated         ArtfestFairReturn[]            @relation("ArtfestFairReturnCreatedBy")
+  fairReturnsShipped         ArtfestFairReturn[]            @relation("ArtfestFairReturnShippedBy")
+  fairReturnsConfirmed       ArtfestFairReturn[]            @relation("ArtfestFairReturnConfirmedBy")
+  fairReturnsCancelled       ArtfestFairReturn[]            @relation("ArtfestFairReturnCancelledBy")
 
   @@index([vendorDeactivateToken])
   @@index([emailChangeToken])
@@ -414,9 +440,17 @@ model Vendor {
   productImports        ProductImport[]
 
   // ==================== Costuri & Profit ====================
-  costItems           VendorCostItem[]
-  CourierAccount      CourierAccount[]
-  VendorPickupAddress VendorPickupAddress[]
+  costItems               VendorCostItem[]
+  CourierAccount          CourierAccount[]
+  VendorPickupAddress     VendorPickupAddress[]
+  fairRegistrations       ArtfestFairRegistration[]
+  fairBroadcastDeliveries ArtfestBroadcastDelivery[]
+  fairInventoryItems      ArtfestFairInventoryItem[]
+  fairSaleLines           ArtfestFairSaleLine[]
+  fairSaleReturnLines     ArtfestFairSaleReturnLine[]
+  fairDiscounts           ArtfestFairDiscount[]
+  fairSettlements         ArtfestFairSettlement[]
+  fairReturns             ArtfestFairReturn[]
 
   @@index([isActive], map: "vendor_isActive_idx")
   @@index([citySlug], map: "vendor_citySlug_idx")
@@ -685,6 +719,126 @@ enum ProductImportSource {
   WOOCOMMERCE
 }
 
+enum ArtfestFairParticipationType {
+  PARTICIPARE_FIZICA
+  PARTICIPARE_LA_DISTANTA
+}
+
+enum ArtfestFairRegistrationStatus {
+  SUBMITTED
+  APPROVED
+  // REJECTED = înscriere care NU a fost niciodată aprobată
+  REJECTED
+  WITHDRAWN
+  // CANCELLED = participare APPROVED anulată ulterior (cauza în cancellationCause)
+  CANCELLED
+}
+
+enum ArtfestFairCancellationCause {
+  ARTFEST_DECISION
+  VENDOR_REQUEST
+  VENDOR_BREACH
+}
+
+enum ArtfestFairRegistrationEventType {
+  SUBMITTED
+  APPROVED
+  REJECTED
+  REAPPROVED
+  WITHDRAWN
+  CANCELLED
+}
+
+enum ArtfestDeliveryStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  UNKNOWN
+}
+
+// ==================== Târg Artfest - inventar ====================
+
+enum ArtfestInventoryStatus {
+  DRAFT
+  SUBMITTED
+  RECEIVED
+  REJECTED
+  CANCELLED
+  CLOSED
+}
+
+enum ArtfestStockMovementType {
+  RECEIVED
+  REJECTED
+  REJECTED_RETURNED_TO_VENDOR
+  // bucăți deteriorate (după intrarea în stoc) returnate vendorului; nu revin niciodată online
+  DAMAGED_RETURNED_TO_VENDOR
+  SOLD
+  SALE_REVERSED
+  DAMAGED
+  LOST
+  RETURNED_TO_VENDOR
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+}
+
+enum ArtfestOnlineReservationMode {
+  NONE
+  TRANSFERRED
+  FORCED_UNAVAILABLE
+}
+
+enum ArtfestInventoryEventType {
+  CREATED
+  UPDATED
+  SUBMITTED
+  CANCELLED
+  STATUS_CHANGED
+  PRICE_SYNCED
+  LABEL_GENERATED
+  ONLINE_STOCK_RESERVED
+  ONLINE_STOCK_RELEASED
+  ONLINE_RESTORE_DEFERRED
+  VENDOR_RETURN_CONFIRMED
+  ONLINE_STOCK_RESTORED
+  ONLINE_RESTORE_SKIPPED
+  SALE_BLOCKED
+  SALE_UNBLOCKED
+  ADMIN_NOTE
+  REGISTRATION_CANCELLED
+  RECEIVED_FOR_RETURN_ONLY
+  RETURN_CANCELLED
+}
+
+// ==================== Târg Artfest - retur către vendor ====================
+// același flux pentru anularea participării și pentru produsele nevândute după târg
+
+enum ArtfestFairReturnReason {
+  PARTICIPATION_CANCELLED
+  FAIR_ENDED_UNSOLD
+  RECEPTION_REJECTED
+}
+
+enum ArtfestFairReturnCostPayer {
+  VENDOR
+  ARTFEST
+}
+
+enum ArtfestFairReturnMethod {
+  PICKUP
+  COURIER_BY_ARTFEST
+  COURIER_BY_VENDOR
+}
+
+enum ArtfestFairReturnStatus {
+  PREPARING
+  SHIPPED
+  CONFIRMED
+  CONFIRMED_WITH_DIFFERENCES
+  CANCELLED
+}
+
 enum ProductImportStatus {
   UPLOADED
   MAPPING
@@ -864,6 +1018,11 @@ model Product {
   quoteRequests        QuoteRequest[]
   importItems          ProductImportItem[]
   campaignProducts     VendorCampaignProduct[]
+
+  // Târg Artfest: liniile de inventar (stocul de târg e separat de readyQty;
+  // rezervarea online se ține pe linie, NU pe Product)
+  fairInventoryItems ArtfestFairInventoryItem[]
+  fairSaleLines      ArtfestFairSaleLine[]
 
   // Categorii SUPLIMENTARE (doar discovery intern, max 3). Categoria
   // principală rămâne Product.category (breadcrumb, SEO, canonical, feed-uri).
@@ -1693,14 +1852,14 @@ model Order {
 }
 
 model Shipment {
-  id                String            @id @default(cuid())
+  id                String         @id @default(cuid())
   orderId           String
   vendorId          String
   serviceId         String?
-  method            ShippingMethod    @default(COURIER)
+  method            ShippingMethod @default(COURIER)
   lockerId          String?
-  price             Decimal           @default(0) @db.Decimal(10, 2)
-  status            ShipmentStatus    @default(PENDING)
+  price             Decimal        @default(0) @db.Decimal(10, 2)
+  status            ShipmentStatus @default(PENDING)
   courierProvider   String?
   courierService    String?
   awb               String?
@@ -1714,7 +1873,7 @@ model Shipment {
   pickupScheduledAt DateTime?
   consents          Json?
   parcels           Int?
-  weightKg          Decimal?          @db.Decimal(7, 2)
+  weightKg          Decimal?       @db.Decimal(7, 2)
   lengthCm          Int?
   widthCm           Int?
   heightCm          Int?
@@ -1728,14 +1887,14 @@ model Shipment {
    * vendor), handedOverAt = data expedierii declarată. Pentru aceste
    * expedieri nu se generează AWB retroactiv.
    */
-  manualShipment    Boolean           @default(false)
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  deliveredAt       DateTime?
-  refusedAt         DateTime?
-  returnedAt        DateTime?
-  direction         ShipmentDirection @default(OUTBOUND)
-  returnRequestId   String?
+  manualShipment  Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  deliveredAt     DateTime?
+  refusedAt       DateTime?
+  returnedAt      DateTime?
+  direction       ShipmentDirection @default(OUTBOUND)
+  returnRequestId String?
 
   // ==================== Campanie vendor ====================
   campaignId              String?
@@ -4515,4 +4674,771 @@ model InfluencerComplianceResponse {
   gate InfluencerComplianceGate @relation(fields: [gateId], references: [id], onDelete: Restrict)
 
   @@index([influencerId])
+}
+
+model ArtfestFair {
+  id               String    @id @default(cuid())
+  key              String    @unique @db.VarChar(120)
+  title            String    @db.VarChar(200)
+  subtitle         String?   @db.VarChar(300)
+  city             String?   @db.VarChar(120)
+  venue            String?   @db.VarChar(200)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  registrationOpen Boolean   @default(true)
+  termsVersion     String?   @db.VarChar(40)
+  termsUrl         String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // [TERMEN LIMITĂ PREDARE]: după el inventarul vendorului e read-only și prețul e blocat
+  inventoryDeadlineAt DateTime?
+  // deschis manual de admin în zilele târgului (vânzare prin scanare)
+  salesOpen           Boolean   @default(false)
+  // comisionul de târg (10%), copiat pe fiecare viitoare linie de vânzare
+  commissionBps       Int       @default(1000)
+
+  registrations          ArtfestFairRegistration[]
+  inventoryItems         ArtfestFairInventoryItem[]
+  // numerotarea retururilor către vendor (separată de nextReturnNumber = retururi clienți)
+  nextVendorReturnNumber Int                        @default(1)
+  vendorReturns          ArtfestFairReturn[]
+  nextSaleNumber         Int                        @default(1)
+  nextReturnNumber       Int                        @default(1)
+  sales                  ArtfestFairSale[]
+  saleLines              ArtfestFairSaleLine[]
+  discounts              ArtfestFairDiscount[]
+  saleReturns            ArtfestFairSaleReturn[]
+  settlements            ArtfestFairSettlement[]
+
+  @@index([registrationOpen])
+  @@index([startsAt, endsAt])
+}
+
+model ArtfestFairRegistration {
+  id                    String                        @id @default(cuid())
+  fairId                String
+  vendorId              String
+  submittedByUserId     String
+  status                ArtfestFairRegistrationStatus @default(SUBMITTED)
+  participationType     ArtfestFairParticipationType
+  contactName           String                        @db.VarChar(160)
+  contactPhone          String                        @db.VarChar(50)
+  contactEmail          String                        @db.VarChar(320)
+  productTypes          String[]                      @default([])
+  estimatedProductCount Int?
+  notes                 String?                       @db.Text
+  termsAcceptedAt       DateTime
+  termsVersion          String?                       @db.VarChar(40)
+  termsIp               String?                       @db.VarChar(64)
+  termsUa               String?                       @db.VarChar(500)
+  submittedAt           DateTime                      @default(now())
+  reviewedAt            DateTime?
+  reviewedById          String?
+  rejectionReason       String?                       @db.Text
+  withdrawnAt           DateTime?
+
+  // anulare după APPROVED; cancellationReason e intern (nu se trimite vendorului)
+  cancelledAt                  DateTime?
+  cancelledById                String?
+  cancellationCause            ArtfestFairCancellationCause?
+  cancellationReason           String?                       @db.Text
+  cancellationMessageForVendor String?                       @db.Text
+  // bifa „Produsele au fost deja expediate” de la anulare (audit)
+  cancellationGoodsShipped     Boolean?
+
+  fair        ArtfestFair @relation(fields: [fairId], references: [id], onDelete: Restrict)
+  vendor      Vendor      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  submittedBy User        @relation("ArtfestFairSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: Restrict)
+  reviewedBy  User?       @relation("ArtfestFairReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  cancelledBy User?       @relation("ArtfestFairCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+
+  inventoryItems ArtfestFairInventoryItem[]
+  events         ArtfestFairRegistrationEvent[]
+  returns        ArtfestFairReturn[]
+
+  @@unique([fairId, vendorId])
+  @@index([fairId, status, submittedAt])
+  @@index([vendorId, submittedAt])
+  @@index([submittedByUserId])
+  @@index([reviewedById])
+  @@index([cancelledById])
+}
+
+// istoric append-only al deciziilor pe înscriere (reaprobarea nu mai șterge istoricul)
+model ArtfestFairRegistrationEvent {
+  id             String                           @id @default(cuid())
+  registrationId String
+  // denormalizate pentru filtrare (fără FK, ca ArtfestFairInventoryEvent)
+  fairId         String
+  vendorId       String
+  type           ArtfestFairRegistrationEventType
+  actorUserId    String?
+  // intern
+  reason         String?                          @db.Text
+  // public, dacă există
+  vendorMessage  String?                          @db.Text
+  before         Json?
+  after          Json?
+  metadata       Json?
+  createdAt      DateTime                         @default(now())
+
+  // Cascade: păstrează comportamentul existent la ștergerea vendorului (înscriere -> Cascade)
+  registration ArtfestFairRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  actor        User?                   @relation("ArtfestFairRegistrationEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([registrationId, createdAt])
+  @@index([fairId, type, createdAt])
+  @@index([vendorId, createdAt])
+  @@index([actorUserId])
+}
+
+// retur către vendor (un colet / o predare), cu liniile lui
+model ArtfestFairReturn {
+  id             String                     @id @default(cuid())
+  fairId         String
+  registrationId String
+  vendorId       String
+  number         Int
+  reason         ArtfestFairReturnReason
+  // instantaneu la creare (ARTFEST doar la PARTICIPATION_CANCELLED + ARTFEST_DECISION)
+  costPayer      ArtfestFairReturnCostPayer
+  method         ArtfestFairReturnMethod
+  status         ArtfestFairReturnStatus    @default(PREPARING)
+
+  // fără integrare cu curierul; costul e informativ, nu intră automat în decont
+  courierName       String? @db.VarChar(80)
+  trackingNumber    String? @db.VarChar(80)
+  shippingCostCents Int?
+  adminNotes        String? @db.Text
+
+  createdById      String?
+  shippedAt        DateTime?
+  shippedById      String?
+  confirmedAt      DateTime?
+  confirmedById    String?
+  // confirmare făcută de Admin în numele vendorului (min. 7 zile după SHIPPED, cu motiv)
+  confirmedByAdmin Boolean   @default(false)
+  confirmationNote String?   @db.Text
+  vendorNote       String?   @db.Text
+  cancelledAt      DateTime?
+  cancelledById    String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  fair         ArtfestFair             @relation(fields: [fairId], references: [id], onDelete: Restrict)
+  registration ArtfestFairRegistration @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  vendor       Vendor                  @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  createdBy    User?                   @relation("ArtfestFairReturnCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  shippedBy    User?                   @relation("ArtfestFairReturnShippedBy", fields: [shippedById], references: [id], onDelete: SetNull)
+  confirmedBy  User?                   @relation("ArtfestFairReturnConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  cancelledBy  User?                   @relation("ArtfestFairReturnCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+
+  lines ArtfestFairReturnLine[]
+
+  @@unique([fairId, number])
+  @@index([registrationId, status])
+  @@index([fairId, status, createdAt])
+  @@index([vendorId, createdAt])
+  @@index([createdById])
+  @@index([shippedById])
+  @@index([confirmedById])
+  @@index([cancelledById])
+}
+
+model ArtfestFairReturnLine {
+  id              String @id @default(cuid())
+  returnId        String
+  inventoryItemId String
+  // din availableQty -> mișcare RETURNED_TO_VENDOR
+  qtyFromStock    Int    @default(0)
+  // din refuzatele la recepție -> mișcare REJECTED_RETURNED_TO_VENDOR
+  qtyRejected     Int    @default(0)
+  // din deteriorate (damagedQty nereturnat) -> mișcare DAMAGED_RETURNED_TO_VENDOR
+  qtyDamaged      Int    @default(0)
+
+  // la confirmare: vendorReceivedQty = vandabile + refuzate primite (fără deteriorate);
+  // deterioratele primite separat, niciodată readăugate online
+  vendorReceivedQty        Int?
+  vendorReceivedDamagedQty Int?
+  restoreOnlineQty         Int?
+  onlineRestoredQty        Int     @default(0)
+  note                     String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  return        ArtfestFairReturn          @relation(fields: [returnId], references: [id], onDelete: Restrict)
+  inventoryItem ArtfestFairInventoryItem   @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  movements     ArtfestFairStockMovement[]
+
+  @@unique([returnId, inventoryItemId])
+  @@index([inventoryItemId])
+}
+
+model ArtfestBroadcastDelivery {
+  id                 String                @id @default(cuid())
+  campaignKey        String                @db.VarChar(160)
+  vendorId           String
+  userId             String?
+  notificationId     String?               @unique
+  notificationStatus ArtfestDeliveryStatus @default(PENDING)
+  notifiedAt         DateTime?
+  notificationError  String?               @db.Text
+  emailTo            String?               @db.VarChar(320)
+  emailStatus        ArtfestDeliveryStatus @default(PENDING)
+  emailAttempts      Int                   @default(0)
+  emailSentAt        DateTime?
+  emailError         String?               @db.Text
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([campaignKey, vendorId])
+  @@index([campaignKey, notificationStatus])
+  @@index([campaignKey, emailStatus])
+  @@index([vendorId])
+  @@index([userId])
+}
+
+// ==================== Târg Artfest - inventar ====================
+//
+// Stocul de târg e separat de Product.readyQty. La SUBMITTED, bucățile
+// pentru târg se transferă din stocul online (TRANSFERRED) sau produsul
+// unicat devine indisponibil online (FORCED_UNAVAILABLE); linia păstrează
+// ce s-a rezervat și starea anterioară pentru restaurare. Cantitățile se
+// schimbă DOAR prin serviciu, împreună cu ArtfestFairStockMovement.
+// CHECK-urile de consistență (cantități, barcode, unicat, rezervare) sunt
+// în migrarea SQL, nu în acest fișier.
+
+model ArtfestFairInventoryItem {
+  id             String  @id @default(cuid())
+  fairId         String
+  registrationId String
+  vendorId       String
+  productId      String?
+
+  // cheia din buildConfigurationKey (aceeași logică ca CartItem/ShipmentItem)
+  variantKey      String  @db.VarChar(64)
+  variantLabel    String? @db.VarChar(200)
+  variantSnapshot Json?
+
+  titleSnapshot      String   @db.VarChar(200)
+  storeNameSnapshot  String?  @db.VarChar(160)
+  imageUrlSnapshot   String?
+  priceSnapshotCents Int
+  currency           String   @default("RON") @db.VarChar(3)
+  priceSyncedAt      DateTime @default(now())
+
+  barcode          String    @unique @db.VarChar(10)
+  labelPriceCents  Int?
+  labelGeneratedAt DateTime?
+
+  declaredQty         Int
+  receivedQty         Int @default(0)
+  rejectedQty         Int @default(0)
+  rejectedReturnedQty Int @default(0)
+  soldQty             Int @default(0)
+  damagedQty          Int @default(0)
+  // deteriorate returnate vendorului (custodia Artfest scade, availableQty nu se schimbă)
+  damagedReturnedQty  Int @default(0)
+  lostQty             Int @default(0)
+  returnedQty         Int @default(0)
+  availableQty        Int @default(0)
+
+  status ArtfestInventoryStatus @default(DRAFT)
+
+  isFragile            Boolean @default(false)
+  isUnique             Boolean @default(false)
+  isLimitedEdition     Boolean @default(false)
+  canBeRemade          Boolean @default(false)
+  handlingInstructions String? @db.Text
+  vendorNotes          String? @db.Text
+  adminNotes           String? @db.Text
+
+  onlineReservationMode    ArtfestOnlineReservationMode @default(NONE)
+  onlineReservedAt         DateTime?
+  onlineReservedQty        Int                          @default(0)
+  onlineReleasedQty        Int                          @default(0)
+  onlineReleasedAt         DateTime?
+  onlinePrevAvailability   ProductAvailability?
+  onlinePrevReadyQty       Int?
+  onlineDeferredRestoreQty Int                          @default(0)
+
+  vendorReturnConfirmedAt   DateTime?
+  vendorReturnConfirmedById String?
+  vendorReturnReceivedQty   Int?
+  onlineRestoredQty         Int       @default(0)
+  onlineRestoredAt          DateTime?
+
+  // blocare temporară de la vânzare, separată de status (deblocarea: event SALE_UNBLOCKED)
+  saleBlockedAt     DateTime?
+  saleBlockedReason String?   @db.Text
+  saleBlockedById   String?
+
+  submittedAt  DateTime?
+  cancelledAt  DateTime?
+  receivedAt   DateTime?
+  receivedById String?
+  closedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  fair         ArtfestFair             @relation(fields: [fairId], references: [id], onDelete: Restrict)
+  registration ArtfestFairRegistration @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  vendor       Vendor                  @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  product      Product?                @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  receivedBy              User? @relation("ArtfestInventoryReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+  vendorReturnConfirmedBy User? @relation("ArtfestInventoryReturnConfirmedBy", fields: [vendorReturnConfirmedById], references: [id], onDelete: SetNull)
+  saleBlockedBy           User? @relation("ArtfestInventorySaleBlockedBy", fields: [saleBlockedById], references: [id], onDelete: SetNull)
+
+  movements       ArtfestFairStockMovement[]
+  events          ArtfestFairInventoryEvent[]
+  saleLines       ArtfestFairSaleLine[]
+  saleReturnLines ArtfestFairSaleReturnLine[]
+  discounts       ArtfestFairDiscount[]
+  returnLines     ArtfestFairReturnLine[]
+
+  @@unique([registrationId, productId, variantKey])
+  @@index([fairId, status])
+  @@index([fairId, vendorId, status])
+  @@index([productId, status])
+  @@index([productId, onlineReservationMode])
+  @@index([saleBlockedAt])
+}
+
+model ArtfestFairStockMovement {
+  id               String                   @id @default(cuid())
+  inventoryItemId  String
+  fairId           String
+  vendorId         String
+  type             ArtfestStockMovementType
+  quantity         Int
+  reason           String?                  @db.Text
+  photoUrls        String[]                 @default([])
+  actorUserId      String?
+  saleLineId       String?
+  saleReturnLineId String?
+  // doar pentru RETURNED_TO_VENDOR / REJECTED_RETURNED_TO_VENDOR / DAMAGED_RETURNED_TO_VENDOR (CHECK în migrație)
+  returnLineId     String?
+  idempotencyKey   String?                  @unique @db.VarChar(100)
+  createdAt        DateTime                 @default(now())
+
+  inventoryItem  ArtfestFairInventoryItem   @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  actor          User?                      @relation("ArtfestStockMovementActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  saleLine       ArtfestFairSaleLine?       @relation(fields: [saleLineId], references: [id], onDelete: Restrict)
+  saleReturnLine ArtfestFairSaleReturnLine? @relation(fields: [saleReturnLineId], references: [id], onDelete: Restrict)
+  returnLine     ArtfestFairReturnLine?     @relation(fields: [returnLineId], references: [id], onDelete: Restrict)
+
+  @@index([inventoryItemId, createdAt])
+  @@index([fairId, type, createdAt])
+  @@index([vendorId, createdAt])
+  @@index([saleLineId])
+  @@index([saleReturnLineId])
+  @@index([returnLineId])
+}
+
+model ArtfestFairInventoryEvent {
+  id              String                    @id @default(cuid())
+  inventoryItemId String
+  fairId          String
+  vendorId        String
+  type            ArtfestInventoryEventType
+  before          Json?
+  after           Json?
+  note            String?                   @db.Text
+  actorUserId     String?
+  createdAt       DateTime                  @default(now())
+
+  inventoryItem ArtfestFairInventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  actor         User?                    @relation("ArtfestInventoryEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([inventoryItemId, createdAt])
+  @@index([fairId, type, createdAt])
+  @@index([vendorId, createdAt])
+}
+
+// ==================== Târg Artfest - vânzare (POS intern) și decont ====================
+//
+// Modele separate de marketplace-ul online (fără Order / Shipment / checkout).
+// Toate sumele în bani întregi (RON × 100). Comisionul și netul vendorului
+// sunt snapshot-uri pe linie; vânzările vechi nu se recalculează.
+// Partea fiscală (vânzător juridic, bon fiscal, facturi) e deschisă: F1–F6.
+
+enum ArtfestSaleStatus {
+  COMPLETED
+  VOIDED
+  PARTIALLY_RETURNED
+  RETURNED
+}
+
+enum ArtfestPaymentMethod {
+  CASH
+  CARD
+  MIXED
+}
+
+enum ArtfestSaleReturnType {
+  VOID // anulare imediată, integrală
+  RETURN // retur ulterior, total sau parțial
+}
+
+enum ArtfestReturnDisposition {
+  RESTOCKED // bucata e fizic înapoi și revandabilă: SALE_REVERSED
+  NOT_RESTOCKED // bucata e înapoi, dar nevandabilă: SALE_REVERSED + DAMAGED
+  NOT_RETURNED // rambursare financiară fără produs: fără mișcare de stoc
+}
+
+// Cine suportă rambursarea pentru NOT_RETURNED / NOT_RESTOCKED (ales explicit de Admin).
+// RESTOCKED nu are responsabil: produsul revine vandabil, returul se tratează normal.
+enum ArtfestRefundResponsibility {
+  VENDOR // vendorNetReversedCents scade din netul vendorului (intră normal în decont)
+  ARTFEST // vendorul rămâne neafectat; refundCents e suportat de Artfest
+}
+
+enum ArtfestDiscountType {
+  PERCENT
+  FIXED_AMOUNT
+}
+
+// D2: MVP fără reducere pe coș (se adaugă o valoare nouă ulterior)
+enum ArtfestDiscountScope {
+  INVENTORY_ITEM
+  VENDOR
+}
+
+// D1: implicit VENDOR; ARTFEST doar creat explicit
+enum ArtfestDiscountFunding {
+  VENDOR
+  ARTFEST
+}
+
+enum ArtfestDiscountStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum ArtfestSettlementKind {
+  PERIODIC
+  FINAL
+}
+
+enum ArtfestSettlementStatus {
+  DRAFT // recalculabil
+  FINALIZED // blocat; intrările nu se mai schimbă
+  PAID // plătit (finalDueCents > 0)
+  CARRIED_FORWARD // sold negativ reportat în decontul următor (D6)
+  CANCELLED
+}
+
+model ArtfestFairSale {
+  id               String            @id @default(cuid())
+  fairId           String
+  saleNumber       Int
+  receiptReference String            @unique @db.VarChar(20)
+  status           ArtfestSaleStatus @default(COMPLETED)
+  currency         String            @default("RON") @db.VarChar(3)
+
+  listCents       Int
+  discountCents   Int
+  totalPaidCents  Int
+  commissionCents Int
+  vendorNetCents  Int
+
+  paymentMethod ArtfestPaymentMethod
+  cashCents     Int?
+  cardCents     Int?
+
+  idempotencyKey String @unique @db.VarChar(100)
+  requestHash    String @db.VarChar(64)
+
+  soldAt      DateTime  @default(now())
+  createdById String
+  voidedAt    DateTime?
+  voidedById  String?
+
+  customerName     String? @db.VarChar(160)
+  customerEmail    String? @db.VarChar(320)
+  customerTaxId    String? @db.VarChar(40)
+  fiscalReceiptRef String? @db.VarChar(80)
+  notes            String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fair      ArtfestFair             @relation(fields: [fairId], references: [id], onDelete: Restrict)
+  createdBy User                    @relation("ArtfestSaleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  voidedBy  User?                   @relation("ArtfestSaleVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
+  lines     ArtfestFairSaleLine[]
+  returns   ArtfestFairSaleReturn[]
+
+  @@unique([fairId, saleNumber])
+  @@index([fairId, soldAt])
+  @@index([fairId, status])
+  @@index([createdById])
+}
+
+model ArtfestFairSaleLine {
+  id              String  @id @default(cuid())
+  saleId          String
+  fairId          String
+  inventoryItemId String
+  vendorId        String
+  productId       String?
+
+  titleSnapshot   String  @db.VarChar(200)
+  variantLabel    String? @db.VarChar(200)
+  variantSnapshot Json?
+  barcodeSnapshot String  @db.VarChar(10)
+
+  quantity                   Int
+  listUnitPriceCents         Int
+  lineListCents              Int
+  lineDiscountCents          Int @default(0)
+  lineGrossCents             Int
+  effectiveUnitPriceCents    Int
+  // commissionBps = fair.commissionBps la vânzare (snapshot)
+  // commissionCents = round_half_up(lineGrossCents × commissionBps / 10000) - pe prețul efectiv
+  commissionBps              Int
+  commissionCents            Int
+  // comisionul care s-ar fi aplicat la prețul de listă, înainte de reducere (audit)
+  // commissionOnListCents = round_half_up(lineListCents × commissionBps / 10000)
+  commissionOnListCents      Int
+  // VENDOR:  artfestFundedDiscountCents = 0; vendorNetCents = lineGrossCents − commissionCents
+  // ARTFEST (D8 a, vendor neutru):
+  //   vendorNetWithoutDiscount   = lineListCents − commissionOnListCents
+  //   vendorNetAfterDiscount     = lineGrossCents − commissionCents
+  //   artfestFundedDiscountCents = max(0, vendorNetWithoutDiscount − vendorNetAfterDiscount)
+  //   vendorNetCents             = vendorNetAfterDiscount + artfestFundedDiscountCents
+  vendorNetCents             Int
+  artfestFundedDiscountCents Int @default(0)
+
+  returnedQty Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  sale            ArtfestFairSale              @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  fair            ArtfestFair                  @relation(fields: [fairId], references: [id], onDelete: Restrict)
+  inventoryItem   ArtfestFairInventoryItem     @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  vendor          Vendor                       @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  product         Product?                     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  discount        ArtfestFairSaleLineDiscount?
+  movements       ArtfestFairStockMovement[]
+  returnLines     ArtfestFairSaleReturnLine[]
+  settlementEntry ArtfestFairSettlementEntry?
+
+  @@unique([saleId, inventoryItemId])
+  @@index([fairId, vendorId])
+  @@index([vendorId, createdAt])
+  @@index([inventoryItemId])
+  @@index([productId])
+}
+
+model ArtfestFairDiscount {
+  id              String                 @id @default(cuid())
+  fairId          String
+  name            String                 @db.VarChar(120)
+  type            ArtfestDiscountType
+  percentBps      Int?
+  amountCents     Int?
+  scope           ArtfestDiscountScope
+  inventoryItemId String?
+  vendorId        String?
+  fundingSource   ArtfestDiscountFunding @default(VENDOR)
+  status          ArtfestDiscountStatus  @default(DRAFT)
+  startsAt        DateTime?
+  endsAt          DateTime?
+  createdById     String?
+  approvedById    String?
+  approvedAt      DateTime?
+  notes           String?                @db.Text
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  fair          ArtfestFair                   @relation(fields: [fairId], references: [id], onDelete: Restrict)
+  inventoryItem ArtfestFairInventoryItem?     @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  vendor        Vendor?                       @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  createdBy     User?                         @relation("ArtfestDiscountCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedBy    User?                         @relation("ArtfestDiscountApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  allocations   ArtfestFairSaleLineDiscount[]
+
+  @@index([fairId, status])
+  @@index([inventoryItemId])
+  @@index([vendorId])
+}
+
+// D2: cel mult o reducere pe linie (@@unique pe saleLineId)
+model ArtfestFairSaleLineDiscount {
+  id          String @id @default(cuid())
+  saleLineId  String @unique
+  discountId  String
+  amountCents Int
+  snapshot    Json
+
+  saleLine ArtfestFairSaleLine @relation(fields: [saleLineId], references: [id], onDelete: Restrict)
+  discount ArtfestFairDiscount @relation(fields: [discountId], references: [id], onDelete: Restrict)
+
+  @@index([discountId])
+}
+
+model ArtfestFairSaleReturn {
+  id                         String                @id @default(cuid())
+  saleId                     String
+  fairId                     String
+  type                       ArtfestSaleReturnType
+  returnNumber               Int
+  reference                  String                @unique @db.VarChar(20)
+  reason                     String                @db.Text
+  refundMethod               ArtfestPaymentMethod
+  // totalurile = suma liniilor returului (calculate de serviciu)
+  refundCents                Int
+  commissionReversedCents    Int
+  // partea inversată din compensația finanțată de Artfest (D8 a)
+  artfestFundedReversedCents Int                   @default(0)
+  // = refundCents − commissionReversedCents + artfestFundedReversedCents
+  vendorNetReversedCents     Int
+  idempotencyKey             String                @unique @db.VarChar(100)
+  createdById                String
+  createdAt                  DateTime              @default(now())
+
+  sale      ArtfestFairSale             @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  fair      ArtfestFair                 @relation(fields: [fairId], references: [id], onDelete: Restrict)
+  createdBy User                        @relation("ArtfestSaleReturnCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  lines     ArtfestFairSaleReturnLine[]
+
+  @@unique([fairId, returnNumber])
+  @@index([saleId])
+  @@index([fairId, createdAt])
+}
+
+model ArtfestFairSaleReturnLine {
+  id                         String                       @id @default(cuid())
+  returnId                   String
+  saleLineId                 String
+  inventoryItemId            String
+  vendorId                   String
+  quantity                   Int
+  // alocare deterministă pe bucăți a lineGrossCents / commissionCents /
+  // artfestFundedDiscountCents ai liniei de vânzare: base = floor(total / quantity),
+  // primele (total % quantity) bucăți primesc base + 1; un retur inversează
+  // următoarele bucăți nereturnate, începând de la saleLine.returnedQty
+  refundCents                Int
+  commissionReversedCents    Int
+  artfestFundedReversedCents Int                          @default(0)
+  // = refundCents − commissionReversedCents + artfestFundedReversedCents
+  vendorNetReversedCents     Int
+  disposition                ArtfestReturnDisposition
+  conditionNote              String?                      @db.Text
+  // obligatoriu IFF disposition IN (NOT_RETURNED, NOT_RESTOCKED); NULL la RESTOCKED (CHECK în migrație)
+  refundResponsibility       ArtfestRefundResponsibility?
+  // motiv intern (min. 3 caractere) exact când există responsabil; NU se afișează vendorului
+  responsibilityReason       String?                      @db.Text
+  createdAt                  DateTime                     @default(now())
+
+  saleReturn      ArtfestFairSaleReturn       @relation(fields: [returnId], references: [id], onDelete: Restrict)
+  saleLine        ArtfestFairSaleLine         @relation(fields: [saleLineId], references: [id], onDelete: Restrict)
+  inventoryItem   ArtfestFairInventoryItem    @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  vendor          Vendor                      @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  movements       ArtfestFairStockMovement[]
+  settlementEntry ArtfestFairSettlementEntry?
+
+  @@index([returnId])
+  @@index([saleLineId])
+  @@index([inventoryItemId])
+  @@index([vendorId, createdAt])
+}
+
+model ArtfestFairSettlement {
+  id         String                  @id @default(cuid())
+  fairId     String
+  vendorId   String
+  sequence   Int
+  kind       ArtfestSettlementKind
+  periodFrom DateTime
+  periodTo   DateTime
+  status     ArtfestSettlementStatus @default(DRAFT)
+  currency   String                  @default("RON") @db.VarChar(3)
+
+  listSalesCents          Int
+  discountsCents          Int
+  grossSalesCents         Int
+  commissionCents         Int
+  vendorNetCents          Int
+  // rambursările către clienți pe liniile vendorului, TOTAL (vendor + Artfest);
+  // rambursat de vendor = returnsRefundCents − artfestBorneRefundCents
+  returnsRefundCents      Int
+  // doar liniile care afectează vendorul (RESTOCKED + responsabil VENDOR)
+  commissionReversedCents Int
+  // doar liniile care afectează vendorul (RESTOCKED + responsabil VENDOR); intră în finalDueCents
+  vendorNetReversedCents  Int
+  adjustmentsCents        Int     @default(0)
+  // valoarea rambursării către client suportată de Artfest = suma refundCents a liniilor
+  // de retur cu refundResponsibility = ARTFEST (NU vendorNetReversedCents)
+  artfestBorneRefundCents Int     @default(0)
+  carriedInCents          Int     @default(0)
+  finalDueCents           Int
+  previousSettlementId    String? @unique
+
+  finalizedAt      DateTime?
+  finalizedById    String?
+  paidAt           DateTime?
+  paidById         String?
+  paymentReference String?   @db.VarChar(120)
+  documentRef      String?   @db.VarChar(120)
+  notes            String?   @db.Text
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  fair               ArtfestFair                       @relation(fields: [fairId], references: [id], onDelete: Restrict)
+  vendor             Vendor                            @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  finalizedBy        User?                             @relation("ArtfestSettlementFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
+  paidBy             User?                             @relation("ArtfestSettlementPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  previousSettlement ArtfestFairSettlement?            @relation("ArtfestSettlementCarry", fields: [previousSettlementId], references: [id], onDelete: Restrict)
+  nextSettlement     ArtfestFairSettlement?            @relation("ArtfestSettlementCarry")
+  entries            ArtfestFairSettlementEntry[]
+  // ajustări manuale (doar în DRAFT, imutabile); adjustmentsCents = suma lor, calculată de serviciu
+  adjustments        ArtfestFairSettlementAdjustment[]
+
+  @@unique([fairId, vendorId, sequence])
+  @@index([fairId, status])
+  @@index([vendorId, createdAt])
+}
+
+// Ajustare manuală a unui decont (doar în DRAFT). Imutabilă: nu se editează și nu se
+// șterge; o corecție se face printr-o ajustare inversă (auditul rămâne complet).
+model ArtfestFairSettlementAdjustment {
+  id           String   @id @default(cuid())
+  settlementId String
+  // ≠ 0 (CHECK); pozitiv = în favoarea vendorului, negativ = în defavoarea lui
+  amountCents  Int
+  // motiv intern Admin, obligatoriu (min. 3 caractere, CHECK); NU se arată vendorului
+  reason       String   @db.Text
+  // explicație opțională vizibilă vendorului
+  vendorNote   String?  @db.Text
+  createdById  String
+  createdAt    DateTime @default(now())
+
+  settlement ArtfestFairSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  createdBy  User                  @relation("ArtfestSettlementAdjustmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([settlementId])
+}
+
+model ArtfestFairSettlementEntry {
+  id              String  @id @default(cuid())
+  settlementId    String
+  saleLineId      String? @unique
+  returnLineId    String? @unique
+  grossCents      Int
+  commissionCents Int
+  vendorNetCents  Int
+
+  settlement ArtfestFairSettlement      @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  saleLine   ArtfestFairSaleLine?       @relation(fields: [saleLineId], references: [id], onDelete: Restrict)
+  returnLine ArtfestFairSaleReturnLine? @relation(fields: [returnLineId], references: [id], onDelete: Restrict)
+
+  @@index([settlementId])
 }

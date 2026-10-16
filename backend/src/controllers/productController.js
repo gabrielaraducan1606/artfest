@@ -11,6 +11,10 @@ import { MATERIALS_DETAILED } from "../constants/materials.js";
 import {
   getOwnedProductsServiceBySlug,
 } from "../lib/vendorProductAccess.js";
+import {
+  guardedProductUpdate,
+  sendFairLockError,
+} from "../services/fairProductLock.js";
 
 /* =========================================================
    Scheme și normalizări
@@ -3489,19 +3493,24 @@ export async function updateProduct(
         null;
     }
 
+    // Târg Artfest: preț blocat după termen / unicat rezervat la târg
     const updated =
-      await prisma.product.update({
-        where: {
-          id,
-        },
+      await guardedProductUpdate(id, patch, (db) =>
+        db.product.update({
+          where: {
+            id,
+          },
 
-        data: patch,
-      });
+          data: patch,
+        })
+      );
 
     return res.json(
       mapProduct(updated)
     );
   } catch (error) {
+    if (sendFairLockError(res, error)) return;
+
     console.error(
       "PUT /vendors/products/:id error:",
       error

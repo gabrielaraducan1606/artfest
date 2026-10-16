@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../../pages/Auth/Context/context.js";
 import styles from "./Desktop.module.css";
+import FairCta from "../Fair/FairCta.jsx";
 import PolicyGate from "../../Admin/AdminDesktop/PolicyGate/PolicyGate.jsx";
 import usePolicyGateController from "../../Admin/AdminDesktop/PolicyGate/usePolicyGateController.js";
 
@@ -970,6 +971,7 @@ const completeness = dashboardHealth.percent;
 
       {error ? <div className={styles.errorBar}>{error}</div> : null}
 <AmbassadorBanner ambassador={ambassador} />
+      <FairCta variant="dashboard" />
       <IdentityCard me={me} roleLabel={roleLabel} billing={billing} />
       <DashboardHealthCard health={dashboardHealth} />
       <QuickCard quick={quick} />

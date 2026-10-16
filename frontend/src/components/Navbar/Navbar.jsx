@@ -42,6 +42,7 @@ import {
   AlertTriangle,
   Bot,
   Truck,
+  Gift,
 } from "lucide-react";
 
 import { api } from "../../lib/api";
@@ -67,6 +68,7 @@ import {
   VENDOR_DASHBOARD_LINK,
   VENDOR_NAV_SECTIONS,
   VENDOR_COURIERS_SETTINGS_URL,
+  VENDOR_FEATURED_LINKS,
 } from "../../config/vendorNavigation.js";
 import { VENDOR_COURIERS_ENABLED } from "../../config/features.js";
 import {
@@ -124,6 +126,7 @@ const VENDOR_DRAWER_ICONS = {
   Wrench,
   AlertTriangle,
   Truck,
+  Gift,
 };
 
 function VendorDrawerIcon({ name, size = 18 }) {
@@ -343,6 +346,7 @@ function VendorDrawer({
   displayName,
   eyebrow = "Dashboard vendor",
   dashboardLink = VENDOR_DASHBOARD_LINK,
+  featuredLinks = [],
   sections,
   openSections,
   onToggleSection,
@@ -415,6 +419,20 @@ function VendorDrawer({
             {dashboardLink.label}
           </NavLink>
         )}
+
+        {/* linkuri de nivel 1 (ex. „Târg Artfest”), același stil ca Dashboard */}
+        {featuredLinks.map((link) => (
+          <NavLink
+            key={link.to}
+            to={link.to}
+            className={`${styles.vendorDrawerDashboardLink} ${
+              isItemActive(link) ? styles.vendorDrawerItemActive : ""
+            }`}
+          >
+            <VendorDrawerIcon name={link.icon} />
+            {link.label}
+          </NavLink>
+        ))}
 
         {sections.map((section) => {
           const isOpen = openSections.has(section.key);
@@ -2799,6 +2817,7 @@ const isAdminRoute = location.pathname.startsWith("/admin");
           open={burgerOpen}
           onClose={() => setBurgerOpen(false)}
           displayName={vendorDisplayName}
+          featuredLinks={VENDOR_FEATURED_LINKS}
           sections={vendorSections}
           openSections={vendorOpenSections}
           onToggleSection={toggleVendorSection}

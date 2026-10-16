@@ -886,3 +886,29 @@ export function validateAllLegalDocuments() {
 
   return results;
 }
+
+/* =========================================================
+ * Documente legale în afara manifestului
+ * =========================================================
+ *
+ * Randează un document Markdown cu front matter prin ACELAȘI mecanism
+ * ca documentele din manifest (variabile din legal/vars/v<N>.yml, ex.
+ * {{company.legal_name}}, + marked). Folosit de regulamentul Târgului
+ * Artfest, care are versiuni proprii și NU intră în manifest / PolicyGate.
+ */
+export function renderLegalMarkdown(raw, { varsVersion = 1 } = {}) {
+  const parsed = matter(String(raw || ""));
+  const vars = loadVars(varsVersion);
+  const missingVars = new Set();
+
+  const title = renderTemplate(parsed.data?.title || "", vars, missingVars).trim();
+  const content = renderTemplate(parsed.content || "", vars, missingVars).trim();
+
+  return {
+    data: parsed.data || {},
+    title,
+    content,
+    html: marked.parse(content),
+    missingVars: [...missingVars],
+  };
+}

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 // Prisma în memorie, doar pentru testele mecanismului juridic. NU e
 // importat de cod de producție. Acoperă strict operațiile folosite de
 // serviciile legal*/reacceptance*/policyEmail*.
@@ -34,6 +36,157 @@ const MODELS = {
   emailLog: { defaults: { status: "QUEUED" }, unique: {} },
   cookieConsent: { defaults: {}, unique: {} },
   influencerProfile: { defaults: {}, unique: { userId: ["userId"] } },
+  // Târgul Artfest (artfestFair*.test.js)
+  vendorService: { defaults: {}, unique: {} },
+  serviceProfile: { defaults: {}, unique: {} },
+  artfestFair: {
+    defaults: { registrationOpen: true, nextVendorReturnNumber: 1, nextSaleNumber: 1, nextReturnNumber: 1, salesOpen: false, commissionBps: 1000 },
+    unique: { key: ["key"] },
+  },
+  artfestFairRegistration: {
+    defaults: {
+      productTypes: [],
+      cancelledAt: null,
+      cancelledById: null,
+      cancellationCause: null,
+      cancellationReason: null,
+      cancellationMessageForVendor: null,
+      cancellationGoodsShipped: null,
+    },
+    unique: { fairId_vendorId: ["fairId", "vendorId"] },
+  },
+  product: { defaults: { isActive: true, isHidden: false }, unique: {} },
+  artfestFairInventoryItem: {
+    defaults: {
+      status: "DRAFT",
+      receivedQty: 0,
+      rejectedQty: 0,
+      rejectedReturnedQty: 0,
+      soldQty: 0,
+      damagedQty: 0,
+      lostQty: 0,
+      returnedQty: 0,
+      availableQty: 0,
+      isFragile: false,
+      isUnique: false,
+      isLimitedEdition: false,
+      canBeRemade: false,
+      currency: "RON",
+      onlineReservationMode: "NONE",
+      onlineReservedQty: 0,
+      onlineReleasedQty: 0,
+      onlineDeferredRestoreQty: 0,
+      onlineRestoredQty: 0,
+      labelPriceCents: null,
+      onlineReleasedAt: null,
+      onlineRestoredAt: null,
+      saleBlockedAt: null,
+      saleBlockedReason: null,
+      saleBlockedById: null,
+      receivedAt: null,
+      adminNotes: null,
+      onlinePrevAvailability: null,
+      onlinePrevReadyQty: null,
+      vendorReturnReceivedQty: null,
+      damagedReturnedQty: 0,
+      vendorReturnConfirmedAt: null,
+      closedAt: null,
+    },
+    unique: {
+      barcode: ["barcode"],
+      registrationId_productId_variantKey: ["registrationId", "productId", "variantKey"],
+    },
+  },
+  artfestFairInventoryEvent: { defaults: {}, unique: {} },
+  artfestFairStockMovement: {
+    defaults: { photoUrls: [], returnLineId: null, saleLineId: null, saleReturnLineId: null },
+    unique: { idempotencyKey: ["idempotencyKey"] },
+  },
+  artfestFairRegistrationEvent: { defaults: {}, unique: {} },
+  // POS
+  artfestFairDiscount: { defaults: { status: "DRAFT", fundingSource: "VENDOR", startsAt: null, endsAt: null }, unique: {} },
+  artfestFairSale: {
+    defaults: { status: "COMPLETED", currency: "RON", cashCents: null, cardCents: null, notes: null, voidedAt: null, voidedById: null },
+    unique: {
+      idempotencyKey: ["idempotencyKey"],
+      receiptReference: ["receiptReference"],
+      fairId_saleNumber: ["fairId", "saleNumber"],
+    },
+  },
+  artfestFairSaleLine: {
+    defaults: { lineDiscountCents: 0, artfestFundedDiscountCents: 0, returnedQty: 0 },
+    unique: { saleId_inventoryItemId: ["saleId", "inventoryItemId"] },
+  },
+  artfestFairSaleLineDiscount: { defaults: {}, unique: { saleLineId: ["saleLineId"] } },
+  // retururi / anulări ale vânzărilor (clienți)
+  artfestFairSaleReturn: {
+    defaults: { artfestFundedReversedCents: 0 },
+    unique: { idempotencyKey: ["idempotencyKey"], reference: ["reference"], fairId_returnNumber: ["fairId", "returnNumber"] },
+  },
+  artfestFairSaleReturnLine: {
+    defaults: { artfestFundedReversedCents: 0, conditionNote: null, refundResponsibility: null, responsibilityReason: null },
+    unique: {},
+  },
+  // decontul final
+  artfestFairSettlement: {
+    defaults: {
+      status: "DRAFT",
+      currency: "RON",
+      adjustmentsCents: 0,
+      artfestBorneRefundCents: 0,
+      carriedInCents: 0,
+      previousSettlementId: null,
+      finalizedAt: null,
+      finalizedById: null,
+      paidAt: null,
+      paidById: null,
+      paymentReference: null,
+      documentRef: null,
+      notes: null,
+    },
+    unique: { fairId_vendorId_sequence: ["fairId", "vendorId", "sequence"], previousSettlementId: ["previousSettlementId"] },
+    autoDate: "createdAt",
+  },
+  artfestFairSettlementEntry: {
+    defaults: { saleLineId: null, returnLineId: null },
+    unique: { saleLineId: ["saleLineId"], returnLineId: ["returnLineId"] },
+  },
+  artfestFairSettlementAdjustment: { defaults: { vendorNote: null }, unique: {}, autoDate: "createdAt" },
+  artfestFairReturn: {
+    defaults: {
+      status: "PREPARING",
+      confirmedByAdmin: false,
+      shippedAt: null,
+      confirmedAt: null,
+      cancelledAt: null,
+      courierName: null,
+      trackingNumber: null,
+      shippingCostCents: null,
+      adminNotes: null,
+    },
+    unique: { fairId_number: ["fairId", "number"] },
+  },
+  artfestFairReturnLine: {
+    defaults: {
+      qtyFromStock: 0,
+      qtyRejected: 0,
+      qtyDamaged: 0,
+      vendorReceivedQty: null,
+      vendorReceivedDamagedQty: null,
+      restoreOnlineQty: null,
+      onlineRestoredQty: 0,
+    },
+    unique: { returnId_inventoryItemId: ["returnId", "inventoryItemId"] },
+  },
+  artfestBroadcastDelivery: {
+    defaults: {
+      notificationStatus: "PENDING",
+      emailStatus: "PENDING",
+      emailAttempts: 0,
+      notificationId: null,
+    },
+    unique: { campaignKey_vendorId: ["campaignKey", "vendorId"], notificationId: ["notificationId"] },
+  },
 };
 
 const RELATIONS = {
@@ -46,12 +199,17 @@ const RELATIONS = {
   },
   userConsent: { user: { model: "user", local: "userId", many: false } },
   vendorAcceptance: { vendor: { model: "vendor", local: "vendorId", many: false } },
+  artfestFairRegistration: { vendor: { model: "vendor", local: "vendorId", many: false } },
+  vendorService: { profile: { model: "serviceProfile", fk: "serviceId", many: false } },
+  artfestFairInventoryItem: { fair: { model: "artfestFair", local: "fairId", many: false } },
 };
 
 const isPlainObject = (v) =>
   v && typeof v === "object" && !Array.isArray(v) && !(v instanceof Date);
 
 const cmp = (a, b) => {
+  // null / undefined nu sunt egale cu o valoare (ca în SQL); null < "x" și null > "x" sunt ambele false în JS
+  if (a == null || b == null) return a == null && b == null ? 0 : a == null ? -1 : 1;
   const av = a instanceof Date ? a.getTime() : a;
   const bv = b instanceof Date ? b.getTime() : b;
   return av < bv ? -1 : av > bv ? 1 : 0;
@@ -64,7 +222,7 @@ export function createFakePrisma(seed = {}) {
   function relatedRows(model, row, relName) {
     const rel = RELATIONS[model]?.[relName];
     if (!rel) return null;
-    if (rel.many) return tables[rel.model].filter((r) => r[rel.fk] === row.id);
+    if (rel.many || rel.fk) return tables[rel.model].filter((r) => r[rel.fk] === row.id);
     return tables[rel.model].filter((r) => r.id === row[rel.local]);
   }
 
@@ -83,6 +241,8 @@ export function createFakePrisma(seed = {}) {
         case "in": return expected.some((e) => cmp(actual, e) === 0);
         case "notIn": return !expected.some((e) => cmp(actual, e) === 0);
         case "not":
+          // { not: null } = IS NOT NULL (cmp(0, null) ar da 0)
+          if (expected === null) return actual !== null && actual !== undefined;
           return isPlainObject(expected)
             ? !matchValue(actual, expected)
             : cmp(actual, expected) !== 0;
@@ -158,6 +318,16 @@ export function createFakePrisma(seed = {}) {
     return false;
   }
 
+  function applyData(row, data) {
+    for (const [key, value] of Object.entries(data || {})) {
+      if (isPlainObject(value) && ("increment" in value || "decrement" in value)) {
+        row[key] = (row[key] ?? 0) + (value.increment ?? 0) - (value.decrement ?? 0);
+      } else {
+        row[key] = value;
+      }
+    }
+  }
+
   let clock = 1_700_000_000_000;
 
   function build(model, data) {
@@ -165,6 +335,7 @@ export function createFakePrisma(seed = {}) {
     const now = new Date(clock++);
     const row = { id: nextId(model), createdAt: now, ...def.defaults, ...data };
     if (def.autoDate && !row[def.autoDate]) row[def.autoDate] = now;
+    if (model.startsWith("artfest")) row.updatedAt ??= now;
     if (model === "policyGateCampaign") {
       row.targetCount ??= 0;
       row.createdCount ??= 0;
@@ -231,18 +402,23 @@ export function createFakePrisma(seed = {}) {
       async update({ where, data }) {
         const row = whereUnique(model, where);
         if (!row) throw new Error(`fakePrisma: ${model} negăsit pentru update`);
-        Object.assign(row, data);
+        applyData(row, data);
         return { ...row };
       },
       async updateMany({ where, data }) {
         const rows = tables[model].filter((r) => match(model, r, where));
-        rows.forEach((r) => Object.assign(r, data));
+        rows.forEach((r) => applyData(r, data));
         return { count: rows.length };
+      },
+      async deleteMany({ where } = {}) {
+        const before = tables[model].length;
+        tables[model] = tables[model].filter((r) => !match(model, r, where));
+        return { count: before - tables[model].length };
       },
       async upsert({ where, create, update }) {
         const row = whereUnique(model, where);
         if (row) {
-          Object.assign(row, update);
+          applyData(row, update);
           return { ...row };
         }
         const created = build(model, create);
@@ -269,7 +445,20 @@ export function createFakePrisma(seed = {}) {
   const prisma = { tables };
   for (const model of Object.keys(MODELS)) prisma[model] = delegate(model);
 
+  const txContext = new AsyncLocalStorage();
+  let txQueue = Promise.resolve();
+
+  // pg_advisory_xact_lock & co.: tranzacțiile sunt deja serializate mai jos
+  prisma.$executeRaw = async () => 0;
+
   prisma.$transaction = async (fn) => {
+    if (txContext.getStore()) return fn(prisma);
+    const run = txQueue.then(() => txContext.run(true, () => runTransaction(fn)));
+    txQueue = run.catch(() => {});
+    return run;
+  };
+
+  const runTransaction = async (fn) => {
     const snapshot = Object.fromEntries(
       Object.entries(tables).map(([k, rows]) => [k, rows.map((r) => ({ ...r }))])
     );

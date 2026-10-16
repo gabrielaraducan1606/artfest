@@ -35,6 +35,11 @@ import {
   pickChangedGuardedFields,
 } from "../lib/contactInfoGuard.js";
 import { scanVendorContactIssues } from "../services/contactInfoAudit.js";
+import {
+  guardedProductDelete,
+  guardedProductUpdate,
+  sendFairLockError,
+} from "../services/fairProductLock.js";
 
 const router = Router();
 
@@ -2428,15 +2433,18 @@ async function updateProduct(
         );
     }
 
+    // Târg Artfest: preț blocat după termen / unicat rezervat la târg
     const updated =
-      await prisma.product.update(
-        {
-          where: { id },
-          data: patch,
-          include: {
-            additionalCategories: true,
-          },
-        }
+      await guardedProductUpdate(id, patch, (db) =>
+        db.product.update(
+          {
+            where: { id },
+            data: patch,
+            include: {
+              additionalCategories: true,
+            },
+          }
+        )
       );
 
     /*
@@ -2481,6 +2489,8 @@ async function updateProduct(
         additionalCategoryKeys(updated),
     });
   } catch (e) {
+    if (sendFairLockError(res, e)) return;
+
     console.error(
       "PUT /vendors/products/:id error:",
       e
@@ -2520,10 +2530,12 @@ async function deleteProduct(req, res) {
       return res.status(400).json({ error: "not_a_products_store" });
     }
 
-    await prisma.product.delete({ where: { id } });
+    // Târg Artfest: produsul din inventarul activ nu se șterge
+    await guardedProductDelete(id, (db) => db.product.delete({ where: { id } }));
 
     return res.json({ ok: true, deletedId: id });
   } catch (e) {
+    if (sendFairLockError(res, e)) return;
     console.error("DELETE /vendors/products/:id error:", e);
     return res.status(500).json({ error: "server_error" });
   }

@@ -1,0 +1,265 @@
+.panel {
+  display: grid;
+  gap: 14px;
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--surface-muted);
+}
+
+.tabBtn {
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-muted);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tabBtnActive {
+  background: var(--surface);
+  color: var(--color-text);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.open,
+.closed {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.open {
+  background: color-mix(in srgb, var(--color-success, #16a34a) 15%, transparent);
+  color: var(--color-success, #16a34a);
+}
+
+.closed {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+.cartCol,
+.summaryCol {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.summaryCol {
+  position: sticky;
+  top: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+.summaryCol h4 {
+  margin: 0;
+}
+
+.scanRow {
+  display: flex;
+  gap: 8px;
+}
+
+.scanInput {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  border-radius: 12px;
+  border: 2px solid var(--color-primary, var(--color-border));
+  background: var(--input-bg, var(--surface));
+  color: var(--color-text);
+}
+
+.ghostBtn,
+.primaryBtn,
+.payBtn {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryBtn,
+.payBtn {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary, #fff);
+}
+
+.payBtn {
+  flex: 1;
+  padding: 14px 12px;
+  font-size: 16px;
+}
+
+.ghostBtn:disabled,
+.primaryBtn:disabled,
+.payBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.payRow {
+  display: flex;
+  gap: 8px;
+}
+
+.qty {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.qty button {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.qty input {
+  width: 56px;
+  padding: 5px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--input-bg, var(--surface));
+  color: var(--color-text);
+  text-align: center;
+}
+
+.totals {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.totals div {
+  display: flex;
+  justify-content: space-between;
+}
+
+.totals dd {
+  margin: 0;
+}
+
+.grand {
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.breakdown ul,
+.vendorTotals,
+.success ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 14px;
+}
+
+.discount {
+  font-size: 13px;
+  color: var(--color-success, #16a34a);
+}
+
+.errorText {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.rowError {
+  background: color-mix(in srgb, var(--color-danger) 7%, transparent);
+}
+
+.warning {
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-warning, var(--color-danger));
+}
+
+.success {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--color-success, #16a34a);
+  background: color-mix(in srgb, var(--color-success, #16a34a) 8%, transparent);
+}
+
+.history,
+.detail {
+  display: grid;
+  gap: 10px;
+}
+
+.detail {
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+}
+
+.detailHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.detailHead h4 {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .summaryCol {
+    position: static;
+  }
+}
+
+.detailActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

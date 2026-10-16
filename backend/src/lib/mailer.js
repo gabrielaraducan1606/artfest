@@ -4238,6 +4238,105 @@ export async function sendHomepageFeatureSelectedEmail({
   });
 }
 
+/* ============================================================
+   TÂRGUL DE CRĂCIUN ARTFEST – INVITAȚIE VENDORI
+   Comunicare operațională / de parteneriat (nu marketing): pornită
+   manual din Admin, deduplicată per vendor în ArtfestBroadcastDelivery.
+============================================================ */
+
+export function artfestFairInviteTemplate(campaignKey) {
+  return `artfest_fair_invite:${campaignKey}`;
+}
+
+export function buildArtfestFairInviteEmail({ vendorName = "", firstName = null } = {}) {
+  const greetingName = String(firstName || vendorName || "").trim();
+  const greeting = greetingName ? `Bună, ${greetingName},` : "Bună,";
+
+  const subject = "Te invităm la Târgul de Crăciun Artfest 🎄";
+  const preheader = "Participă fizic sau trimite-ne produsele tale.";
+  const ctaLabel = "Înscrie-te la târg";
+  const ctaUrl = `${APP_URL || "https://www.artfest.ro"}/vendor/targ-artfest`;
+
+  const intro = [
+    "Artfest iese din online.",
+    "Anul acesta vrem să aducem creațiile comunității Artfest în fața publicului, la Târgul de Crăciun din Buzău.",
+    "Dacă ești creator Artfest, poți participa în două moduri:",
+  ];
+  const options = [
+    "fizic – alături de noi la târg;",
+    "de la distanță – ne trimiți produsele tale, iar noi le prezentăm în cadrul standului Artfest.",
+  ];
+  const outro = "Dacă vrei să faci parte din această etapă, înscrie-te și spune-ne cum ai vrea să participi.";
+
+  const P = (inner) => `<p style="color:#374151;margin:0 0 12px;line-height:1.6;">${inner}</p>`;
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <span style="display:none !important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">${escapeEmailHtml(preheader)}</span>
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME}" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:22px;">
+    ${P(escapeEmailHtml(greeting))}
+    ${P(`<strong>${escapeEmailHtml(intro[0])}</strong>`)}
+    ${P(escapeEmailHtml(intro[1]))}
+    ${P(escapeEmailHtml(intro[2]))}
+    <ul style="color:#374151;margin:0 0 14px;padding-left:20px;line-height:1.6;">
+      ${options.map((item) => `<li>${escapeEmailHtml(item)}</li>`).join("\n      ")}
+    </ul>
+    ${P(escapeEmailHtml(outro))}
+    <p style="text-align:center;margin:20px 0;">
+      <a href="${escapeEmailHtml(ctaUrl)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">${escapeEmailHtml(ctaLabel)}</a>
+    </p>
+    <p style="color:#374151;margin:0;line-height:1.6;">Echipa ${BRAND_NAME}</p>
+  </div>
+</div>`.trim();
+
+  const text = [
+    greeting,
+    "",
+    intro[0],
+    "",
+    intro[1],
+    "",
+    intro[2],
+    "",
+    ...options.map((item) => `• ${item}`),
+    "",
+    outro,
+    "",
+    `${ctaLabel}: ${ctaUrl}`,
+    "",
+    `Echipa ${BRAND_NAME}`,
+  ].join("\n");
+
+  return { subject, preheader, html, text, ctaUrl };
+}
+
+export async function sendArtfestFairInviteEmail({ to, userId = null, vendorName = "", firstName = null, campaignKey }) {
+  if (!to || !campaignKey) throw new Error("artfest_fair_invite_missing_params");
+
+  const { subject, html, text } = buildArtfestFairInviteEmail({ vendorName, firstName });
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: artfestFairInviteTemplate(campaignKey),
+    userId,
+    toName: vendorName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
 export async function sendDepositRequestedEmail({
   to,
   userId = null,

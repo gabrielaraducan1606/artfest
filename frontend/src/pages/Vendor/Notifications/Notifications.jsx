@@ -329,7 +329,7 @@ export default function NotificationsPage({
 
               {n.link && (
                 <div className={styles.link}>
-                  <ExternalLink size={14} /> Deschide
+                  <ExternalLink size={14} /> {n.ctaLabel || "Deschide"}
                 </div>
               )}
             </div>

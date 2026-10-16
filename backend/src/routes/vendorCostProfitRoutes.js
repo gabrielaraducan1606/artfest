@@ -38,6 +38,7 @@ import {
   PROFITABILITY_SORT_FIELDS,
   formatCostItem,
 } from "../services/costProfitService.js";
+import { sendFairLockError } from "../services/fairProductLock.js";
 
 const router = Router();
 
@@ -722,6 +723,8 @@ router.post(
 
       return res.json(result);
     } catch (err) {
+      if (sendFairLockError(res, err)) return;
+
       if (
         err instanceof CostingValidationError &&
         err.code === "requires_acknowledgement"

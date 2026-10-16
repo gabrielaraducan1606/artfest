@@ -13,6 +13,11 @@ import {
   getGpsrMissingFields,
   buildGpsrIncompleteWhere,
 } from "../lib/gpsrCompliance.js";
+import {
+  guardedProductDelete,
+  guardedProductUpdate,
+  sendFairLockError,
+} from "../services/fairProductLock.js";
 const router = Router();
 
 /* ================= Helpers comune ================= */
@@ -950,13 +955,17 @@ async function updateProduct(req, res) {
     patch.reviewedByUserId = null;
     patch.approvedAt = null;
 
-    const updated = await prisma.product.update({
-      where: { id },
-      data: patch,
-    });
+    // Târg Artfest: preț blocat după termen / unicat rezervat la târg
+    const updated = await guardedProductUpdate(id, patch, (db) =>
+      db.product.update({
+        where: { id },
+        data: patch,
+      })
+    );
 
     return res.json(mapProduct(updated));
   } catch (e) {
+    if (sendFairLockError(res, e)) return;
     console.error("PUT /vendors/products/:id error:", e);
     return res.status(500).json({ error: "server_error" });
   }
@@ -988,9 +997,11 @@ async function deleteProduct(req, res) {
       return res.status(400).json({ error: "not_a_products_store" });
     }
 
-    await prisma.product.delete({ where: { id } });
+    // Târg Artfest: produsul din inventarul activ nu se șterge
+    await guardedProductDelete(id, (db) => db.product.delete({ where: { id } }));
     return res.json({ ok: true, deletedId: id });
   } catch (e) {
+    if (sendFairLockError(res, e)) return;
     console.error("DELETE /vendors/products/:id error:", e);
     return res.status(500).json({ error: "server_error" });
   }

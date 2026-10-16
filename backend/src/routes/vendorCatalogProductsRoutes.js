@@ -20,6 +20,11 @@ import {
 import {
   isGpsrComplete,
 } from "../lib/gpsrCompliance.js";
+import {
+  guardedProductDelete,
+  guardedProductUpdate,
+  sendFairLockError,
+} from "../services/fairProductLock.js";
 
 const router =
   express.Router();
@@ -686,14 +691,17 @@ router.delete(
           });
       }
 
+      // Târg Artfest: produsele din inventarul activ nu se șterg
       const result =
-        await prisma.product.deleteMany({
-          where:
-            ownedProductWhere(
-              req.user.sub,
-              ids
-            ),
-        });
+        await guardedProductDelete(ids, (db) =>
+          db.product.deleteMany({
+            where:
+              ownedProductWhere(
+                req.user.sub,
+                ids
+              ),
+          })
+        );
 
       return res.json({
         ok: true,
@@ -702,6 +710,8 @@ router.delete(
           result.count,
       });
     } catch (error) {
+      if (sendFairLockError(res, error)) return;
+
       console.error(
         "[catalog-products] bulk delete:",
         error
@@ -786,18 +796,21 @@ router.patch(
           price * 100
         );
 
+      // Târg Artfest: preț blocat după termen pentru produsele din inventar
       const result =
-        await prisma.product.updateMany({
-          where:
-            ownedProductWhere(
-              req.user.sub,
-              ids
-            ),
+        await guardedProductUpdate(ids, { priceCents }, (db) =>
+          db.product.updateMany({
+            where:
+              ownedProductWhere(
+                req.user.sub,
+                ids
+              ),
 
-          data: {
-            priceCents,
-          },
-        });
+            data: {
+              priceCents,
+            },
+          })
+        );
 
       return res.json({
         ok: true,
@@ -810,6 +823,8 @@ router.patch(
         priceCents,
       });
     } catch (error) {
+      if (sendFairLockError(res, error)) return;
+
       console.error(
         "[catalog-products] bulk price:",
         error

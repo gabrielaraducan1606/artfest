@@ -21,6 +21,7 @@ import {
 import styles from "./Orders.module.css";
 import { COURIER_AUTOMATION_ENABLED, COURIER_AUTOMATION_SOON_MESSAGE } from "../../../config/features.js";
 import CourierConnectCta from "./components/CourierConnectCta.jsx";
+import FairCta from "../Fair/FairCta.jsx";
 import SubscriptionBanner from "../Onboarding/OnBoardingDetails/tabs/SubscriptionBanner/SubscriptionBanner.jsx";
 import { useSmartPrefetchItem } from "../../../hooks/useSmartPrefetch.js";
 
@@ -953,6 +954,7 @@ const [filtersOpen, setFiltersOpen] = useState(false);
           </div>
 
          {!billingGate && <CourierConnectCta />}
+         {!billingGate && <FairCta variant="orders" />}
 
          {billingGate ? (
   <div className={styles.card}>

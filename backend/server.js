@@ -100,6 +100,9 @@ import adminInfluencerPayoutActionsRoutes from "./src/routes/adminInfluencerPayo
 import adminInfluencerResourcesRoutes from "./src/routes/adminInfluencerResourcesRoutes.js";
 import adminVendorDiscountCodesRoutes from "./src/routes/adminVendorDiscountCodesRoutes.js";
 import adminVendorCampaignsRoutes from "./src/routes/adminVendorCampaignsRoutes.js";
+import adminArtfestFairRoutes from "./src/routes/adminArtfestFairRoutes.js";
+import vendorArtfestFairRoutes from "./src/routes/vendorArtfestFairRoutes.js";
+import vendorArtfestFairInventoryRoutes from "./src/routes/vendorArtfestFairInventoryRoutes.js";
 import vendorsStripeConnectRoutes from "./src/routes/vendors.stripeConnect.js";
 import adminProductsRoutes from "./src/routes/adminProducts.js";
 import newsletterRoutes from "./src/routes/newsletterRoutes.js";
@@ -530,6 +533,8 @@ app.use(
   "/api/admin/vendor-campaigns",
   adminVendorCampaignsRoutes
 );
+// Târgul de Crăciun Artfest: înscrieri + invitație (doar manual, din Admin)
+app.use("/api/admin/artfest-fair", adminArtfestFairRoutes);
 app.use(
   "/api/admin/influencer-payouts",
   adminInfluencerPayoutActionsRoutes
@@ -684,6 +689,11 @@ app.use("/api", samedayRoutes);
  * generic, autentificat per cont, în etapa de tracking.
  */
 // app.use("/api", samedayWebhookRoutes);
+
+// Târgul de Crăciun Artfest - înscrierea vendorului autentificat
+app.use("/api/vendor/artfest-fair", vendorArtfestFairRoutes);
+// inventarul vendorului pentru târg (etichete PDF, rezervarea stocului online)
+app.use("/api/vendor/fair/inventory", vendorArtfestFairInventoryRoutes);
 
 // Conturi de curier + adrese de ridicare ale vendorului (/api/vendor/couriers, /api/vendor/pickup-addresses)
 app.use("/api/vendor", vendorCourierRoutes);

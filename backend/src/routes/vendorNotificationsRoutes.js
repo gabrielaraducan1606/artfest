@@ -107,10 +107,17 @@ router.get("/vendor/notifications", async (req, res) => {
       readAt: true,
       archived: true,
       createdAt: true,
+      meta: true,
     },
   });
 
-  res.json({ items });
+  // din meta expunem DOAR eticheta butonului (ex. „Înscrie-te la târg”)
+  res.json({
+    items: items.map(({ meta, ...item }) => ({
+      ...item,
+      ctaLabel: typeof meta?.ctaLabel === "string" ? meta.ctaLabel : null,
+    })),
+  });
 });
 
 /**

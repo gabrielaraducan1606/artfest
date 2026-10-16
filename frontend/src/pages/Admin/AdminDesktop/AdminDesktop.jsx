@@ -14,6 +14,7 @@ import AdminPoliciesTab from "./tabs/AdminPoliciesTab.jsx";
 import AdminEmailLogsTab from "./tabs/AdminEmailLogsTab.jsx";
 import AdminWithdrawalsTab from "./tabs/AdminWithdrawalsTab.jsx";
 import AdminReturnsTab from "./tabs/AdminReturnsTab.jsx";
+import AdminArtfestFairTab from "./tabs/AdminArtfestFairTab.jsx";
 
 const TABS = [
   { id: "adminAllUsers", label: "Toate conturile" },
@@ -27,6 +28,7 @@ const TABS = [
   { id: "policies", label: "Politici / consimțăminte" },
   { id: "emails", label: "Emailuri" },
   { id: "withdrawals", label: "Retrageri din contract" },
+  { id: "artfestFair", label: "Târg Artfest" },
 ];
 
 const TAB_IDS = TABS.reduce((acc, t) => {
@@ -171,6 +173,12 @@ export default function AdminDesktop() {
 
       if (tabId === TAB_IDS.withdrawals) {
         setLoadedTabs((prev) => ({ ...prev, withdrawals: true }));
+        return;
+      }
+
+      // AdminArtfestFairTab își încarcă singur datele
+      if (tabId === TAB_IDS.artfestFair) {
+        setLoadedTabs((prev) => ({ ...prev, artfestFair: true }));
         return;
       }
 
@@ -378,6 +386,10 @@ export default function AdminDesktop() {
 
     if (activeTab === TAB_IDS.returns) {
       return <AdminReturnsTab />;
+    }
+
+    if (activeTab === TAB_IDS.artfestFair) {
+      return <AdminArtfestFairTab />;
     }
 
     return null;

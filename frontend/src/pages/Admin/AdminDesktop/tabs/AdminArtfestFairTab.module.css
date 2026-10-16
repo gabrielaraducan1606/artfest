@@ -1,0 +1,405 @@
+/* Admin -> Târg Artfest - doar variabile de temă */
+
+.panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  margin-bottom: 18px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+.panelHead {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.panelHead > div {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.panelTitle {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stats li {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface-muted);
+  font-size: 13px;
+}
+
+.progress {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-primary);
+}
+
+.result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  font-size: 14px;
+}
+
+.result strong {
+  flex-basis: 100%;
+}
+
+.errorText {
+  color: var(--color-danger);
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filters select {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.toneInfo {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.toneSuccess {
+  color: var(--color-success);
+  background: var(--success-bg-soft);
+}
+
+.toneDanger {
+  color: var(--color-danger);
+  background: var(--danger-bg-soft);
+}
+
+.toneMuted {
+  color: var(--color-muted);
+  background: var(--surface-muted);
+}
+
+.notes {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.primaryBtn,
+.ghostBtn,
+.successBtn,
+.dangerBtn {
+  padding: 7px 12px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+}
+
+.primaryBtn {
+  padding: 10px 16px;
+  font-size: 14px;
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--on-primary);
+}
+
+.successBtn {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.dangerBtn {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.primaryBtn:disabled,
+.ghostBtn:disabled,
+.successBtn:disabled,
+.dangerBtn:disabled {
+  cursor: not-allowed;
+  border-color: var(--color-border);
+  background: var(--surface-muted);
+  color: var(--text-disabled);
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--overlay-bg, rgba(0, 0, 0, 0.45));
+}
+
+.modal {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 32px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-md);
+}
+
+.modalHead,
+.modalFoot {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.modalHead {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modalHead h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.modalFoot {
+  justify-content: flex-end;
+  border-top: 1px solid var(--color-border);
+}
+
+.modalBody {
+  overflow: auto;
+  padding: 16px;
+}
+
+.details {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.detailRow {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.detailRow dt {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.detailRow dd {
+  margin: 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--input-bg, var(--surface));
+  color: var(--color-text);
+  font: inherit;
+}
+
+@media (max-width: 560px) {
+  .detailRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .primaryBtn {
+    width: 100%;
+  }
+}
+
+/* sub-tab-uri: Înscrieri | Recepție produse */
+.sections {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--surface-muted);
+}
+
+.sectionBtn {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sectionBtnActive {
+  background: var(--surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(0, 0, 0, 0.08));
+}
+
+/* anulare participare + retur către vendor */
+.modalWide {
+  width: min(920px, 100%);
+}
+
+.field select,
+.field input {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--input-bg, var(--surface));
+  color: var(--color-text);
+  font: inherit;
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.history {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+}
+
+.returnsBlock,
+.subPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.subPanel {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--surface-muted);
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.qtyInput {
+  width: 72px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--input-bg, var(--surface));
+  color: var(--color-text);
+}
+
+.returnList {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.returnCard {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+}
+
+.returnHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.returnLines {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 14px;
+}
+
+.detailSection {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.detailSection h4 {
+  margin: 0;
+}

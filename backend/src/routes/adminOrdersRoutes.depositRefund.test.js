@@ -127,6 +127,11 @@ function makeFakeDb() {
       },
     },
 
+    // stockRestore verifică rezervările Târgului Artfest (aici: niciuna)
+    artfestFairInventoryItem: {
+      findMany: async () => [],
+    },
+
     $transaction: async (cb) => cb(db),
   };
 

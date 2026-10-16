@@ -12,6 +12,8 @@ import {
   authRequired,
 } from "../api/auth.js";
 
+import { loadPublishedFairRules } from "../lib/artfestFairRules.js";
+
 const router = Router();
 
 /* =========================================================
@@ -118,5 +120,52 @@ router.get(
       "/legal/products_addendum.html"
     )
 );
+
+/* =========================================================
+   REGULAMENTUL TÂRGULUI ARTFEST (versiuni publicate)
+   Doar versiunile din legal/artfest_fair_rules/versions.yml;
+   draftul nu este servit niciodată. Pagina publică:
+   /targ-artfest/regulament/v<versiune> (frontend).
+========================================================= */
+
+function escapeFairHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+router.get("/legal/artfest-fair-rules/v/:version.html", (req, res) => {
+  try {
+    const doc = loadPublishedFairRules(req.params.version);
+    if (!doc) return res.status(404).send("Document inexistent.");
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>${escapeFairHtml(doc.title)}</title>
+    <style>
+      body { max-width: 800px; margin: 40px auto; padding: 0 16px;
+             font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.6; }
+      h1, h2, h3 { color: #222; }
+      .meta { color: #666; font-size: 14px; margin-bottom: 16px; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; vertical-align: top; }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeFairHtml(doc.title)}</h1>
+    <p class="meta">Versiune: v${escapeFairHtml(doc.version)}${doc.publishedAt ? ` • publicată la ${escapeFairHtml(doc.publishedAt)}` : ""}</p>
+    ${doc.html}
+  </body>
+</html>`);
+  } catch (e) {
+    console.error("artfest fair rules html error:", e?.message || e);
+    res.status(404).send("Document inexistent.");
+  }
+});
 
 export default router;

@@ -10,6 +10,11 @@ import {
   checkPublicFields,
   pickChangedGuardedFields,
 } from "../lib/contactInfoGuard.js";
+import {
+  guardedProductDelete,
+  guardedProductUpdate,
+  sendFairLockError,
+} from "../services/fairProductLock.js";
 /* Utils */
 const error = (res, code, status = 400, extra = {}) =>
   res.status(status).json({ error: code, message: code, ...extra });
@@ -1205,7 +1210,14 @@ router.put("/products/:id", async (req, res) => {
     data.acceptsCustom = acceptsCustom;
   }
 
-  const updated = await prisma.product.update({ where: { id }, data });
+  // Târg Artfest: preț blocat după termen / unicat rezervat la târg
+  let updated;
+  try {
+    updated = await guardedProductUpdate(id, data, (db) => db.product.update({ where: { id }, data }));
+  } catch (e) {
+    if (sendFairLockError(res, e)) return;
+    throw e;
+  }
 
   res.json({
     id: updated.id,
@@ -1250,7 +1262,13 @@ router.delete("/products/:id", async (req, res) => {
     return error(res, "product_not_found_or_forbidden", 404);
   }
 
-  await prisma.product.delete({ where: { id } });
+  // Târg Artfest: produsul din inventarul activ nu se șterge
+  try {
+    await guardedProductDelete(id, (db) => db.product.delete({ where: { id } }));
+  } catch (e) {
+    if (sendFairLockError(res, e)) return;
+    throw e;
+  }
   res.json({ ok: true, deletedId: id });
 });
 
