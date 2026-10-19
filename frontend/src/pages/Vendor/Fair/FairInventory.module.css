@@ -557,3 +557,51 @@
   border-radius: 8px;
   object-fit: cover;
 }
+
+
+/* ===== Mobil (audit 2026-10-16) ===== */
+@media (max-width: 640px) {
+  .btn,
+  .btnGhost,
+  .btnDanger {
+    min-height: 44px;
+  }
+
+  .input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .itemActions > button {
+    flex: 1 1 auto;
+  }
+
+  .modal {
+    max-height: calc(100dvh - 16px);
+  }
+}
+
+@media (max-width: 640px) {
+  .btnSmall {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+}
+
+@media (max-width: 900px) {
+  .btn,
+  .btnGhost,
+  .btnDanger,
+  .btnSmall,
+  .input {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* „Închide” din modalul de inventar */
+  .iconBtn {
+    width: 44px;
+    height: 44px;
+  }
+}

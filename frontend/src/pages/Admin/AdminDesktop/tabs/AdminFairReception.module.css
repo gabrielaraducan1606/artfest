@@ -507,3 +507,92 @@
     width: 100%;
   }
 }
+
+
+/* ===== Mobil (audit 2026-10-16) ===== */
+.panel {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.panel > * {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .primaryBtn,
+  .ghostBtn,
+  .dangerBtn,
+  .dangerGhostBtn,
+  .cameraBtn {
+    min-height: 44px;
+  }
+
+  .formActions > button,
+  .actions > button {
+    flex: 1 1 auto;
+  }
+
+  .filter {
+    min-height: 44px;
+  }
+
+  .search,
+  .field input,
+  .field textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  /* camera pe tot ecranul: preview mare, netăiat, „Închide” la îndemână */
+  .cameraBackdrop {
+    padding: 0;
+    place-items: stretch;
+  }
+
+  .cameraBox {
+    width: 100%;
+    min-height: 100dvh;
+    box-sizing: border-box;
+    border-radius: 0;
+    align-content: start;
+  }
+
+  .cameraView {
+    aspect-ratio: auto;
+    height: min(70dvh, 120vw);
+    max-height: none;
+  }
+
+  .cameraHead button {
+    min-height: 44px;
+  }
+}
+
+.scanBar {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.scanBar > * {
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  :global(body[data-admin-area]) :global(table[data-admin-cards]) tbody td .ghostBtn,
+  :global(body[data-admin-area]) :global(table[data-admin-cards]) tbody td .primaryBtn,
+  :global(body[data-admin-area]) :global(table[data-admin-cards]) tbody td .linkBtn {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 900px) {
+  .primaryBtn,
+  .ghostBtn,
+  .dangerBtn,
+  .dangerGhostBtn,
+  .cameraBtn,
+  .filter,
+  .search,
+  .field input {
+    min-height: 44px;
+  }
+}

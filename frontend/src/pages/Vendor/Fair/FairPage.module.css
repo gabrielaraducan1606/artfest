@@ -453,3 +453,50 @@
     flex: 1 1 auto;
   }
 }
+
+
+/* ===== Mobil (audit 2026-10-16) ===== */
+@media (max-width: 640px) {
+  .btn,
+  .btnGhost {
+    min-height: 44px;
+  }
+
+  .field input,
+  .field select,
+  .field textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 900px) {
+  .btn,
+  .btnGhost {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* termenii: tap pe toată eticheta (>= 44px), căsuță mai mare */
+  .checkbox {
+    min-height: 44px;
+    padding: 6px 0;
+    box-sizing: border-box;
+  }
+
+  .checkbox input {
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    margin-top: 1px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* „Închide formularul” */
+  .iconBtn {
+    width: 44px;
+    height: 44px;
+  }
+}

@@ -263,3 +263,132 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+
+
+/* ===== Mobil (audit 2026-10-16) ===== */
+.panel {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.panel > * {
+  min-width: 0;
+}
+
+/* rândul de scanare rămâne pe o linie; rândul de raport (dată + butoane) se poate rupe */
+.scanRow {
+  flex-wrap: wrap;
+}
+
+.scanInput {
+  flex: 1 1 0;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .topBar {
+    align-items: stretch;
+  }
+
+  .tabs {
+    display: flex;
+    width: 100%;
+    box-sizing: border-box;
+    overflow-x: auto;
+  }
+
+  .tabBtn {
+    flex: 1 0 auto;
+    min-height: 44px;
+    white-space: nowrap;
+  }
+
+  .status {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
+  .ghostBtn,
+  .primaryBtn {
+    min-height: 44px;
+  }
+
+  .payBtn {
+    min-height: 56px;
+    font-size: 18px;
+  }
+
+  .scanRow input,
+  .scanRow select,
+  .history input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  /* cantitate: − / + mari, câmp lizibil (tastatură numerică) */
+  .qty {
+    gap: 6px;
+  }
+
+  .qty button {
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+  }
+
+  .qty input {
+    width: 64px;
+    height: 44px;
+    box-sizing: border-box;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  :global(body[data-admin-area]) :global(table[data-admin-cards]) tbody td .ghostBtn,
+  :global(body[data-admin-area]) :global(table[data-admin-cards]) tbody td .primaryBtn,
+  :global(body[data-admin-area]) :global(table[data-admin-cards]) tbody td .qty button {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* − / + nu se mai comprimă în celula cardului */
+  .qty button {
+    flex: 0 0 44px;
+    min-width: 44px;
+  }
+
+  .qty {
+    gap: 4px;
+  }
+
+  .qty input {
+    flex: 0 0 56px;
+    width: 56px;
+  }
+}
+
+@media (max-width: 900px) {
+  .tabBtn,
+  .ghostBtn,
+  .primaryBtn,
+  .history input {
+    min-height: 44px;
+  }
+
+  .qty button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .qty input {
+    height: 44px;
+    box-sizing: border-box;
+  }
+}

@@ -403,3 +403,154 @@
 .detailSection h4 {
   margin: 0;
 }
+
+
+/* ===== Mobil (audit 2026-10-16) ===== */
+/* gridurile cu o coloană nu se mai lărgesc după conținut (tabele / butoane lungi) */
+.panel,
+.subPanel,
+.returnsBlock {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 640px) {
+  /* tab-urile secțiunilor: un rând cu scroll orizontal, nu ies din ecran */
+  .sections {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .sectionBtn {
+    flex: 0 0 auto;
+    min-height: 44px;
+    white-space: nowrap;
+    scroll-snap-align: start;
+  }
+
+  /* ținte de touch >= 44px */
+  .primaryBtn,
+  .ghostBtn,
+  .successBtn,
+  .dangerBtn {
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 14px;
+    white-space: normal;
+  }
+
+  .filters select,
+  .field select,
+  .field input,
+  .field textarea,
+  .qtyInput,
+  .modalBody input,
+  .modalBody select,
+  .modalBody textarea {
+    min-height: 44px;
+    box-sizing: border-box;
+    font-size: 16px; /* fără zoom automat pe iOS */
+  }
+
+  .formRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .toolbar > *,
+  .filters > * {
+    min-width: 0;
+  }
+
+  /* modalele încap pe ecran; corpul face scroll, butoanele rămân jos */
+  .backdrop {
+    padding: 8px;
+  }
+
+  .modal,
+  .modalWide {
+    width: 100%;
+    min-width: 0;
+    max-height: calc(100dvh - 16px);
+  }
+
+  .modalBody {
+    min-width: 0;
+    padding: 12px;
+  }
+
+  .modalFoot {
+    flex-wrap: wrap;
+  }
+
+  .modalFoot > button {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 768px) {
+  /* butoanele târgului din tabelele transformate în carduri (adminMobile.css le pune 36px) */
+  :global(body[data-admin-area]) :global(table[data-admin-cards]) tbody td .primaryBtn,
+  :global(body[data-admin-area]) :global(table[data-admin-cards]) tbody td .ghostBtn,
+  :global(body[data-admin-area]) :global(table[data-admin-cards]) tbody td .successBtn,
+  :global(body[data-admin-area]) :global(table[data-admin-cards]) tbody td .dangerBtn {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 640px) {
+  .field input,
+  .field select,
+  .field textarea {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  /* 4 secțiuni: grilă 2x2, toate vizibile (inclusiv cea activă), fără scroll ascuns */
+  .sections {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .sectionBtn {
+    white-space: normal;
+    text-align: center;
+  }
+}
+
+@media (max-width: 900px) {
+  /* tabletă: ținte de touch >= 44px */
+  .sectionBtn,
+  .primaryBtn,
+  .ghostBtn,
+  .successBtn,
+  .dangerBtn,
+  .filters select,
+  .field select,
+  .field input,
+  .qtyInput {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* închiderea modalelor (✕) și câmpurile din modale: ținte >= 44px și pe tabletă */
+  .modalHead button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .modalBody input,
+  .modalBody select,
+  .modalBody textarea {
+    min-height: 44px;
+    box-sizing: border-box;
+  }
+}
