@@ -108,8 +108,17 @@ beforeEach(() => {
     { userId: v3.id, displayName: "Atelier 3", email: "a3@t.ro", ...activeVendor },
   ]);
 
-  const [service1] = fake.seed("vendorService", [{ vendorId: vendor1.id, title: "Serviciu 1" }]);
-  fake.seed("serviceProfile", [{ serviceId: service1.id, displayName: "Magazin Ana", slug: "magazin-ana" }]);
+  // magazine activate (înscrierea la târg cere magazin activ / pe pauză, cu profil valid)
+  const [service1, service2, service3] = fake.seed("vendorService", [
+    { vendorId: vendor1.id, title: "Serviciu 1", status: "ACTIVE", isActive: true },
+    { vendorId: vendor2.id, title: "Serviciu 2", status: "ACTIVE", isActive: true },
+    { vendorId: vendor3.id, title: "Serviciu 3", status: "ACTIVE", isActive: true },
+  ]);
+  fake.seed("serviceProfile", [
+    { serviceId: service1.id, displayName: "Magazin Ana", slug: "magazin-ana", logoUrl: "https://cdn.test/l1.png" },
+    { serviceId: service2.id, displayName: "Atelier 2", slug: "atelier-2", logoUrl: "https://cdn.test/l2.png" },
+    { serviceId: service3.id, displayName: "Atelier 3", slug: "atelier-3", logoUrl: "https://cdn.test/l3.png" },
+  ]);
 
   ctx = { v1, v2, v3, u1, admin, vendor1, vendor2, vendor3 };
 });

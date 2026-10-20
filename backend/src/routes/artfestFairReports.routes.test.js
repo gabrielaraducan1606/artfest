@@ -16,6 +16,8 @@ import { createFakePrisma } from "../testkit/fakePrisma.js";
 
 let fake;
 const renderedHtml = [];
+// setat într-un test: randarea PDF eșuează (ex. Chrome lipsă din imagine)
+let pdfFailure = null;
 
 mock.module("../db.js", {
   namedExports: { prisma: new Proxy({}, { get: (_t, key) => fake[key] }) },
@@ -39,6 +41,7 @@ mock.module("../services/r2Storage.js", {
 mock.module("../lib/pdfBrowser.js", {
   namedExports: {
     async renderPdfWithSharedBrowser(html) {
+      if (pdfFailure) throw pdfFailure;
       renderedHtml.push(html);
       return Buffer.from("%PDF-test");
     },
@@ -87,6 +90,7 @@ function receive(line, qty) {
 beforeEach(async () => {
   fake = createFakePrisma();
   renderedHtml.length = 0;
+  pdfFailure = null;
   const [admin, u1, u2, u3] = fake.seed("user", [
     { email: "adm@t.ro", role: "ADMIN" },
     { email: "a@t.ro", role: "VENDOR" },
@@ -423,6 +427,46 @@ test("Admin: etichete pentru produsele selectate - pe bucată declarată / recep
   assert.equal(row(ctx.lA1.id).availableQty, 6);
   assert.equal(row(ctx.lA1.id).soldQty || 0, 0);
   assert.equal(fake.tables.artfestFairStockMovement.filter((m) => m.type === "SOLD").length, 0);
+});
+
+test("Admin: randarea PDF eșuează (Chrome lipsă) => 500, etichetele NU sunt marcate, coduri / stoc neatinse", async () => {
+  pdfFailure = new Error("Could not find Chrome (ver. 143.0.7499.169).");
+  const snapshot = () =>
+    fake.tables.artfestFairInventoryItem.map((l) => ({
+      id: l.id, barcode: l.barcode, labelGeneratedAt: l.labelGeneratedAt ?? null, labelPriceCents: l.labelPriceCents ?? null,
+      availableQty: l.availableQty, soldQty: l.soldQty ?? 0, receivedQty: l.receivedQty,
+    }));
+  const before = JSON.stringify(snapshot());
+  const events = fake.tables.artfestFairInventoryEvent.filter((e) => e.type === "LABEL_GENERATED").length;
+  const movements = fake.tables.artfestFairStockMovement.length;
+
+  const originalError = console.error;
+  const logged = [];
+  console.error = (...args) => logged.push(args.join(" "));
+  try {
+    const selected = await call("POST", LABELS, { as: ctx.admin, body: { ids: [ctx.lA1.id] } });
+    assert.equal(selected.status, 500);
+    assert.equal(selected.body.error, "server_error");
+    const all = await call("GET", LABELS, { as: ctx.admin });
+    assert.equal(all.status, 500);
+    const single = await call("GET", `/api/admin/artfest-fair/inventory/${ctx.lA1.id}/label.pdf`, { as: ctx.admin });
+    assert.equal(single.status, 500);
+  } finally {
+    console.error = originalError;
+  }
+
+  // linia din Render Logs după care se caută cauza
+  assert.ok(logged.some((l) => l.includes("[adminArtfestFair] POST /api/admin/artfest-fair/inventory/labels.pdf") && l.includes("Could not find Chrome")));
+  // nimic marcat / scris: PDF-ul se randează ÎNAINTE de markLabelsGenerated
+  assert.equal(JSON.stringify(snapshot()), before);
+  assert.equal(fake.tables.artfestFairInventoryEvent.filter((e) => e.type === "LABEL_GENERATED").length, events);
+  assert.equal(fake.tables.artfestFairStockMovement.length, movements);
+
+  // după remediere, aceeași cerere reușește cu aceleași coduri
+  pdfFailure = null;
+  const ok = await call("POST", LABELS, { as: ctx.admin, body: { ids: [ctx.lA1.id] } });
+  assert.equal(ok.status, 200);
+  assert.ok(renderedHtml.at(-1).includes(labels.formatLabelCode(ctx.lA1.barcode)));
 });
 
 test("Admin: selecție invalidă => niciun PDF; doar adminul poate genera", async () => {

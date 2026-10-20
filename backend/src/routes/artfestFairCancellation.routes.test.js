@@ -89,12 +89,17 @@ beforeEach(async () => {
     { email: "v2@t.ro", role: "VENDOR" },
   ]);
   const [vendor1, vendor2] = fake.seed("vendor", [
-    { userId: v1.id, displayName: "Atelier Ana" },
-    { userId: v2.id, displayName: "Vendor 2" },
+    { userId: v1.id, displayName: "Atelier Ana", isActive: true },
+    { userId: v2.id, displayName: "Vendor 2", isActive: true },
   ]);
   const [s1, s2] = fake.seed("vendorService", [
-    { vendorId: vendor1.id, title: "S1" },
-    { vendorId: vendor2.id, title: "S2" },
+    { vendorId: vendor1.id, title: "S1", status: "ACTIVE", isActive: true },
+    { vendorId: vendor2.id, title: "S2", status: "ACTIVE", isActive: true },
+  ]);
+  // profil valid (înscrierea cere magazin activat)
+  fake.seed("serviceProfile", [
+    { serviceId: s1.id, displayName: "S1", slug: "s1", logoUrl: "https://cdn.test/s1.png" },
+    { serviceId: s2.id, displayName: "S2", slug: "s2", logoUrl: "https://cdn.test/s2.png" },
   ]);
   const [fair] = fake.seed("artfestFair", [
     {

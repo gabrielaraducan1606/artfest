@@ -26,6 +26,12 @@ import FairSettlementsSection from "./FairSettlementsSection.jsx";
 import styles from "./FairPage.module.css";
 
 const SUCCESS_MESSAGE = "Înscrierea ta a fost trimisă. Te vom anunța după verificare.";
+// ce poate face vendorul când înscrierea nu e disponibilă (motivul vine de pe server)
+const ELIGIBILITY_CTA = {
+  store_not_activated: { to: "/onboarding", label: "Activează-ți magazinul" },
+  profile_incomplete: { to: "/onboarding/details", label: "Completează profilul magazinului" },
+};
+
 // pagina de citire a draftului - NU este termsUrl și nu se salvează la înscriere
 const FAIR_RULES_DRAFT_PATH = "/targ-artfest/regulament-draft";
 const MAX_PRODUCT_TYPES = 20;
@@ -84,6 +90,7 @@ export default function FairPage() {
   const fair = data?.fair || null;
   const registration = data?.registration || null;
   const actions = data?.actions || { canRegister: false, canWithdraw: false };
+  const eligibility = data?.eligibility || null;
 
   const dateLabel = useMemo(() => {
     const start = formatFairDate(fair?.startsAt);
@@ -202,7 +209,10 @@ export default function FairPage() {
       setData({
         ...data,
         registration: res?.registration || registration,
-        actions: { canRegister: fair?.registrationOpen !== false && Boolean(fair?.termsUrl), canWithdraw: false },
+        actions: {
+          canRegister: fair?.registrationOpen !== false && Boolean(fair?.termsUrl) && data?.eligibility?.eligible !== false,
+          canWithdraw: false,
+        },
       });
     } catch (err) {
       setSubmitError(err?.data?.message || err?.message || "Nu am putut retrage înscrierea.");
@@ -371,6 +381,20 @@ export default function FairPage() {
           (nu este versiunea oficială).
         </p>
       )}
+
+      {fair?.registrationOpen !== false &&
+        fair?.termsUrl &&
+        eligibility &&
+        eligibility.eligible === false &&
+        (!registration || status === "WITHDRAWN") && (
+          // magazin neactivat / dezactivat / cont restricționat: înscrierea nu e disponibilă (regula e și pe server)
+          <section className={styles.eligibilityBox} role="status" aria-label="Înscrierea nu este disponibilă">
+            <p>{eligibility.message}</p>
+            <Link className={styles.btn} to={ELIGIBILITY_CTA[eligibility.reason]?.to || "/vendor/support"}>
+              {ELIGIBILITY_CTA[eligibility.reason]?.label || "Contactează Asistența"}
+            </Link>
+          </section>
+        )}
 
       {submitError && !formOpen && (
         <div className={styles.errorBox} role="alert">

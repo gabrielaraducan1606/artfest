@@ -18,6 +18,7 @@ import {
 } from "./emailTemplates.js";
 
 import { signUnsubToken } from "./unsubscribe.js";
+import { buildApiUnsubscribeUrl } from "./unsubscribeUrl.js";
 import { createGuestOrderAccessToken } from "./guestOrderAccessToken.js";
 
 const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
@@ -4333,6 +4334,157 @@ export async function sendArtfestFairInviteEmail({ to, userId = null, vendorName
       html,
       text,
       headers: AUTO_HEADERS,
+    },
+  });
+}
+
+/* ============================================================
+   TÂRGUL ARTFEST – INVITAȚIE PENTRU MAGAZINELE NEACTIVATE
+   Vânzători cu cont, dar fără magazin activat. Pornită manual din Admin,
+   deduplicată per vendor în ArtfestBroadcastDelivery (cheie de campanie
+   separată). E comunicare comercială => se trimite DOAR celor cu acord
+   pentru noutăți/oferte (User.marketingOptIn), are link de dezabonare
+   + List-Unsubscribe (către /api/unsubscribe), iar fără link valid nu pleacă.
+============================================================ */
+
+export function artfestFairActivationInviteTemplate(campaignKey) {
+  return `artfest_fair_activation_invite:${campaignKey}`;
+}
+
+// Regula internă Artfest pentru Creatorii Independenți - text pregătit, NEaprobat încă.
+// Rămâne dezactivat până la aprobarea explicită a textului (nu e prag legal).
+export const ACTIVATION_INVITE_INDEPENDENT_CREATOR_NOTE =
+  "Poți activa magazinul și fără firmă, ca „Creator Independent”. Potrivit unei reguli interne Artfest " +
+  "(nu este un prag fiscal sau juridic stabilit de lege), dacă vânzările tale pe Artfest depășesc 10.000 lei " +
+  "într-un an, pentru a continua să vinzi pe platformă îți vom cere să treci la un cont „Business Verificat” " +
+  "(PFA, II, IF sau SRL). Obligațiile tale fiscale și legale le stabilești tu, în funcție de activitatea ta.";
+export const ACTIVATION_INVITE_SHOW_INDEPENDENT_CREATOR_NOTE = false;
+
+// opțiunea existentă în Artfest (sellerType independent_creator), fără nicio limită / scutire
+export const ACTIVATION_INVITE_INDEPENDENT_CREATOR_OPTION =
+  "Dacă nu ai firmă, poți activa magazinul și ca „Creator Independent”, opțiune disponibilă în Artfest. " +
+  "Obligațiile tale fiscale și legale le stabilești tu, în funcție de activitatea ta.";
+
+export function buildArtfestFairActivationInviteEmail({
+  vendorName = "",
+  firstName = null,
+  ctaPath = "/onboarding",
+  helpPhoneDisplay = "",
+  helpPhoneTel = "",
+  unsubscribeUrl = null,
+  showIndependentCreatorNote = ACTIVATION_INVITE_SHOW_INDEPENDENT_CREATOR_NOTE,
+} = {}) {
+  const greetingName = String(firstName || vendorName || "").trim();
+  const greeting = greetingName ? `Bună, ${greetingName},` : "Bună,";
+  const base = APP_URL || "https://www.artfest.ro";
+  const safePath = String(ctaPath || "/onboarding").startsWith("/") ? ctaPath : "/onboarding";
+
+  const subject = "Activează-ți magazinul Artfest și înscrie-te la Târgul de Crăciun 🎄";
+  const preheader = "Magazinul tău nu este încă activat. Finalizează activarea ca să te poți înscrie la târg.";
+  const ctaLabel = "Activează-ți magazinul";
+  const ctaUrl = `${base}${safePath}`;
+
+  const paragraphs = [
+    "Ai deja un cont de vânzător pe Artfest, dar <strong>magazinul tău nu este încă activat</strong>.",
+    "Artfest iese din online: organizăm Târgul de Crăciun Artfest din Buzău, unde aducem creațiile comunității în fața publicului. Poți participa fizic, alături de noi, sau de la distanță, trimițându-ne produsele.",
+    "Înscrierea la târg este disponibilă doar pentru magazinele active. Te invităm să finalizezi activarea magazinului, iar apoi poți solicita înscrierea la Târgul Artfest din contul tău.",
+    ACTIVATION_INVITE_INDEPENDENT_CREATOR_OPTION,
+  ];
+  const note = showIndependentCreatorNote ? ACTIVATION_INVITE_INDEPENDENT_CREATOR_NOTE : null;
+  const helpHtml = helpPhoneDisplay
+    ? `Ai nevoie de ajutor cu activarea? Ne poți scrie sau suna la <a href="tel:${escapeEmailHtml(helpPhoneTel || helpPhoneDisplay)}" style="color:#111827;font-weight:600;">${escapeEmailHtml(helpPhoneDisplay)}</a>.`
+    : "";
+  const helpText = helpPhoneDisplay ? `Ai nevoie de ajutor cu activarea? Ne poți scrie sau suna la ${helpPhoneDisplay}.` : "";
+
+  const P = (inner) => `<p style="color:#374151;margin:0 0 12px;line-height:1.6;">${inner}</p>`;
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <span style="display:none !important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">${escapeEmailHtml(preheader)}</span>
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME}" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:22px;">
+    ${P(escapeEmailHtml(greeting))}
+    ${paragraphs.map((p, i) => P(i === 0 ? p : escapeEmailHtml(p))).join("\n    ")}
+    ${note ? `<p style="color:#4b5563;margin:0 0 12px;line-height:1.6;font-size:14px;background:#f9fafb;border-radius:10px;padding:10px 12px;">${escapeEmailHtml(note)}</p>` : ""}
+    <p style="text-align:center;margin:20px 0;">
+      <a href="${escapeEmailHtml(ctaUrl)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">${escapeEmailHtml(ctaLabel)}</a>
+    </p>
+    <p style="color:#6b7280;margin:0 0 12px;line-height:1.5;font-size:13px;text-align:center;">Dacă nu ești autentificat, te vom ruga mai întâi să intri în cont, apoi ajungi direct la activare.</p>
+    ${helpHtml ? P(helpHtml) : ""}
+    <p style="color:#374151;margin:0;line-height:1.6;">Echipa ${BRAND_NAME}</p>
+  </div>
+  ${
+    unsubscribeUrl
+      ? `<p style="color:#9ca3af;font-size:12px;line-height:1.5;text-align:center;margin:14px 0 0;">Primești acest email pentru că ai un cont de vânzător pe ${BRAND_NAME} și ai acceptat să primești noutăți și oferte. <a href="${escapeEmailHtml(unsubscribeUrl)}" style="color:#6b7280;">Dezabonează-te</a> de la emailurile de acest tip.</p>`
+      : ""
+  }
+</div>`.trim();
+
+  const strip = (s) => s.replace(/<[^>]+>/g, "");
+  const text = [
+    greeting,
+    "",
+    ...paragraphs.flatMap((p) => [strip(p), ""]),
+    ...(note ? [note, ""] : []),
+    `${ctaLabel}: ${ctaUrl}`,
+    "Dacă nu ești autentificat, te vom ruga mai întâi să intri în cont, apoi ajungi direct la activare.",
+    "",
+    ...(helpText ? [helpText, ""] : []),
+    `Echipa ${BRAND_NAME}`,
+    ...(unsubscribeUrl ? ["", `Dezabonare: ${unsubscribeUrl}`] : []),
+  ].join("\n");
+
+  return { subject, preheader, html, text, ctaUrl };
+}
+
+// linkul de dezabonare (categoria „marketing”): mereu către /api/unsubscribe (ruta reală);
+// null dacă lipsește secretul / baza URL sau, în producție, baza nu e https => emailul NU pleacă
+export function artfestFairActivationUnsubscribeUrl(email) {
+  return buildApiUnsubscribeUrl(email);
+}
+
+export async function sendArtfestFairActivationInviteEmail({
+  to,
+  userId = null,
+  vendorName = "",
+  firstName = null,
+  campaignKey,
+  ctaPath = "/onboarding",
+  helpPhoneDisplay = "",
+  helpPhoneTel = "",
+}) {
+  if (!to || !campaignKey) throw new Error("artfest_fair_activation_invite_missing_params");
+
+  // fără link de dezabonare funcțional nu trimitem (preferințele de comunicare trebuie respectate)
+  const unsubscribeUrl = artfestFairActivationUnsubscribeUrl(to);
+  if (!unsubscribeUrl) throw new Error("unsubscribe_link_unavailable");
+
+  const { subject, html, text } = buildArtfestFairActivationInviteEmail({
+    vendorName,
+    firstName,
+    ctaPath,
+    helpPhoneDisplay,
+    helpPhoneTel,
+    unsubscribeUrl,
+  });
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: artfestFairActivationInviteTemplate(campaignKey),
+    userId,
+    toName: vendorName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: { ...AUTO_HEADERS, "List-Unsubscribe": `<${unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
     },
   });
 }

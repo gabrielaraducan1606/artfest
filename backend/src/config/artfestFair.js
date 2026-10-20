@@ -12,6 +12,14 @@ export const ARTFEST_FAIR_KEY = "CHRISTMAS_FAIR_BUZAU_2026";
 // cheia campaniei de invitație (ArtfestBroadcastDelivery.campaignKey)
 export const ARTFEST_FAIR_INVITE_CAMPAIGN_KEY = "CHRISTMAS_FAIR_BUZAU_2026_INVITE";
 
+// invitația separată către vânzătorii cu cont, dar cu magazinul încă neactivat
+// (aceeași evidență ArtfestBroadcastDelivery, altă cheie => fără amestec cu invitația principală)
+export const ARTFEST_FAIR_ACTIVATION_INVITE_CAMPAIGN_KEY = "CHRISTMAS_FAIR_BUZAU_2026_ACTIVATION_INVITE";
+
+// telefonul de ajutor din invitația de activare (afișare + link tel:)
+export const ARTFEST_HELP_PHONE_DISPLAY = "0760 565 147";
+export const ARTFEST_HELP_PHONE_TEL = "+40760565147";
+
 export const ARTFEST_FAIR_DEFAULTS = Object.freeze({
   title: "Târgul de Crăciun Artfest – Buzău",
   subtitle: "Artfest iese din online și își întâlnește pentru prima dată publicul.",

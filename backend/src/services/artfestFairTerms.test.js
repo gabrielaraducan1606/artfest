@@ -48,7 +48,10 @@ beforeEach(() => {
   fake = createFakePrisma();
   published = new Set();
   const [user] = fake.seed("user", [{ email: "v@t.ro", role: "VENDOR" }]);
-  const [vendor] = fake.seed("vendor", [{ userId: user.id, displayName: "Atelier" }]);
+  const [vendor] = fake.seed("vendor", [{ userId: user.id, displayName: "Atelier", isActive: true }]);
+  // magazin activat, cu profil valid (înscrierea îl cere)
+  const [service] = fake.seed("vendorService", [{ vendorId: vendor.id, status: "ACTIVE", isActive: true }]);
+  fake.seed("serviceProfile", [{ serviceId: service.id, displayName: "Atelier", slug: "atelier", logoUrl: "https://cdn.test/a.png" }]);
   const [fair] = fake.seed("artfestFair", [{ key: "CHRISTMAS_FAIR_BUZAU_2026", title: "Târg", termsVersion: null, termsUrl: null }]);
   ctx = { user, vendor, fair };
 });

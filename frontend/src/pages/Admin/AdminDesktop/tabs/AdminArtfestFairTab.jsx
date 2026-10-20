@@ -13,6 +13,7 @@ import shared from "../AdminDesktop.module.css";
 import styles from "./AdminArtfestFairTab.module.css";
 import AdminFairReceptionPanel from "./AdminFairReceptionPanel.jsx";
 import AdminFairLabelsPanel from "./AdminFairLabelsPanel.jsx";
+import ActivationInvitePanel from "./AdminFairActivationInvite.jsx";
 import AdminFairPosPanel from "./AdminFairPosPanel.jsx";
 import AdminFairSettlementsPanel from "./AdminFairSettlementsPanel.jsx";
 import { CancelParticipationModal, Modal, RegistrationHistory, RegistrationReturns } from "./AdminFairCancellation.jsx";
@@ -49,6 +50,15 @@ function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString("ro-RO", { timeZone: "Europe/Bucharest" });
+}
+
+// starea magazinului ACUM (înscrierile existente nu se anulează automat); pauza e doar informativă
+function StoreEligibility({ item }) {
+  const e = item.storeEligibility;
+  if (!e) return null;
+  if (!e.eligible) return <span className={`${styles.badge} ${styles.toneDanger}`}>{e.label}</span>;
+  if (e.storeState === "paused") return <span className={`${styles.badge} ${styles.toneMuted}`}>Magazin pe pauză</span>;
+  return null;
 }
 
 function storeNames(item) {
@@ -267,7 +277,15 @@ function RegistrationDetails({ item, onClose }) {
       <dl className={styles.details}>
         <DetailRow label="Status">{STATUS_LABEL[item.status] || item.status}</DetailRow>
         <DetailRow label="Vendor">{item.vendorName}</DetailRow>
-        <DetailRow label="Magazin">{storeNames(item)}</DetailRow>
+        <DetailRow label="Magazin">
+          {storeNames(item)} <StoreEligibility item={item} />
+        </DetailRow>
+        {item.storeEligibility?.eligible === false && (
+          <DetailRow label="Eligibilitate">
+            Magazinul nu mai îndeplinește condițiile ({item.storeEligibility.label.toLowerCase()}). Înscrierea nu a fost
+            anulată automat; nu poate fi aprobată cât timp situația rămâne așa.
+          </DetailRow>
+        )}
         <DetailRow label="Persoană de contact">{item.contactName}</DetailRow>
         <DetailRow label="Telefon">{item.contactPhone}</DetailRow>
         <DetailRow label="Email">{item.contactEmail}</DetailRow>
@@ -424,6 +442,7 @@ function RegistrationsSection() {
   return (
     <>
       <InvitePanel />
+      <ActivationInvitePanel />
 
       <div className={styles.toolbar}>
         <h3 className={styles.panelTitle}>
@@ -488,7 +507,9 @@ function RegistrationsSection() {
                 return (
                   <tr key={item.id}>
                     <td>{item.vendorName || "—"}</td>
-                    <td>{storeNames(item)}</td>
+                    <td>
+                      {storeNames(item)} <StoreEligibility item={item} />
+                    </td>
                     <td>{item.contactName}</td>
                     <td>{item.contactPhone}</td>
                     <td>{item.contactEmail}</td>
@@ -514,6 +535,7 @@ function RegistrationsSection() {
                             className={styles.successBtn}
                             onClick={() => onApprove(item)}
                             disabled={!canApprove || busy}
+                            title={item.storeEligibility?.eligible === false ? `Nu se poate aproba: ${item.storeEligibility.label}` : undefined}
                           >
                             Aprobă
                           </button>

@@ -9,6 +9,12 @@
 //   POST /invite/send               { confirm: <campaignKey> } - pornește invitația
 //   GET  /invite/status             progresul / rezultatul ultimei rulări
 //
+// Invitația pentru magazinele NEACTIVATE (doar email, pornită manual):
+//   GET  /activation-invite/preview        destinatari eligibili (+ stare livrare) și excluși pe motive
+//   GET  /activation-invite/email-preview  emailul HTML (exemplu)
+//   POST /activation-invite/send           { confirm: <campaignKey>, vendorIds: [...] } - în fundal
+//   GET  /activation-invite/status         progresul / rezultatul ultimei rulări
+//
 // Recepția inventarului (etapa 2):
 //   GET  /inventory?filter=&q=                 linii (toate / de recepționat / cu diferențe ...)
 //   GET  /inventory/by-barcode/:barcode         scanare (scaner USB 1D)
@@ -79,7 +85,7 @@ import {
   updateReturn,
 } from "../services/artfestFairReturnService.js";
 import { getInviteStatus, previewInvite, startInvite } from "../services/artfestFairInviteService.js";
-import { ARTFEST_FAIR_INVITE_CAMPAIGN_KEY } from "../config/artfestFair.js";
+import { ARTFEST_FAIR_ACTIVATION_INVITE_CAMPAIGN_KEY, ARTFEST_FAIR_INVITE_CAMPAIGN_KEY } from "../config/artfestFair.js";
 import {
   FAIR_PHOTO_FOLDER,
   blockSale,
@@ -511,6 +517,50 @@ router.get(
   "/invite/status",
   handle(async (_req, res) => {
     res.json(getInviteStatus());
+  })
+);
+
+/* ===================== Invitație: magazine neactivate ===================== */
+
+// încărcat la prima folosire: restul rutelor Târgului nu depind de șablonul noului email
+const activationInvite = () => import("../services/artfestFairActivationInviteService.js");
+
+router.get(
+  "/activation-invite/preview",
+  handle(async (_req, res) => {
+    const svc = await activationInvite();
+    res.json({ ...(await svc.previewActivationInvite()), status: svc.getActivationInviteStatus() });
+  })
+);
+
+router.get(
+  "/activation-invite/email-preview",
+  handle(async (req, res) => {
+    const ctaPath = req.query.ctaPath === "/onboarding/details" ? "/onboarding/details" : "/onboarding";
+    res.set("Cache-Control", "no-store");
+    res.json((await activationInvite()).renderActivationInvitePreview({ ctaPath }));
+  })
+);
+
+router.post(
+  "/activation-invite/send",
+  handle(async (req, res) => {
+    // confirmare explicită: un POST accidental (fără cheie) nu trimite nimic
+    if (req.body?.confirm !== ARTFEST_FAIR_ACTIVATION_INVITE_CAMPAIGN_KEY) {
+      return res.status(400).json({ error: "confirmation_required", message: "Confirmarea lipsește." });
+    }
+    const outcome = (await activationInvite()).startActivationInvite({ adminId: req.adminUser.id, vendorIds: req.body?.vendorIds });
+    if (!outcome.started) {
+      return res.status(409).json({ error: "already_running", message: "Invitațiile se trimit deja.", status: outcome.status });
+    }
+    res.status(202).json({ ok: true, status: outcome.status });
+  })
+);
+
+router.get(
+  "/activation-invite/status",
+  handle(async (_req, res) => {
+    res.json((await activationInvite()).getActivationInviteStatus());
   })
 );
 

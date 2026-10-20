@@ -136,13 +136,14 @@ export async function previewInvite({ db = prisma, campaignKey = ARTFEST_FAIR_IN
 
 /* ===================== Trimitere ===================== */
 
-const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
+export const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
 
-function errorText(error) {
+export function errorText(error) {
   return String(error?.message || error || "unknown_error").slice(0, 1000);
 }
 
-async function claimDeliveryRow(db, campaignKey, vendor) {
+// exportate pentru invitația magazinelor neactivate (artfestFairActivationInviteService.js)
+export async function claimDeliveryRow(db, campaignKey, vendor) {
   const where = { campaignKey_vendorId: { campaignKey, vendorId: vendor.vendorId } };
   try {
     return await db.artfestBroadcastDelivery.upsert({
@@ -219,12 +220,12 @@ async function deliverNotification(db, delivery, vendor, campaignKey, now) {
   }
 }
 
-async function deliverEmail(db, delivery, vendor, campaignKey, now, send) {
+export async function deliverEmail(db, delivery, vendor, campaignKey, now, send, { template: templateOverride = null } = {}) {
   if (delivery.emailStatus === "SENT") return "already";
   if (delivery.emailStatus === "SENDING" || delivery.emailStatus === "UNKNOWN") return "unknown";
   if (!vendor.email) return "noEmail";
 
-  const template = artfestFairInviteTemplate(campaignKey);
+  const template = templateOverride || artfestFairInviteTemplate(campaignKey);
 
   // plasă: emailul a plecat deja (EmailLog SENT), dar rândul nu a fost marcat
   const logged = await db.emailLog.findFirst({
@@ -277,7 +278,7 @@ async function deliverEmail(db, delivery, vendor, campaignKey, now, send) {
 }
 
 // SENDING rămas dintr-o rulare întreruptă => UNKNOWN (nu se retrimite automat)
-async function markStaleSendingUnknown(db, campaignKey, now) {
+export async function markStaleSendingUnknown(db, campaignKey, now) {
   const result = await db.artfestBroadcastDelivery.updateMany({
     where: {
       campaignKey,

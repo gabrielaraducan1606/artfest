@@ -17,6 +17,7 @@
 // Fără legături cu comenzi / checkout / Stripe / facturare / Shipment.
 
 import { prisma } from "../db.js";
+import { loadFairEligibility, loadFairEligibilityMap } from "./artfestFairEligibility.js";
 import {
   ARTFEST_FAIR_KEY,
   ARTFEST_FAIR_DEFAULTS,
@@ -285,8 +286,9 @@ export function fairTermsReady(fair) {
   return Boolean(publishedTermsUrl(fair?.termsVersion, fair?.termsUrl));
 }
 
-export function vendorActions(fair, registration, { hasActiveInventory = false } = {}) {
-  const open = fair?.registrationOpen !== false && fairTermsReady(fair);
+// eligibility: rezultatul evaluateFairEligibility (magazin activ / pe pauză cu profil valid)
+export function vendorActions(fair, registration, { hasActiveInventory = false, eligibility = null } = {}) {
+  const open = fair?.registrationOpen !== false && fairTermsReady(fair) && eligibility?.eligible !== false;
   const status = registration?.status || null;
   return {
     canRegister: open && (!registration || status === "WITHDRAWN"),
@@ -336,10 +338,19 @@ export async function getVendorFairState({ vendorId, userId, db = prisma }) {
       })) > 0
     : false;
 
+  const eligibility = await loadFairEligibility(vendorId, db);
+
   return {
     fair: serializeFair(fair),
     registration: serializeRegistrationForVendor(registration),
-    actions: vendorActions(fair, registration, { hasActiveInventory }),
+    actions: vendorActions(fair, registration, { hasActiveInventory, eligibility }),
+    // de ce nu se poate înscrie (fără detalii interne: doar motivul și mesajul pentru vendor)
+    eligibility: {
+      eligible: eligibility.eligible,
+      reason: eligibility.reason,
+      message: eligibility.message,
+      storeState: eligibility.storeState,
+    },
     prefill: registration ? null : await loadPrefill(db, vendorId, userId),
   };
 }
@@ -353,6 +364,11 @@ export async function submitRegistration({ vendorId, userId, body, ip = null, ua
   if (fair.registrationOpen === false) {
     throw new FairError(409, "registration_closed", "Înscrierile pentru târg sunt închise.");
   }
+
+  // doar magazinele activate (active sau puse pe pauză de vendor, cu profil valid);
+  // codul erorii = motivul (store_not_activated, store_deactivated, account_restricted ...)
+  const eligibility = await loadFairEligibility(vendorId, db);
+  if (!eligibility.eligible) throw new FairError(409, eligibility.reason, eligibility.message);
 
   if (!fairTermsReady(fair)) {
     throw new FairError(409, "terms_not_published", "Înscrierile se deschid după publicarea regulamentului târgului.");
@@ -509,8 +525,9 @@ const ADMIN_TRANSITIONS = Object.freeze({
   reject: { from: ["SUBMITTED"], to: "REJECTED" },
 });
 
-function serializeRegistrationForAdmin(row, storesByVendor = new Map()) {
+function serializeRegistrationForAdmin(row, storesByVendor = new Map(), eligibilityByVendor = new Map()) {
   const cancelled = row.status === "CANCELLED";
+  const eligibility = eligibilityByVendor.get(row.vendorId) || null;
   return {
     ...serializeRegistrationForVendor(row),
     vendorId: row.vendorId,
@@ -535,8 +552,12 @@ function serializeRegistrationForAdmin(row, storesByVendor = new Map()) {
           rules: cancellationRulesFor(row.cancellationCause),
         }
       : null,
+    // starea magazinului ACUM (înscrierile existente nu se anulează automat)
+    storeEligibility: eligibility
+      ? { eligible: eligibility.eligible, reason: eligibility.reason, label: eligibility.adminLabel, storeState: eligibility.storeState }
+      : null,
     actions: {
-      canApprove: row.status === "SUBMITTED" || row.status === "REJECTED",
+      canApprove: (row.status === "SUBMITTED" || row.status === "REJECTED") && eligibility?.eligible !== false,
       canReject: row.status === "SUBMITTED",
       canCancel: row.status === "APPROVED",
     },
@@ -590,7 +611,8 @@ export async function listRegistrationsForAdmin({ status = null, participationTy
     select: ADMIN_SELECT,
   });
 
-  const stores = await loadStores(db, [...new Set(rows.map((r) => r.vendorId))]);
+  const vendorIds = [...new Set(rows.map((r) => r.vendorId))];
+  const [stores, eligibility] = await Promise.all([loadStores(db, vendorIds), loadFairEligibilityMap(vendorIds, db)]);
 
   const counts = await db.artfestFairRegistration.groupBy({
     by: ["status"],
@@ -600,7 +622,7 @@ export async function listRegistrationsForAdmin({ status = null, participationTy
 
   return {
     fair: serializeFair(fair),
-    items: rows.map((row) => serializeRegistrationForAdmin(row, stores)),
+    items: rows.map((row) => serializeRegistrationForAdmin(row, stores, eligibility)),
     counts: Object.fromEntries(counts.map((c) => [c.status, c._count?._all ?? 0])),
   };
 }
@@ -608,8 +630,8 @@ export async function listRegistrationsForAdmin({ status = null, participationTy
 export async function getRegistrationForAdmin({ id, db = prisma }) {
   const row = await db.artfestFairRegistration.findUnique({ where: { id: String(id) }, select: ADMIN_SELECT });
   if (!row) throw new FairError(404, "registration_not_found", "Înscrierea nu există.");
-  const stores = await loadStores(db, [row.vendorId]);
-  return serializeRegistrationForAdmin(row, stores);
+  const [stores, eligibility] = await Promise.all([loadStores(db, [row.vendorId]), loadFairEligibilityMap([row.vendorId], db)]);
+  return serializeRegistrationForAdmin(row, stores, eligibility);
 }
 
 export async function reviewRegistration({ id, action, adminId, reason = null, now = new Date(), db = prisma }) {
@@ -619,6 +641,19 @@ export async function reviewRegistration({ id, action, adminId, reason = null, n
   const rejectionReason = action === "reject" ? String(reason ?? "").trim() || null : null;
   if (rejectionReason && rejectionReason.length > LIMITS.rejectionReason) {
     throw new FairError(400, "reason_too_long", `Motivul poate avea maximum ${LIMITS.rejectionReason} de caractere.`);
+  }
+
+  // aprobarea doar pentru magazine eligibile (aceeași regulă ca la înscriere); respingerea rămâne posibilă
+  if (action === "approve") {
+    const target = await db.artfestFairRegistration.findUnique({ where: { id: String(id) }, select: { vendorId: true } });
+    if (target) {
+      const eligibility = await loadFairEligibility(target.vendorId, db);
+      if (!eligibility.eligible) {
+        throw new FairError(409, "vendor_not_eligible", `Înscrierea nu poate fi aprobată: ${eligibility.adminLabel.toLowerCase()}.`, {
+          problems: [{ reason: eligibility.reason, label: eligibility.adminLabel }],
+        });
+      }
+    }
   }
 
   const outcome = await db.$transaction(async (tx) => {
