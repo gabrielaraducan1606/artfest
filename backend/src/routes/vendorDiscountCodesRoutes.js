@@ -88,6 +88,26 @@ const MAX_USAGE_PER_USER = 10;
 const SCOPE_ALL_PRODUCTS = "ALL_PRODUCTS";
 const SCOPE_COLLECTION = "VENDOR_COLLECTION";
 const SCOPE_OWN_PRODUCTS = "VENDOR_ALL_PRODUCTS";
+const SCOPE_SELECTED_PRODUCTS = "SELECTED_PRODUCTS";
+
+/*
+ * „Doar anumite produse din magazinul meu” (SELECTED_PRODUCTS): maximum
+ * 300 de produse per cod, toate ale vendorului (verificat la creare ȘI la
+ * editare), finanțat 100% de vendor, plafon 0-50% - aceleași reguli ca
+ * „Doar produsele mele”, doar pe o listă restrânsă (DiscountCodeProduct).
+ */
+export const MAX_SELECTED_PRODUCTS = 300;
+const PRODUCT_SEARCH_MAX_LIMIT = 48;
+
+/*
+ * Aceleași filtre ca selectorul din Colecții (scope "own" = doar produsele
+ * vendorului). Încărcat LA CERERE (nu import static): graful de importuri al
+ * acestui fișier rămâne neschimbat pentru checkout / admin / testele lor.
+ */
+async function ownProductSearchWhere(filters, vendorId) {
+  const { buildCollectionProductSearchWhere } = await import("./vendorCollectionsRoutes.js");
+  return buildCollectionProductSearchWhere({ ...(filters || {}), scope: "own" }, vendorId);
+}
 
 /*
  * Cele DOUĂ moduri de promovare vendor (regula finală de business,
@@ -123,11 +143,17 @@ const SCOPE_OWN_PRODUCTS = "VENDOR_ALL_PRODUCTS";
  */
 const PROMOTION_MODE_OWN_PRODUCTS = "OWN_PRODUCTS";
 const PROMOTION_MODE_ALL_ARTFEST = "ALL_ARTFEST";
+const PROMOTION_MODE_SELECTED_PRODUCTS = "SELECTED_PRODUCTS";
 
+/*
+ * Codurile existente rămân exact cum erau: VENDOR_ALL_PRODUCTS -> OWN_PRODUCTS,
+ * ALL_PRODUCTS / VENDOR_COLLECTION -> ALL_ARTFEST. Doar SELECTED_PRODUCTS
+ * (nou pentru vendori - nicio rută nu-l crea până acum) are modul lui.
+ */
 function derivePromotionMode(discountCode) {
-  return discountCode?.scope === SCOPE_OWN_PRODUCTS
-    ? PROMOTION_MODE_OWN_PRODUCTS
-    : PROMOTION_MODE_ALL_ARTFEST;
+  if (discountCode?.scope === SCOPE_OWN_PRODUCTS) return PROMOTION_MODE_OWN_PRODUCTS;
+  if (discountCode?.scope === SCOPE_SELECTED_PRODUCTS) return PROMOTION_MODE_SELECTED_PRODUCTS;
+  return PROMOTION_MODE_ALL_ARTFEST;
 }
 
 /* =========================================================
@@ -284,6 +310,12 @@ export function serializeVendorDiscountCode(discountCode, stats = null) {
 
     vendorCollectionId: discountCode.vendorCollectionId,
 
+    // SELECTED_PRODUCTS: câte produse sunt pe cod (+ lista, doar la GET /:id)
+    selectedProductsCount: Number(discountCode?._count?.products || 0),
+    ...(Array.isArray(discountCode.selectedProducts)
+      ? { selectedProducts: discountCode.selectedProducts }
+      : {}),
+
     collection: discountCode.vendorCollection
       ? {
           id: discountCode.vendorCollection.id,
@@ -382,7 +414,7 @@ const vendorDiscountCodeInclude = {
   },
 
   _count: {
-    select: { redemptions: true },
+    select: { redemptions: true, products: true },
   },
 };
 
@@ -401,8 +433,116 @@ async function getOwnedDiscountCode(discountCodeId, vendorId) {
 }
 
 /* =========================================================
+   PRODUSE SELECTATE (SELECTED_PRODUCTS)
+========================================================= */
+
+/*
+ * Verificare STRICTĂ: fiecare id trebuie să fie un produs existent al
+ * ACESTUI vendor (Product.service.vendorId). Orice id străin / inexistent
+ * respinge toată cererea - nu salvăm niciodată o listă parțială în tăcere.
+ * Produsele proprii inactive sau ascunse se pot păstra pe cod (nu se pot
+ * cumpăra oricum cât timp nu sunt publice).
+ */
+async function resolveOwnedProductIds(productIds, vendorId) {
+  const ids = [...new Set((productIds || []).map((id) => normalizeString(id)).filter(Boolean))];
+
+  if (!ids.length) {
+    return {
+      ok: false,
+      status: 400,
+      error: "products_required",
+      message: "Alege cel puțin un produs pentru acest cod.",
+    };
+  }
+
+  if (ids.length > MAX_SELECTED_PRODUCTS) {
+    return {
+      ok: false,
+      status: 400,
+      error: "too_many_products",
+      maxProducts: MAX_SELECTED_PRODUCTS,
+      message: `Un cod poate avea maximum ${MAX_SELECTED_PRODUCTS} de produse.`,
+    };
+  }
+
+  const owned = await prisma.product.findMany({
+    where: { id: { in: ids }, service: { is: { vendorId } } },
+    select: { id: true },
+  });
+
+  const ownedIds = new Set(owned.map((p) => p.id));
+  const rejected = ids.filter((id) => !ownedIds.has(id));
+
+  if (rejected.length) {
+    return {
+      ok: false,
+      status: 400,
+      error: "products_not_owned",
+      rejectedCount: rejected.length,
+      message:
+        rejected.length === 1
+          ? "Un produs ales nu aparține magazinului tău sau nu mai există."
+          : `${rejected.length} produse alese nu aparțin magazinului tău sau nu mai există.`,
+    };
+  }
+
+  return { ok: true, ids };
+}
+
+/*
+ * Produsele unui cod SELECTED_PRODUCTS, pentru editare - cu starea fiecăruia:
+ *  - "available":   produs public al vendorului;
+ *  - "unavailable": inactiv / ascuns / neaprobat (codul nu-l reduce oricum,
+ *                   nu se poate cumpăra);
+ *  - "other_store": produsul a ajuns la ALT vendor - protecția din
+ *                   discountCodeValidation.js nu-l mai reduce.
+ */
+async function loadSelectedProducts(discountCodeId, vendorId) {
+  const links = await prisma.discountCodeProduct.findMany({
+    where: { discountCodeId },
+    orderBy: { createdAt: "asc" },
+    select: {
+      productId: true,
+      product: {
+        select: {
+          id: true,
+          title: true,
+          images: true,
+          priceCents: true,
+          currency: true,
+          isActive: true,
+          isHidden: true,
+          moderationStatus: true,
+          service: { select: { vendorId: true } },
+        },
+      },
+    },
+  });
+
+  return links
+    .filter((link) => link.product)
+    .map(({ product }) => {
+      const sameStore = String(product.service?.vendorId || "") === String(vendorId);
+      const isPublic =
+        product.isActive === true && product.isHidden !== true && product.moderationStatus === "APPROVED";
+
+      return {
+        id: product.id,
+        title: product.title,
+        image: Array.isArray(product.images) ? product.images[0] || null : null,
+        priceCents: product.priceCents,
+        price: Number(product.priceCents || 0) / 100,
+        currency: product.currency || "RON",
+        status: !sameStore ? "other_store" : isPublic ? "available" : "unavailable",
+      };
+    });
+}
+
+/* =========================================================
    VALIDATION
 ========================================================= */
+
+const ProductIdsSchema = z.array(z.string().trim().min(1).max(64)).max(MAX_SELECTED_PRODUCTS * 2);
 
 const NullableCollectionIdSchema = z.union([
   z.string().trim().min(1),
@@ -412,6 +552,7 @@ const NullableCollectionIdSchema = z.union([
 const PromotionModeSchema = z.enum([
   PROMOTION_MODE_OWN_PRODUCTS,
   PROMOTION_MODE_ALL_ARTFEST,
+  PROMOTION_MODE_SELECTED_PRODUCTS,
 ]);
 
 const CreateDiscountCodeSchema = z.object({
@@ -438,6 +579,9 @@ const CreateDiscountCodeSchema = z.object({
    * acolo, fără sub-selecție).
    */
   vendorCollectionId: NullableCollectionIdSchema.optional().nullable(),
+
+  // doar pentru SELECTED_PRODUCTS (verificate strict: produsele vendorului)
+  productIds: ProductIdsSchema.optional(),
 
   /*
    * UN SINGUR câmp discount - interpretarea (0-50% vendor, sau 0-5%
@@ -477,6 +621,9 @@ const UpdateDiscountCodeSchema = z.object({
    * comenzi vechi). Dacă vendorul vrea alt mod, creează un cod nou.
    */
   vendorCollectionId: NullableCollectionIdSchema.optional().nullable(),
+
+  // doar pentru codurile SELECTED_PRODUCTS: înlocuiește lista de produse
+  productIds: ProductIdsSchema.optional(),
 
   discountPercent: z
     .coerce.number()
@@ -544,6 +691,138 @@ router.get("/", async (req, res) => {
 });
 
 /* =========================================================
+   GET /api/vendor/discount-codes/product-search
+     ?q=&category=&occasion=&availability=&minPrice=&maxPrice=&personalizable=&page=&limit=
+
+   Selectorul „Doar anumite produse”: STRICT produsele publice ale
+   vendorului curent (aceleași filtre ca selectorul din Colecții, scope
+   forțat "own"). Read-only.
+========================================================= */
+
+router.get("/product-search", async (req, res) => {
+  try {
+    const vendor = await requireVendor(req, res);
+    if (!vendor) return;
+
+    const page = Math.max(1, Number.parseInt(req.query?.page, 10) || 1);
+    const limit = Math.min(
+      PRODUCT_SEARCH_MAX_LIMIT,
+      Math.max(1, Number.parseInt(req.query?.limit, 10) || 24)
+    );
+
+    const where = await ownProductSearchWhere(req.query, vendor.id);
+
+    const [rows, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        skip: (page - 1) * limit,
+        take: limit + 1,
+        select: {
+          id: true,
+          title: true,
+          images: true,
+          priceCents: true,
+          currency: true,
+          category: true,
+          availability: true,
+          readyQty: true,
+          acceptsCustom: true,
+        },
+      }),
+      prisma.product.count({ where }),
+    ]);
+
+    const hasMore = rows.length > limit;
+
+    return res.json({
+      ok: true,
+      page,
+      limit,
+      hasMore,
+      total,
+      selectableTotal: total,
+      maxProducts: MAX_SELECTED_PRODUCTS,
+      products: rows.slice(0, limit).map((product) => ({
+        id: product.id,
+        title: product.title,
+        image: Array.isArray(product.images) ? product.images[0] || null : null,
+        priceCents: product.priceCents,
+        price: Number(product.priceCents || 0) / 100,
+        currency: product.currency || "RON",
+        category: product.category || null,
+        isOwn: true,
+        availability: product.availability || null,
+        soldOut:
+          product.availability === "SOLD_OUT" ||
+          (product.availability === "READY" && typeof product.readyQty === "number" && product.readyQty <= 0),
+        personalizable: product.acceptsCustom === true,
+      })),
+    });
+  } catch (error) {
+    console.error("[vendorDiscountCodes] GET /product-search error:", error);
+
+    return res.status(500).json({
+      ok: false,
+      error: "vendor_discount_code_product_search_failed",
+      message: "Nu am putut căuta produsele.",
+    });
+  }
+});
+
+/* =========================================================
+   POST /api/vendor/discount-codes/product-ids
+   Body: aceleași filtre ca product-search
+
+   „Toate rezultatele filtrate”: id-urile produselor vendorului care
+   corespund filtrului, maximum MAX_SELECTED_PRODUCTS (selecția rămâne în
+   formular; se salvează abia la POST/PATCH, cu verificarea strictă).
+========================================================= */
+
+router.post("/product-ids", async (req, res) => {
+  try {
+    const vendor = await requireVendor(req, res);
+    if (!vendor) return;
+
+    const filters = req.body && typeof req.body === "object" ? req.body : {};
+    const where = await ownProductSearchWhere(filters, vendor.id);
+
+    const [rows, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        take: MAX_SELECTED_PRODUCTS,
+        select: { id: true, title: true, images: true, priceCents: true, currency: true },
+      }),
+      prisma.product.count({ where }),
+    ]);
+
+    return res.json({
+      ok: true,
+      total,
+      truncated: total > rows.length,
+      maxProducts: MAX_SELECTED_PRODUCTS,
+      products: rows.map((product) => ({
+        id: product.id,
+        title: product.title,
+        image: Array.isArray(product.images) ? product.images[0] || null : null,
+        priceCents: product.priceCents,
+        price: Number(product.priceCents || 0) / 100,
+        currency: product.currency || "RON",
+      })),
+    });
+  } catch (error) {
+    console.error("[vendorDiscountCodes] POST /product-ids error:", error);
+
+    return res.status(500).json({
+      ok: false,
+      error: "vendor_discount_code_product_ids_failed",
+      message: "Nu am putut selecta rezultatele.",
+    });
+  }
+});
+
+/* =========================================================
    GET /api/vendor/discount-codes/:id
 ========================================================= */
 
@@ -567,10 +846,15 @@ router.get("/:id", async (req, res) => {
 
     const statsByCodeId = await getDiscountCodeStats([discountCode.id]);
 
+    if (discountCode.scope === SCOPE_SELECTED_PRODUCTS) {
+      discountCode.selectedProducts = await loadSelectedProducts(discountCode.id, vendor.id);
+    }
+
     return res.json({
       ok: true,
       maxArtfestDiscountPercent: MAX_ARTFEST_FUNDED_PERCENT,
       maxTotalDiscountPercent: MAX_TOTAL_DISCOUNT_PERCENT,
+      maxSelectedProducts: MAX_SELECTED_PRODUCTS,
       discountCode: serializeVendorDiscountCode(
         discountCode,
         statsByCodeId.get(discountCode.id)
@@ -773,6 +1057,7 @@ router.post("/", async (req, res) => {
     ===================================================== */
 
     const isOwnProducts = input.promotionMode === PROMOTION_MODE_OWN_PRODUCTS;
+    const isSelectedProducts = input.promotionMode === PROMOTION_MODE_SELECTED_PRODUCTS;
 
     /*
      * VENDOR_COLLECTION (audit 2026-09-15, regula finală de business):
@@ -783,7 +1068,7 @@ router.post("/", async (req, res) => {
      * neschimbat: 100% Artfest, plafon 5%.
      */
     const isVendorFunded =
-      isOwnProducts || Boolean(input.vendorCollectionId);
+      isOwnProducts || isSelectedProducts || Boolean(input.vendorCollectionId);
 
     const maxDiscountForMode = isVendorFunded
       ? MAX_TOTAL_DISCOUNT_PERCENT
@@ -840,8 +1125,34 @@ router.post("/", async (req, res) => {
 
     let collection = null;
     let scope;
+    let selectedProductIds = null;
 
-    if (isOwnProducts) {
+    if (!isSelectedProducts && input.productIds !== undefined) {
+      return res.status(400).json({
+        ok: false,
+        error: "products_not_allowed",
+        message: "Produsele se aleg doar pentru «Doar anumite produse».",
+      });
+    }
+
+    if (isSelectedProducts) {
+      scope = SCOPE_SELECTED_PRODUCTS;
+
+      if (input.vendorCollectionId) {
+        return res.status(400).json({
+          ok: false,
+          error: "collection_not_allowed",
+          message: "Un cod «Doar anumite produse» nu poate folosi o colecție.",
+        });
+      }
+
+      const resolved = await resolveOwnedProductIds(input.productIds, vendor.id);
+      if (!resolved.ok) {
+        const { status, ok, ...body } = resolved;
+        return res.status(status).json({ ok: false, ...body });
+      }
+      selectedProductIds = resolved.ids;
+    } else if (isOwnProducts) {
       scope = SCOPE_OWN_PRODUCTS;
 
       if (input.vendorCollectionId) {
@@ -909,8 +1220,7 @@ router.post("/", async (req, res) => {
        CREATE
     ===================================================== */
 
-    const discountCode = await prisma.discountCode.create({
-      data: {
+    const createData = {
         code,
         name: normalizeString(input.name) || null,
         description: normalizeString(input.description) || null,
@@ -950,10 +1260,28 @@ router.post("/", async (req, res) => {
         usedCount: 0,
 
         createdByUserId: vendor.userId,
-      },
+    };
 
-      include: vendorDiscountCodeInclude,
-    });
+    /*
+     * Codul + produsele lui într-o singură tranzacție: niciodată un cod
+     * SELECTED_PRODUCTS fără produse (ar fi un cod care nu se aplică nicăieri).
+     */
+    const discountCode = selectedProductIds
+      ? await prisma.$transaction(async (tx) => {
+          const created = await tx.discountCode.create({ data: createData, select: { id: true } });
+          await tx.discountCodeProduct.createMany({
+            data: selectedProductIds.map((productId) => ({ discountCodeId: created.id, productId })),
+            skipDuplicates: true,
+          });
+          return tx.discountCode.findUnique({
+            where: { id: created.id },
+            include: vendorDiscountCodeInclude,
+          });
+        })
+      : await prisma.discountCode.create({
+          data: createData,
+          include: vendorDiscountCodeInclude,
+        });
 
     return res.status(201).json({
       ok: true,
@@ -1028,6 +1356,7 @@ router.patch("/:id", async (req, res) => {
      */
     const currentMode = derivePromotionMode(current);
     const isOwnProducts = currentMode === PROMOTION_MODE_OWN_PRODUCTS;
+    const isSelectedProducts = currentMode === PROMOTION_MODE_SELECTED_PRODUCTS;
 
     const input = parsed.data;
     const updateData = {};
@@ -1041,6 +1370,7 @@ router.patch("/:id", async (req, res) => {
      */
     const effectiveIsCollection =
       !isOwnProducts &&
+      !isSelectedProducts &&
       (input.vendorCollectionId !== undefined
         ? input.vendorCollectionId !== null
         : current.scope === SCOPE_COLLECTION);
@@ -1049,7 +1379,8 @@ router.patch("/:id", async (req, res) => {
      * VENDOR_COLLECTION (audit 2026-09-15) - vezi comentariul identic
      * din POST /: finanțat 100% de vendor, ca OWN_PRODUCTS.
      */
-    const isVendorFunded = isOwnProducts || effectiveIsCollection;
+    // SELECTED_PRODUCTS: finanțat de vendor (ca OWN_PRODUCTS), mereu - nu se schimbă la editare
+    const isVendorFunded = isOwnProducts || isSelectedProducts || effectiveIsCollection;
 
     /* =====================================================
        CODE
@@ -1134,7 +1465,35 @@ router.patch("/:id", async (req, res) => {
        ALL_ARTFEST, decis o singură dată, la creare).
     ===================================================== */
 
-    if (isOwnProducts) {
+    let nextSelectedProductIds = null;
+
+    if (!isSelectedProducts && input.productIds !== undefined) {
+      return res.status(400).json({
+        ok: false,
+        error: "products_not_allowed",
+        message: "Produsele se aleg doar pentru codurile «Doar anumite produse».",
+      });
+    }
+
+    if (isSelectedProducts) {
+      if (input.vendorCollectionId) {
+        return res.status(400).json({
+          ok: false,
+          error: "collection_not_allowed",
+          message: "Un cod «Doar anumite produse» nu poate folosi o colecție.",
+        });
+      }
+
+      // lista nouă - verificată STRICT și la editare
+      if (input.productIds !== undefined) {
+        const resolved = await resolveOwnedProductIds(input.productIds, vendor.id);
+        if (!resolved.ok) {
+          const { status, ok, ...body } = resolved;
+          return res.status(status).json({ ok: false, ...body });
+        }
+        nextSelectedProductIds = resolved.ids;
+      }
+    } else if (isOwnProducts) {
       if (input.vendorCollectionId) {
         return res.status(400).json({
           ok: false,
@@ -1244,11 +1603,27 @@ router.patch("/:id", async (req, res) => {
        UPDATE
     ===================================================== */
 
-    const updated = await prisma.discountCode.update({
-      where: { id: current.id },
-      data: updateData,
-      include: vendorDiscountCodeInclude,
-    });
+    /*
+     * SELECTED_PRODUCTS: codul + înlocuirea listei de produse într-o singură
+     * tranzacție (scoatem ce nu mai e ales, adăugăm ce e nou).
+     */
+    const updated = nextSelectedProductIds
+      ? await prisma.$transaction(async (tx) => {
+          await tx.discountCode.update({ where: { id: current.id }, data: updateData, select: { id: true } });
+          await tx.discountCodeProduct.deleteMany({
+            where: { discountCodeId: current.id, productId: { notIn: nextSelectedProductIds } },
+          });
+          await tx.discountCodeProduct.createMany({
+            data: nextSelectedProductIds.map((productId) => ({ discountCodeId: current.id, productId })),
+            skipDuplicates: true,
+          });
+          return tx.discountCode.findUnique({ where: { id: current.id }, include: vendorDiscountCodeInclude });
+        })
+      : await prisma.discountCode.update({
+          where: { id: current.id },
+          data: updateData,
+          include: vendorDiscountCodeInclude,
+        });
 
     return res.json({
       ok: true,

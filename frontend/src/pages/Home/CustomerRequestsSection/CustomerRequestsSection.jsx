@@ -2,6 +2,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -24,6 +25,7 @@ import CustomerRequestOfferModal
   from "./CustomerRequestOfferModal.jsx";
 
 import styles from "./CustomerRequestsSection.module.css";
+import { CREATE_REQUEST_EVENT } from "../homeActions.js";
 
 /* =========================================================
    HELPERS
@@ -716,6 +718,47 @@ useEffect(() => {
     true
   );
 }
+
+  /*
+   * Butoanele „Publică gratuit o cerere” din alte secțiuni ale homepage-ului
+   * (hero, direcții, explicația cererilor) deschid ACELAȘI formular, cu
+   * același flux guest -> login -> formular - vezi ../homeActions.js.
+   * preventDefault() îi spune emitentului că cererea a fost preluată.
+   */
+  const openCreateModalRef =
+    useRef(
+      openCreateModal
+    );
+
+  useEffect(() => {
+    openCreateModalRef.current =
+      openCreateModal;
+  });
+
+  useEffect(() => {
+    const handleExternalCreate =
+      (event) => {
+        event.preventDefault();
+
+        openCreateModalRef.current(
+          event.detail?.mode === "ai"
+            ? "ai"
+            : "manual"
+        );
+      };
+
+    window.addEventListener(
+      CREATE_REQUEST_EVENT,
+      handleExternalCreate
+    );
+
+    return () => {
+      window.removeEventListener(
+        CREATE_REQUEST_EVENT,
+        handleExternalCreate
+      );
+    };
+  }, []);
 
   function closeCreateModal() {
     setCreateModalOpen(

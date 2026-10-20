@@ -7,6 +7,7 @@ import {
   sendVendorNewOrderEmail,
 } from "../lib/mailer.js";
 import { createPaymentForOrder } from "../payments/orchestrator.js";
+import { normalizeRoPhone } from "../lib/phoneRo.js";
 import {
   isVendorStripeReady,
   computeCardPaymentAvailability,
@@ -888,7 +889,7 @@ function buildNormalizedShippingAddress(address) {
     firstName: normalizeText(address?.firstName),
     lastName: normalizeText(address?.lastName),
     name: buildFullName(address),
-    phone: normalizeDigits(address?.phone).slice(0, 10),
+    phone: normalizeRoPhone(address?.phone),
     email: normalizeText(address?.email),
     county: address?.county || "",
     city: normalizeText(address?.city),
@@ -922,7 +923,7 @@ function buildNormalizedContactPerson(contactPerson) {
     lastName: normalizeText(contactPerson.lastName),
     name: buildFullName(contactPerson),
     email: normalizeText(contactPerson.email),
-    phone: normalizeDigits(contactPerson.phone).slice(0, 10),
+    phone: normalizeRoPhone(contactPerson.phone),
   };
 }
 

@@ -12,10 +12,12 @@ import { api } from "../../../../lib/api";
 import shared from "../AdminDesktop.module.css";
 import styles from "./AdminArtfestFairTab.module.css";
 import AdminFairReceptionPanel from "./AdminFairReceptionPanel.jsx";
+import AdminFairLabelsPanel from "./AdminFairLabelsPanel.jsx";
 import AdminFairPosPanel from "./AdminFairPosPanel.jsx";
 import AdminFairSettlementsPanel from "./AdminFairSettlementsPanel.jsx";
 import { CancelParticipationModal, Modal, RegistrationHistory, RegistrationReturns } from "./AdminFairCancellation.jsx";
 import { CAUSE_LABEL } from "./adminFairCancellation.js";
+import { TERMS_NOT_ACCEPTED_TEXT, termsAcceptanceView } from "./adminFairTerms.js";
 
 const API = "/api/admin/artfest-fair";
 
@@ -230,6 +232,34 @@ function DetailRow({ label, children }) {
   );
 }
 
+// valorile salvate la înscriere; IP-ul și browserul sunt doar pentru Admin (vendorul nu le primește)
+function TermsAcceptance({ item }) {
+  const terms = termsAcceptanceView(item);
+  return (
+    <section className={styles.detailSection} aria-label="Acceptarea regulamentului">
+      <h4>Acceptarea regulamentului</h4>
+      <dl className={styles.details}>
+        <DetailRow label="Versiune acceptată">
+          {terms.accepted ? (
+            terms.href ? (
+              <a href={terms.href} target="_blank" rel="noopener noreferrer">
+                {terms.version}
+              </a>
+            ) : (
+              terms.version
+            )
+          ) : (
+            TERMS_NOT_ACCEPTED_TEXT
+          )}
+        </DetailRow>
+        <DetailRow label="Acceptat la">{terms.acceptedAt ? formatDate(terms.acceptedAt) : null}</DetailRow>
+        <DetailRow label="IP">{terms.ip}</DetailRow>
+        <DetailRow label="Browser / user agent">{terms.ua}</DetailRow>
+      </dl>
+    </section>
+  );
+}
+
 function RegistrationDetails({ item, onClose }) {
   const cancellation = item.cancellation;
   return (
@@ -246,23 +276,6 @@ function RegistrationDetails({ item, onClose }) {
         <DetailRow label="Număr estimativ">{item.estimatedProductCount}</DetailRow>
         <DetailRow label="Observații">{item.notes}</DetailRow>
         <DetailRow label="Data înscrierii">{formatDate(item.submittedAt)}</DetailRow>
-        <DetailRow label="Regulament acceptat">
-          {item.termsVersion ? (
-            item.termsVersionUrl ? (
-              <a href={item.termsVersionUrl} target="_blank" rel="noopener noreferrer">
-                v{item.termsVersion}
-              </a>
-            ) : (
-              `v${item.termsVersion}`
-            )
-          ) : (
-            "nicio versiune publicată la momentul acceptării"
-          )}
-        </DetailRow>
-        <DetailRow label="Data acceptării">{formatDate(item.termsAcceptedAt)}</DetailRow>
-        <DetailRow label="IP / browser la acceptare">
-          {[item.termsIp, item.termsUa].filter(Boolean).join(" · ")}
-        </DetailRow>
         <DetailRow label="Verificată la">{item.reviewedAt ? formatDate(item.reviewedAt) : null}</DetailRow>
         <DetailRow label="Motiv intern respingere">{item.rejectionReason}</DetailRow>
         <DetailRow label="Retrasă la">{item.withdrawnAt ? formatDate(item.withdrawnAt) : null}</DetailRow>
@@ -278,6 +291,8 @@ function RegistrationDetails({ item, onClose }) {
           </>
         )}
       </dl>
+
+      <TermsAcceptance item={item} />
 
       <section className={styles.detailSection} aria-label="Istoricul deciziilor">
         <h4>Istoric</h4>
@@ -568,6 +583,7 @@ function RegistrationsSection() {
 const SECTIONS = [
   { id: "registrations", label: "Înscrieri și invitație" },
   { id: "reception", label: "Recepție produse" },
+  { id: "labels", label: "Etichete" },
   { id: "pos", label: "POS / Vânzare" },
   { id: "settlements", label: "Deconturi" },
 ];
@@ -601,6 +617,8 @@ export default function AdminArtfestFairTab() {
       </div>
       {section === "reception" ? (
         <AdminFairReceptionPanel />
+      ) : section === "labels" ? (
+        <AdminFairLabelsPanel />
       ) : section === "pos" ? (
         <AdminFairPosPanel />
       ) : section === "settlements" ? (

@@ -331,7 +331,7 @@ test("editare / eliminare în DRAFT; reguli de unicat; reactivarea aceleiași va
   assert.equal(items()[0].isUnique, true);
 });
 
-test("cross-vendor: liniile altui vendor => 404 la editare, ștergere, preț, etichetă", async () => {
+test("cross-vendor: liniile altui vendor => 404 la editare, ștergere, preț", async () => {
   const created = await add(ctx.v1, { productId: ctx.pMto.id, declaredQty: 2 });
   const id = created.body.item.id;
 
@@ -339,7 +339,6 @@ test("cross-vendor: liniile altui vendor => 404 la editare, ștergere, preț, et
     ["PATCH", `${INV}/${id}`],
     ["DELETE", `${INV}/${id}`],
     ["POST", `${INV}/${id}/sync-price`],
-    ["GET", `${INV}/${id}/label.pdf`],
   ]) {
     const res = await call(method, path, { as: ctx.v2, body: method === "PATCH" ? { declaredQty: 9 } : undefined });
     assert.equal(res.status, 404, `${method} ${path}`);
@@ -516,8 +515,8 @@ test("stockRestore: unicatul de la târg nu redevine cumpărabil; cantitatea se 
 test("preț: înainte de termen se sincronizează; după termen e blocat pe produs și în inventar", async () => {
   await add(ctx.v1, { productId: ctx.pColors.id, selectedOptions: { culoare: "Roșu" }, declaredQty: 1 });
   const id = items()[0].id;
-  await call("GET", `${INV}/${id}/label.pdf`, { as: ctx.v1 });
-  assert.equal(items()[0].labelPriceCents, 3900);
+  // eticheta e generată de Artfest (Admin) - aici o simulăm direct pe linie
+  Object.assign(items()[0], { labelPriceCents: 3900, labelGeneratedAt: new Date() });
 
   // vendorul schimbă prețul înainte de termen: permis
   await locks.guardedProductUpdate(ctx.pColors.id, { priceCents: 4500 }, (db) =>
@@ -526,11 +525,6 @@ test("preț: înainte de termen se sincronizează; după termen e blocat pe prod
   const view = await call("GET", INV, { as: ctx.v1 });
   assert.equal(view.body.items[0].priceOutOfSync, true);
   assert.equal(view.body.items[0].canSyncPrice, true);
-
-  // etichetă cu preț vechi => refuzată până la sincronizare
-  const stale = await call("GET", `${INV}/${id}/label.pdf`, { as: ctx.v1 });
-  assert.equal(stale.status, 409);
-  assert.equal(stale.body.error, "price_out_of_sync");
 
   const synced = await call("POST", `${INV}/${id}/sync-price`, { as: ctx.v1 });
   assert.equal(synced.status, 200);
@@ -579,51 +573,28 @@ test("fără blocări: produsele care nu sunt la târg se modifică normal", asy
 
 /* ============================== etichete ============================== */
 
-test("eticheta individuală: PDF 70 × 37 mm cu nume, variantă, magazin, preț, barcode, cod AF, artfest.ro", async () => {
+test("etichete: vendorul nu le mai poate genera (403), nimic nu se modifică", async () => {
   await add(ctx.v1, { productId: ctx.pColors.id, selectedOptions: { culoare: "Roșu" }, declaredQty: 5 });
+  await call("POST", `${INV}/submit`, { as: ctx.v1 });
   const line = items()[0];
+  const barcode = line.barcode;
 
-  const res = await call("GET", `${INV}/${line.id}/label.pdf`, { as: ctx.v1 });
-  assert.equal(res.status, 200);
-  assert.match(res.type, /application\/pdf/);
-  assert.equal(res.body.toString().slice(0, 4), "%PDF");
-
-  assert.equal(pdfCalls.length, 1);
-  const { html, options } = pdfCalls[0];
-  assert.equal(options.width, "70mm");
-  assert.equal(options.height, "37mm");
-  assert.equal((html.match(/class="label"/g) || []).length, 1); // o singură etichetă, nu declaredQty
-  for (const text of ["Spiridușul Ella", "Culoare: Roșu", "Alexandrina Designs", "39 lei", "artfest.ro"]) {
-    assert.ok(html.includes(text), text);
+  for (const path of [`${INV}/${line.id}/label.pdf`, `${INV}/labels.pdf`, `${INV}/nu-exista/label.pdf`]) {
+    const res = await call("GET", path, { as: ctx.v1 });
+    assert.equal(res.status, 403, path);
+    assert.equal(res.body.error, "labels_managed_by_artfest");
   }
-  assert.ok(html.includes(`${line.barcode.slice(0, 2)}-${line.barcode.slice(2, 6)}-${line.barcode.slice(6)}`));
-  assert.ok(html.includes("<svg"));
+  // alt vendor => tot 403 (nu află dacă linia există)
+  assert.equal((await call("GET", `${INV}/${line.id}/label.pdf`, { as: ctx.v2 })).status, 403);
 
-  assert.equal(line.labelPriceCents, 3900);
-  assert.ok(line.labelGeneratedAt instanceof Date);
-  assert.equal(eventsOf("LABEL_GENERATED").length, 1);
-});
+  assert.equal(pdfCalls.length, 0);
+  assert.equal(line.labelGeneratedAt ?? null, null);
+  assert.equal(line.labelPriceCents ?? null, null);
+  assert.equal(line.barcode, barcode);
+  assert.equal(eventsOf("LABEL_GENERATED").length, 0);
 
-test("toate etichetele: A4, câte o etichetă pe bucată declarată, doar liniile proprii", async () => {
-  await add(ctx.v1, { productId: ctx.pColors.id, selectedOptions: { culoare: "Roșu" }, declaredQty: 20 });
-  await add(ctx.v1, { productId: ctx.pColors.id, selectedOptions: { culoare: "Verde" }, declaredQty: 4 });
-  await add(ctx.v1, { productId: ctx.pMto.id, declaredQty: 3 });
-  const removed = await add(ctx.v1, { productId: ctx.pUnique.id, declaredQty: 7 });
-  await call("DELETE", `${INV}/${removed.body.item.id}`, { as: ctx.v1 });
-  await add(ctx.v2, { productId: ctx.pOther.id, declaredQty: 2 });
-
-  const res = await call("GET", `${INV}/labels.pdf`, { as: ctx.v1 });
-  assert.equal(res.status, 200);
-  const { html, options } = pdfCalls[0];
-  assert.equal(options.format, "A4");
-  assert.equal((html.match(/class="label"/g) || []).length, 27); // 20 + 4 + 3
-  assert.equal((html.match(/class="sheet"/g) || []).length, 2); // 24 / pagină
-  assert.ok(!html.includes("Al vendorului 2"));
-  assert.ok(!html.includes("Vază unicat"));
-
-  const own = items().filter((l) => l.vendorId === ctx.vendor1.id && l.status !== "CANCELLED");
-  assert.ok(own.every((l) => l.labelPriceCents === l.priceSnapshotCents));
-
-  const empty = await call("GET", `${INV}/labels.pdf`, { as: ctx.v3 });
-  assert.equal(empty.status, 403);
+  // inventarul rămâne vizibil (cu codul liniei) pentru vendor
+  const listed = await call("GET", INV, { as: ctx.v1 });
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body.items[0].barcode, barcode);
 });

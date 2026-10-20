@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { Link, useNavigate } from "react-router-dom";
 import { FaTrash, FaShoppingCart, FaFilter } from "react-icons/fa";
 import { api } from "../../lib/api";
+import { trackAddToCart } from "../../../services/analytics.js";
 import styles from "./Wishlist.module.css";
 
 /* ===================== Helpers globale ===================== */
@@ -673,6 +674,7 @@ export default function Wishlist() {
           window.dispatchEvent(new CustomEvent("cart:changed"));
         } catch {""}
 
+        trackAddToCart(row.card, { quantity: 1 });
         showInfo("Produs adăugat în coș.");
       } catch (e) {
         console.error("addToCart failed:", e);

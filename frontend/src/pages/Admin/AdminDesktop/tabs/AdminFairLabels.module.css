@@ -1,0 +1,278 @@
+/* Admin -> Târg Artfest -> Etichete (doar variabile de temă) */
+
+.intro {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--surface));
+}
+
+.intro h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.intro p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.intro .format {
+  font-size: 13px;
+}
+
+.intro .todo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.todo span {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--color-warning, var(--color-text));
+  background: var(--warning-bg-soft, var(--surface-muted));
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.search,
+.select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--input-bg, var(--surface));
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.listHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.checkAll {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.checkAll input,
+.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.muted {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto 56px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+.rowSelected {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--surface));
+}
+
+.check {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 44px;
+  cursor: pointer;
+}
+
+.thumb {
+  display: block;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--surface-muted);
+}
+
+.info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 2px;
+  font-size: 13px;
+}
+
+.rowActions {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.badge {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badgeValid {
+  color: var(--color-success);
+  background: var(--success-bg-soft);
+}
+
+.badgeWarn {
+  color: var(--color-warning, var(--color-danger));
+  background: var(--warning-bg-soft, var(--surface-muted));
+}
+
+.badgeNone {
+  color: var(--color-muted);
+  background: var(--surface-muted);
+}
+
+/* bara selecției: fixă jos (sticky nu merge aici - body e container de scroll în CSS-ul global),
+   centrată; panoul lasă loc dedesubt ca ultimele produse să nu fie acoperite */
+.withBulkBar {
+  padding-bottom: 120px;
+}
+
+.bulkBar {
+  position: fixed;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(880px, calc(100vw - 24px));
+  box-sizing: border-box;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--color-primary);
+  background: var(--surface);
+  box-shadow: 0 -6px 20px color-mix(in srgb, var(--color-text) 12%, transparent);
+}
+
+.bulkInfo {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.bulkBar .select {
+  flex: 0 1 260px;
+  width: auto;
+}
+
+.bulkActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .toolbar .search {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .row {
+    grid-template-columns: auto 48px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .thumb {
+    width: 48px;
+    height: 48px;
+  }
+
+  .rowActions {
+    grid-column: 1 / -1;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    justify-items: end;
+  }
+
+  .rowActions .badge {
+    justify-self: start;
+  }
+
+  .withBulkBar {
+    padding-bottom: 210px;
+  }
+
+  .bulkBar {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .bulkBar .select,
+  .bulkActions {
+    flex: 1 1 100%;
+  }
+
+  .bulkActions button {
+    flex: 1 1 0;
+  }
+}

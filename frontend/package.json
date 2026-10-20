@@ -12,6 +12,8 @@
     "test:guest-intents:hard": "node scripts/testGuestIntentHardSet.mjs",
     "test:guest-intents:all": "npm run test:guest-intents && npm run test:guest-intents:hard",
     "test:product-config-validator": "node --test src/utils/productConfigurationValidator.test.js src/components/AIAssistant/Personalization/productPersonalizationFlow.test.js",
+    "test:analytics": "node --experimental-test-module-mocks --test services/analyticsEcommerce.test.js services/analytics.test.js services/indexConsent.test.js services/analyticsWiring.test.js",
+    "test:checkout": "node --test src/pages/Checkout/checkoutForm.test.js src/pages/Checkout/thankYouPurchase.test.js",
     "test:collections-seo": "node --test api/seo-colectie.test.js api/seo-categorie.test.js api/seo-pagination.test.js src/utils/seo/structuredData.test.js src/utils/seo/importBoundary.test.js src/pages/Home/CollectionsSection/collectionCards.test.js src/pages/Collections/collectionContent.test.js src/utils/sanitizeHtml.test.js"
   },
   "dependencies": {

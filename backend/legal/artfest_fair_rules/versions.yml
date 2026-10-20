@@ -20,4 +20,14 @@
 #      Nu edita câmpurile manual: CHECK-ul ArtfestFair_terms_pair_chk refuză starea „doar unul setat”.
 # O versiune publicată nu se modifică: o schimbare = versiune nouă.
 
-versions: []
+versions:
+  - version: "1.0.0"
+    path: "artfest_fair_rules/v1.0.0.md"
+    vars: 1
+    publishedAt: "2026-10-19"
+  # 1.1.0: etichetele cu cod de bare sunt generate, imprimate și aplicate exclusiv de Artfest.
+  # 1.0.0 rămâne în registru: înscrierile care au acceptat-o păstrează versiunea și linkul ei.
+  - version: "1.1.0"
+    path: "artfest_fair_rules/v1.1.0.md"
+    vars: 1
+    publishedAt: "2026-10-19"

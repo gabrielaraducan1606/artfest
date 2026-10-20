@@ -9,8 +9,8 @@
 //   POST   /:id/sync-price   preia prețul curent din Artfest (înainte de termen)
 //   POST   /submit           trimite liniile DRAFT + rezervă stocul online
 //   POST   /:id/cancel       anulează o linie trimisă, încă nerecepționată (eliberează rezervarea)
-//   GET    /labels.pdf       toate etichetele (A4, 3 × 8, câte una pe bucată)
-//   GET    /:id/label.pdf    o etichetă (70 × 37 mm)
+//   GET    /labels.pdf       403 - etichetele sunt generate de Artfest (Admin)
+//   GET    /:id/label.pdf    403 - idem
 //
 // Totul e filtrat pe vendorId din sesiune; liniile altui vendor => 404.
 
@@ -18,17 +18,14 @@ import { Router } from "express";
 import { authRequired } from "../api/auth.js";
 import {
   addInventoryItem,
-  getLabelItems,
   getVendorInventoryContext,
   listEligibleProducts,
   listInventory,
-  markLabelsGenerated,
   removeInventoryItem,
   submitInventory,
   syncInventoryItemPrice,
   updateInventoryItem,
 } from "../services/artfestFairInventoryService.js";
-import { renderLabelSheetPdf, renderSingleLabelPdf } from "../lib/fairLabels.js";
 import { cancelSubmittedLine } from "../services/artfestFairReceptionService.js";
 import { handleFair, requireVendor } from "./artfestFairHttp.js";
 
@@ -36,13 +33,6 @@ const router = Router();
 const handle = (fn) => handleFair(fn, "vendorArtfestFairInventory");
 
 router.use(authRequired, requireVendor);
-
-function sendPdf(res, pdf, filename) {
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
-  res.setHeader("Cache-Control", "no-store");
-  res.end(Buffer.from(pdf));
-}
 
 router.get(
   "/",
@@ -73,16 +63,17 @@ router.post(
   })
 );
 
+// Etichetele sunt generate, imprimate și aplicate de Artfest (Admin -> Târg -> Etichete).
+// Vendorul nu le mai poate genera; răspunsul e 403 înainte de orice citire / PDF.
+function labelsManagedByArtfest(_req, res) {
+  res.status(403).json({
+    error: "labels_managed_by_artfest",
+    message: "Etichetarea produselor este asigurată de Artfest. Nu trebuie să generezi etichete.",
+  });
+}
+
 // înaintea rutelor /:id
-router.get(
-  "/labels.pdf",
-  handle(async (req, res) => {
-    const items = await getLabelItems({ vendorId: req.vendorId });
-    const { pdf } = await renderLabelSheetPdf(items);
-    await markLabelsGenerated({ items, userId: req.user.sub });
-    sendPdf(res, pdf, "etichete-targ-artfest.pdf");
-  })
-);
+router.get("/labels.pdf", labelsManagedByArtfest);
 
 router.patch(
   "/:id",
@@ -127,14 +118,6 @@ router.post(
   })
 );
 
-router.get(
-  "/:id/label.pdf",
-  handle(async (req, res) => {
-    const [item] = await getLabelItems({ vendorId: req.vendorId, id: req.params.id });
-    const pdf = await renderSingleLabelPdf(item);
-    await markLabelsGenerated({ items: [item], userId: req.user.sub });
-    sendPdf(res, pdf, `eticheta-${item.barcode}.pdf`);
-  })
-);
+router.get("/:id/label.pdf", labelsManagedByArtfest);
 
 export default router;

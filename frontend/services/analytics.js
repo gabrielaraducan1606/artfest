@@ -1,8 +1,36 @@
 // services/analytics.js
+//
+// ARHITECTURA TRACKING (audit conversii 2026-10-14, etapa 2):
+//
+//   index.html  - Consent Mode v2 BASIC (default din alegerea salvată);
+//                 gtag.js Google Ads (AW-18196187164) doar cu marketing,
+//                 GTM doar cu statistici (artfestApplyConsentTags).
+//   GTM         - Google tag GA4 (G-Z6L2YX2Q7W), TikTok; al doilea Google
+//                 tag AW din container trebuie pus pe pauză (manual).
+//   acest fișier - TOATE evenimentele ecommerce, pe O SINGURĂ cale:
+//                 gtag("event", …) (comenzi în dataLayer procesate de
+//                 gtag.js). NU mai împingem și obiecte {event: …} în
+//                 dataLayer - ar dubla evenimentele dacă cineva adaugă
+//                 în GTM taguri GA4 pe evenimente custom.
+//   conversia Google Ads „Cumpărare” - DOAR din trackPurchase (pagina
+//                 /multumim), cu transaction_id = Order.id.
 
 import {
   readConsent,
 } from "../src/lib/cookieConsent.js";
+
+import {
+  INTERNAL_TRAFFIC_STORAGE_KEY,
+  buildEcommercePayload,
+  buildItem,
+  buildItems,
+  buildPurchasePayload,
+  getUserRoleLabel,
+  isInternalRole,
+  isProductionHost,
+  resolveUnitPrice,
+  round2,
+} from "./analyticsEcommerce.js";
 
 /* =========================================================
    GOOGLE ADS
@@ -39,6 +67,9 @@ export const META_PIXEL_ID =
 
 let metaPixelInitialized = false;
 
+const isDev =
+  Boolean(import.meta.env?.DEV);
+
 /* =========================================================
    CONSENT HELPERS
 ========================================================= */
@@ -56,6 +87,60 @@ function hasMarketingConsent() {
 
     return (
       consent?.marketing === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+/*
+ * Consent Mode BASIC: fără acord pentru statistici NU punem evenimente
+ * GA4 în dataLayer. Altfel ar aștepta în coadă și ar fi procesate
+ * retroactiv de GTM în momentul în care se încarcă (după un acord dat
+ * ulterior) - adică trimise pentru acțiuni făcute înainte de acord.
+ */
+function hasAnalyticsConsent() {
+  if (
+    typeof window === "undefined"
+  ) {
+    return false;
+  }
+
+  try {
+    return (
+      readConsent()?.analytics ===
+      true
+    );
+  } catch {
+    return false;
+  }
+}
+
+/*
+ * Încarcă tagurile permise de consimțământ (GTM / Google Ads) - funcția
+ * e definită în index.html; idempotentă.
+ */
+function applyConsentTags(consent) {
+  try {
+    window.artfestApplyConsentTags?.(
+      consent
+    );
+  } catch (error) {
+    console.warn(
+      "[GOOGLE] tag loading failed:",
+      error
+    );
+  }
+}
+
+/*
+ * Conversiile Google Ads se trimit DOAR de pe domeniul de producție -
+ * localhost / preview-uri Vercel nu trebuie să creeze conversii în cont.
+ */
+function isProductionSite() {
+  try {
+    return isProductionHost(
+      window.location.hostname
     );
   } catch {
     return false;
@@ -90,7 +175,7 @@ function callGtag(...args) {
      * `dataLayer` există mereu (inițializat tot în index.html) -
      * dacă `gtag` lipsește dintr-un motiv neașteptat, împingem
      * direct în dataLayer în același format, ca să nu pierdem
-     * comanda de consimțământ.
+     * comanda.
      */
     if (typeof window.gtag === "function") {
       window.gtag(...args);
@@ -101,7 +186,7 @@ function callGtag(...args) {
     window.dataLayer.push(args);
   } catch (error) {
     console.warn(
-      "[GOOGLE CONSENT] gtag call failed:",
+      "[GOOGLE] gtag call failed:",
       error
     );
   }
@@ -149,10 +234,9 @@ function updateGoogleConsent(consent) {
 
 /**
  * Sincronizează starea Google cu preferința deja salvată (dacă
- * există) - `index.html` pornește mereu cu totul refuzat (cea mai
- * sigură stare implicită), deci un utilizator care revine cu
- * `analytics`/`marketing` deja acceptate trebuie adus imediat la
- * starea corectă, nu lăsat pe "denied" până la o interacțiune nouă.
+ * există). index.html aplică deja alegerea salvată ca stare
+ * implicită, înaintea GTM; aici o reconfirmăm (idempotent) după
+ * încărcarea aplicației.
  */
 function syncGoogleConsentFromStorage() {
   try {
@@ -160,31 +244,8 @@ function syncGoogleConsentFromStorage() {
       readConsent()
     );
   } catch {
-    // păstrăm implicit "denied" din index.html dacă citirea eșuează
+    // păstrăm starea implicită din index.html dacă citirea eșuează
   }
-}
-
-/* =========================================================
-   GOOGLE / DATA LAYER
-========================================================= */
-
-function pushToDataLayer(
-  eventName,
-  params = {}
-) {
-  if (
-    typeof window === "undefined"
-  ) {
-    return;
-  }
-
-  window.dataLayer =
-    window.dataLayer || [];
-
-  window.dataLayer.push({
-    event: eventName,
-    ...params,
-  });
 }
 
 /* =========================================================
@@ -337,11 +398,6 @@ export function initMetaPixel() {
     metaPixelInitialized =
       true;
 
-    console.log(
-      "[META] Pixel initialized:",
-      META_PIXEL_ID
-    );
-
     return true;
   } catch (error) {
     console.warn(
@@ -374,10 +430,6 @@ function revokeMetaConsent() {
     window.fbq(
       "consent",
       "revoke"
-    );
-
-    console.log(
-      "[META] Marketing consent revoked"
     );
   } catch (error) {
     console.warn(
@@ -435,35 +487,133 @@ function trackMetaEvent(
   }
 }
 
+/*
+ * Parametrii Meta din itemii GA4 (aceleași ID-uri ca feed-ul Meta Catalog).
+ */
+function toMetaContents(items) {
+  const list = Array.isArray(items) ? items : [];
+
+  return {
+    content_type: "product",
+    ...(list.length
+      ? {
+          content_ids: list.map((item) => item.item_id),
+          contents: list.map((item) => ({
+            id: item.item_id,
+            quantity: item.quantity,
+          })),
+          num_items: list.reduce(
+            (sum, item) => sum + Number(item.quantity || 0),
+            0
+          ),
+        }
+      : {}),
+  };
+}
+
 /* =========================================================
    GENERIC GOOGLE EVENT
 ========================================================= */
+
+/*
+ * O SINGURĂ cale: gtag("event", …), DOAR cu acord pentru statistici
+ * (Consent Mode Basic - vezi hasAnalyticsConsent).
+ */
+/*
+ * D4: evenimentele GA4 au send_to EXPLICIT către proprietatea GA4 -
+ * nu mai ajung și la destinația Google Ads (AW), deci nu pot alimenta
+ * accidental o acțiune de conversie Ads bazată pe evenimentele tagului.
+ */
+export const GA4_MEASUREMENT_ID = "G-Z6L2YX2Q7W";
 
 export const trackEvent = (
   eventName,
   params = {}
 ) => {
   if (
+    typeof window === "undefined" ||
+    !hasAnalyticsConsent()
+  ) {
+    return;
+  }
+
+  callGtag(
+    "event",
+    eventName,
+    {
+      ...params,
+      send_to:
+        GA4_MEASUREMENT_ID,
+    }
+  );
+};
+
+/* =========================================================
+   TRAFIC INTERN (GA4 traffic_type + user_role)
+========================================================= */
+
+let lastIdentityKey = null;
+
+/*
+ * Apelată la încărcarea sesiunii (src/components/Analytics/
+ * AnalyticsIdentity.jsx). Administratorii și vânzătorii sunt marcați
+ * `traffic_type=internal` - GA4 îi poate exclude cu filtrul „Internal
+ * traffic” (pornit întâi în modul Testing, reversibil). Marcajul e
+ * reținut pe dispozitiv, ca și vizitele lor ulterioare fără login să
+ * fie marcate (index.html îl aplică înaintea GTM). user_role e o
+ * valoare ne-personală pentru segmentare.
+ */
+export function setAnalyticsIdentity(me) {
+  if (
     typeof window === "undefined"
   ) {
     return;
   }
 
-  pushToDataLayer(
-    eventName,
-    params
-  );
+  let internal = false;
 
-  if (
-    typeof window.gtag === "function"
-  ) {
-    window.gtag(
-      "event",
-      eventName,
-      params
-    );
+  try {
+    if (isInternalRole(me?.role)) {
+      localStorage.setItem(
+        INTERNAL_TRAFFIC_STORAGE_KEY,
+        "1"
+      );
+    }
+
+    internal =
+      localStorage.getItem(
+        INTERNAL_TRAFFIC_STORAGE_KEY
+      ) === "1";
+  } catch {
+    internal = isInternalRole(me?.role);
   }
-};
+
+  const roleLabel =
+    getUserRoleLabel(me);
+
+  const key =
+    `${internal}:${roleLabel}`;
+
+  if (key === lastIdentityKey) {
+    return;
+  }
+
+  lastIdentityKey = key;
+
+  if (internal) {
+    callGtag("set", {
+      traffic_type: "internal",
+    });
+  }
+
+  callGtag(
+    "set",
+    "user_properties",
+    {
+      user_role: roleLabel,
+    }
+  );
+}
 
 /* =========================================================
    PAGE VIEW
@@ -478,9 +628,9 @@ export const trackPageView =
     }
 
     /*
-     * Nu trimitem manual page_view
-     * către Google aici pentru a evita
-     * dublarea dacă GA îl trimite deja.
+     * Nu trimitem manual page_view către Google: tag-ul GA4 din GTM
+     * îl trimite (și la schimbările de rută, prin Enhanced
+     * Measurement „browser history”).
      */
 
     trackMetaEvent(
@@ -489,350 +639,273 @@ export const trackPageView =
   };
 
 /* =========================================================
-   VIEW CONTENT
+   VIEW ITEM
 ========================================================= */
 
 export const trackViewContent =
   (product) => {
-    if (!product) {
+    const item =
+      buildItem(product, {
+        quantity: 1,
+      });
+
+    if (!item) {
       return;
     }
 
-    const value =
-      Number(
-        product?.price ??
-          (
-            product?.finalPriceCents != null
-              ? Number(
-                  product.finalPriceCents
-                ) / 100
-              : 0
-          )
-      ) || 0;
+    const payload =
+      buildEcommercePayload({
+        currency:
+          product?.currency,
+        items: [item],
+      });
 
-    const currency =
-      product?.currency ||
-      "RON";
-
-    /*
-     * Google / GA
-     */
     trackEvent(
       "view_item",
-      {
-        currency,
-        value,
-
-        items: [
-          {
-            item_id:
-              product?.id,
-
-            item_name:
-              product?.title,
-
-            price:
-              value,
-
-            quantity:
-              1,
-          },
-        ],
-      }
+      payload
     );
 
-    /*
-     * Meta
-     */
     trackMetaEvent(
       "ViewContent",
       {
-        content_ids:
-          product?.id
-            ? [
-                String(
-                  product.id
-                ),
-              ]
-            : [],
-
+        ...toMetaContents([item]),
         content_name:
-          product?.title ||
-          "",
-
-        content_type:
-          "product",
-
-        value,
-        currency,
+          item.item_name,
+        value:
+          payload.value,
+        currency:
+          payload.currency,
       }
     );
   };
 
 /* =========================================================
-   ADD TO CART
+   ADD TO CART - DOAR după confirmarea adăugării (API sau coș guest)
 ========================================================= */
 
 export const trackAddToCart =
-  (product) => {
-    if (!product) {
+  (product, options = {}) => {
+    const item =
+      buildItem(product, {
+        quantity:
+          options.quantity ??
+          product?.quantity ??
+          product?.qty,
+      });
+
+    if (!item) {
       return;
     }
 
-    const quantity =
-      Number(
-        product?.quantity ||
-          product?.qty ||
-          1
-      ) || 1;
+    const payload =
+      buildEcommercePayload({
+        currency:
+          product?.currency,
+        items: [item],
+      });
 
-    const unitPrice =
-      Number(
-        product?.price ??
-          (
-            product?.finalPriceCents != null
-              ? Number(
-                  product.finalPriceCents
-                ) / 100
-              : 0
-          )
-      ) || 0;
-
-    const value =
-      unitPrice * quantity;
-
-    const currency =
-      product?.currency ||
-      "RON";
-
-    /*
-     * Google / GA
-     */
     trackEvent(
       "add_to_cart",
-      {
-        currency,
-        value,
-
-        items: [
-          {
-            item_id:
-              product?.id,
-
-            item_name:
-              product?.title,
-
-            price:
-              unitPrice,
-
-            quantity,
-          },
-        ],
-      }
+      payload
     );
 
-    /*
-     * Meta
-     */
     trackMetaEvent(
       "AddToCart",
       {
-        content_ids:
-          product?.id
-            ? [
-                String(
-                  product.id
-                ),
-              ]
-            : [],
-
+        ...toMetaContents([item]),
         content_name:
-          product?.title ||
-          "",
-
-        content_type:
-          "product",
-
-        value,
-        currency,
+          item.item_name,
+        value:
+          payload.value,
+        currency:
+          payload.currency,
       }
     );
   };
 
 /* =========================================================
-   BEGIN CHECKOUT
+   REMOVE FROM CART - DOAR după confirmarea eliminării
 ========================================================= */
+
+/*
+ * Un rând (cu `quantity` = unitățile eliminate) sau mai multe rânduri
+ * eliminate complet (golire magazin / coș) - un singur eveniment.
+ */
+export const trackRemoveFromCart =
+  (rowOrRows, options = {}) => {
+    const rows =
+      (Array.isArray(rowOrRows)
+        ? rowOrRows
+        : [rowOrRows]
+      ).filter(Boolean);
+
+    const items =
+      rows
+        .map((row) =>
+          buildItem(row, {
+            quantity:
+              rows.length === 1
+                ? options.quantity
+                : undefined,
+          })
+        )
+        .filter(Boolean);
+
+    if (!items.length) {
+      return;
+    }
+
+    trackEvent(
+      "remove_from_cart",
+      buildEcommercePayload({
+        currency:
+          rows[0]?.product?.currency ||
+          rows[0]?.currency,
+        items,
+      })
+    );
+  };
+
+/* =========================================================
+   VIEW CART
+========================================================= */
+
+export const trackViewCart =
+  (rows, options = {}) => {
+    const items =
+      buildItems(rows);
+
+    if (!items.length) {
+      return;
+    }
+
+    trackEvent(
+      "view_cart",
+      buildEcommercePayload({
+        currency:
+          options.currency,
+        value:
+          options.value,
+        items,
+      })
+    );
+  };
+
+/* =========================================================
+   BEGIN CHECKOUT / ADD SHIPPING INFO / ADD PAYMENT INFO
+   (o singură dată per vizită în checkout - gardă în Checkout.jsx)
+========================================================= */
+
+function buildCheckoutPayload(
+  total,
+  options = {}
+) {
+  const items =
+    buildItems(
+      options.items
+    );
+
+  return {
+    items,
+    payload:
+      buildEcommercePayload({
+        currency:
+          options.currency,
+        value:
+          total,
+        items,
+        ...(options.extra || {}),
+      }),
+  };
+}
 
 export const trackBeginCheckout =
   (
     total,
     options = {}
   ) => {
-    const value =
-      Number(
-        total || 0
+    const { items, payload } =
+      buildCheckoutPayload(
+        total,
+        options
       );
 
-    const currency =
-      options?.currency ||
-      "RON";
+    if (!items.length) {
+      return;
+    }
 
-    /*
-     * Produsele trebuie să folosească
-     * exact aceleași ID-uri ca feed-ul
-     * Meta Catalog.
-     */
-    const items =
-      Array.isArray(
-        options?.items
-      )
-        ? options.items
-        : [];
-
-    const contentIds =
-      items
-        .map(
-          (item) =>
-            item?.productId ||
-            item?.product?.id ||
-            item?.id
-        )
-        .filter(Boolean)
-        .map(String);
-
-    const contents =
-      items
-        .map((item) => {
-          const id =
-            item?.productId ||
-            item?.product?.id ||
-            item?.id;
-
-          if (!id) {
-            return null;
-          }
-
-          return {
-            id:
-              String(id),
-
-            quantity:
-              Number(
-                item?.quantity ||
-                  item?.qty ||
-                  1
-              ) || 1,
-          };
-        })
-        .filter(Boolean);
-
-    const numItems =
-      contents.reduce(
-        (
-          sum,
-          item
-        ) =>
-          sum +
-          Number(
-            item?.quantity ||
-              0
-          ),
-        0
-      );
-
-    /*
-     * Google / GA
-     */
     trackEvent(
       "begin_checkout",
-      {
-        currency,
-        value,
-
-        items:
-          items
-            .map((item) => {
-              const id =
-                item?.productId ||
-                item?.product?.id ||
-                item?.id;
-
-              if (!id) {
-                return null;
-              }
-
-              return {
-                item_id:
-                  String(id),
-
-                item_name:
-                  item?.title ||
-                  item?.product?.title ||
-                  "",
-
-                price:
-                  Number(
-                    item?.price ||
-                      item?.unitPrice ||
-                      item?.product?.price ||
-                      0
-                  ),
-
-                quantity:
-                  Number(
-                    item?.quantity ||
-                      item?.qty ||
-                      1
-                  ) || 1,
-              };
-            })
-            .filter(Boolean),
-      }
+      payload
     );
 
-    /*
-     * Meta
-     */
     trackMetaEvent(
       "InitiateCheckout",
       {
-        currency,
-        value,
-
-        content_type:
-          "product",
-
-        ...(contentIds.length > 0
-          ? {
-              content_ids:
-                contentIds,
-            }
-          : {}),
-
-        ...(contents.length > 0
-          ? {
-              contents,
-            }
-          : {}),
-
-        ...(numItems > 0
-          ? {
-              num_items:
-                numItems,
-            }
-          : {}),
+        ...toMetaContents(items),
+        value:
+          payload.value,
+        currency:
+          payload.currency,
       }
     );
+  };
 
-    console.log(
-      "[META] InitiateCheckout",
-      {
-        value,
-        currency,
-        contentIds,
-        contents,
-        numItems,
-      }
+export const trackAddShippingInfo =
+  (
+    total,
+    options = {}
+  ) => {
+    const { items, payload } =
+      buildCheckoutPayload(
+        total,
+        {
+          ...options,
+          extra: {
+            shipping_tier:
+              options.shippingTier ||
+              "curier",
+          },
+        }
+      );
+
+    if (!items.length) {
+      return;
+    }
+
+    trackEvent(
+      "add_shipping_info",
+      payload
+    );
+  };
+
+export const trackAddPaymentInfo =
+  (
+    total,
+    options = {}
+  ) => {
+    const { items, payload } =
+      buildCheckoutPayload(
+        total,
+        {
+          ...options,
+          extra: {
+            payment_type:
+              options.paymentType ===
+              "CARD"
+                ? "card"
+                : "ramburs",
+          },
+        }
+      );
+
+    if (!items.length) {
+      return;
+    }
+
+    trackEvent(
+      "add_payment_info",
+      payload
     );
   };
 
@@ -842,9 +915,6 @@ export const trackBeginCheckout =
 
 export const trackSignup =
   () => {
-    /*
-     * Google / GA
-     */
     trackEvent(
       "sign_up",
       {
@@ -853,9 +923,6 @@ export const trackSignup =
       }
     );
 
-    /*
-     * Meta
-     */
     trackMetaEvent(
       "CompleteRegistration",
       {
@@ -867,157 +934,40 @@ export const trackSignup =
 
 /* =========================================================
    PURCHASE
+
+   Apelat DOAR din /multumim (src/pages/Checkout/thankYouPurchase.js
+   -> trackPurchaseOnce), după ce backend-ul confirmă comanda: COD
+   plasat sau CARD plătit (PAID/paidAt). O dată per comandă.
 ========================================================= */
 
 export const trackPurchase =
   (order) => {
-    const value =
-      Number(
-        order?.total ||
-          0
+    const payload =
+      buildPurchasePayload(
+        order
       );
 
-    const currency =
-      order?.currency ||
-      "RON";
-
-    const transactionId =
-      String(
-        order?.id ||
-          ""
-      );
+    if (!payload) {
+      return false;
+    }
 
     /*
-     * Produsele comenzii.
-     *
-     * Trebuie să folosim exact product.id
-     * din catalogul Meta.
-     */
-    const items =
-      Array.isArray(
-        order?.items
-      )
-        ? order.items
-        : [];
-
-    const contentIds =
-      items
-        .map(
-          (item) =>
-            item?.productId ||
-            item?.product?.id ||
-            item?.id
-        )
-        .filter(Boolean)
-        .map(String);
-
-    const contents =
-      items
-        .map((item) => {
-          const id =
-            item?.productId ||
-            item?.product?.id ||
-            item?.id;
-
-          if (!id) {
-            return null;
-          }
-
-          return {
-            id:
-              String(id),
-
-            quantity:
-              Number(
-                item?.quantity ||
-                  item?.qty ||
-                  1
-              ) || 1,
-          };
-        })
-        .filter(Boolean);
-
-    console.log(
-      "PURCHASE EVENT",
-      {
-        transactionId,
-        value,
-        currency,
-        contentIds,
-        contents,
-      }
-    );
-
-    /*
-     * Google Analytics
+     * GA4 (prin Google tag-ul din GTM).
      */
     trackEvent(
       "purchase",
-      {
-        transaction_id:
-          transactionId,
-
-        value,
-        currency,
-
-        items:
-          items
-            .map((item) => {
-              const id =
-                item?.productId ||
-                item?.product?.id ||
-                item?.id;
-
-              if (!id) {
-                return null;
-              }
-
-              return {
-                item_id:
-                  String(id),
-
-                item_name:
-                  item?.title ||
-                  item?.product?.title ||
-                  "",
-
-                price:
-                  Number(
-                    item?.price ||
-                      item?.unitPrice ||
-                      item?.product?.price ||
-                      0
-                  ),
-
-                quantity:
-                  Number(
-                    item?.quantity ||
-                      item?.qty ||
-                      1
-                  ) || 1,
-              };
-            })
-            .filter(Boolean),
-      }
+      payload
     );
 
     /*
-     * Google Ads conversion - gate EXPLICIT pe marketing consent,
-     * separat de Consent Mode (semnalul Consent Mode e setat oricum
-     * mai jos/global, dar respectarea lui de către tag-ul de
-     * conversie configurat în GTM nu e verificabilă din acest cod -
-     * vezi analytics.js, comentariul de la callGtag). Cerința a fost
-     * explicită: "nu se trimite când marketing=false" - nu ne bazăm
-     * doar pe semnal, blocăm și aici direct, apărare pe două nivele.
+     * Google Ads - conversia „Cumpărare” (eticheta de mai sus), cu
+     * același transaction_id ca în GA4. Gate explicit pe consimțământul
+     * de marketing (pe lângă Consent Mode) și pe domeniul de producție.
      */
     if (
-      typeof window !==
-        "undefined" &&
       GOOGLE_ADS_PURCHASE_CONVERSION_ID &&
-      transactionId &&
-      Number.isFinite(value) &&
-      value > 0 &&
-      hasMarketingConsent()
+      hasMarketingConsent() &&
+      isProductionSite()
     ) {
       callGtag(
         "event",
@@ -1026,45 +976,42 @@ export const trackPurchase =
           send_to:
             GOOGLE_ADS_PURCHASE_CONVERSION_ID,
 
-          value,
-          currency,
+          value:
+            payload.value,
+
+          currency:
+            payload.currency,
 
           transaction_id:
-            transactionId,
+            payload.transaction_id,
         }
-      );
-
-      console.log(
-        "GOOGLE ADS CONVERSION FIRED"
       );
     }
 
     /*
-     * Meta Pixel
+     * Meta Pixel.
      */
     trackMetaEvent(
       "Purchase",
       {
-        value,
-        currency,
-
-        content_type:
-          "product",
-
-        ...(contentIds.length > 0
-          ? {
-              content_ids:
-                contentIds,
-            }
-          : {}),
-
-        ...(contents.length > 0
-          ? {
-              contents,
-            }
-          : {}),
+        ...toMetaContents(
+          payload.items
+        ),
+        value:
+          payload.value,
+        currency:
+          payload.currency,
       }
     );
+
+    if (isDev) {
+      console.info(
+        "[analytics] purchase",
+        payload
+      );
+    }
+
+    return true;
   };
 
 /* =========================================================
@@ -1080,11 +1027,19 @@ export function setupAnalyticsConsentListener() {
 
   /*
    * Sincronizăm ÎNTOTDEAUNA starea Google cu preferința deja salvată
-   * (index.html pornește implicit cu totul refuzat - dacă omul are
-   * deja o alegere anterioară, trebuie adus imediat la starea reală,
-   * indiferent care e ea, nu doar când marketingul e acceptat).
+   * (index.html o aplică deja ca stare implicită; reconfirmarea e
+   * idempotentă).
    */
   syncGoogleConsentFromStorage();
+
+  // idempotent - index.html le-a încărcat deja pentru alegerea salvată
+  try {
+    applyConsentTags(
+      readConsent()
+    );
+  } catch {
+    // ignore
+  }
 
   /*
    * Dacă omul a acceptat deja
@@ -1113,6 +1068,37 @@ export function setupAnalyticsConsentListener() {
       updateGoogleConsent(
         consent
       );
+
+      /*
+       * BASIC: abia acum se încarcă tagurile permise (GTM cu statistici,
+       * Google Ads cu marketing). Starea de consimțământ e deja în
+       * dataLayer înaintea lor.
+       */
+      applyConsentTags(
+        consent
+      );
+
+      /*
+       * Semnal pentru GTM: tagurile non-Google (ex. TikTok) trebuie să
+       * pornească la ACEST eveniment (cu „Require additional consent”),
+       * nu la încărcarea paginii - aplicația e SPA, după „Accept” nu
+       * mai există un page load nou. Fără trigger în GTM nu are efect.
+       */
+      try {
+        window.dataLayer =
+          window.dataLayer || [];
+
+        window.dataLayer.push({
+          event:
+            "artfest_consent_update",
+          consent_analytics:
+            consent?.analytics === true,
+          consent_marketing:
+            consent?.marketing === true,
+        });
+      } catch {
+        // ignore
+      }
 
       /*
        * Marketing acceptat.
@@ -1156,3 +1142,9 @@ export function setupAnalyticsConsentListener() {
     );
   };
 }
+
+// reexport pentru apelanți care calculează valori de coș
+export {
+  resolveUnitPrice,
+  round2,
+};

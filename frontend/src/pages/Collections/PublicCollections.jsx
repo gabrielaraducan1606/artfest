@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { toast } from "react-toastify";
 import { api } from "../../lib/api.js";
+import { addToGuestCart } from "../../utils/guestCart";
+import { useAuth } from "../Auth/Context/context.js";
+import { trackAddToCart } from "../../../services/analytics.js";
 import ProductCard from "../Vendor/ProfilMagazin/components/ProductCard";
 import { SEO } from "../../components/Seo/SeoProvider";
 import styles from "../Products/Products.module.css";
@@ -176,6 +180,57 @@ export default function PublicCollectionPage() {
     [intro.bodyHtml]
   );
 
+  /*
+   * Adăugare în coș (înainte emitea "cart:add-product", pe care nu-l
+   * asculta nimeni - butonul nu făcea nimic). Același flux ca /produse:
+   * produs configurabil -> pagina produsului; user -> API; guest / sesiune
+   * expirată -> coș local. add_to_cart DOAR după adăugarea reușită.
+   */
+  const { me } = useAuth();
+  const navigate = useNavigate();
+
+  const addToCart = useCallback(
+    async (product) => {
+      const requiresConfiguration =
+        (Array.isArray(product?.optionsSchema) && product.optionsSchema.length > 0) ||
+        (Array.isArray(product?.customSchema) && product.customSchema.length > 0) ||
+        product?.orderMode === "CONFIGURABLE";
+
+      if (requiresConfiguration) {
+        navigate(`/produs/${product.id}`);
+        return;
+      }
+
+      try {
+        if (me) {
+          try {
+            await api("/api/cart/add", {
+              method: "POST",
+              body: { productId: product.id, qty: 1 },
+            });
+          } catch (error) {
+            if (error?.status !== 401) throw error;
+            addToGuestCart(product.id, 1);
+          }
+        } else {
+          addToGuestCart(product.id, 1);
+        }
+
+        window.dispatchEvent(new CustomEvent("cart:changed"));
+        trackAddToCart(product, { quantity: 1 });
+        toast.success("Produs adăugat în coș.");
+      } catch (error) {
+        toast.error(
+          error?.data?.message ||
+            (error?.code === "cannot_add_own_product"
+              ? "Nu poți adăuga în coș propriul produs."
+              : "Nu am putut adăuga produsul în coș.")
+        );
+      }
+    },
+    [me, navigate]
+  );
+
   const productCards = useMemo(() => {
     return items.map((p) => (
       <ProductCard
@@ -183,18 +238,12 @@ export default function PublicCollectionPage() {
         p={p}
         viewMode="guest"
         isFav={false}
-        onAddToCart={() => {
-          window.dispatchEvent(
-            new CustomEvent("cart:add-product", {
-              detail: { productId: p.id },
-            })
-          );
-        }}
+        onAddToCart={() => addToCart(p)}
         onToggleFavorite={() => {}}
         categoryLabelMap={{}}
       />
     ));
-  }, [items]);
+  }, [items, addToCart]);
 
   if (loading) {
     return <section className={styles.page}>Se încarcă colecția…</section>;

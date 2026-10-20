@@ -993,3 +993,415 @@
     min-width: 0;
   }
 }
+
+/* =========================================================
+   Formularul în doi pași (stil Colecții): „01 Creează codul” /
+   „02 Alege produsele eligibile”. Doar vizual - aceeași stare și
+   aceeași salvare.
+========================================================= */
+
+/* puțin mai lat: Pasul 2 conține selectorul de produse */
+.formSheet {
+  width: min(760px, 100%);
+}
+
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 6px 2px 0;
+}
+
+.stepNumber {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: var(--color-primary, #7c3aed);
+  background: color-mix(in srgb, var(--color-primary, #7c3aed) 10%, var(--surface, #fff));
+  border: 1px solid color-mix(in srgb, var(--color-primary, #7c3aed) 28%, transparent);
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.stepText {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stepText h4 {
+  margin: 0;
+  color: var(--color-text, #111827);
+  font-size: 1.08rem;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.stepText p {
+  margin: 0;
+  color: var(--color-muted, #6b7280);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.stepCard {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+}
+
+/* ---------- Pasul 2: cele 4 opțiuni de produse eligibile ---------- */
+
+.eligibilityGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+@media (min-width: 620px) {
+  .eligibilityGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.form .eligibility,
+.form .eligibilityActive {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 72px;
+  padding: 13px 14px;
+  border-radius: 13px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.form .eligibility {
+  border: 1px solid var(--color-border, #e5e7eb);
+  color: var(--color-text, #111827);
+  background: var(--surface, #fff);
+  box-shadow: none;
+}
+
+.form .eligibility:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-primary, #7c3aed) 40%, var(--color-border, #e5e7eb));
+}
+
+.form .eligibilityActive,
+.form .eligibilityActive:hover {
+  border: 1.5px solid var(--color-primary, #7c3aed);
+  color: var(--color-text, #111827);
+  background: color-mix(in srgb, var(--color-primary, #7c3aed) 7%, var(--surface, #fff));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--color-primary, #7c3aed) 14%, transparent);
+}
+
+.form .eligibility:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.form .eligibility:focus-visible,
+.form .eligibilityActive:focus-visible {
+  outline: 2px solid var(--color-primary, #7c3aed);
+  outline-offset: 2px;
+}
+
+.eligibilityDot {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border: 2px solid var(--color-border, #d1d5db);
+  border-radius: 50%;
+  background: var(--surface, #fff);
+}
+
+.eligibilityActive .eligibilityDot {
+  border-color: var(--color-primary, #7c3aed);
+  background: radial-gradient(circle, var(--color-primary, #7c3aed) 0 4px, var(--surface, #fff) 5px);
+}
+
+.eligibilityText {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.eligibilityText strong {
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.eligibilityText span {
+  color: var(--color-muted, #6b7280);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.lockedNote {
+  margin-top: -4px;
+  color: var(--color-muted, #6b7280);
+  font-size: 0.8rem;
+}
+
+/* ---------- selectorul „Doar anumite produse” ---------- */
+
+.codePicker {
+  gap: 12px;
+}
+
+.pickedBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-primary, #7c3aed) 25%, var(--color-border, #e5e7eb));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-primary, #7c3aed) 5%, var(--surface, #fff));
+}
+
+.pickedBar > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.pickedBar strong {
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.pickedBar span {
+  color: var(--color-muted, #6b7280);
+  font-size: 0.82rem;
+}
+
+.pickedActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.pickedList {
+  display: grid;
+  gap: 6px;
+  max-height: 280px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.pickedList li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+
+.pickedList li > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* =========================================================
+   Pasul 1 = produsele: 3 surse + varianta „Din magazinul meu”
+   + confirmarea când noul plafon e mai mic decât reducerea completată
+========================================================= */
+
+.sourceGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+@media (min-width: 680px) {
+  .sourceGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* „Toate produsele mele” / „Doar anumite produse” - control segmentat */
+.storeChoice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 13px;
+  background: var(--surface-muted, #f3f4f6);
+}
+
+.form .storeChoiceItem,
+.form .storeChoiceActive {
+  min-height: 42px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.form .storeChoiceItem {
+  color: var(--color-muted, #6b7280);
+  background: transparent;
+  box-shadow: none;
+}
+
+.form .storeChoiceItem:hover:not(:disabled) {
+  color: var(--color-text, #111827);
+}
+
+.form .storeChoiceActive,
+.form .storeChoiceActive:hover {
+  color: var(--color-primary, #7c3aed);
+  background: var(--surface, #fff);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.form .storeChoiceItem:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.confirmChange {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #fcd34d;
+  border-radius: 12px;
+  background: #fffbeb;
+  color: #78350f;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.confirmChange p {
+  margin: 0;
+}
+
+.confirmActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 559px) {
+  .confirmActions > button {
+    flex: 1 1 100%;
+  }
+}
+
+/* =========================================================
+   Modalul „Creează / Editează cod” (Portal în document.body)
+   - peste TOATE elementele fixe: navbar-ul mobil (1100), meniuri
+     (până la 1300) și bula asistentului (FloatingHub, 999999);
+   - înălțimea vine din visualViewport (JS) - fallback 100dvh;
+   - un singur scroll (foaia), butoanele lipite jos, cu safe-area.
+   Doar acest modal (clase proprii); sertarul de comenzi - neschimbat.
+========================================================= */
+
+.codeOverlay {
+  z-index: 1000000;
+  top: 0;
+  left: 0;
+  right: auto;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overscroll-behavior: contain;
+  padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+}
+
+.codeSheet {
+  max-height: min(900px, 100%);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  /* derularea la un câmp (focus / tastatură) ține cont de header-ul și bara lipite */
+  scroll-padding-top: 96px;
+  scroll-padding-bottom: 100px;
+}
+
+/* butoanele rămân mereu vizibile, la baza foii */
+.codeSheet .formActions {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  margin: 0 -24px -24px;
+  padding: 14px 24px calc(14px + env(safe-area-inset-bottom));
+  background: var(--surface, #fff);
+  box-shadow: 0 -10px 22px rgba(15, 23, 42, 0.07);
+}
+
+@media (max-width: 640px) {
+  .codeOverlay {
+    padding: 0;
+  }
+
+  .codeSheet {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .codeSheet .formHeader {
+    padding-top: max(16px, env(safe-area-inset-top));
+  }
+
+  .codeSheet .formActions {
+    flex-direction: row-reverse;
+    margin: 0 -16px -16px;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .codeSheet .formActions button {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
+}
+
+/* telefoane foarte înguste: butoanele rămân alăturate (bara joasă = mai mult loc
+   pentru formular cu tastatura deschisă), titlul modalului mai compact */
+@media (max-width: 359px) {
+  .codeSheet .formHeader {
+    padding-bottom: 12px;
+  }
+
+  .codeSheet .formHeader h3 {
+    font-size: 16px;
+  }
+
+  .codeSheet .formActions {
+    gap: 8px;
+  }
+
+  .codeSheet .formActions button {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}

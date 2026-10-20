@@ -5442,3 +5442,35 @@ model ArtfestFairSettlementEntry {
 
   @@index([settlementId])
 }
+
+// =========================================================
+// Consum AI pe zi - limite PERSISTENTE (nu se resetează la repornire,
+// corecte și cu mai multe instanțe ale backendului).
+// Un rând per (funcție, nivel, subiect, zi Europe/Bucharest):
+//  - scope "vendor": subjectId = Vendor.id - limita per vânzător;
+//  - scope "global": subjectId = "all" - limita pe toată platforma și
+//    costul estimat (bugetul lunar = suma rândurilor globale din lună).
+// Incrementările sunt condiționate (UPDATE ... WHERE requests < limită),
+// deci atomice la cereri simultane. lockedUntil = o singură solicitare
+// AI în desfășurare per vânzător. Fără FK intenționat: e un jurnal de
+// consum, independent de ștergerea vânzătorului.
+// Vezi backend/src/services/aiUsageService.js.
+// =========================================================
+model AiUsageDaily {
+  id           String    @id @default(cuid())
+  feature      String    @db.VarChar(40)
+  scope        String    @db.VarChar(16)
+  subjectId    String    @db.VarChar(64)
+  day          String    @db.VarChar(10)
+  requests     Int       @default(0)
+  failures     Int       @default(0)
+  inputTokens  Int       @default(0)
+  outputTokens Int       @default(0)
+  costMicroUsd Int       @default(0)
+  lockedUntil  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([feature, scope, subjectId, day])
+  @@index([feature, scope, day])
+}

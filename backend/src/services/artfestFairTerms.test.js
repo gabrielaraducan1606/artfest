@@ -106,6 +106,7 @@ test("înscrierea salvează exact versiunea legată la momentul acceptării", as
       productTypes: ["ceramică"],
       estimatedProductCount: 3,
       termsAccepted: true,
+      termsVersion: "1.0.0",
     },
   });
   assert.equal(reg.termsVersion, "1.0.0");

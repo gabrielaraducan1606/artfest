@@ -605,3 +605,46 @@
     height: 44px;
   }
 }
+
+/* etichetarea e asigurată de Artfest: notă discretă în secțiunea de pregătire */
+.labelingNote {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--surface));
+}
+
+.labelingIcon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--color-primary);
+}
+
+.labelingNote > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.labelingNote h3 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.labelingNote p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+@media (max-width: 480px) {
+  .labelingNote {
+    padding: 12px;
+    gap: 10px;
+  }
+}

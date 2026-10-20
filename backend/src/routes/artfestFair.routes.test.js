@@ -140,8 +140,23 @@ const validForm = (extra = {}) => ({
   ...extra,
 });
 
-const register = (user, extra) =>
-  call("POST", "/api/vendor/artfest-fair/registration", { as: user, body: validForm(extra) });
+// leagă de târg o versiune publicată a regulamentului (ca scripts/linkFairTerms.mjs)
+async function linkTerms(version = "1.1.0") {
+  if (!fake.tables.artfestFair?.length) await call("GET", "/api/vendor/artfest-fair", { as: ctx.v3 });
+  const fair = fake.tables.artfestFair[0];
+  fair.termsVersion = version;
+  fair.termsUrl = `/targ-artfest/regulament/v${version}`;
+  return fair;
+}
+
+// înscriere ca din formular: regulamentul legat (dacă lipsește) + versiunea afișată și bifată
+const register = async (user, extra) => {
+  if (!fake.tables.artfestFair?.[0]?.termsVersion) await linkTerms();
+  return call("POST", "/api/vendor/artfest-fair/registration", {
+    as: user,
+    body: validForm({ termsVersion: fake.tables.artfestFair[0].termsVersion, ...extra }),
+  });
+};
 
 const registrations = () => fake.tables.artfestFairRegistration;
 
@@ -181,7 +196,12 @@ test("vendor: starea inițială creează târgul și precompletează contactul",
   assert.equal(res.body.fair.title, "Târgul de Crăciun Artfest – Buzău");
   assert.equal(res.body.fair.termsVersion, null);
   assert.equal(res.body.registration, null);
-  assert.deepEqual(res.body.actions, { canRegister: true, canWithdraw: false });
+  // fără regulament publicat și legat nu există ce accepta => înscrierea nu e disponibilă
+  assert.deepEqual(res.body.actions, { canRegister: false, canWithdraw: false });
+  await linkTerms();
+  const linked = await call("GET", "/api/vendor/artfest-fair", { as: ctx.v1 });
+  assert.deepEqual(linked.body.actions, { canRegister: true, canWithdraw: false });
+  assert.equal(linked.body.fair.termsUrl, "/targ-artfest/regulament/v1.1.0");
   assert.equal(res.body.prefill.contactName, "Ana Pop");
   assert.equal(res.body.prefill.contactPhone, "0722000111");
   assert.equal(res.body.prefill.contactEmail, "Atelier1@T.ro");
@@ -206,7 +226,7 @@ test("vendor: înscriere -> SUBMITTED, vendorId doar din sesiune, acceptarea con
   assert.deepEqual(row.productTypes, ["ceramică", "lumânări"]);
   assert.equal(row.estimatedProductCount, 25);
   assert.ok(row.termsAcceptedAt instanceof Date);
-  assert.equal(row.termsVersion, null);
+  assert.equal(row.termsVersion, "1.1.0");
   assert.match(row.termsIp, /127.0.0.1/);
   assert.ok(row.termsUa);
 
@@ -572,41 +592,116 @@ test("invitație din Admin: confirmare obligatorie, rulare manuală, rezultat î
 /* ============================== regulamentul târgului ============================== */
 
 test("regulament: versiunea acceptată e cea de la înscriere și nu se rescrie ulterior", async () => {
-  // înainte de publicare: acceptarea nu leagă nicio versiune
-  await register(ctx.v1);
-  assert.equal(registrations()[0].termsVersion, null);
+  // fără regulament legat: înscrierea e refuzată, nu se salvează o acceptare fără versiune
+  const none = await call("POST", "/api/vendor/artfest-fair/registration", { as: ctx.v1, body: validForm() });
+  assert.equal(none.status, 409);
+  assert.equal(none.body.error, "terms_not_published");
+  assert.equal(registrations().length, 0);
 
-  // târgul trece pe o versiune publicată
-  const fairRow = fake.tables.artfestFair[0]; // creat la prima înscriere
-  fairRow.termsVersion = "1.0.0";
-  fairRow.termsUrl = "/targ-artfest/regulament/v1.0.0";
+  const fairRow = fake.tables.artfestFair[0];
 
-  // registrul real e gol (nimic publicat) => vendorul NU primește link (fără link mort);
-  // cazul cu versiune publicată e acoperit în services/artfestFairTerms.test.js
+  // o versiune NEPUBLICATĂ (nu e în registrul real) => fără link și fără înscriere
+  fairRow.termsVersion = "9.9.9";
+  fairRow.termsUrl = "/targ-artfest/regulament/v9.9.9";
+  const unpublished = await call("GET", "/api/vendor/artfest-fair", { as: ctx.v2 });
+  assert.equal(unpublished.body.fair.termsVersion, "9.9.9");
+  assert.equal(unpublished.body.fair.termsUrl, null);
+  assert.equal(unpublished.body.actions.canRegister, false);
+  const unpub = await call("POST", "/api/vendor/artfest-fair/registration", { as: ctx.v2, body: validForm({ termsVersion: "9.9.9" }) });
+  assert.equal(unpub.body.error, "terms_not_published");
+  assert.equal(registrations().length, 0);
+
+  // versiunea publicată 1.0.0 (registrul real) => link canonic; v1 o acceptă
+  await linkTerms("1.0.0");
   const state = await call("GET", "/api/vendor/artfest-fair", { as: ctx.v2 });
   assert.equal(state.body.fair.termsVersion, "1.0.0");
-  assert.equal(state.body.fair.termsUrl, null);
-  await register(ctx.v2);
+  assert.equal(state.body.fair.termsUrl, "/targ-artfest/regulament/v1.0.0");
+  assert.equal((await register(ctx.v1)).status, 201);
+
+  // Artfest leagă 1.1.0; v2 avea formularul deschis cu 1.0.0 => refuz, fără înscriere
+  await linkTerms("1.1.0");
+  const stale = await register(ctx.v2, { termsVersion: "1.0.0" });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error, "terms_version_changed");
+  assert.ok(stale.body.fields.termsAccepted);
+  // nici fără versiune trimisă nu se înregistrează acceptarea
+  assert.equal((await register(ctx.v2, { termsVersion: undefined })).body.error, "terms_version_changed");
+  assert.equal(registrations().some((r) => r.vendorId === ctx.vendor2.id), false);
+
+  // după ce citește și bifează versiunea nouă => 1.1.0
+  assert.equal((await register(ctx.v2)).status, 201);
   const v2Row = registrations().find((r) => r.vendorId === ctx.vendor2.id);
-  assert.equal(v2Row.termsVersion, "1.0.0");
+  assert.equal(v2Row.termsVersion, "1.1.0");
 
-  // o versiune nouă a regulamentului NU rescrie înscrierile existente
-  fairRow.termsVersion = "1.1.0";
-  assert.equal(registrations().find((r) => r.vendorId === ctx.vendor1.id).termsVersion, null);
-  assert.equal(registrations().find((r) => r.vendorId === ctx.vendor2.id).termsVersion, "1.0.0");
+  // versiunea nouă NU rescrie acceptarea existentă (v1 rămâne pe 1.0.0)
+  const v1Row = registrations().find((r) => r.vendorId === ctx.vendor1.id);
+  assert.equal(v1Row.termsVersion, "1.0.0");
+  const v1Detail = await call("GET", `/api/admin/artfest-fair/registrations/${v1Row.id}`, { as: ctx.admin });
+  assert.equal(v1Detail.body.item.termsVersion, "1.0.0");
+  assert.equal(v1Detail.body.item.termsVersionUrl, "/targ-artfest/regulament/v1.0.0");
 
-  // Admin vede versiunea acceptată; fără publicare (registru gol) nu există link
+  // Admin vede versiunea acceptată, cu linkul ei
   const detail = await call("GET", `/api/admin/artfest-fair/registrations/${v2Row.id}`, { as: ctx.admin });
-  assert.equal(detail.body.item.termsVersion, "1.0.0");
-  assert.equal(detail.body.item.termsVersionUrl, null);
+  assert.equal(detail.body.item.termsVersion, "1.1.0");
+  assert.equal(detail.body.item.termsVersionUrl, "/targ-artfest/regulament/v1.1.0");
 });
 
-test("regulament: fără publicare nu există versiune servită (draftul nu e public)", async () => {
+test("regulament: Admin vede versiune / dată / IP / UA; fără termeni => null; vendorul nu primește IP / UA", async () => {
+  // înscriere veche, de dinaintea publicării regulamentului (există pe DEV) => fără versiune acceptată
+  await register(ctx.v2);
+  registrations().find((r) => r.vendorId === ctx.vendor2.id).termsVersion = null;
+  await linkTerms("1.0.0");
+
+  // înscriere cu regulamentul 1.0.0 acceptat
+  const res = await call("POST", "/api/vendor/artfest-fair/registration", {
+    as: ctx.v1,
+    body: validForm({ termsVersion: "1.0.0" }),
+    headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1", "user-agent": "TestBrowser/1.0 (Admin terms)" },
+  });
+  assert.equal(res.status, 201);
+  const withTerms = registrations().find((r) => r.vendorId === ctx.vendor1.id);
+  const withoutTerms = registrations().find((r) => r.vendorId === ctx.vendor2.id);
+
+  const adminWith = (await call("GET", `/api/admin/artfest-fair/registrations/${withTerms.id}`, { as: ctx.admin })).body.item;
+  assert.equal(adminWith.termsVersion, "1.0.0");
+  assert.ok(adminWith.termsAcceptedAt);
+  assert.equal(new Date(adminWith.termsAcceptedAt).getTime(), new Date(withTerms.termsAcceptedAt).getTime());
+  assert.equal(adminWith.termsIp, "203.0.113.7");
+  assert.equal(adminWith.termsUa, "TestBrowser/1.0 (Admin terms)");
+  assert.equal(adminWith.termsVersionUrl, "/targ-artfest/regulament/v1.0.0");
+
+  const adminWithout = (await call("GET", `/api/admin/artfest-fair/registrations/${withoutTerms.id}`, { as: ctx.admin })).body.item;
+  assert.equal(adminWithout.termsVersion, null);
+  assert.equal(adminWithout.termsVersionUrl, null);
+
+  // vendorul: versiunea și data, dar NICIODATĂ IP / user agent (nici la trimitere, nici la citire)
+  assert.equal("termsIp" in (res.body.registration || {}), false);
+  assert.equal("termsUa" in (res.body.registration || {}), false);
+  const vendorState = (await call("GET", "/api/vendor/artfest-fair", { as: ctx.v1 })).body;
+  assert.equal(vendorState.registration.termsVersion, "1.0.0");
+  assert.ok(vendorState.registration.termsAcceptedAt);
+  assert.equal("termsIp" in vendorState.registration, false);
+  assert.equal("termsUa" in vendorState.registration, false);
+  assert.doesNotMatch(JSON.stringify(vendorState), /203\.0\.113\.7|TestBrowser/);
+});
+
+test("regulament: doar versiunile din registru sunt servite (draftul și candidatul nu sunt publice)", async () => {
   const rules = await import("../lib/artfestFairRules.js");
-  assert.deepEqual(rules.listPublishedFairRules(), []);
-  assert.equal(rules.isFairRulesVersionPublished("1.0.0"), false);
-  assert.equal(rules.loadPublishedFairRules("1.0.0"), null);
-  assert.equal(rules.loadPublishedFairRules("0.5.0"), null); // versiunea draftului
+  assert.deepEqual(rules.listPublishedFairRules().map((v) => v.version), ["1.0.0", "1.1.0"]);
+  assert.equal(rules.isFairRulesVersionPublished("1.0.0"), true);
+  assert.equal(rules.isFairRulesVersionPublished("1.1.0"), true);
+  // 1.1.0: etichetarea e făcută de Artfest; scanarea nu scade stocul
+  const v110 = rules.loadPublishedFairRules("1.1.0");
+  assert.match(v110.html, /Etichetarea produselor este asigurată de Artfest/);
+  assert.match(v110.html, /nu trebuie să generezi, să imprimi sau să aplici etichete/);
+  assert.doesNotMatch(v110.html, /regenerezi eticheta|Eticheta se generează din aplicație/);
+  // 1.0.0 rămâne neschimbată (istoricul acceptărilor)
+  assert.match(rules.loadPublishedFairRules("1.0.0").html, /Eticheta se generează din aplicație/);
+  assert.equal(rules.loadPublishedFairRules("1.0.0")?.publicPath, "/targ-artfest/regulament/v1.0.0");
+  assert.equal(rules.isFairRulesVersionPublished("9.9.9"), false);
+  assert.equal(rules.loadPublishedFairRules("9.9.9"), null);
+  assert.equal(rules.loadPublishedFairRules("0.5.0"), null); // versiune veche a draftului
+  assert.equal(rules.loadPublishedFairRules("0.18.0"), null); // draftul intern / candidatul
   assert.equal(rules.fairRulesPublicPath("1.0.0"), "/targ-artfest/regulament/v1.0.0");
   assert.equal(rules.normalizeFairRulesVersion("v1.2.3"), "1.2.3");
   assert.equal(rules.normalizeFairRulesVersion("../drafts"), null);
@@ -703,6 +798,9 @@ test("draftul regulamentului: doar citire pentru vendor / Admin, marcat draft, f
   const state = await call("GET", "/api/vendor/artfest-fair", { as: ctx.v1 });
   assert.equal(state.body.fair.termsUrl, null);
   assert.equal(state.body.fair.termsVersion, null);
-  await register(ctx.v1);
-  assert.equal(registrations()[0].termsVersion, null);
+  // draftul nu se poate accepta: fără versiune publicată, înscrierea e refuzată
+  const res2 = await call("POST", "/api/vendor/artfest-fair/registration", { as: ctx.v1, body: validForm({ termsVersion: body.draftVersion }) });
+  assert.equal(res2.status, 409);
+  assert.equal(res2.body.error, "terms_not_published");
+  assert.equal(registrations().length, 0);
 });

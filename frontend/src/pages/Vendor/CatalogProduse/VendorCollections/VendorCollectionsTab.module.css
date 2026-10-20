@@ -1149,6 +1149,9 @@
 
   .sidebar .list {
     flex: 1 1 auto;
+    /* rândurile rămân la înălțimea lor (altfel o singură colecție se întinde
+       pe toată coloana și numele ei ajunge sub marginea ecranului) */
+    align-content: start;
     min-height: 0;
     max-height: none;
     overflow-y: auto;
@@ -1215,5 +1218,268 @@
   /* desktop: lista e completă, în scroll-ul ei - fără buton de scurtare */
   .wrap .listToggle {
     display: none;
+  }
+}
+
+/* =========================================================
+   „Produsele din colecție”: titlu + explicație + nota financiară,
+   apoi selectorul existent integrat direct (fără CTA intermediar)
+========================================================= */
+
+.productsSection {
+  gap: 16px;
+  padding: 18px;
+}
+
+@media (min-width: 768px) {
+  .productsSection {
+    padding: 22px 24px;
+  }
+}
+
+.productsHead {
+  display: grid;
+  gap: 6px;
+}
+
+.card .productsHead h3 {
+  font-size: 1.18rem;
+  letter-spacing: -0.01em;
+}
+
+.productsLead {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.productsMoney {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.productsMoney svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--color-primary);
+}
+
+/* ---------- zona secundară, opțională: includerea automată a produselor proprii ---------- */
+
+.autoOwn {
+  border: 1px dashed var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface-muted);
+}
+
+.autoOwn[open] {
+  border-style: solid;
+  background: var(--surface);
+}
+
+.autoOwnSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  min-height: 46px;
+  padding: 10px 14px;
+  color: var(--color-text);
+  font-size: 0.88rem;
+  font-weight: 700;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.autoOwnSummary::-webkit-details-marker {
+  display: none;
+}
+
+.autoOwnLabel {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.optionalTag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--color-muted);
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.autoOwnOn,
+.autoOwnOff {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.autoOwnOn {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--surface));
+}
+
+.autoOwnOff {
+  color: var(--color-muted);
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+}
+
+.autoOwnBody {
+  display: grid;
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+.autoOwnBody .hint {
+  margin: 0 2px;
+}
+
+.autoOwnSave {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+/* rândul zonei opționale rămâne compact și pe mobil: eticheta ocupă spațiul, starea în dreapta */
+.autoOwnSummary {
+  flex-wrap: nowrap;
+}
+
+.autoOwnLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 4px 8px;
+}
+
+.autoOwnOn,
+.autoOwnOff {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 559px) {
+  .optionalTag {
+    padding: 1px 6px;
+    font-size: 0.64rem;
+  }
+}
+
+/* =========================================================
+   Titluri de pas: „01 Creează colecția” / „02 Adaugă produsele”
+   (doar structură vizuală - secțiunile rămân toate vizibile)
+========================================================= */
+
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 6px 2px 0;
+}
+
+.step + .card {
+  margin-top: -4px;
+}
+
+.stepNumber {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+  font-family: var(--font-title);
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.stepText {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stepText h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-family: var(--font-title);
+  font-size: 1.12rem;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.stepText p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+/* pasul 2 înainte ca colecția să fie salvată */
+.stepPending {
+  margin: -4px 0 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--color-border);
+  border-radius: calc(var(--radius) + 6px);
+  color: var(--color-muted);
+  background: var(--surface-muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (min-width: 768px) {
+  .step {
+    gap: 16px;
+    padding-top: 10px;
+  }
+
+  .stepNumber {
+    width: 42px;
+    height: 42px;
+    font-size: 0.92rem;
+  }
+
+  .stepText h3 {
+    font-size: 1.22rem;
   }
 }

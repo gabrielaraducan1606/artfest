@@ -1,634 +1,257 @@
 /* =========================================================
-   HERO / MARKETPLACE INTRO
+   HOMEPAGE: HERO + PENTRU CREATORI
+   (mobile-first; tokenii din src/styles/variables.css)
+   „Alese de Artfest” are stilurile în FeaturedPicks.module.css.
 ========================================================= */
 
-.marketplaceIntro,
-.spotlightSection,
+.hero,
 .partnerBar {
   color: var(--color-text);
 }
 
-.marketplaceIntro {
-  padding: 22px 22px 14px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-primary) 5%, var(--color-bg)),
-      var(--color-bg)
-    );
-}
-
-.marketplaceIntroInner {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  width: min(1240px, 100%);
-  margin: 0 auto;
-}
-
-.marketplaceIdentity {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-}
-
-.marketplaceIcon {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  color: var(--color-primary);
-  background:
-    color-mix(in srgb, var(--color-primary) 10%, var(--surface));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 12%, transparent);
-}
-
-.marketplaceIdentity h1 {
-  margin: 0;
-  font-family: var(--font-title);
-  font-size: clamp(1rem, 1.4vw, 1.15rem);
-  line-height: 1.2;
-  letter-spacing: -0.02em;
-}
-
-.marketplaceIdentity p {
-  margin: 4px 0 0;
-  color: var(--color-muted);
-  font-size: 0.8rem;
-  line-height: 1.45;
-}
-
-.marketplaceExplore {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-  padding-bottom: 2px;
-  color: var(--color-text);
-  font-size: 0.78rem;
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.marketplaceExplore svg {
-  color: var(--color-primary);
-  transition: transform 170ms ease;
-}
-
-.marketplaceExplore:hover {
-  color: var(--color-primary);
-}
-
-.marketplaceExplore:hover svg {
-  transform: translateX(4px);
-}
-
 /* =========================================================
-   SPOTLIGHT WRAPPER
+   HERO
 ========================================================= */
 
-.spotlightSection {
-  padding: 0 22px 28px;
-  background: var(--color-bg);
-}
-
-.spotlightCard {
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(390px, 0.92fr);
-  width: min(1240px, 100%);
-  height: 446px;
-  min-height: 446px;
-  margin: 0 auto;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
-  border-radius: 30px;
-  background: var(--surface);
-  box-shadow:
-    0 24px 70px rgba(15, 23, 42, 0.08),
-    0 3px 10px rgba(15, 23, 42, 0.035);
-}
-
-/* =========================================================
-   MEDIA / IMAGE
-========================================================= */
-
-.spotlightVisual {
+.hero {
   position: relative;
-  min-width: 0;
-  height: 446px;
-  min-height: 446px;
   overflow: hidden;
-}
-
-.spotlightMedia {
-  position: relative;
-  width: 100%;
-  height: 446px;
-  min-width: 0;
-  min-height: 446px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
-}
-
-.spotlightImageLink {
-  position: absolute;
-  inset: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
-.spotlightImage {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: scale(1.001);
-  transition:
-    transform 650ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter 220ms ease;
-}
-
-.spotlightImageLink:hover .spotlightImage {
-  transform: scale(1.035);
-}
-
-.spotlightMedia::after {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  content: "";
-  pointer-events: none;
+  padding: 30px 16px 26px;
   background:
-    linear-gradient(to top, rgba(8, 10, 14, 0.22), transparent 36%),
-    linear-gradient(to right, transparent 72%, rgba(8, 10, 14, 0.035));
+    radial-gradient(
+      90% 70% at 100% 0%,
+      color-mix(in srgb, var(--color-primary) 13%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      70% 60% at 0% 100%,
+      color-mix(in srgb, var(--color-primary) 6%, transparent),
+      transparent 70%
+    ),
+    var(--color-bg);
 }
 
-.spotlightImageLabel {
-  position: absolute;
-  top: 18px;
-  left: 18px;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
-  padding: 0 11px;
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  border-radius: 999px;
-  color: #fff;
-  background: rgba(15, 15, 18, 0.48);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  font-size: 0.68rem;
-  font-weight: 850;
-  letter-spacing: 0.035em;
-  text-transform: uppercase;
-  pointer-events: none;
-}
-
-/* =========================================================
-   GALLERY CONTROLS
-========================================================= */
-
-.spotlightArrowLeft,
-.spotlightArrowRight {
-  position: absolute;
-  top: 50%;
-  z-index: 4;
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.44);
-  border-radius: 999px;
-  color: #fff;
-  background: rgba(15, 15, 18, 0.44);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  cursor: pointer;
-  opacity: 0;
-  transform: translateY(-50%);
-  transition:
-    opacity 170ms ease,
-    transform 170ms ease,
-    background 170ms ease;
-}
-
-.spotlightVisual:hover .spotlightArrowLeft,
-.spotlightVisual:hover .spotlightArrowRight,
-.spotlightMedia:focus-within .spotlightArrowLeft,
-.spotlightMedia:focus-within .spotlightArrowRight {
-  opacity: 1;
-}
-
-.spotlightArrowLeft {
-  left: 16px;
-}
-
-.spotlightArrowRight {
-  right: 16px;
-}
-
-.spotlightArrowLeft:hover,
-.spotlightArrowRight:hover {
-  background: rgba(15, 15, 18, 0.72);
-  transform: translateY(-50%) scale(1.05);
-}
-
-.spotlightDots {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 9px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 999px;
-  background: rgba(15, 15, 18, 0.42);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  transform: translateX(-50%);
-}
-
-.spotlightDot {
-  width: 6px;
-  height: 6px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.5);
-  cursor: pointer;
-  transition:
-    width 170ms ease,
-    background 170ms ease;
-}
-
-.spotlightDotActive {
-  width: 22px;
-  background: #fff;
-}
-
-.spotlightArrowLeft:focus-visible,
-.spotlightArrowRight:focus-visible,
-.spotlightDot:focus-visible,
-.spotlightTab:focus-visible,
-.spotlightCta:focus-visible,
-.ambassadorButton:focus-visible,
-.partnerCta:focus-visible,
-.marketplaceExplore:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 3px;
-}
-
-/* =========================================================
-   CONTENT
-========================================================= */
-
-.spotlightContent {
-  display: flex;
-  flex-direction: column;
-  height: 446px;
-  min-height: 446px;
-  box-sizing: border-box;
-  min-width: 0;
-  padding: clamp(32px, 4vw, 52px);
-  /*
-   * Fix layout (2026): titlul/descrierea/numele magazinului au acum
-   * line-clamp REAL mai jos, deci în cazul normal conținutul se
-   * încadrează exact în cele 446px. `overflow-y: auto` rămâne DOAR ca
-   * plasă de siguranță - un caz extrem (font de sistem mai mare,
-   * meta cu 3 badge-uri care fac wrap) devine scroll intern, nu
-   * conținut tăiat/ascuns (CTA-ul și prețul, cu `margin-top: auto`,
-   * nu mai pot fi împinse în afara zonei vizibile fără avertisment).
-   */
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-/* =========================================================
-   EDITORIAL TABS
-========================================================= */
-
-.spotlightTabs {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  width: fit-content;
-  margin-bottom: 28px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.spotlightTab {
-  position: relative;
-  min-height: 36px;
-  padding: 0 0 10px;
-  border: 0;
-  color: var(--color-muted);
-  background: transparent;
-  font: inherit;
-  font-size: 0.73rem;
-  font-weight: 850;
-  letter-spacing: 0.025em;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: color 170ms ease;
-}
-
-.spotlightTab::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  border-radius: 999px;
-  content: "";
-  background: transparent;
-  transform: scaleX(0.25);
-  transform-origin: center;
-  transition:
-    transform 170ms ease,
-    background 170ms ease;
-}
-
-.spotlightTab:hover {
-  color: var(--color-text);
-}
-
-.spotlightTabActive {
-  color: var(--color-text);
-}
-
-.spotlightTabActive::after {
-  background: var(--color-primary);
-  transform: scaleX(1);
-}
-
-/* =========================================================
-   TEXT HIERARCHY
-========================================================= */
-
-.spotlightEditorialLabel,
-.spotlightEyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  width: fit-content;
-  margin-bottom: 9px;
-  color: var(--color-primary);
-  font-size: 0.7rem;
-  font-weight: 900;
-  letter-spacing: 0.085em;
-  text-transform: uppercase;
-}
-
-.spotlightEditorialLabel svg,
-.spotlightEyebrow svg {
-  font-size: 0.72rem;
-}
-
-.spotlightCategory {
-  /*
-   * Numele magazinului (sau categoria artizanului) - max 1 linie,
-   * cu ellipsis. Fără asta, un nume de magazin lung wrapa pe mai
-   * multe linii și împingea titlul mai jos.
-   */
-  display: block;
-  overflow: hidden;
-  margin-bottom: 7px;
-  color: var(--color-muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-  line-height: 1.35;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.spotlightTitle {
-  /*
-   * Titlul rămâne întotdeauna vizibil integral (max 2 linii) -
-   * line-clamp real, nu doar `overflow: hidden` fără limită de linii.
-   * `min-height` în `em` (relativ la propriul font-size, care e
-   * `clamp()`) rezervă mereu spațiul pentru 2 linii, ca titlurile
-   * scurte să nu strice înălțimea coerentă a cardului.
-   */
-  display: -webkit-box;
-  max-width: 620px;
-  min-height: 2.08em;
-  margin: 0;
-  overflow: hidden;
-  font-family: var(--font-title);
-  font-size: clamp(2rem, 3.1vw, 3.25rem);
-  line-height: 1.04;
-  letter-spacing: -0.045em;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.spotlightTitle a {
-  color: inherit;
-  text-decoration: none;
-  transition: color 170ms ease;
-}
-
-.spotlightTitle a:hover {
-  color: var(--color-primary);
-}
-
-.spotlightDescription {
-  /*
-   * Descriere - max 3 linii, line-clamp real (înainte avea doar
-   * `display: -webkit-box` fără `-webkit-line-clamp`, deci nu
-   * trunchia de fapt nimic).
-   */
-  display: -webkit-box;
-  max-width: 600px;
-  margin: 16px 0 0;
-  overflow: hidden;
-  color: var(--color-muted);
-  font-size: 0.9rem;
-  line-height: 1.65;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-}
-
-.spotlightMeta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 9px 16px;
-  margin-top: 19px;
-}
-
-.spotlightMeta span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-muted);
-  font-size: 0.72rem;
-  font-weight: 750;
-}
-
-.spotlightMeta svg {
-  color: var(--color-primary);
-  font-size: 0.75rem;
-}
-
-/* =========================================================
-   FOOTER / OFFER / CTA
-========================================================= */
-
-.spotlightFooter {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  margin-top: auto;
-  padding-top: 26px;
-}
-
-.spotlightFooterArtisan {
-  align-items: flex-end;
-}
-
-.spotlightOfferArea {
-  min-width: 0;
-}
-
-.spotlightPrice {
-  display: block;
-  color: var(--color-text);
-  font-size: 1.78rem;
-  line-height: 1;
-  letter-spacing: -0.045em;
-}
-
-.spotlightPriceGroup {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 7px 9px;
-  min-width: 0;
-}
-
-.spotlightDiscountedPrice {
-  color: var(--color-text);
-  font-size: 1.9rem;
-  font-weight: 900;
-  line-height: 1;
-  letter-spacing: -0.045em;
-}
-
-.spotlightOldPrice {
-  color: var(--color-muted);
-  font-size: 0.84rem;
-  font-weight: 650;
-  text-decoration: line-through;
-}
-
-.spotlightDiscountBadge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 25px;
-  padding: 0 8px;
-  border-radius: 999px;
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 10%, var(--surface));
-  font-size: 0.68rem;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.spotlightDiscountNote {
-  color: var(--color-muted);
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-
-.spotlightArtisanDiscount {
+.heroInner {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  width: min(1240px, 100%);
+  margin: 0 auto;
 }
 
-.spotlightArtisanDiscount strong {
+.heroEyebrow {
+  margin: 0;
   color: var(--color-primary);
-  font-size: 1.12rem;
-  font-weight: 900;
-  line-height: 1.15;
-  letter-spacing: -0.025em;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
-.spotlightArtisanDiscount span {
+.heroTitle {
+  max-width: 21ch;
+  margin: 12px 0 0;
+  font-family: var(--font-title);
+  font-size: clamp(1.85rem, 7.4vw, 3.6rem);
+  font-weight: 850;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.heroLead {
+  max-width: 56ch;
+  margin: 14px 0 0;
   color: var(--color-muted);
-  font-size: 0.74rem;
-  font-weight: 650;
+  font-size: clamp(1rem, 3.9vw, 1.18rem);
+  line-height: 1.55;
 }
 
-.spotlightCta {
+.heroActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  margin-top: 22px;
+}
+
+.heroPrimary,
+.heroSecondary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 auto;
-  gap: 9px;
-  min-height: 47px;
-  padding: 0 18px;
-  border: 1px solid var(--color-primary);
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 22px;
   border-radius: 14px;
-  color: #fff;
-  background: var(--color-primary);
-  box-shadow: 0 9px 22px color-mix(in srgb, var(--color-primary) 20%, transparent);
-  font-size: 0.78rem;
-  font-weight: 900;
+  font-size: 1rem;
+  font-weight: 750;
   text-decoration: none;
-  white-space: nowrap;
   transition:
-    transform 170ms ease,
-    box-shadow 170ms ease,
-    background 170ms ease;
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
 }
 
-.spotlightCta:hover {
+.heroPrimary {
+  border: 1px solid var(--color-primary);
+  color: var(--on-primary, #fff);
+  background: var(--color-primary);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.heroPrimary:hover {
   background: var(--color-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--color-primary) 28%, transparent);
+  transform: translateY(-1px);
 }
 
-.spotlightCta svg {
-  transition: transform 170ms ease;
+.heroPrimary svg {
+  font-size: 0.85rem;
+  transition: transform 160ms ease;
 }
 
-.spotlightCta:hover svg {
-  transform: translateX(4px);
+.heroPrimary:hover svg {
+  transform: translateX(3px);
 }
+
+.heroSecondary {
+  border: 1px solid color-mix(in srgb, var(--color-text) 16%, var(--color-border));
+  color: var(--color-text);
+  background: var(--surface);
+}
+
+.heroSecondary:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/*
+ * „Publică gratuit o cerere”: pastilă evidentă + un inel care pulsează
+ * discret în jurul ei. Animăm DOAR transform + opacity pe un pseudo-element
+ * (compozitat de GPU, fără reflow și fără mișcarea layout-ului); oprit la
+ * prefers-reduced-motion.
+ */
+.heroRequestLink {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  margin-top: 16px;
+  padding: 0 20px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--surface));
+  font: inherit;
+  font-size: 0.98rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.heroRequestLink::after {
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  content: "";
+  border: 2px solid var(--color-primary);
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  animation: requestPulse 3.2s ease-out 1.2s infinite;
+}
+
+.heroRequestLink:hover {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--surface));
+}
+
+.heroRequestLink svg {
+  font-size: 0.78rem;
+  transition: transform 160ms ease;
+}
+
+.heroRequestLink:hover svg {
+  transform: translateX(3px);
+}
+
+.heroRequestNote {
+  max-width: 46ch;
+  margin: 8px 0 0;
+  color: var(--color-muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+@keyframes requestPulse {
+  0% {
+    opacity: 0.5;
+    transform: scale(1, 1);
+  }
+
+  45% {
+    opacity: 0;
+    transform: scale(1.08, 1.45);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.08, 1.45);
+  }
+}
+
+.heroTrust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 22px 0 0;
+  padding: 18px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  list-style: none;
+  width: 100%;
+}
+
+.heroTrust li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.heroTrust svg {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+  font-size: 0.85rem;
+}
+
 
 /* =========================================================
-   PARTNER CTA
+   PENTRU CREATORI
 ========================================================= */
 
 .partnerBar {
-  padding: 0 22px 28px;
+  padding: 0 16px 36px;
   background: var(--color-bg);
 }
 
 .partnerBarInner {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 28px;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 16px;
   width: min(1240px, 100%);
   margin: 0 auto;
-  padding: 18px 20px;
+  padding: 20px;
   border: 1px solid color-mix(in srgb, var(--color-primary) 12%, var(--color-border));
-  border-radius: 20px;
+  border-radius: 22px;
   background:
     linear-gradient(
       135deg,
@@ -640,7 +263,7 @@
 
 .partnerCopy {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 14px;
   min-width: 0;
 }
@@ -659,44 +282,43 @@
 
 .partnerCopy > div {
   display: grid;
-  gap: 2px;
+  gap: 3px;
 }
 
 .partnerKicker {
   color: var(--color-primary) !important;
-  font-size: 0.62rem !important;
-  font-weight: 900 !important;
-  letter-spacing: 0.075em;
+  font-size: 0.68rem !important;
+  font-weight: 850 !important;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .partnerCopy strong {
-  font-size: 0.92rem;
-  line-height: 1.25;
+  font-size: 1.02rem;
+  line-height: 1.3;
 }
 
 .partnerDescription,
 .partnerCopy span {
   color: var(--color-muted);
-  font-size: 0.72rem;
-  line-height: 1.45;
+  font-size: 0.88rem;
+  line-height: 1.5;
 }
 
 .partnerActions {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 9px;
 }
 
 .ambassadorButton,
 .partnerCta {
-  min-height: 41px;
-  padding: 0 14px;
-  border-radius: 12px;
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 13px;
   font: inherit;
-  font-size: 0.72rem;
-  font-weight: 850;
+  font-size: 0.92rem;
+  font-weight: 750;
   cursor: pointer;
 }
 
@@ -744,527 +366,98 @@
   transform: translateX(3px);
 }
 
+
 /* =========================================================
-   SKELETON
+   FOCUS
 ========================================================= */
 
-.spotlightSkeleton {
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(390px, 0.92fr);
-  width: min(1240px, 100%);
-  min-height: 446px;
-  margin: 0 auto;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 30px;
-  background: var(--surface);
-}
-
-.spotlightSkeletonImage,
-.spotlightSkeletonTabs,
-.spotlightSkeletonSmall,
-.spotlightSkeletonTitle,
-.spotlightSkeletonLine,
-.spotlightSkeletonLineShort {
-  position: relative;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--color-muted) 10%, var(--surface));
-}
-
-.spotlightSkeletonImage::after,
-.spotlightSkeletonTabs::after,
-.spotlightSkeletonSmall::after,
-.spotlightSkeletonTitle::after,
-.spotlightSkeletonLine::after,
-.spotlightSkeletonLineShort::after {
-  position: absolute;
-  inset: 0;
-  content: "";
-  background: linear-gradient(
-    100deg,
-    transparent 20%,
-    rgba(255, 255, 255, 0.35) 48%,
-    transparent 76%
-  );
-  transform: translateX(-100%);
-  animation: spotlightShimmer 1.45s infinite;
-}
-
-.spotlightSkeletonImage {
-  min-height: 446px;
-}
-
-.spotlightSkeletonContent {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 48px;
-}
-
-.spotlightSkeletonTabs {
-  width: 230px;
-  height: 26px;
-  margin-bottom: 38px;
-  border-radius: 8px;
-}
-
-.spotlightSkeletonSmall {
-  width: 110px;
-  height: 12px;
-  margin-bottom: 12px;
-  border-radius: 999px;
-}
-
-.spotlightSkeletonTitle {
-  width: 82%;
-  height: 56px;
-  margin-bottom: 24px;
-  border-radius: 12px;
-}
-
-.spotlightSkeletonLine,
-.spotlightSkeletonLineShort {
-  height: 12px;
-  border-radius: 999px;
-}
-
-.spotlightSkeletonLine {
-  width: 92%;
-  margin-bottom: 10px;
-}
-
-.spotlightSkeletonLineShort {
-  width: 64%;
-}
-
-@keyframes spotlightShimmer {
-  to {
-    transform: translateX(100%);
-  }
+.heroPrimary:focus-visible,
+.heroSecondary:focus-visible,
+.heroRequestLink:focus-visible,
+.ambassadorButton:focus-visible,
+.partnerCta:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
 }
 
 /* =========================================================
-   TABLET
+   TABLETĂ / DESKTOP
 ========================================================= */
 
-@media (max-width: 980px) {
-  .spotlightCard,
-  .spotlightSkeleton {
-    grid-template-columns: minmax(0, 0.95fr) minmax(340px, 1.05fr);
-    height: 410px;
-    min-height: 410px;
+@media (min-width: 640px) {
+  .heroActions {
+    display: flex;
+    flex-wrap: wrap;
+    width: auto;
   }
 
-  .spotlightVisual,
-  .spotlightMedia,
-  .spotlightSkeletonImage {
-    height: 410px;
-    min-height: 410px;
-  }
-
-  .spotlightContent {
-    height: 410px;
-    min-height: 410px;
-    padding: 30px;
-  }
-
-  .spotlightTabs {
-    gap: 18px;
-    margin-bottom: 22px;
-  }
-
-  .spotlightTitle {
-    font-size: clamp(1.7rem, 3.3vw, 2.45rem);
-  }
-
-  .spotlightDescription {
-    font-size: 0.84rem;
-  }
-
-  .spotlightFooter {
-    gap: 14px;
-    padding-top: 20px;
-  }
-
-  .spotlightCta {
-    min-height: 44px;
-    padding: 0 14px;
-  }
-
-  .partnerBarInner {
-    gap: 18px;
-  }
-}
-
-/* =========================================================
-   MOBILE
-========================================================= */
-
-@media (max-width: 680px) {
-  .marketplaceIntro {
-    padding: 14px 14px 11px;
-  }
-
-  .marketplaceIntroInner {
-    align-items: center;
-  }
-
-  .marketplaceIcon {
-    width: 36px;
-    height: 36px;
-    border-radius: 11px;
-    font-size: 0.84rem;
-  }
-
-  .marketplaceIdentity {
-    gap: 10px;
-  }
-
-  .marketplaceIdentity h1 {
-    font-size: 0.83rem;
-  }
-
-  .marketplaceIdentity p {
-    margin-top: 2px;
-    font-size: 0.68rem;
-  }
-
-  .marketplaceExplore {
-    display: none;
-  }
-
-  .spotlightSection {
-    padding: 0 12px 18px;
-  }
-
-  .spotlightCard,
-  .spotlightSkeleton {
-    display: grid;
-    grid-template-columns: 1fr;
-    grid-template-rows: 245px 345px;
-    width: 100%;
-    height: 590px;
-    min-height: 590px;
-    overflow: hidden;
-    border-radius: 22px;
-  }
-
-  .spotlightVisual {
-    position: relative;
-    grid-row: 1;
-    width: 100%;
-    height: 245px;
-    min-height: 245px;
-    overflow: hidden;
-  }
-
-  .spotlightMedia {
-    position: relative;
-    width: 100%;
-    height: 245px;
-    min-height: 245px;
-    overflow: hidden;
-  }
-
-  .spotlightImageLink {
-    position: absolute;
-    inset: 0;
-    display: block;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .spotlightImage {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: center;
-  }
-
-  .spotlightSkeletonImage {
-    grid-row: 1;
-    width: 100%;
-    height: 245px;
-    min-height: 245px;
-  }
-
-  .spotlightImageLabel {
-    top: 12px;
-    left: 12px;
-    min-height: 27px;
-    padding: 0 9px;
-    font-size: 0.58rem;
-  }
-
-  .spotlightContent {
-    grid-row: 2;
-    width: 100%;
-    height: 345px;
-    min-height: 345px;
-    padding: 19px 17px 18px;
-    box-sizing: border-box;
-    /* vezi comentariul din regula de bază - plasă de siguranță */
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-
-  .spotlightTabs {
-    gap: 18px;
-    width: 100%;
-    margin-bottom: 18px;
-  }
-
-  .spotlightTab {
-    flex: 1;
-    min-height: 33px;
-    padding-bottom: 9px;
-    font-size: 0.66rem;
-    text-align: center;
-  }
-
-  .spotlightEditorialLabel,
-  .spotlightEyebrow {
-    margin-bottom: 7px;
-    font-size: 0.62rem;
-  }
-
-  .spotlightCategory {
-    margin-bottom: 5px;
-    font-size: 0.69rem;
-  }
-
-  .spotlightTitle {
-    display: -webkit-box;
-    overflow: hidden;
-    font-size: clamp(1.55rem, 7vw, 2rem);
-    line-height: 1.05;
-    -webkit-box-orient: vertical;
-  }
-
-  .spotlightDescription {
-    display: -webkit-box;
-    overflow: hidden;
-    margin-top: 10px;
-    font-size: 0.78rem;
-    line-height: 1.5;
-    -webkit-box-orient: vertical;
-  }
-
-  .spotlightMeta {
-    gap: 8px 12px;
-    margin-top: 13px;
-  }
-
-  .spotlightMeta span {
-    font-size: 0.66rem;
-  }
-
-  .spotlightFooter {
-    align-items: center;
-    gap: 12px;
-    min-height: 62px;
-    margin-top: auto;
-    padding-top: 18px;
-  }
-
-  .spotlightPrice {
-    font-size: 1.38rem;
-  }
-
-  .spotlightDiscountedPrice {
-    font-size: 1.5rem;
-  }
-
-  .spotlightOldPrice {
-    font-size: 0.72rem;
-  }
-
-  .spotlightDiscountBadge {
-    min-height: 22px;
-    padding: 0 7px;
-    font-size: 0.62rem;
-  }
-
-  .spotlightArtisanDiscount strong {
-    font-size: 0.95rem;
-  }
-
-  .spotlightArtisanDiscount span {
-    font-size: 0.66rem;
-  }
-
-  .spotlightCta {
-    min-height: 40px;
-    padding: 0 12px;
-    border-radius: 11px;
-    font-size: 0.69rem;
-  }
-
-  .spotlightArrowLeft,
-  .spotlightArrowRight {
-    width: 34px;
-    height: 34px;
-    font-size: 0.74rem;
-    opacity: 1;
-  }
-
-  .spotlightArrowLeft {
-    left: 9px;
-  }
-
-  .spotlightArrowRight {
-    right: 9px;
-  }
-
-  .spotlightDots {
-    bottom: 9px;
-    padding: 5px 7px;
-  }
-
-  .spotlightDot {
-    width: 5px;
-    height: 5px;
-  }
-
-  .spotlightDotActive {
-    width: 17px;
-  }
-
-  .partnerBar {
-    padding: 0 12px 18px;
-  }
-
-  .partnerBarInner {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 14px;
-    padding: 16px;
-    border-radius: 17px;
-  }
-
-  .partnerCopy {
-    align-items: flex-start;
-    gap: 11px;
-  }
-
-  .partnerIcon {
-    width: 38px;
-    height: 38px;
-    border-radius: 11px;
-  }
-
-  .partnerCopy strong {
-    font-size: 0.82rem;
-  }
-
-  .partnerDescription,
-  .partnerCopy span {
-    font-size: 0.67rem;
+  .heroPrimary,
+  .heroSecondary {
+    min-width: 230px;
   }
 
   .partnerActions {
-    display: grid;
-    grid-template-columns: 1fr;
-    width: 100%;
-  }
-
-  .ambassadorButton,
-  .partnerCta {
-    width: 100%;
-    min-height: 39px;
-    justify-content: center;
-    font-size: 0.69rem;
-  }
-
-  .spotlightSkeletonContent {
-    grid-row: 2;
-    height: 345px;
-    min-height: 345px;
-    padding: 24px 18px;
-    box-sizing: border-box;
-    overflow: hidden;
+    display: flex;
+    flex-wrap: wrap;
   }
 }
 
-/* =========================================================
-   VERY SMALL PHONES
-========================================================= */
-
-@media (max-width: 390px) {
-  .spotlightCard,
-  .spotlightSkeleton {
-    grid-template-rows: 220px 370px;
-    height: 590px;
-    min-height: 590px;
+@media (min-width: 900px) {
+  /* desktop: hero centrat - fără o jumătate dreaptă goală */
+  .hero {
+    padding: 64px 22px 48px;
   }
 
-  .spotlightVisual,
-  .spotlightMedia,
-  .spotlightSkeletonImage {
-    height: 220px;
-    min-height: 220px;
+  .heroInner {
+    align-items: center;
+    text-align: center;
   }
 
-  .spotlightContent,
-  .spotlightSkeletonContent {
-    height: 370px;
-    min-height: 370px;
+  .heroTitle {
+    max-width: 24ch;
   }
 
-  .spotlightContent {
-    padding: 17px 14px 16px;
+  .heroLead {
+    margin-top: 18px;
   }
 
-  .spotlightTabs {
-    gap: 12px;
-    margin-bottom: 14px;
+  .heroActions {
+    justify-content: center;
+    margin-top: 30px;
   }
 
-  .spotlightTab {
-    font-size: 0.61rem;
+  .heroTrust {
+    justify-content: center;
+    width: auto;
+    gap: 10px 28px;
+    margin-top: 30px;
+    padding-top: 22px;
   }
 
-  .spotlightTitle {
-    font-size: 1.42rem;
+  .partnerBar {
+    padding: 0 22px 52px;
   }
 
-  .spotlightDescription {
-    font-size: 0.74rem;
+  .partnerBarInner {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 28px;
+    padding: 22px 26px;
   }
 
-  .spotlightFooter {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 86px;
-    padding-top: 12px;
+  .partnerCopy {
+    align-items: center;
   }
 
-  .spotlightCta {
-    width: 100%;
+  .partnerActions {
+    flex: 0 0 auto;
   }
 }
 
 /* =========================================================
    DARK MODE
 ========================================================= */
-
-html[data-theme="dark"] .spotlightCard,
-html[data-theme="dark"] .spotlightSkeleton {
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
-}
-
-html[data-theme="dark"] .spotlightArrowLeft,
-html[data-theme="dark"] .spotlightArrowRight {
-  background: rgba(4, 4, 6, 0.68);
-}
-
-html[data-theme="dark"] .spotlightDots,
-html[data-theme="dark"] .spotlightImageLabel {
-  background: rgba(4, 4, 6, 0.6);
-}
 
 html[data-theme="dark"] .partnerBarInner {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
@@ -1275,27 +468,18 @@ html[data-theme="dark"] .partnerBarInner {
 ========================================================= */
 
 @media (prefers-reduced-motion: reduce) {
-  .marketplaceExplore svg,
-  .spotlightImage,
-  .spotlightArrowLeft,
-  .spotlightArrowRight,
-  .spotlightDot,
-  .spotlightTab,
-  .spotlightTab::after,
-  .spotlightCta,
-  .spotlightCta svg,
+  .heroPrimary,
+  .heroPrimary svg,
+  .heroSecondary,
+  .heroRequestLink,
+  .heroRequestLink svg,
   .partnerCta,
   .partnerCta svg,
   .ambassadorButton {
     transition: none;
   }
 
-  .spotlightSkeletonImage::after,
-  .spotlightSkeletonTabs::after,
-  .spotlightSkeletonSmall::after,
-  .spotlightSkeletonTitle::after,
-  .spotlightSkeletonLine::after,
-  .spotlightSkeletonLineShort::after {
+  .heroRequestLink::after {
     animation: none;
   }
 }

@@ -2,19 +2,19 @@
 //
 // „Inventarul meu pentru târg” - pentru înscrierile APPROVED.
 // Vendorul adaugă produsele (cu variantă), le trimite (stocul online se
-// rezervă la trimitere) și generează etichetele PDF. Codul de bare, prețul
-// și cantitățile recepționate/vândute vin exclusiv de la server.
+// rezervă la trimitere). Etichetele cu cod de bare le generează, imprimă și
+// aplică Artfest la recepție (Admin -> Târg -> Etichete); vendorul nu are acțiuni
+// pentru etichete. Codul, prețul și cantitățile vin exclusiv de la server.
 // După anularea participării (CANCELLED) inventarul rămâne vizibil, DOAR
 // pentru citire: situația fiecărui produs și starea rezervării online.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Package, Pencil, Plus, Printer, Send, Tag, Trash2, X } from "lucide-react";
+import { AlertTriangle, BadgeCheck, Package, Pencil, Plus, Send, Tag, Trash2, X } from "lucide-react";
 import { api } from "../../../lib/api";
 import {
   INVENTORY_API,
   INVENTORY_STATUS_LABEL,
   INVENTORY_STATUS_TONE,
-  downloadLabelsPdf,
   formatDateTime,
   formatPrice,
 } from "./fairInventory.js";
@@ -145,26 +145,34 @@ function ReceptionResult({ reception }) {
   );
 }
 
-function LabelState({ item }) {
-  if (item.priceOutOfSync) {
-    return (
-      <p className={styles.warning}>
-        <AlertTriangle size={14} aria-hidden="true" /> Prețul s-a schimbat pe Artfest ({formatPrice(item.currentPriceCents)}).
-        {item.canSyncPrice ? " Actualizează prețul, apoi regenerează eticheta." : ""}
-      </p>
-    );
-  }
-  if (item.label.state === "outdated") {
-    return (
-      <p className={styles.warning}>
-        <AlertTriangle size={14} aria-hidden="true" /> Prețul s-a schimbat. Regenerează eticheta.
-      </p>
-    );
-  }
-  if (item.label.state === "valid") {
-    return <p className={styles.muted}>Etichetă generată · {formatDateTime(item.label.generatedAt)}</p>;
-  }
-  return <p className={styles.muted}>Etichetă negenerată</p>;
+// etichetele sunt ale Artfest; vendorul vede doar dacă prețul de târg trebuie actualizat
+function PriceSyncState({ item }) {
+  if (!item.priceOutOfSync) return null;
+  return (
+    <p className={styles.warning}>
+      <AlertTriangle size={14} aria-hidden="true" /> Prețul s-a schimbat pe Artfest ({formatPrice(item.currentPriceCents)}).
+      {item.canSyncPrice ? " Actualizează prețul pentru târg." : ""}
+    </p>
+  );
+}
+
+function LabelingByArtfest() {
+  return (
+    <aside className={styles.labelingNote} aria-labelledby="fair-labeling-title">
+      <BadgeCheck className={styles.labelingIcon} size={22} aria-hidden="true" />
+      <div>
+        <h3 id="fair-labeling-title">Etichetarea produselor este asigurată de Artfest.</h3>
+        <p>
+          Nu trebuie să imprimi sau să aplici etichete cu coduri de bare. Echipa Artfest se ocupă de generarea și
+          aplicarea acestora la recepția produselor.
+        </p>
+        <p>
+          Tu trebuie doar să înregistrezi produsele și cantitățile participante. După confirmarea unei vânzări, stocul
+          târgului se actualizează automat, iar tu poți urmări produsele vândute și cantitățile rămase.
+        </p>
+      </div>
+    </aside>
+  );
 }
 
 /* ===================== Modal adăugare / editare ===================== */
@@ -538,21 +546,7 @@ export default function FairInventorySection() {
     run(
       `sync:${item.id}`,
       () => api(`${INVENTORY_API}/${encodeURIComponent(item.id)}/sync-price`, { method: "POST" }),
-      "Prețul a fost actualizat. Regenerează eticheta."
-    );
-
-  const printOne = (item) =>
-    run(
-      `label:${item.id}`,
-      () => downloadLabelsPdf(`${INVENTORY_API}/${encodeURIComponent(item.id)}/label.pdf`, `eticheta-${item.barcode}.pdf`),
-      "Eticheta a fost generată."
-    );
-
-  const printAll = () =>
-    run(
-      "labels",
-      () => downloadLabelsPdf(`${INVENTORY_API}/labels.pdf`, "etichete-targ-artfest.pdf"),
-      "Etichetele au fost generate (câte una pentru fiecare bucată)."
+      "Prețul pentru târg a fost actualizat."
     );
 
   const submit = () => {
@@ -585,7 +579,7 @@ export default function FairInventorySection() {
   }
 
   const items = data.items || [];
-  const summary = data.summary || { draftLines: 0, declaredUnits: 0, outdatedLabels: 0 };
+  const summary = data.summary || { draftLines: 0, declaredUnits: 0 };
   const deadline = formatDateTime(data.fair?.inventoryDeadlineAt);
   const readOnly = Boolean(data.readOnly);
 
@@ -612,11 +606,6 @@ export default function FairInventorySection() {
               <Plus size={16} aria-hidden="true" /> Adaugă produs
             </button>
           )}
-          {items.length > 0 && !readOnly && (
-            <button type="button" className={styles.btnGhost} onClick={printAll} disabled={Boolean(busy)}>
-              <Printer size={16} aria-hidden="true" /> {busy === "labels" ? "Se generează…" : "Generează toate etichetele"}
-            </button>
-          )}
           {data.canEdit && summary.draftLines > 0 && (
             <button type="button" className={styles.btn} onClick={submit} disabled={Boolean(busy)}>
               <Send size={16} aria-hidden="true" /> {busy === "submit" ? "Se trimite…" : "Trimite inventarul"}
@@ -629,15 +618,9 @@ export default function FairInventorySection() {
         <p className={styles.summary}>
           {items.length} produse · {summary.declaredUnits} bucăți
           {summary.draftLines > 0 ? ` · ${summary.draftLines} netrimise` : ""}
-          {summary.outdatedLabels > 0 ? ` · ${summary.outdatedLabels} etichete de regenerat` : ""}
         </p>
       )}
-      {items.length > 0 && !readOnly && (
-        <p className={styles.hint}>
-          Etichetele sunt pentru coli A4 cu 24 de etichete (70 × 37 mm). La printare alege scala 100% (dimensiune
-          reală).
-        </p>
-      )}
+      {!readOnly && <LabelingByArtfest />}
 
       {notice && (
         <div className={styles.successBox} role="status">
@@ -713,7 +696,7 @@ export default function FairInventorySection() {
                 ) : (
                   <>
                     <OnlineReservation item={item} />
-                    <LabelState item={item} />
+                    <PriceSyncState item={item} />
                   </>
                 )}
 
@@ -721,17 +704,6 @@ export default function FairInventorySection() {
                   {item.canSyncPrice && (
                     <button type="button" className={styles.btnSmall} onClick={() => syncPrice(item)} disabled={Boolean(busy)}>
                       <Tag size={14} aria-hidden="true" /> Actualizează prețul
-                    </button>
-                  )}
-                  {item.actions.canPrintLabel && (
-                    <button
-                      type="button"
-                      className={styles.btnSmall}
-                      onClick={() => printOne(item)}
-                      disabled={Boolean(busy) || item.priceOutOfSync}
-                    >
-                      <Printer size={14} aria-hidden="true" />{" "}
-                      {busy === `label:${item.id}` ? "Se generează…" : "Generează etichetă"}
                     </button>
                   )}
                   {item.actions.canEdit && (

@@ -21,32 +21,18 @@ import {
   useAuth,
 } from "../Auth/Context/context.js";
 
-/*
- * Comenzi deja raportate către Google Ads / GA / Meta din acest browser -
- * împiedică retrimiterea conversiei la refresh sau la revenirea pe pagină.
- */
-const PURCHASE_TRACKED_PREFIX = "purchase-tracked:";
+import {
+  CARD_CONFIRMATION_POLL,
+  getGuestOrderPath,
+  getOrderApiPath,
+  getPurchaseDecision,
+  getThankYouOrderAccess,
+  shouldPollForCardConfirmation,
+  trackPurchaseOnce,
+} from "./thankYouPurchase.js";
 
-function wasPurchaseTracked(orderId) {
-  try {
-    return Boolean(
-      localStorage.getItem(`${PURCHASE_TRACKED_PREFIX}${orderId}`)
-    );
-  } catch {
-    return false;
-  }
-}
-
-function markPurchaseTracked(orderId) {
-  try {
-    localStorage.setItem(
-      `${PURCHASE_TRACKED_PREFIX}${orderId}`,
-      new Date().toISOString()
-    );
-  } catch {
-    // stocare indisponibilă - rămâne protecția per montare (ref)
-  }
-}
+const wait = (ms) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 export default function ThankYou() {
   const [
@@ -55,6 +41,7 @@ export default function ThankYou() {
 
   const {
     me,
+    loading: authLoading,
   } = useAuth();
 
   const orderId =
@@ -66,20 +53,30 @@ export default function ThankYou() {
     );
 
   /*
-   * Pentru comenzile guest,
-   * Checkout-ul pune tokenul
-   * în URL-ul /multumim.
+   * Întoarcere din Stripe (success_url) - vezi payments/orchestrator.js.
    */
-  const guestToken =
+  const paymentReturn =
     params.get(
-      "token"
+      "payment"
+    );
+
+  /*
+   * Acces la comandă: tokenul guest din URL (pus de Checkout sau de
+   * Stripe success_url) are prioritate; altfel sesiunea userului.
+   */
+  const access =
+    React.useMemo(
+      () =>
+        getThankYouOrderAccess(
+          params,
+          me
+        ),
+      [params, me]
     );
 
   const isGuest =
-    !me &&
-    Boolean(
-      guestToken
-    );
+    access?.kind ===
+    "guest";
 
   /* =========================================================
      Linkuri
@@ -97,20 +94,15 @@ export default function ThankYou() {
       : "/comenzile-mele";
 
   const guestOrderPath =
-    orderId &&
-    guestToken
-      ? `/comanda-guest/${encodeURIComponent(
-          orderId
-        )}?token=${encodeURIComponent(
-          guestToken
-        )}`
-      : null;
+    getGuestOrderPath(
+      access
+    );
 
   const orderDetailsPath =
-    me?.role === "VENDOR"
-      ? ordersListPath
-      : isGuest
-        ? guestOrderPath || "/"
+    isGuest
+      ? guestOrderPath || "/"
+      : me?.role === "VENDOR"
+        ? ordersListPath
         : orderId
           ? `/comanda/${encodeURIComponent(
               orderId
@@ -134,13 +126,17 @@ export default function ThankYou() {
         }
 
         if (orderId) {
-          const cached =
-            sessionStorage.getItem(
-              `orderNo:${orderId}`
-            );
+          try {
+            const cached =
+              sessionStorage.getItem(
+                `orderNo:${orderId}`
+              );
 
-          if (cached) {
-            return cached;
+            if (cached) {
+              return cached;
+            }
+          } catch {
+            // ignore
           }
         }
 
@@ -157,6 +153,18 @@ export default function ThankYou() {
     );
 
   /*
+   * Starea plății afișată clientului:
+   * null | "cod" | "paid" | "confirming" | "pending"
+   */
+  const [
+    paymentState,
+    setPaymentState,
+  ] =
+    React.useState(
+      null
+    );
+
+  /*
    * Protecție împotriva trimiterii
    * de două ori a Purchase în aceeași
    * montare a paginii.
@@ -170,8 +178,25 @@ export default function ThankYou() {
      Tracking + încărcare comandă
   ========================================================= */
 
+  const accessKey =
+    access
+      ? `${access.kind}:${access.orderId}:${access.token || ""}`
+      : "";
+
   React.useEffect(() => {
     if (!orderId) {
+      return;
+    }
+
+    /*
+     * Userul revenit din Stripe: pagina se reîncarcă complet, iar
+     * sesiunea se citește asincron - așteptăm, altfel cererea ar pleca
+     * fără acces și achiziția nu ar mai fi raportată.
+     */
+    if (
+      !access &&
+      authLoading
+    ) {
       return;
     }
 
@@ -184,254 +209,116 @@ export default function ThankYou() {
 
     (async () => {
       try {
-        let data;
+        const path =
+          getOrderApiPath(
+            access
+          );
 
-        /* ================================================
-           USER AUTENTIFICAT
-        ================================================ */
-
-        if (me) {
-          data =
-            await api(
-              `/api/user/orders/${encodeURIComponent(
-                orderId
-              )}`
-            );
-        }
-
-        /* ================================================
-           GUEST
-        ================================================ */
-
-        else if (
-          guestToken
-        ) {
-          data =
-            await api(
-              `/api/guest/orders/${encodeURIComponent(
-                orderId
-              )}?token=${encodeURIComponent(
-                guestToken
-              )}`
-            );
-        }
-
-        /* ================================================
-           FĂRĂ ACCES
-        ================================================ */
-
-        else {
+        if (!path) {
           throw new Error(
             "order_access_missing"
           );
         }
 
-        /* =====================================================
-           ITEMS
-        ===================================================== */
-
-        const items =
-          Array.isArray(
-            data?.items
-          )
-            ? data.items
-            : [];
-
-        /* =====================================================
-           TOTAL
-        ===================================================== */
-
-        /*
-         * Totalul vine STRICT din backend (Order.total, întors de
-         * /api/user/orders/:id și /api/guest/orders/:id) - nu îl
-         * recalculăm în frontend. Lipsă / invalid -> nu raportăm
-         * conversia (vezi mai jos).
-         */
-        const total =
-          Number(
-            data?.total
+        let data =
+          await api(
+            path
           );
 
+        let decision =
+          getPurchaseDecision(
+            data
+          );
+
+        /*
+         * CARD: Stripe a trimis clientul înapoi înaintea webhook-ului.
+         * Reîncercăm de câteva ori până backend-ul confirmă plata -
+         * Purchase se raportează DOAR cu plata confirmată.
+         */
+        let attempt = 0;
+
+        while (
+          !cancelled &&
+          shouldPollForCardConfirmation(
+            decision,
+            {
+              paymentReturn,
+              attempt,
+            }
+          )
+        ) {
+          setPaymentState(
+            "confirming"
+          );
+
+          await wait(
+            CARD_CONFIRMATION_POLL.intervalMs
+          );
+
+          attempt += 1;
+
+          if (cancelled) {
+            return;
+          }
+
+          data =
+            await api(
+              path
+            );
+
+          decision =
+            getPurchaseDecision(
+              data
+            );
+        }
+
+        if (cancelled) {
+          return;
+        }
+
         /* =====================================================
-           CURRENCY
+           PURCHASE - o singură dată per comandă
         ===================================================== */
 
-        const currency =
-          data?.currency ||
-          "RON";
+        trackPurchaseOnce({
+          orderId,
+          data,
+          trackedRef:
+            purchaseTrackedRef,
+          track:
+            trackPurchase,
+        });
 
         /* =====================================================
-           ORDER NUMBER
+           UI
         ===================================================== */
+
+        setPaymentState(
+          decision.isCod
+            ? "cod"
+            : decision.isPaidCard
+              ? "paid"
+              : decision.isPendingCard
+                ? "pending"
+                : null
+        );
 
         const orderNumber =
           data?.orderNumber ||
           orderNoFromUrl ||
           orderId;
 
-        /* =====================================================
-           PAYMENT STATE REAL DIN BACKEND
-        ===================================================== */
+        setDisplayNo(
+          orderNumber
+        );
 
-        /*
-         * În schema Prisma:
-         *
-         * paymentMethod:
-         * COD | CARD
-         */
-        const paymentMethod =
-          String(
-            data?.paymentMethod ||
-              ""
-          )
-            .trim()
-            .toUpperCase();
-
-        /*
-         * Acesta este statusul REAL
-         * al Order-ului din Prisma:
-         *
-         * PENDING
-         * PAID
-         * CANCELLED
-         * FULFILLED
-         */
-        const orderStatus =
-          String(
-            data?.orderStatus ||
-              ""
-          )
-            .trim()
-            .toUpperCase();
-
-        /*
-         * Momentul în care Stripe
-         * a confirmat plata.
-         */
-        const paidAt =
-          data?.paidAt ||
-          null;
-
-        /* =====================================================
-           DECIZIE PURCHASE
-        ===================================================== */
-
-        /*
-         * COD:
-         *
-         * Considerăm Purchase în
-         * momentul în care comanda
-         * a fost plasată cu succes.
-         */
-        const isCodPurchase =
-          paymentMethod ===
-          "COD";
-
-        /*
-         * CARD:
-         *
-         * Nu raportăm Purchase doar
-         * pentru că s-a creat comanda.
-         *
-         * Trebuie să existe dovadă
-         * că plata a fost confirmată:
-         *
-         * - Order.status === PAID
-         * SAU
-         * - paidAt există.
-         */
-        const isPaidCardPurchase =
-          paymentMethod ===
-            "CARD" &&
-          (
-            orderStatus ===
-              "PAID" ||
-            Boolean(
-              paidAt
-            )
-          );
-
-        const shouldTrackPurchase =
-          (isCodPurchase ||
-            isPaidCardPurchase) &&
-          Number.isFinite(total) &&
-          total > 0;
-
-        /* =====================================================
-           PURCHASE - o singură dată per comandă
-        ===================================================== */
-
-        /*
-         * Pe lângă ref-ul de montare, ținem minte comenzile deja
-         * raportate (localStorage, cheie per comandă), ca refresh-ul
-         * sau revenirea pe /multumim să NU retrimită conversia.
-         * (Google Ads deduplică oricum după transaction_id.)
-         */
-        if (
-          shouldTrackPurchase &&
-          !purchaseTrackedRef.current &&
-          !wasPurchaseTracked(orderId)
-        ) {
-          purchaseTrackedRef.current =
-            true;
-
-          trackPurchase({
-            id: orderId,
-            total,
-            currency,
-            items,
-          });
-
-          markPurchaseTracked(orderId);
-
-          console.log(
-            "[PURCHASE] tracked",
-            {
-              orderId,
-              orderNumber,
-              total,
-              currency,
-              paymentMethod,
-              orderStatus,
-              paidAt,
-            }
-          );
-        } else if (
-          !purchaseTrackedRef.current
-        ) {
-          console.log(
-            "[PURCHASE] not tracked",
-            {
-              orderId,
-              orderNumber,
-              total,
-              currency,
-              paymentMethod,
-              orderStatus,
-              paidAt,
-            }
-          );
-        }
-
-        /* =====================================================
-           UI
-        ===================================================== */
-
-        if (
-          !cancelled
-        ) {
-          setDisplayNo(
+        try {
+          sessionStorage.setItem(
+            `orderNo:${orderId}`,
             orderNumber
           );
-
-          try {
-            sessionStorage.setItem(
-              `orderNo:${orderId}`,
-              orderNumber
-            );
-          } catch {
-            // ignore
-          }
+        } catch {
+          // ignore
         }
       } catch (
         error
@@ -464,11 +351,14 @@ export default function ThankYou() {
       cancelled =
         true;
     };
+    // `access` e derivat din accessKey + me; accessKey e cheia stabilă
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     orderId,
     orderNoFromUrl,
-    guestToken,
-    me,
+    accessKey,
+    authLoading,
+    paymentReturn,
   ]);
 
   /* =========================================================
@@ -481,6 +371,12 @@ export default function ThankYou() {
       : displayNo ||
         orderId ||
         "-";
+
+  const cardPending =
+    paymentState ===
+      "confirming" ||
+    paymentState ===
+      "pending";
 
   /* =========================================================
      Render
@@ -502,7 +398,9 @@ export default function ThankYou() {
             styles.pageTitle
           }
         >
-          Mulțumim pentru comandă! 🎉
+          {cardPending
+            ? "Comanda ta a fost înregistrată"
+            : "Mulțumim pentru comandă! 🎉"}
         </h1>
 
         <p
@@ -510,11 +408,9 @@ export default function ThankYou() {
             styles.thankYouLead
           }
         >
-          Comanda ta a fost
-          primită și a fost
-          trimisă către
-          magazinul(ele)
-          vânzător.
+          {cardPending
+            ? "Așteptăm confirmarea plății cu cardul de la procesatorul de plăți."
+            : "Comanda ta a fost primită și a fost trimisă către magazinul(ele) vânzător."}
         </p>
 
         {orderId && (
@@ -530,6 +426,76 @@ export default function ThankYou() {
               {shownNo}
             </code>
           </p>
+        )}
+
+        {/* =================================================
+            STARE PLATĂ CARD
+        ================================================= */}
+
+        {paymentState ===
+          "paid" && (
+          <p
+            className={
+              styles.muted
+            }
+            role="status"
+          >
+            Plata cu cardul a fost confirmată.
+          </p>
+        )}
+
+        {paymentState ===
+          "confirming" && (
+          <p
+            className={
+              styles.muted
+            }
+            role="status"
+            aria-live="polite"
+          >
+            Se confirmă plata… durează de obicei doar câteva secunde.
+          </p>
+        )}
+
+        {paymentState ===
+          "pending" && (
+          <div
+            role="status"
+            style={{
+              marginTop:
+                14,
+
+              padding:
+                "12px 14px",
+
+              borderRadius:
+                10,
+
+              background:
+                "#fff8e7",
+
+              border:
+                "1px solid #f0d99b",
+
+              fontSize:
+                14,
+
+              lineHeight:
+                1.5,
+            }}
+          >
+            Nu am primit încă confirmarea plății. Dacă plata a reușit,
+            comanda se actualizează automat în câteva minute. Dacă nu, o
+            poți finaliza din{" "}
+            <Link
+              to={
+                orderDetailsPath
+              }
+            >
+              pagina comenzii
+            </Link>
+            .
+          </div>
         )}
 
         {/* =================================================

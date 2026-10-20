@@ -166,6 +166,8 @@ export default function FairPage() {
           estimatedProductCount: Number(values.estimatedProductCount),
           notes: values.notes,
           termsAccepted: values.termsAccepted === true,
+          // versiunea citită și bifată; serverul o înregistrează doar dacă e cea legată acum de târg
+          termsVersion: fair?.termsVersion || null,
         },
       });
       // starea nouă vine direct din răspuns (fără să mai apară CTA-ul de înscriere)
@@ -180,6 +182,8 @@ export default function FairPage() {
       setSuccess(res?.message || SUCCESS_MESSAGE);
     } catch (err) {
       if (err?.data?.fields) setFieldErrors(err.data.fields);
+      // regulament actualizat între timp: bifa nu mai e valabilă, vendorul o dă din nou după ce citește
+      if (err?.data?.error === "terms_version_changed") setForm((prev) => (prev ? { ...prev, termsAccepted: false } : prev));
       setSubmitError(err?.data?.message || err?.message || "Nu am putut trimite înscrierea.");
       if (err?.status === 409) await reload();
     } finally {
@@ -198,7 +202,7 @@ export default function FairPage() {
       setData({
         ...data,
         registration: res?.registration || registration,
-        actions: { canRegister: fair?.registrationOpen !== false, canWithdraw: false },
+        actions: { canRegister: fair?.registrationOpen !== false && Boolean(fair?.termsUrl), canWithdraw: false },
       });
     } catch (err) {
       setSubmitError(err?.data?.message || err?.message || "Nu am putut retrage înscrierea.");
@@ -315,7 +319,7 @@ export default function FairPage() {
 
           {status === "APPROVED" && (
             <p className={styles.muted}>
-              Pasul următor: adaugă mai jos produsele pe care le aduci sau le trimiți la târg și generează etichetele.
+              Pasul următor: adaugă mai jos produsele pe care le aduci sau le trimiți la târg. Etichetele le generăm și le aplicăm noi, la recepție.
             </p>
           )}
 
@@ -355,6 +359,17 @@ export default function FairPage() {
 
       {!registration && fair?.registrationOpen === false && (
         <p className={styles.muted}>Înscrierile pentru târg sunt închise.</p>
+      )}
+
+      {fair?.registrationOpen !== false && !fair?.termsUrl && (!registration || status === "WITHDRAWN") && (
+        // fără regulament publicat nu există ce accepta: înscrierea nu se poate trimite
+        <p className={styles.muted}>
+          Înscrierile se deschid după publicarea regulamentului târgului. Până atunci poți citi{" "}
+          <a href={FAIR_RULES_DRAFT_PATH} target="_blank" rel="noopener noreferrer">
+            draftul regulamentului
+          </a>{" "}
+          (nu este versiunea oficială).
+        </p>
       )}
 
       {submitError && !formOpen && (
@@ -532,9 +547,12 @@ export default function FairPage() {
             <span>
               Am citit și accept{" "}
               {fair?.termsUrl && fair?.termsVersion ? (
-                <a href={fair.termsUrl} target="_blank" rel="noopener noreferrer">
-                  Regulamentul și condițiile de participare la Târgul Artfest
-                </a>
+                <>
+                  <a href={fair.termsUrl} target="_blank" rel="noopener noreferrer">
+                    Regulamentul și condițiile de participare la Târgul Artfest
+                  </a>{" "}
+                  (versiunea {fair.termsVersion})
+                </>
               ) : (
                 "Regulamentul și condițiile de participare la Târgul Artfest"
               )}

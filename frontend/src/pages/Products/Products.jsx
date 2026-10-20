@@ -38,6 +38,8 @@ import {
   FaCamera,
 } from "react-icons/fa";
 import { useImageSearch } from "../../hooks/useImageSearch";
+import { trackAddToCart } from "../../../services/analytics.js";
+import FeaturedPicksSection from "../Home/FeaturedPicks/FeaturedPicks.jsx";
 // Încărcat dinamic doar când e nevoie (căutare vizuală) - fișierul
 // e mare (2000+ linii) și nu are ce căuta în bundle-ul inițial al
 // paginii Produse pentru un vizitator care nu folosește căutarea
@@ -1320,6 +1322,9 @@ if (requiresConfiguration) {
       }
 
       window.dispatchEvent(new CustomEvent("cart:changed"));
+
+      // GA4 add_to_cart / Meta AddToCart - doar după adăugarea reușită
+      trackAddToCart(product || { id: productId }, { quantity: 1 });
 
       toast.success("Produs adăugat în coș.");
     } catch (error) {
@@ -2627,6 +2632,19 @@ const clearImageSearch =
           </div>
         </div>
       )}
+
+      {/*
+       * Produsul zilei + Artizanul săptămânii (aceeași componentă și aceleași
+       * date ca pe homepage), varianta compactă - doar pe /produse „curat”
+       * (fără filtre/căutare/categorie, prima pagină), ca să nu încurce
+       * rezultatele unei căutări sau ale unei categorii.
+       */}
+      {!embedded &&
+        !forcedCategory &&
+        isCleanCategoryView &&
+        startPage <= 1 && (
+          <FeaturedPicksSection compact placement="products_featured_picks" />
+        )}
 
       {loading ? (
         <ProductsSkeleton />

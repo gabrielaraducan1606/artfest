@@ -4,18 +4,29 @@
     <meta charset="UTF-8" />
 
     <!--
-      Google Consent Mode v2 - TREBUIE să ruleze înaintea containerului
-      GTM de mai jos (orice tag Google configurat în GTM - GA4, Google
-      Ads - citește starea de consimțământ din acest dataLayer chiar
-      de la inițializare, nu doar la evenimente ulterioare).
+      Google Consent Mode v2, mod BASIC - rulează înaintea oricărui tag.
+      GTM și Google Ads se încarcă abia după acord (artfestApplyConsentTags
+      mai jos); până atunci în dataLayer intră doar starea de consimțământ
+      și setări (fără evenimente - services/analytics.js nu trimite
+      evenimente GA4 fără acordul pentru statistici).
 
-      Implicit: tot refuzat (cea mai sigură stare posibilă înainte ca
-      utilizatorul să fi făcut vreo alegere). Starea reală (dacă
-      utilizatorul are deja o preferință salvată dintr-o vizită
-      anterioară) este aplicată imediat după, din React
-      (services/analytics.js -> syncGoogleConsentFromStorage(), apelat
-      din setupAnalyticsConsentListener()), și actualizată live la
-      fiecare schimbare din bannerul de cookie-uri.
+      Implicit: tot refuzat, CU EXCEPȚIA alegerii deja salvate de
+      utilizator într-o vizită anterioară (cheia cookie:consent:v1, aceeași
+      citire ca readConsent() din src/lib/cookieConsent.js). O aplicăm aici,
+      sincron, ÎNAINTEA GTM - altfel primul page_view (și gclid-ul din URL)
+      pleca drept „refuzat” până se încărca React. Fără alegere salvată sau
+      la orice eroare: totul refuzat. Schimbările live din banner vin din
+      services/analytics.js (consent update).
+
+      ads_data_redaction: cât timp ad_storage e refuzat, identificatorii de
+      click publicitar nu sunt trimiși în ping-uri.
+
+      traffic_type=internal: dispozitiv folosit de un administrator /
+      vânzător (marcaj pus de services/analytics.js -> setAnalyticsIdentity),
+      pentru filtrul „Internal traffic” din GA4.
+
+      debug_mode: pe orice domeniu în afară de artfest.ro (localhost,
+      preview-uri), ca evenimentele de test să poată fi separate în GA4.
 
       `gtag` de mai jos e un shim minimal (push în dataLayer) - NU
       încarcă gtag.js separat. GTM citește aceleași comenzi din
@@ -26,50 +37,104 @@
       window.dataLayer = window.dataLayer || [];
       function gtag(){ window.dataLayer.push(arguments); }
 
-      gtag('consent', 'default', {
-        'analytics_storage': 'denied',
-        'ad_storage': 'denied',
-        'ad_user_data': 'denied',
-        'ad_personalization': 'denied'
-      });
+      (function () {
+        var analytics = false;
+        var marketing = false;
+        var internal = false;
+
+        try {
+          var stored = JSON.parse(
+            window.localStorage.getItem('cookie:consent:v1') || 'null'
+          );
+          analytics = !!stored && stored.analytics === true;
+          marketing = !!stored && stored.marketing === true;
+        } catch (e) {
+          analytics = false;
+          marketing = false;
+        }
+
+        try {
+          internal =
+            window.localStorage.getItem('artfest:analytics-internal') === '1';
+        } catch (e) {
+          internal = false;
+        }
+
+        gtag('consent', 'default', {
+          'analytics_storage': analytics ? 'granted' : 'denied',
+          'ad_storage': marketing ? 'granted' : 'denied',
+          'ad_user_data': marketing ? 'granted' : 'denied',
+          'ad_personalization': marketing ? 'granted' : 'denied'
+        });
+
+        gtag('set', 'ads_data_redaction', true);
+
+        if (internal) {
+          gtag('set', { 'traffic_type': 'internal' });
+        }
+
+        var host = String(window.location.hostname || '').toLowerCase();
+        if (host !== 'artfest.ro' && host !== 'www.artfest.ro') {
+          gtag('set', { 'debug_mode': true });
+        }
+
+        /*
+         * CONSENT MODE BASIC: tagurile se încarcă DOAR după acord.
+         *   - Google Ads (gtag.js AW) - doar cu marketing acceptat;
+         *   - GTM (GA4 + TikTok) - doar cu statistici acceptate. TikTok din
+         *     GTM trebuie să ceară în plus ad_storage + ad_user_data (setare
+         *     manuală în GTM - vezi raportul).
+         * Idempotent: fiecare se încarcă cel mult o dată per pagină.
+         * Apelat aici (alegere salvată) și din services/analytics.js la
+         * fiecare schimbare din bannerul de cookie-uri.
+         */
+        var loaded = { ads: false, gtm: false };
+
+        function insertScript(src) {
+          var script = document.createElement('script');
+          script.async = true;
+          script.src = src;
+          var first = document.getElementsByTagName('script')[0];
+          if (first && first.parentNode) {
+            first.parentNode.insertBefore(script, first);
+          } else {
+            document.head.appendChild(script);
+          }
+        }
+
+        window.artfestApplyConsentTags = function (consent) {
+          if (consent && consent.marketing === true && !loaded.ads) {
+            loaded.ads = true;
+            insertScript('https://www.googletagmanager.com/gtag/js?id=AW-18196187164');
+            gtag('js', new Date());
+            gtag('config', 'AW-18196187164');
+          }
+
+          if (consent && consent.analytics === true && !loaded.gtm) {
+            loaded.gtm = true;
+            window.dataLayer.push({
+              'gtm.start': new Date().getTime(),
+              event: 'gtm.js'
+            });
+            insertScript('https://www.googletagmanager.com/gtm.js?id=GTM-TDR5N92F');
+          }
+
+          return { ads: loaded.ads, gtm: loaded.gtm };
+        };
+
+        window.artfestApplyConsentTags({
+          analytics: analytics,
+          marketing: marketing
+        });
+      })();
     </script>
     <!-- End Google Consent Mode default -->
 
     <!--
-      Google tag (gtag.js) - Google Ads AW-18196187164.
-      Încărcat DUPĂ consent default (totul refuzat) de mai sus, deci
-      tag-ul pornește în starea de consimțământ corectă. Folosește
-      același dataLayer/gtag ca GTM-ul de mai jos. Conversia de
-      cumpărare se trimite DOAR din pagina /multumim (services/analytics.js
-      -> trackPurchase), după confirmarea comenzii în backend.
+      Google Ads (gtag.js AW-18196187164) și Google Tag Manager NU mai sunt
+      încărcate necondiționat aici - vezi artfestApplyConsentTags() în
+      scriptul de mai sus (Consent Mode BASIC).
     -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-18196187164"></script>
-    <script>
-      gtag('js', new Date());
-      gtag('config', 'AW-18196187164');
-    </script>
-    <!-- End Google tag -->
-
-    <!-- Google Tag Manager -->
-    <script>
-      (function(w,d,s,l,i){
-        w[l]=w[l]||[];
-        w[l].push({
-          'gtm.start': new Date().getTime(),
-          event:'gtm.js'
-        });
-
-        var f=d.getElementsByTagName(s)[0],
-            j=d.createElement(s),
-            dl=l!='dataLayer'?'&l='+l:'';
-
-        j.async=true;
-        j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;
-
-        f.parentNode.insertBefore(j,f);
-      })(window,document,'script','dataLayer','GTM-TDR5N92F');
-    </script>
-    <!-- End Google Tag Manager -->
 
     <!-- 🔐 Maintenance / Access Guard -->
     <!--
@@ -174,16 +239,10 @@
   </head>
 
   <body>
-    <!-- Google Tag Manager (noscript) -->
-    <noscript>
-      <iframe
-        src="https://www.googletagmanager.com/ns.html?id=GTM-TDR5N92F"
-        height="0"
-        width="0"
-        style="display:none;visibility:hidden"
-      ></iframe>
-    </noscript>
-    <!-- End Google Tag Manager (noscript) -->
+    <!--
+      Fără iframe-ul GTM (noscript): fără JavaScript nu putem citi
+      consimțământul, iar aplicația oricum nu rulează fără JavaScript.
+    -->
 
     <noscript>
       Ai nevoie de JavaScript pentru a rula această aplicație.

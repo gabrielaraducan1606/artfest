@@ -2083,6 +2083,20 @@ trackAddToCart({
 
   quantity:
     qty,
+
+  /*
+   * Produs personalizat -> item_variant „personalizat” în GA4
+   * (fără textul personalizării, care poate conține date personale).
+   */
+  configurationKey:
+    [selectedOptions, customAnswers, repeatedGroupAnswers].some(
+      (value) =>
+        value &&
+        typeof value === "object" &&
+        Object.keys(value).length > 0
+    )
+      ? "configured"
+      : "default",
 });
 
 alert(

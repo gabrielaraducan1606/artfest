@@ -49,8 +49,14 @@ export function formatDateTime(value) {
  * cookie-ul de sesiune merge cu credentials. Erorile de la server (ex. preț
  * nesincronizat) sunt aruncate cu mesajul lor.
  */
-export async function downloadLabelsPdf(path, filename, fallbackMessage = "Nu am putut genera etichetele.") {
-  const res = await fetch(buildApiUrl(path), { credentials: "include" });
+export async function downloadLabelsPdf(path, filename, fallbackMessage = "Nu am putut genera etichetele.", { body } = {}) {
+  // cu body => POST JSON (ex. etichetele produselor selectate în Admin)
+  const res = await fetch(
+    buildApiUrl(path),
+    body === undefined
+      ? { credentials: "include" }
+      : { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+  );
 
   if (!res.ok) {
     let message = fallbackMessage;

@@ -27,6 +27,7 @@ import {
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { api } from "../../../../lib/api";
 import { addToGuestCart } from "../../../../utils/guestCart";
+import { trackAddToCart } from "../../../../../services/analytics.js";
 import { productPrefetchKey } from "../../../../lib/smartPrefetch";
 import {
   useSmartPrefetchItem,
@@ -714,10 +715,12 @@ const handleCart = useCallback(
           new CustomEvent("cart:changed")
         );
 
+        trackAddToCart(safe, { quantity: 1 });
         toast.success("Produs adăugat în coș.");
       } else {
         addToGuestCart(safe.id, 1);
 
+        trackAddToCart(safe, { quantity: 1 });
         toast.success("Produs adăugat în coș.");
       }
     } catch (err) {
@@ -734,11 +737,7 @@ const handleCart = useCallback(
     }
   },
   [
-    safe.id,
-    safe.orderMode,
-    safe.acceptsCustom,
-    safe.customSchema,
-    safe.repeatedGroups,
+    safe,
     isDisabled,
     isSoldOut,
     cartBusy,

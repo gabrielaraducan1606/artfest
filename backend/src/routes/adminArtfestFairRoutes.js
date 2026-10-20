@@ -12,6 +12,10 @@
 // Recepția inventarului (etapa 2):
 //   GET  /inventory?filter=&q=                 linii (toate / de recepționat / cu diferențe ...)
 //   GET  /inventory/by-barcode/:barcode         scanare (scaner USB 1D)
+//   GET  /inventory/:id/label.pdf                o etichetă 70 × 37 mm (reimprimare = același cod)
+//   GET  /inventory/labels.pdf?vendorId=&copies= etichetele unui vendor / ale târgului (A4 3 × 8)
+//   POST /inventory/labels.pdf                   { ids, copies: declared|received|one } - selecție
+//   Etichetele se generează DOAR din Admin (vendorii nu mai au acces).
 //   GET  /inventory/:id                          detaliu + jurnal de stoc
 //   POST /inventory/photos                       fotografii (R2) pentru refuz / deteriorare
 //   POST /inventory/:id/receive                  Idempotency-Key; receivedQty, rejectedQty, ...
@@ -104,7 +108,8 @@ import {
   recalculateSettlement,
   settlementCsv,
 } from "../services/artfestFairSettlementService.js";
-import { renderLabelSheetPdf, renderSingleLabelPdf } from "../lib/fairLabels.js";
+import { LABEL_COPY_MODES, applyLabelCopies, renderLabelSheetPdf, renderSingleLabelPdf } from "../lib/fairLabels.js";
+import { FairError } from "../services/artfestFairService.js";
 import { handleFair, sendFairRulesDraft } from "./artfestFairHttp.js";
 
 const router = Router();
@@ -559,15 +564,45 @@ function sendPdf(res, pdf, filename) {
   res.end(Buffer.from(pdf));
 }
 
+// câte etichete pe linie: declared (implicit) | received | one
+function labelCopyMode(value) {
+  const mode = value ? String(value) : "declared";
+  if (!LABEL_COPY_MODES.includes(mode)) {
+    throw new FairError(400, "invalid_copy_mode", "Alege câte etichete se imprimă pentru fiecare produs.");
+  }
+  return mode;
+}
+
+async function sendLabelSheet(req, res, items, mode, filename) {
+  const withCopies = applyLabelCopies(items, mode);
+  if (!withCopies.length) {
+    throw new FairError(409, "no_received_items", "Niciun produs selectat nu are bucăți recepționate.");
+  }
+  const { pdf } = await renderLabelSheetPdf(withCopies);
+  await markLabelsGenerated({ items: withCopies, userId: req.adminUser.id });
+  sendPdf(res, pdf, filename);
+}
+
 // ?vendorId= -> etichetele unui vendor; fără parametru -> toate etichetele târgului (A4 3 × 8)
+// ?copies=declared|received|one
 router.get(
   "/inventory/labels.pdf",
   handle(async (req, res) => {
     const vendorId = req.query.vendorId ? String(req.query.vendorId) : null;
+    const mode = labelCopyMode(req.query.copies);
     const items = await getAdminLabelItems({ vendorId });
-    const { pdf } = await renderLabelSheetPdf(items);
-    await markLabelsGenerated({ items, userId: req.adminUser.id });
-    sendPdf(res, pdf, vendorId ? "etichete-vendor-targ-artfest.pdf" : "etichete-targ-artfest.pdf");
+    await sendLabelSheet(req, res, items, mode, vendorId ? "etichete-vendor-targ-artfest.pdf" : "etichete-targ-artfest.pdf");
+  })
+);
+
+// produsele selectate în Admin -> Etichete: { ids: [...], copies? } (A4 3 × 8).
+// Reimprimarea folosește codurile existente; nu se generează coduri noi.
+router.post(
+  "/inventory/labels.pdf",
+  handle(async (req, res) => {
+    const mode = labelCopyMode(req.body?.copies);
+    const items = await getAdminLabelItems({ ids: Array.isArray(req.body?.ids) ? req.body.ids : [] });
+    await sendLabelSheet(req, res, items, mode, "etichete-selectate-targ-artfest.pdf");
   })
 );
 

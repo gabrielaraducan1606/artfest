@@ -133,17 +133,23 @@ export async function createPaymentForOrder(
   );
 }
 
+  /*
+   * Succes (user și guest): pagina de confirmare /multumim - singura
+   * care raportează achiziția (GA4 / Google Ads / Meta), o singură dată
+   * per comandă și DOAR după ce backend-ul confirmă plata (PAID/paidAt).
+   * Anularea rămâne pe pagina comenzii, unde există „Achită acum”.
+   */
 if (isGuestOrder)  {
     /*
-     * Guest:
-     * după Stripe ajunge direct
-     * la pagina publică a comenzii.
+     * Guest: tokenul de acces (sau paymentToken-ul din reminder) merge
+     * mai departe, ca /multumim să poată citi comanda fără cont.
      */
     successUrl =
-      `${appUrl}/comanda-guest/${encodeURIComponent(
+      `${appUrl}/multumim` +
+      `?order=${encodeURIComponent(
         order.id
       )}` +
-      `?${guestReturnTokenParam}=${encodeURIComponent(
+      `&${guestReturnTokenParam}=${encodeURIComponent(
         guestReturnToken
       )}` +
       `&payment=success`;
@@ -161,10 +167,11 @@ if (isGuestOrder)  {
      * User autentificat.
      */
     successUrl =
-      `${appUrl}/comanda/${encodeURIComponent(
+      `${appUrl}/multumim` +
+      `?order=${encodeURIComponent(
         order.id
       )}` +
-      `?payment=success`;
+      `&payment=success`;
 
     cancelUrl =
       `${appUrl}/comanda/${encodeURIComponent(

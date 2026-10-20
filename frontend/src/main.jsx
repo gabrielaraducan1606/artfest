@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 
 import App from "./App";
 import AuthProvider from "./pages/Auth/Context/AuthProvider";
+import AnalyticsIdentity from "./components/Analytics/AnalyticsIdentity.jsx";
 
 import {
   setupAnalyticsConsentListener,
@@ -67,6 +68,8 @@ const isProd =
 
 const tree = (
   <AuthProvider>
+    {/* rol ne-personal + trafic intern (admin/vendor) pentru GA4 */}
+    <AnalyticsIdentity />
     <App />
   </AuthProvider>
 );

@@ -1437,3 +1437,51 @@ test("REG influencer: QUOTE_ONLY cerut prin ?ref= influencer -> snapshot pe cere
   assert.equal(earnings.length, 1);
   assert.ok(near(earnings[0].earningNet, 7.5));
 });
+
+/* =========================================================
+   ETAPA 1 Colecții: includerea în colecție NU atribuie singură vânzări
+========================================================= */
+
+test("produs în colecția lui A, comandă FĂRĂ navigare prin colecție -> fără referral, fără own-sale din colecție, fără snapshot", async () => {
+  // a1 (propriu) și b1 (alt magazin) sunt în colecția lui A, dar clientul
+  // vine direct, fără vendorCollectionSlugs / token de colecție
+  const res = await placeGuest({ items: items("a1", "b1") });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  const a = byVendor("vendor-a");
+  const b = byVendor("vendor-b");
+  assert.equal(a.vendorReferralCommissionOverrideBps ?? null, null, "fără own-sale 5% doar pentru că a1 e în colecție");
+  assert.equal(b.referrerVendorId ?? null, null, "A nu primește referral pe b1");
+  assert.equal(b.referrerVendorReferralCodeSnapshot ?? null, null);
+  assert.deepEqual(snap(a), { a1: null });
+  assert.deepEqual(snap(b), { b1: null });
+
+  await deliverAndBook(3);
+  assert.equal(referralOf(b).length, 0, "niciun VendorReferralEarningEntry");
+  assert.equal((db.__tables.vendorReferralEarningEntry || []).length, 0);
+});
+
+test("colecție mare (300 de produse, adăugate în lot): checkout atribuie doar itemii din coș veniți prin colecție", async () => {
+  // umplem colecția până la noua limită cu produse care NU sunt în coș
+  for (let i = db.__tables.vendorCollectionItem.length; i < 300; i += 1) {
+    db.__tables.vendorCollectionItem.push({ collectionId: "vcol-a", productId: `bulk-${i}`, position: i });
+  }
+  assert.equal(db.__tables.vendorCollectionItem.length, 300);
+
+  // prin colecție: b1 (în colecție) -> referral doar din b1, b2 (în afară) nu
+  const viaCollection = await placeGuest({ items: items("b1", "b2"), vendorCollectionSlugs: vcol() });
+  assert.equal(viaCollection.status, 200, JSON.stringify(viaCollection.body));
+  const s = byVendor("vendor-b");
+  assert.equal(s.referrerVendorId, "vendor-a");
+  assert.deepEqual(snap(s), { b1: "vcol-a", b2: null });
+
+  // aceeași colecție mare, comandă directă -> nimic atribuit
+  seed();
+  for (let i = db.__tables.vendorCollectionItem.length; i < 300; i += 1) {
+    db.__tables.vendorCollectionItem.push({ collectionId: "vcol-a", productId: `bulk-${i}`, position: i });
+  }
+  const direct = await placeGuest({ items: items("b1") });
+  assert.equal(direct.status, 200);
+  assert.equal(byVendor("vendor-b").referrerVendorId ?? null, null);
+  assert.deepEqual(snap(byVendor("vendor-b")), { b1: null });
+});

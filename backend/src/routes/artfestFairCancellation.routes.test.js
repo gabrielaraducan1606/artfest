@@ -101,6 +101,9 @@ beforeEach(async () => {
       key: "CHRISTMAS_FAIR_BUZAU_2026",
       title: "Târg",
       registrationOpen: true,
+      // regulament publicat și legat (înscrierea îl cere)
+      termsVersion: "1.1.0",
+      termsUrl: "/targ-artfest/regulament/v1.1.0",
       inventoryDeadlineAt: new Date(Date.now() + 5 * DAY),
       endsAt: new Date(Date.now() + 9 * DAY),
     },
@@ -238,6 +241,7 @@ test("înscrierea, retragerea și reînscrierea scriu evenimente SUBMITTED / WIT
       productTypes: ["ceramică"],
       estimatedProductCount: 5,
       termsAccepted: true,
+      termsVersion: "1.1.0",
     },
   });
   assert.equal(again.status, 201);
@@ -456,7 +460,7 @@ test("CANCELLED e final: nu se mai aprobă, vendorul nu se reînscrie, nu mai tr
 
   const again = await call("POST", `${VEN}/registration`, {
     as: ctx.v1,
-    body: { participationType: "PARTICIPARE_FIZICA", contactName: "Ana", contactPhone: "0722123456", contactEmail: "a@t.ro", productTypes: ["x"], estimatedProductCount: 2, termsAccepted: true },
+    body: { participationType: "PARTICIPARE_FIZICA", contactName: "Ana", contactPhone: "0722123456", contactEmail: "a@t.ro", productTypes: ["x"], estimatedProductCount: 2, termsAccepted: true, termsVersion: "1.1.0" },
   });
   assert.equal(again.status, 409);
   assert.equal(again.body.error, "registration_cancelled");

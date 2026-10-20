@@ -152,7 +152,24 @@ ${pages.map((page) => `<div class="sheet">${page}</div>`).join("\n")}
 </html>`;
 }
 
-// o etichetă pentru fiecare bucată declarată
+/*
+ * Câte etichete pe linie (Admin): "declared" = una pe bucată declarată (implicit),
+ * "received" = una pe bucată recepționată (doar liniile recepționate), "one" = una
+ * pe produs. Codul de bare e mereu cel existent al liniei - nu se generează coduri noi.
+ */
+export const LABEL_COPY_MODES = Object.freeze(["declared", "received", "one"]);
+
+export function applyLabelCopies(items, mode = "declared") {
+  if (mode === "one") return items.map((item) => ({ ...item, labelCopies: 1 }));
+  if (mode === "received") {
+    return items
+      .filter((item) => item.status === "RECEIVED" && (item.receivedQty || 0) > 0)
+      .map((item) => ({ ...item, labelCopies: item.receivedQty }));
+  }
+  return items.map((item) => ({ ...item, labelCopies: item.declaredQty }));
+}
+
+// o etichetă pentru fiecare bucată declarată (sau labelCopies, dacă e setat)
 export function expandLabelCopies(items) {
   const labels = [];
   for (const item of items) {
@@ -163,7 +180,8 @@ export function expandLabelCopies(items) {
       priceCents: item.priceSnapshotCents,
       barcode: item.barcode,
     };
-    for (let i = 0; i < Math.max(1, item.declaredQty || 0); i += 1) labels.push(label);
+    const copies = item.labelCopies ?? item.declaredQty;
+    for (let i = 0; i < Math.max(1, copies || 0); i += 1) labels.push(label);
   }
   return labels;
 }

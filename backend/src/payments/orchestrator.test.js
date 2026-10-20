@@ -233,7 +233,29 @@ test("comandă fără shipments -> verificarea Stripe nu blochează", async () =
    guestReturnToken (paymentToken din reminder-ul de plată)
 ========================================================= */
 
-test("guest, doar guestAccessToken (comportament EXISTENT, neschimbat): success/cancel URL cu ?token=", async () => {
+test("user autentificat: success -> /multumim?order=… (raportare achiziție), cancel -> pagina comenzii", async () => {
+  fakeDb.__setShipments([{ orderId: "order-user-1", vendorId: "vendor-a" }]);
+  fakeDb.__setVendors([readyVendor("vendor-a")]);
+
+  await createPaymentForOrder({
+    id: "order-user-1",
+    total: 100,
+    currency: "RON",
+    userId: "user-1",
+  });
+
+  assert.equal(
+    lastSessionCreateArgs.success_url,
+    "https://app.test/multumim?order=order-user-1&payment=success"
+  );
+
+  assert.equal(
+    lastSessionCreateArgs.cancel_url,
+    "https://app.test/comanda/order-user-1?payment=cancelled"
+  );
+});
+
+test("guest, doar guestAccessToken: success -> /multumim cu ?token=, cancel -> pagina publică a comenzii", async () => {
   fakeDb.__setShipments([{ orderId: "order-guest-1", vendorId: "vendor-a" }]);
   fakeDb.__setVendors([readyVendor("vendor-a")]);
 
@@ -247,7 +269,7 @@ test("guest, doar guestAccessToken (comportament EXISTENT, neschimbat): success/
 
   assert.equal(
     lastSessionCreateArgs.success_url,
-    "https://app.test/comanda-guest/order-guest-1?token=plain-guest-token&payment=success"
+    "https://app.test/multumim?order=order-guest-1&token=plain-guest-token&payment=success"
   );
 
   assert.equal(
@@ -256,7 +278,7 @@ test("guest, doar guestAccessToken (comportament EXISTENT, neschimbat): success/
   );
 });
 
-test("guest, cu guestReturnToken + guestReturnTokenParam=paymentToken (reminder plată): success/cancel URL cu ?paymentToken=", async () => {
+test("guest, cu guestReturnToken + guestReturnTokenParam=paymentToken (reminder plată): /multumim și cancel cu ?paymentToken=", async () => {
   fakeDb.__setShipments([{ orderId: "order-guest-2", vendorId: "vendor-a" }]);
   fakeDb.__setVendors([readyVendor("vendor-a")]);
 
@@ -271,7 +293,7 @@ test("guest, cu guestReturnToken + guestReturnTokenParam=paymentToken (reminder 
 
   assert.equal(
     lastSessionCreateArgs.success_url,
-    "https://app.test/comanda-guest/order-guest-2?paymentToken=jwt-payment-token&payment=success"
+    "https://app.test/multumim?order=order-guest-2&paymentToken=jwt-payment-token&payment=success"
   );
 
   assert.equal(

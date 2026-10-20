@@ -134,14 +134,15 @@ let seq = 0;
 const sale = (lines, paymentMethod, now) =>
   pos.createSale({ body: { lines, paymentMethod }, idempotencyKey: `rep-key-${++seq}-abcdef`, adminId: ctx.admin.id, now });
 
-async function call(method, path, { as } = {}) {
+async function call(method, path, { as, body } = {}) {
   const headers = {};
   if (as) headers["x-test-user"] = as.id;
-  const res = await fetch(`${base}${path}`, { method, headers });
+  if (body !== undefined) headers["content-type"] = "application/json";
+  const res = await fetch(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await res.text();
-  let body = null;
-  try { body = JSON.parse(text); } catch { body = null; }
-  return { status: res.status, body, text, type: res.headers.get("content-type") };
+  let data = null;
+  try { data = JSON.parse(text); } catch { data = null; }
+  return { status: res.status, body: data, text, type: res.headers.get("content-type") };
 }
 
 // ziua de test: 20 dec. 2026, ora României (UTC+2)
@@ -373,4 +374,105 @@ test("Admin: linie din alt târg / DRAFT / participare anulată => fără etiche
   // în etichetele târgului nu intră liniile participării anulate
   await call("GET", "/api/admin/artfest-fair/inventory/labels.pdf", { as: ctx.admin });
   assert.equal(renderedHtml.at(-1).includes("Cană B"), false);
+});
+
+/* ============================== etichete: selecție din Admin ============================== */
+
+const LABELS = "/api/admin/artfest-fair/inventory/labels.pdf";
+const labelCount = (html) => (html.match(/class="label"/g) || []).length;
+const row = (id) => fake.tables.artfestFairInventoryItem.find((l) => l.id === id);
+
+test("Admin: etichete pentru produsele selectate - pe bucată declarată / recepționată / una pe produs, același cod", async () => {
+  Object.assign(row(ctx.lA1.id), { receivedQty: 6, availableQty: 6 }); // declarat 10, primit 6
+  Object.assign(row(ctx.lA2.id), { status: "SUBMITTED", receivedQty: 0, availableQty: 0 }); // încă nerecepționat
+  const codes = fake.tables.artfestFairInventoryItem.map((l) => [l.id, l.barcode]);
+
+  const declared = await call("POST", LABELS, { as: ctx.admin, body: { ids: [ctx.lA1.id, ctx.lB1.id] } });
+  assert.equal(declared.status, 200);
+  assert.match(declared.type, /application\/pdf/);
+  let html = renderedHtml.at(-1);
+  assert.equal(labelCount(html), 20); // 10 + 10
+  assert.ok(html.includes("Glob A") && html.includes("Cană B"));
+  assert.equal(html.includes("Felicitare C") || html.includes("Lumânare A"), false);
+  assert.ok(html.includes(labels.formatLabelCode(ctx.lA1.barcode)));
+
+  const received = await call("POST", LABELS, { as: ctx.admin, body: { ids: [ctx.lA1.id, ctx.lA2.id], copies: "received" } });
+  assert.equal(received.status, 200);
+  html = renderedHtml.at(-1);
+  assert.equal(labelCount(html), 6); // doar bucățile recepționate; A2 nerecepționat nu intră
+  assert.equal(html.includes("Lumânare A"), false);
+  const event = fake.tables.artfestFairInventoryEvent.filter((e) => e.inventoryItemId === ctx.lA1.id && e.type === "LABEL_GENERATED").at(-1);
+  assert.equal(event.after.copies, 6);
+  assert.equal(event.actorUserId, ctx.admin.id);
+
+  const one = await call("POST", LABELS, { as: ctx.admin, body: { ids: [ctx.lA1.id, ctx.lA2.id, ctx.lB1.id], copies: "one" } });
+  assert.equal(one.status, 200);
+  assert.equal(labelCount(renderedHtml.at(-1)), 3);
+
+  // etichetele pe vendor / târg acceptă aceleași moduri
+  await call("GET", `${LABELS}?vendorId=${ctx.vA.id}&copies=received`, { as: ctx.admin });
+  assert.equal(labelCount(renderedHtml.at(-1)), 6);
+
+  // doar produse nerecepționate + "received" => nimic de imprimat
+  const none = await call("POST", LABELS, { as: ctx.admin, body: { ids: [ctx.lA2.id], copies: "received" } });
+  assert.equal(none.status, 409);
+  assert.equal(none.body.error, "no_received_items");
+
+  // reimprimarea nu schimbă niciun cod și nu atinge stocul
+  for (const [id, code] of codes) assert.equal(row(id).barcode, code);
+  assert.equal(row(ctx.lA1.id).availableQty, 6);
+  assert.equal(row(ctx.lA1.id).soldQty || 0, 0);
+  assert.equal(fake.tables.artfestFairStockMovement.filter((m) => m.type === "SOLD").length, 0);
+});
+
+test("Admin: selecție invalidă => niciun PDF; doar adminul poate genera", async () => {
+  const before = renderedHtml.length;
+  const post = (body, as = ctx.admin) => call("POST", LABELS, { as, body });
+
+  assert.equal((await post({ ids: [] })).status, 400);
+  assert.equal((await post({})).status, 400);
+  assert.equal((await post({ ids: [ctx.lA1.id], copies: "toate" })).body.error, "invalid_copy_mode");
+  assert.equal((await post({ ids: Array.from({ length: 501 }, (_, i) => `x${i}`) })).body.error, "too_many_items");
+
+  const unknown = await post({ ids: [ctx.lA1.id, "nu-exista"] });
+  assert.equal(unknown.status, 409);
+  assert.equal(unknown.body.error, "label_items_invalid");
+  assert.deepEqual(unknown.body.problems, [{ id: "nu-exista" }]);
+
+  row(ctx.lA2.id).fairId = ctx.otherFair.id; // alt târg
+  assert.equal((await post({ ids: [ctx.lA2.id] })).status, 409);
+  row(ctx.lA2.id).fairId = ctx.fair.id;
+  row(ctx.lA2.id).status = "DRAFT";
+  assert.equal((await post({ ids: [ctx.lA2.id] })).status, 409);
+  row(ctx.lA2.id).status = "RECEIVED";
+
+  fake.tables.artfestFairRegistration.find((r) => r.vendorId === ctx.vB.id).status = "CANCELLED";
+  assert.equal((await post({ ids: [ctx.lA1.id, ctx.lB1.id] })).status, 409);
+
+  // preț nesincronizat înainte de termen => aceeași regulă ca la eticheta individuală
+  fake.tables.product.find((p) => p.id === ctx.pA1.id).priceCents = 5000;
+  assert.equal((await post({ ids: [ctx.lA1.id] })).body.error, "price_out_of_sync");
+
+  // vendor / utilizator fără rol de admin / neautentificat
+  assert.equal((await post({ ids: [ctx.lC1.id] }, ctx.u3)).status, 403);
+  assert.equal((await call("GET", `/api/admin/artfest-fair/inventory/${ctx.lC1.id}/label.pdf`, { as: ctx.u3 })).status, 403);
+  assert.equal((await call("POST", LABELS, { body: { ids: [ctx.lC1.id] } })).status, 401);
+
+  assert.equal(renderedHtml.length, before);
+});
+
+test("Scanarea după etichetare identifică linia și nu modifică stocul; doar vânzarea confirmată îl scade", async () => {
+  await call("POST", LABELS, { as: ctx.admin, body: { ids: [ctx.lC1.id], copies: "one" } });
+  const scanned = await call("GET", `/api/admin/artfest-fair/pos/scan?barcode=${encodeURIComponent(labels.formatLabelCode(ctx.lC1.barcode))}`, { as: ctx.admin });
+  assert.equal(scanned.status, 200);
+  assert.equal(scanned.body.item.inventoryItemId, ctx.lC1.id);
+  assert.equal(scanned.body.item.sellable, true);
+  assert.equal(row(ctx.lC1.id).availableQty, 10);
+
+  const key = "scan-sale-key-abcdef-1";
+  await pos.createSale({ body: { lines: [{ inventoryItemId: ctx.lC1.id, quantity: 1 }], paymentMethod: "CASH" }, idempotencyKey: key, adminId: ctx.admin.id });
+  // același Idempotency-Key (dublu click / retry) => stocul scade o singură dată
+  await pos.createSale({ body: { lines: [{ inventoryItemId: ctx.lC1.id, quantity: 1 }], paymentMethod: "CASH" }, idempotencyKey: key, adminId: ctx.admin.id });
+  assert.equal(row(ctx.lC1.id).availableQty, 9);
+  assert.equal(row(ctx.lC1.id).soldQty, 1);
 });

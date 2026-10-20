@@ -15,6 +15,7 @@ const PAGE_SIZE = 25;
 
 const SCOPE_LABELS = {
   ALL_PRODUCTS: "Toate produsele Artfest eligibile",
+  VENDOR_ALL_PRODUCTS: "Toate produsele vendorului",
   VENDOR_COLLECTION: "O colecție a vendorului",
   SELECTED_PRODUCTS: "Produse selectate",
   INFLUENCER_COLLECTION: "Colecție influencer",
@@ -269,6 +270,8 @@ export default function AdminVendorDiscountCodesTab() {
           <option value="">Orice scope</option>
           <option value="ALL_PRODUCTS">Toate produsele</option>
           <option value="VENDOR_COLLECTION">Colecție vendor</option>
+          <option value="VENDOR_ALL_PRODUCTS">Toate produsele vendorului</option>
+          <option value="SELECTED_PRODUCTS">Produse selectate</option>
         </select>
 
         <button

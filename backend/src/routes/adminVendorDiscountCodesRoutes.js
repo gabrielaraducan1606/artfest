@@ -153,7 +153,9 @@ function serializeListRow(discountCode, stats = null) {
     promotionMode:
       discountCode.scope === "VENDOR_ALL_PRODUCTS"
         ? "OWN_PRODUCTS"
-        : "ALL_ARTFEST",
+        : discountCode.scope === "SELECTED_PRODUCTS"
+          ? "SELECTED_PRODUCTS"
+          : "ALL_ARTFEST",
 
     totalDiscountPercent: discountCode.discountPercent,
     artfestDiscountPercent,

@@ -9,14 +9,35 @@
 // (ex. /produs/abc?vcol=septembrie - ?vcol= e recapturat după reload de
 // InfluencerAttributionCapture.jsx).
 //
-// Ex. acceptate: /  /cereri/123  /produs/abc#recenzii  /produs/abc?vcol=x
-// Respinse: //evil.com  https://evil.com  ""
+// Ex. acceptate: /cereri/123  /produs/abc#recenzii  /produs/abc?vcol=x
+//                /?action=create-customer-request#cereri-clienti
+// Respinse: //evil.com  https://evil.com  /\evil.com  ""
+// Ignorat: "/" simplu (prima pagină, fără query / hash) - nu e un flow de
+// continuat, deci după login se folosește dashboard-ul rolului.
+
+// backslash-ul e tratat de browser ca "/" (/\evil.com -> //evil.com); caracterele
+// de control (tab / newline) sunt eliminate de browser din URL -> ambele refuzate
+function hasUnsafeRedirectChars(value) {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code === 92 /* \ */ || code < 32 || code === 127) return true;
+  }
+  return false;
+}
+
+const HOME_ONLY = new Set(["/", "/?", "/#", "/?#"]);
 
 export function getSafeLoginRedirect(search) {
   try {
     const requestedRedirect = new URLSearchParams(search || "").get("redirect");
 
-    if (requestedRedirect && requestedRedirect.startsWith("/") && !requestedRedirect.startsWith("//")) {
+    if (
+      requestedRedirect &&
+      requestedRedirect.startsWith("/") &&
+      !requestedRedirect.startsWith("//") &&
+      !hasUnsafeRedirectChars(requestedRedirect) &&
+      !HOME_ONLY.has(requestedRedirect)
+    ) {
       return requestedRedirect;
     }
 

@@ -598,6 +598,8 @@ export default function Navbar() {
   const [burgerOpen, setBurgerOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState("login");
+  // true doar când modalul e deschis de un flow (?auth=login&redirect=...), nu de un buton generic
+  const [authOpenedByFlow, setAuthOpenedByFlow] = useState(false);
   const [partnerOpen, setPartnerOpen] = useState(false);
 
   /*
@@ -1103,15 +1105,25 @@ useEffect(() => {
     if (auth === "login" || auth === "register") {
       setAuthTab(auth);
       setAuthOpen(true);
+      setAuthOpenedByFlow(true);
       setPartnerOpen(false);
       return;
     }
   }, [location.search]);
 
+  // butoanele generice („Autentificare”, „Cont”, drawer): fără redirect contextual
+  const openGenericAuth = useCallback((tab = "login") => {
+    setAuthTab(tab);
+    setAuthOpenedByFlow(false);
+    setAuthOpen(true);
+  }, []);
+
   const clearAuthParams = useCallback(() => {
     const sp = new URLSearchParams(location.search);
     sp.delete("auth");
     sp.delete("as");
+    // redirect-ul aparține doar flow-ului abandonat: nu rămâne în URL pentru un login ulterior
+    sp.delete("redirect");
     const next = sp.toString();
     navigate(
       { pathname: location.pathname, search: next ? `?${next}` : "" },
@@ -1510,14 +1522,8 @@ const isAdminRoute = location.pathname.startsWith("/admin");
    * legate aici prin item.action, NU în config (care rămâne date pure).
    */
   const GUEST_ACTIONS = {
-    login: () => {
-      setAuthTab("login");
-      setAuthOpen(true);
-    },
-    register: () => {
-      setAuthTab("register");
-      setAuthOpen(true);
-    },
+    login: () => openGenericAuth("login"),
+    register: () => openGenericAuth("register"),
     partner: () => setPartnerOpen(true),
   };
 
@@ -1641,8 +1647,10 @@ const isAdminRoute = location.pathname.startsWith("/admin");
     me?.email ||
     "Admin";
 
-  // redirect contextual (?redirect=...) - sursă unică, vezi Auth/Login/loginRedirect.js
-  const loginRedirect = getSafeLoginRedirect(location.search);
+  // redirect contextual (?redirect=...) - sursă unică, vezi Auth/Login/loginRedirect.js.
+  // Folosit DOAR când modalul a fost deschis de un flow (?auth=login&redirect=...);
+  // butoanele generice „Autentificare” îl deschid fără redirect -> dashboard-ul rolului.
+  const loginRedirect = authOpenedByFlow ? getSafeLoginRedirect(location.search) : null;
 
   /* ================= NAVBAR SPECIAL PENTRU ADMIN ================= */
   if (isAdmin && isAdminRoute) {
@@ -2378,10 +2386,7 @@ const isAdminRoute = location.pathname.startsWith("/admin");
             <>
               <button
                 className={styles.authIconBtn}
-                onClick={() => {
-                  setAuthTab("login");
-                  setAuthOpen(true);
-                }}
+                onClick={() => openGenericAuth("login")}
                 aria-label="Autentificare"
                 title="Autentificare"
                 type="button"
@@ -2806,8 +2811,7 @@ const isAdminRoute = location.pathname.startsWith("/admin");
         unreadNotif={unreadNotif}
         cartCount={cartCount}
         onOpenAuth={(tab = "login") => {
-          setAuthTab(tab);
-          setAuthOpen(true);
+          openGenericAuth(tab);
           setPartnerOpen(false);
         }}
       />

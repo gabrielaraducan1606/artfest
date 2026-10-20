@@ -12,6 +12,9 @@ import { SEO } from "../../components/Seo/SeoProvider";
 import styles from "../Products/Products.module.css";
 import own from "./PublicVendorCollectionPage.module.css";
 
+// câte produse se randează la început / la fiecare „Vezi mai multe”
+const PRODUCTS_STEP = 48;
+
 /*
  * Pagina publică minimă a unei VendorCollection (/colectie-vendor/:slug).
  *
@@ -33,6 +36,11 @@ export default function PublicVendorCollectionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [me, setMe] = useState(null);
+  /*
+   * O colecție poate avea până la 300 de produse alese + până la 200 proprii
+   * (allOwnProducts). Le randăm în pași, ca pagina să rămână rapidă pe mobil.
+   */
+  const [visibleCount, setVisibleCount] = useState(PRODUCTS_STEP);
 
   // viewMode pentru ProductCard ("user" vs "guest"), ca în PublicCampaignPage
   useEffect(() => {
@@ -100,7 +108,7 @@ export default function PublicVendorCollectionPage() {
 
   const productCards = useMemo(
     () =>
-      products.map((p) => {
+      products.slice(0, visibleCount).map((p) => {
         // sellerul REAL al produsului (poate fi alt magazin decât ownerul colecției)
         const sellerName =
           p?.service?.profile?.displayName || p?.service?.title || p?.service?.vendor?.displayName || null;
@@ -124,7 +132,7 @@ export default function PublicVendorCollectionPage() {
           </div>
         );
       }),
-    [products, viewMode, productLinkQuery]
+    [products, viewMode, productLinkQuery, visibleCount]
   );
 
   const canonical = `https://www.artfest.ro/colectie-vendor/${slug || ""}`;
@@ -197,7 +205,20 @@ export default function PublicVendorCollectionPage() {
       </header>
 
       {products.length ? (
-        <div className={styles.grid}>{productCards}</div>
+        <>
+          <div className={styles.grid}>{productCards}</div>
+          {products.length > visibleCount ? (
+            <div className={own.moreWrap}>
+              <button
+                type="button"
+                className={own.moreButton}
+                onClick={() => setVisibleCount((n) => n + PRODUCTS_STEP)}
+              >
+                Vezi mai multe produse ({products.length - visibleCount})
+              </button>
+            </div>
+          ) : null}
+        </>
       ) : (
         <p className={styles.emptyState}>Momentan nu există produse disponibile în această colecție.</p>
       )}

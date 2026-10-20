@@ -40,7 +40,8 @@ import {
 import { storeDiscountCodeAttribution } from "../../utils/discountCodeAttribution.js";
 import {
   trackAddToCart,
-  trackBeginCheckout,
+  trackRemoveFromCart,
+  trackViewCart,
 } from "../../../services/analytics.js";
 import styles from "./Cart.module.css";
 
@@ -841,6 +842,33 @@ availabilityMessage:
 
   const grandTotalAfterDiscount = Math.max(0, grandTotal - discountAmount);
 
+  /*
+   * GA4 view_cart - o singură dată per vizită pe pagina coșului, după
+   * prima încărcare cu produse (nu la fiecare modificare de cantitate).
+   */
+  const viewCartTrackedRef = useRef(false);
+
+  useEffect(() => {
+    if (loading || viewCartTrackedRef.current || !rows.length) return;
+    viewCartTrackedRef.current = true;
+    trackViewCart(rows, { value: grandTotal });
+  }, [loading, rows, grandTotal]);
+
+  /*
+   * Diferența de cantitate CONFIRMATĂ (server sau coș guest) ->
+   * add_to_cart / remove_from_cart cu exact unitățile modificate.
+   */
+  const trackQtyChange = useCallback((row, fromQty, toQty) => {
+    const delta = Number(toQty || 0) - Number(fromQty || 0);
+    if (!row || !delta) return;
+
+    if (delta > 0) {
+      trackAddToCart(row, { quantity: delta });
+    } else {
+      trackRemoveFromCart(row, { quantity: -delta });
+    }
+  }, []);
+
   const runDiscountCodeValidation = useCallback(
     async (rawCode) => {
       const code = String(rawCode || "").trim();
@@ -1002,6 +1030,7 @@ availabilityMessage:
       if (!me) {
         updateGuestCartItem(productId, configurationKey, safe);
         notifyCartChanged();
+        trackQtyChange(row, row?.qty, safe);
 
         if (safe !== qty) {
           alert(`Avem doar ${max} buc. disponibile momentan.`);
@@ -1023,8 +1052,11 @@ availabilityMessage:
             },
           });
 
+          let confirmedQty = safe;
+
           if (res?.item?.qty && Number(res.item.qty) !== safe) {
             const serverQty = Number(res.item.qty);
+            confirmedQty = serverQty;
 
             setRows((list) =>
               list.map((r) =>
@@ -1037,6 +1069,7 @@ availabilityMessage:
           }
 
           notifyCartChanged();
+          trackQtyChange(row, row?.qty, confirmedQty);
 
           if (safe !== qty) {
             alert(`Avem doar ${max} buc. disponibile momentan.`);
@@ -1049,7 +1082,7 @@ availabilityMessage:
         }
       });
     },
-    [rows, me, notifyCartChanged, withPending, announce]
+    [rows, me, notifyCartChanged, withPending, announce, trackQtyChange]
   );
 
   const inc = useCallback(
@@ -1067,10 +1100,7 @@ availabilityMessage:
         return;
       }
 
-      if (row?.product) {
-        trackAddToCart(row.product);
-      }
-
+      // add_to_cart se trimite din commitQty, DOAR după confirmare
       return commitQty(productId, configurationKey, current + 1);
     },
     [rows, commitQty]
@@ -1089,6 +1119,11 @@ availabilityMessage:
   const removeItem = useCallback(
     async (productId, configurationKey) => {
       const prev = rows.slice();
+      const removedRow = rows.find(
+        (r) =>
+          r.productId === productId &&
+          (r.configurationKey || "default") === configurationKey
+      );
 
       setRows((list) =>
         list.filter(
@@ -1103,6 +1138,7 @@ availabilityMessage:
       if (!me) {
         removeFromGuestCart(productId, configurationKey);
         notifyCartChanged();
+        trackRemoveFromCart(removedRow);
         announce("Produs eliminat.");
         return;
       }
@@ -1120,6 +1156,7 @@ availabilityMessage:
           });
 
           notifyCartChanged();
+          trackRemoveFromCart(removedRow);
           announce("Produs eliminat.");
         } catch {
           setRows(prev);
@@ -1154,6 +1191,7 @@ availabilityMessage:
         });
 
         notifyCartChanged();
+        trackRemoveFromCart(vendorRows);
         announce("Produsele magazinului au fost eliminate.");
         return;
       }
@@ -1175,6 +1213,7 @@ availabilityMessage:
         });
 
         notifyCartChanged();
+        trackRemoveFromCart(vendorRows);
         announce("Produsele magazinului au fost eliminate.");
       } catch {
         setRows(prev);
@@ -1193,6 +1232,7 @@ availabilityMessage:
     if (!me) {
       clearGuestCart();
       notifyCartChanged();
+      trackRemoveFromCart(prev);
       announce("Coș golit.");
       return;
     }
@@ -1213,6 +1253,7 @@ availabilityMessage:
       });
 
       notifyCartChanged();
+      trackRemoveFromCart(prev);
       announce("Coș golit.");
     } catch {
       setRows(prev);
@@ -1224,7 +1265,8 @@ const goCheckout = useCallback(() => {
     return;
   }
 
-  trackBeginCheckout(grandTotal);
+  // begin_checkout se trimite O SINGURĂ dată, din Checkout.jsx (cu produsele
+  // și totalul cu transport) - aici era dublat și fără produse.
 
   // referral-ul (?ref= / ?cref=) și campaniile (?camp=) active, din memorie,
   // rămân în URL, ca un refresh pe /checkout să nu le piardă - fără stocare pe terminal
@@ -1235,7 +1277,6 @@ const goCheckout = useCallback(() => {
 }, [
   hasOwnItems,
   hasUnavailableItems,
-  grandTotal,
   nav,
 ]);
 

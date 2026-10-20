@@ -3,6 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "../../lib/api";
 import {
+  trackAddPaymentInfo,
+  trackAddShippingInfo,
   trackBeginCheckout,
 } from "../../../services/analytics.js";
 import {
@@ -28,6 +30,16 @@ import {
 import { humanizeOptionValue } from "../../utils/optionLabels.js";
 import styles from "./Checkout.module.css";
 import TraderStatusNotice from "./TraderStatusNotice.jsx";
+import {
+  RO_COUNTIES_FALLBACK,
+  filterCounties,
+  getPaymentRecoveryPath,
+  isCardUnavailableError,
+  isValidRoPhone,
+  matchCounty,
+  normalizeRoPhone,
+  sanitizePhoneInput,
+} from "./checkoutForm.js";
 import { getGroupTraderStatus } from "../../utils/traderStatus.js";
 
 const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
@@ -57,7 +69,14 @@ const normalizeCui = (v = "") =>
     .replace(/[^A-Z0-9]/g, "")
     .trim();
 
-const isValidPhone = (v = "") => /^\d{10}$/.test(normalizeDigits(v));
+// acceptă și +40 / 0040 (autocompletare mobil) - vezi checkoutForm.js
+const isValidPhone = isValidRoPhone;
+
+const PHONE_INVALID_MESSAGE =
+  "Introdu un număr de telefon valid, de ex. 0712 345 678 sau +40 712 345 678.";
+
+const COUNTY_REQUIRED_MESSAGE =
+  "Alege județul din listă sau scrie-i numele complet (ex: Cluj).";
 
 const isValidEmail = (v = "") => {
   if (!v) return false;
@@ -159,11 +178,11 @@ function validateCheckoutForm({
     if (!normalizeText(shippingAddress.phone)) {
       errors.phone = "Completează numărul de telefon.";
     } else if (!isValidPhone(shippingAddress.phone)) {
-      errors.phone = "Numărul de telefon trebuie să conțină exact 10 cifre.";
+      errors.phone = PHONE_INVALID_MESSAGE;
     }
 
     if (!shippingAddress.county) {
-      errors.county = "Selectează județul din listă.";
+      errors.county = COUNTY_REQUIRED_MESSAGE;
     }
 
     if (!normalizeText(shippingAddress.city)) {
@@ -228,7 +247,7 @@ function validateCheckoutForm({
       errors.contactPhone = "Completează telefonul persoanei de contact.";
     } else if (!isValidPhone(contactPerson.phone)) {
       errors.contactPhone =
-        "Telefonul persoanei de contact trebuie să conțină exact 10 cifre.";
+        PHONE_INVALID_MESSAGE;
     }
 
     if (shipToDifferentAddress) {
@@ -249,11 +268,11 @@ function validateCheckoutForm({
       if (!normalizeText(shippingAddress.phone)) {
         errors.phone = "Completează numărul de telefon.";
       } else if (!isValidPhone(shippingAddress.phone)) {
-        errors.phone = "Numărul de telefon trebuie să conțină exact 10 cifre.";
+        errors.phone = PHONE_INVALID_MESSAGE;
       }
 
       if (!shippingAddress.county) {
-        errors.county = "Selectează județul din listă.";
+        errors.county = COUNTY_REQUIRED_MESSAGE;
       }
 
       if (!normalizeText(shippingAddress.city)) {
@@ -306,13 +325,13 @@ function validateSingleField({
         return "Completează numărul de telefon.";
       }
       if (!isValidPhone(shippingAddress.phone)) {
-        return "Numărul de telefon trebuie să conțină exact 10 cifre.";
+        return PHONE_INVALID_MESSAGE;
       }
       return "";
 
     case "county":
       if (!shippingAddress.county) {
-        return "Selectează județul din listă.";
+        return COUNTY_REQUIRED_MESSAGE;
       }
       return "";
 
@@ -399,7 +418,7 @@ function validateSingleField({
         return "Completează telefonul persoanei de contact.";
       }
       if (!isValidPhone(contactPerson.phone)) {
-        return "Telefonul persoanei de contact trebuie să conțină exact 10 cifre.";
+        return PHONE_INVALID_MESSAGE;
       }
       return "";
 
@@ -467,7 +486,9 @@ function focusFirstError(fieldErrors, fieldRefs) {
   const el = ref?.current;
 
   if (el && typeof el.focus === "function") {
-    el.focus();
+    el.focus({ preventScroll: true });
+    // pe mobil formularul e lung - aducem câmpul greșit în centrul ecranului
+    el.scrollIntoView?.({ behavior: "smooth", block: "center" });
   }
 }
 
@@ -696,12 +717,14 @@ const [me, setMe] = useState(null);
   const [countyInput, setCountyInput] = useState("");
   const [companyCountyInput, setCompanyCountyInput] = useState("");
 
+  const latestCountyStateRef = useRef({});
   const [showCountyDropdown, setShowCountyDropdown] = useState(false);
   const [showCompanyCountyDropdown, setShowCompanyCountyDropdown] =
     useState(false);
 
   const [fieldErrors, setFieldErrors] = useState({});
   const [activeStep, setActiveStep] = useState(1);
+  const checkoutStepsTrackedRef = useRef({ shipping: false, payment: false });
 const checkoutTrackedRef =
   useRef(false);
   const addressSectionRef = useRef(null);
@@ -772,41 +795,24 @@ const checkoutTrackedRef =
     };
   }, [previewImage]);
 
-  const filteredCounties = useMemo(() => {
-    if (!counties.length) return [];
+  // filtrare fără diacritice („iasi” găsește „Iași”)
+  const filteredCounties = useMemo(
+    () => filterCounties(counties, countyInput),
+    [counties, countyInput]
+  );
 
-    const q = countyInput.trim().toLowerCase();
+  const filteredCompanyCounties = useMemo(
+    () => filterCounties(counties, companyCountyInput),
+    [counties, companyCountyInput]
+  );
 
-    if (!q) {
-      return [...counties].sort((a, b) => a.name.localeCompare(b.name, "ro"));
-    }
-
-    return counties
-      .filter((c) => {
-        const name = c.name.toLowerCase();
-        const code = c.code.toLowerCase();
-        return name.includes(q) || code.includes(q);
-      })
-      .sort((a, b) => a.name.localeCompare(b.name, "ro"));
-  }, [counties, countyInput]);
-
-  const filteredCompanyCounties = useMemo(() => {
-    if (!counties.length) return [];
-
-    const q = companyCountyInput.trim().toLowerCase();
-
-    if (!q) {
-      return [...counties].sort((a, b) => a.name.localeCompare(b.name, "ro"));
-    }
-
-    return counties
-      .filter((c) => {
-        const name = c.name.toLowerCase();
-        const code = c.code.toLowerCase();
-        return name.includes(q) || code.includes(q);
-      })
-      .sort((a, b) => a.name.localeCompare(b.name, "ro"));
-  }, [counties, companyCountyInput]);
+  latestCountyStateRef.current = {
+    shippingCounty: shippingAddress.county,
+    companyCounty: billingCompany.county,
+    countyInput,
+    companyCountyInput,
+    counties,
+  };
 
   const serviceGroups = useMemo(() => {
     if (Array.isArray(groups) && groups.length > 0) return groups;
@@ -1113,6 +1119,122 @@ const checkoutTrackedRef =
       ...prev,
       [name]: value,
     }));
+  }
+
+  /*
+   * Județ tastat, dar neales din listă (frecvent pe mobil): îl potrivim
+   * automat (nume fără diacritice, cod, „Județul X”, prefix neambiguu).
+   * Rulează la blur și, obligatoriu, la trimitere - tap-ul pe buton vine
+   * înaintea blur-ului amânat, deci nu ne putem baza doar pe blur.
+   */
+  function commitCountyInput(kind) {
+    // ultima stare randată, nu closure-ul de la blur (rulează amânat)
+    const latest = latestCountyStateRef.current;
+    const isCompany = kind === "company";
+    const errorKey = isCompany ? "companyCounty" : "county";
+    const currentCode = isCompany
+      ? latest.companyCounty
+      : latest.shippingCounty;
+
+    if (currentCode) {
+      clearFieldError(errorKey);
+      return currentCode;
+    }
+
+    const input = isCompany ? latest.companyCountyInput : latest.countyInput;
+    const match = matchCounty(input, latest.counties);
+
+    if (match) {
+      if (isCompany) {
+        handleSelectCompanyCounty(match);
+      } else {
+        handleSelectShippingCounty(match);
+      }
+      return match.code;
+    }
+
+    setFieldError(
+      errorKey,
+      normalizeText(input)
+        ? `Nu am găsit județul „${normalizeText(input)}”. Alege-l din listă.`
+        : COUNTY_REQUIRED_MESSAGE
+    );
+    return "";
+  }
+
+  /*
+   * Starea efectivă a formularului la trimitere: județele tastate
+   * rezolvate și telefoanele normalizate (+40 / 0040 -> 07xxxxxxxx).
+   * Actualizăm și state-ul, ca utilizatorul să vadă valorile folosite.
+   */
+  function resolveFormForSubmit() {
+    const needsShippingAddress =
+      customerType === "PF" || shipToDifferentAddress;
+
+    const shippingCounty =
+      shippingAddress.county ||
+      (needsShippingAddress ? commitCountyInput("shipping") : "");
+    const companyCounty =
+      customerType === "PJ"
+        ? billingCompany.county || commitCountyInput("company")
+        : billingCompany.county;
+
+    const resolvedShipping = {
+      ...shippingAddress,
+      county: shippingCounty,
+      phone: normalizeRoPhone(shippingAddress.phone),
+    };
+    const resolvedBilling = { ...billingCompany, county: companyCounty };
+    const resolvedContact = {
+      ...contactPerson,
+      phone: normalizeRoPhone(contactPerson.phone),
+    };
+
+    if (resolvedShipping.phone !== shippingAddress.phone) {
+      updateShippingField("phone", resolvedShipping.phone);
+    }
+    if (resolvedContact.phone !== contactPerson.phone) {
+      updateContactField("phone", resolvedContact.phone);
+    }
+
+    return {
+      shippingAddress: resolvedShipping,
+      billingCompany: resolvedBilling,
+      contactPerson: resolvedContact,
+    };
+  }
+
+  function commitPhoneInput(kind) {
+    if (kind === "contact") {
+      const normalized = normalizeRoPhone(contactPerson.phone);
+      if (normalized !== contactPerson.phone) {
+        updateContactField("phone", normalized);
+      }
+      setFieldError(
+        "contactPhone",
+        validateSingleField({
+          fieldName: "contactPhone",
+          shippingAddress,
+          billingCompany,
+          contactPerson: { ...contactPerson, phone: normalized },
+        })
+      );
+      return;
+    }
+
+    const normalized = normalizeRoPhone(shippingAddress.phone);
+    if (normalized !== shippingAddress.phone) {
+      updateShippingField("phone", normalized);
+    }
+    setFieldError(
+      "phone",
+      validateSingleField({
+        fieldName: "phone",
+        shippingAddress: { ...shippingAddress, phone: normalized },
+        billingCompany,
+        contactPerson,
+      })
+    );
   }
 
   function updateBillingCompanyField(name, value) {
@@ -1979,11 +2101,16 @@ const removeDiscountCode = () => {
     api("/api/geo/ro/counties")
       .then((res) => {
         if (cancelled) return;
-        setCounties(Array.isArray(res?.items) ? res.items : []);
+        // fără județe comanda nu poate fi plasată - fallback pe lista locală
+        setCounties(
+          Array.isArray(res?.items) && res.items.length
+            ? res.items
+            : RO_COUNTIES_FALLBACK
+        );
       })
       .catch(() => {
         if (cancelled) return;
-        setCounties([]);
+        setCounties(RO_COUNTIES_FALLBACK);
       })
       .finally(() => {
         if (!cancelled) setCountiesLoading(false);
@@ -2096,6 +2223,9 @@ const removeDiscountCode = () => {
   };
 
   const goToStep2 = () => {
+    const { shippingAddress, billingCompany, contactPerson } =
+      resolveFormForSubmit();
+
     const { errors } = validateCheckoutForm({
       shippingAddress,
       billingCompany,
@@ -2120,6 +2250,7 @@ const removeDiscountCode = () => {
     }
 
     setError("");
+    trackShippingInfoOnce();
     setActiveStep(2);
     paymentSectionRef.current?.scrollIntoView({
       behavior: "smooth",
@@ -2127,8 +2258,41 @@ const removeDiscountCode = () => {
     });
   };
 
+  /*
+   * GA4 add_shipping_info / add_payment_info - o singură dată per vizită
+   * în checkout, DOAR după ce adresa a trecut validarea (pasul 2 sau
+   * plasarea). add_payment_info poartă metoda aleasă la plasare.
+   */
+  function trackShippingInfoOnce() {
+    if (checkoutStepsTrackedRef.current.shipping) return;
+    checkoutStepsTrackedRef.current.shipping = true;
+    trackAddShippingInfo(grandTotal, {
+      currency: currency || "RON",
+      items,
+    });
+  }
+
+  function trackPaymentInfoOnce() {
+    if (checkoutStepsTrackedRef.current.payment) return;
+    checkoutStepsTrackedRef.current.payment = true;
+    trackAddPaymentInfo(grandTotal, {
+      currency: currency || "RON",
+      items,
+      paymentType: paymentMethod,
+    });
+  }
+
   async function placeOrder() {
     if (placing) return;
+
+    /*
+     * Butonul NU mai e dezactivat pentru formular invalid - validăm aici,
+     * afișăm erorile sub câmpuri și ducem utilizatorul la primul câmp
+     * greșit. Valorile folosite mai jos sunt cele rezolvate (județ tastat
+     * potrivit automat, telefon normalizat), nu state-ul brut.
+     */
+    const { shippingAddress, billingCompany, contactPerson } =
+      resolveFormForSubmit();
 
     const { errors, formError } = validateCheckoutForm({
       shippingAddress,
@@ -2146,13 +2310,19 @@ const removeDiscountCode = () => {
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
+      const errorCount = Object.keys(errors).length;
       setError(
-        "Te rugăm să corectezi câmpurile incomplete sau completate greșit."
+        errorCount === 1
+          ? `Mai ai un câmp de corectat: ${Object.values(errors)[0]}`
+          : `Mai ai ${errorCount} câmpuri de completat sau corectat - le-am marcat mai sus.`
       );
       setActiveStep(1);
       focusFirstError(errors, fieldRefs);
       return;
     }
+
+    trackShippingInfoOnce();
+    trackPaymentInfoOnce();
 
     setPlacing(true);
     setError("");
@@ -2166,7 +2336,7 @@ const removeDiscountCode = () => {
               lastName: normalizeText(contactPerson.lastName),
               name: buildFullName(contactPerson),
               email: normalizeText(contactPerson.email),
-              phone: normalizeDigits(contactPerson.phone).slice(0, 10),
+              phone: normalizeRoPhone(contactPerson.phone),
             }
           : null;
 
@@ -2177,7 +2347,7 @@ const removeDiscountCode = () => {
               lastName: normalizeText(contactPerson.lastName),
               name: buildFullName(contactPerson),
               email: normalizeText(contactPerson.email),
-              phone: normalizeDigits(contactPerson.phone).slice(0, 10),
+              phone: normalizeRoPhone(contactPerson.phone),
               county: billingCompany.county,
               city: normalizeText(billingCompany.city),
               postalCode: normalizeText(billingCompany.postalCode),
@@ -2191,7 +2361,7 @@ const removeDiscountCode = () => {
               lastName: normalizeText(shippingAddress.lastName),
               name: buildFullName(shippingAddress),
               email: normalizeText(shippingAddress.email),
-              phone: normalizeDigits(shippingAddress.phone).slice(0, 10),
+              phone: normalizeRoPhone(shippingAddress.phone),
               city: normalizeText(shippingAddress.city),
               postalCode: normalizeText(shippingAddress.postalCode),
               street: normalizeText(shippingAddress.street),
@@ -2454,6 +2624,51 @@ if (me) {
   nav("/multumim");
 }
     } catch (e) {
+      /*
+       * Comanda A FOST creată, dar plata cu cardul nu a putut fi
+       * inițiată (backend-ul întoarce orderId). Coșul userului e deja
+       * golit pe server, iar o reîncercare din checkout ar da „Coșul este
+       * gol” (user) sau ar crea o comandă duplicat (guest). Ducem
+       * clientul la pagina comenzii, unde poate relua plata.
+       */
+      const recoveryPath = getPaymentRecoveryPath(e);
+
+      if (recoveryPath) {
+        if (!me) {
+          clearGuestCart();
+        }
+        clearStoredDiscountCode();
+        clearStoredDiscountCodeAttribution();
+
+        try {
+          sessionStorage.removeItem("cart:ui-cache:v1");
+          sessionStorage.removeItem("cart:ui-cache:v2");
+          window.dispatchEvent(new CustomEvent("cart:changed"));
+        } catch {
+          // ignore
+        }
+
+        alert(
+          "Comanda ta a fost înregistrată, dar plata online nu a putut fi pornită. Te ducem la comandă, de unde poți încerca din nou plata."
+        );
+        nav(recoveryPath, { replace: true });
+        return;
+      }
+
+      /*
+       * Vendorul nu (mai) are Stripe activ - verificat ÎNAINTE de
+       * crearea comenzii, coșul e intact. Trecem pe ramburs (efectul de
+       * mai sus comută automat metoda) și explicăm de ce.
+       */
+      if (isCardUnavailableError(e)) {
+        setCardPaymentAvailable(false);
+        setCardPaymentUnavailableReason(e?.data?.message || "");
+        setError(
+          "Plata cu cardul nu mai este disponibilă pentru această comandă. Am selectat plata ramburs - apasă din nou „Plasează comanda” pentru a continua."
+        );
+        return;
+      }
+
       if (e?.data?.discountCodeInvalid) {
         /*
          * Fail-CLOSED: codul a devenit invalid chiar acum
@@ -3042,17 +3257,17 @@ if (me) {
                       ref={phoneRef}
                       className={fieldErrors.phone ? styles.inputError : ""}
                       type="tel"
-                      inputMode="numeric"
-                      maxLength={10}
+                      inputMode="tel"
+                      autoComplete="tel"
                       value={shippingAddress.phone}
                       onChange={(e) => {
                         clearFieldError("phone");
                         updateShippingField(
                           "phone",
-                          normalizeDigits(e.target.value).slice(0, 10)
+                          sanitizePhoneInput(e.target.value)
                         );
                       }}
-                      onBlur={() => validateAndSetFieldError("phone")}
+                      onBlur={() => commitPhoneInput("shipping")}
                       placeholder="07xxxxxxxx"
                     />
                     {fieldErrors.phone && (
@@ -3084,7 +3299,7 @@ if (me) {
                           onFocus={() => setShowCountyDropdown(true)}
                           onBlur={() => {
                             setTimeout(() => setShowCountyDropdown(false), 150);
-                            setTimeout(() => validateAndSetFieldError("county"), 160);
+                            setTimeout(() => commitCountyInput("shipping"), 160);
                           }}
                           placeholder="Scrie numele județului..."
                           autoComplete="off"
@@ -3292,7 +3507,7 @@ if (me) {
                                 150
                               );
                               setTimeout(
-                                () => validateAndSetFieldError("companyCounty"),
+                                () => commitCountyInput("company"),
                                 160
                               );
                             }}
@@ -3486,17 +3701,17 @@ if (me) {
                           fieldErrors.contactPhone ? styles.inputError : ""
                         }
                         type="tel"
-                        inputMode="numeric"
-                        maxLength={10}
+                        inputMode="tel"
+                        autoComplete="tel"
                         value={contactPerson.phone}
                         onChange={(e) => {
                           clearFieldError("contactPhone");
                           updateContactField(
                             "phone",
-                            normalizeDigits(e.target.value).slice(0, 10)
+                            sanitizePhoneInput(e.target.value)
                           );
                         }}
-                        onBlur={() => validateAndSetFieldError("contactPhone")}
+                        onBlur={() => commitPhoneInput("contact")}
                         placeholder="07xxxxxxxx"
                       />
                       {fieldErrors.contactPhone && (
@@ -3605,17 +3820,17 @@ if (me) {
                               ref={phoneRef}
                               className={fieldErrors.phone ? styles.inputError : ""}
                               type="tel"
-                              inputMode="numeric"
-                              maxLength={10}
+                              inputMode="tel"
+                              autoComplete="tel"
                               value={shippingAddress.phone}
                               onChange={(e) => {
                                 clearFieldError("phone");
                                 updateShippingField(
                                   "phone",
-                                  normalizeDigits(e.target.value).slice(0, 10)
+                                  sanitizePhoneInput(e.target.value)
                                 );
                               }}
-                              onBlur={() => validateAndSetFieldError("phone")}
+                              onBlur={() => commitPhoneInput("shipping")}
                               placeholder="07xxxxxxxx"
                             />
                             {fieldErrors.phone && (
@@ -3653,7 +3868,7 @@ if (me) {
                                       150
                                     );
                                     setTimeout(
-                                      () => validateAndSetFieldError("county"),
+                                      () => commitCountyInput("shipping"),
                                       160
                                     );
                                   }}
@@ -4216,10 +4431,12 @@ if (me) {
                   : "Prețurile afișate pentru persoane fizice reprezintă prețul final."}
               </p>
 
+              {/* NU dezactivăm pentru formular invalid: click-ul rulează
+                  validarea și duce utilizatorul la câmpul greșit */}
               <button
                 className={styles.primaryBtn}
                 onClick={placeOrder}
-                disabled={placing || !isFormBasicallyValid}
+                disabled={placing || items.length === 0}
                 type="button"
               >
                 {placing
@@ -4229,9 +4446,17 @@ if (me) {
                   : "Plasează comanda"}
               </button>
 
-              {!isFormBasicallyValid && !placing && (
+              {/* eroarea și lângă buton - pe mobil alerta de sus nu se vede */}
+              {error && !placing && (
+                <p className={styles.fieldError} role="alert">
+                  {error}
+                </p>
+              )}
+
+              {!isFormBasicallyValid && !placing && !error && (
                 <p className={styles.helperText}>
-                  Completează câmpurile obligatorii marcate cu * pentru a continua.
+                  Câmpurile marcate cu * sunt obligatorii. Dacă lipsește ceva,
+                  îți arătăm exact ce la apăsarea butonului.
                 </p>
               )}
 

@@ -1046,11 +1046,14 @@ export async function getLabelItems({ vendorId, id = null, db = prisma, now = ne
  * Etichetele generate din Admin: aceleași linii / același generator / aceeași
  * regulă de preț ca la vendor, dar doar pentru liniile valide din inventarul
  * târgului activ (trimise sau recepționate, înscriere APPROVED).
- *   id        -> o linie;  vendorId -> toate liniile vendorului;  altfel -> tot târgul.
+ *   id        -> o linie;  ids -> liniile selectate (toate trebuie să fie valide);
+ *   vendorId  -> toate liniile vendorului;  altfel -> tot târgul.
  */
 const ADMIN_LABEL_STATUSES = ["SUBMITTED", "RECEIVED"];
+export const MAX_ADMIN_LABEL_SELECTION = 500;
 
-export async function getAdminLabelItems({ id = null, vendorId = null, db = prisma, now = new Date() } = {}) {
+export async function getAdminLabelItems({ id = null, ids = null, vendorId = null, db = prisma, now = new Date() } = {}) {
+  if (ids) return getSelectedAdminLabelItems({ ids, db, now });
   const base = await ensureFair(db);
   const fair = await db.artfestFair.findUnique({
     where: { id: base.id },
@@ -1092,6 +1095,47 @@ export async function getAdminLabelItems({ id = null, vendorId = null, db = pris
   return items;
 }
 
+// selecția din Admin: o linie invalidă (alt târg, ciornă, anulată, participare neaprobată)
+// oprește tot PDF-ul, ca adminul să nu imprime fără să știe un set incomplet
+async function getSelectedAdminLabelItems({ ids, db, now }) {
+  const wanted = [...new Set((Array.isArray(ids) ? ids : []).map((v) => String(v || "").trim()).filter(Boolean))];
+  if (!wanted.length) throw new FairError(400, "no_items_selected", "Alege cel puțin un produs.");
+  if (wanted.length > MAX_ADMIN_LABEL_SELECTION) {
+    throw new FairError(400, "too_many_items", `Poți genera etichete pentru cel mult ${MAX_ADMIN_LABEL_SELECTION} produse odată.`);
+  }
+
+  const base = await ensureFair(db);
+  const fair = await db.artfestFair.findUnique({
+    where: { id: base.id },
+    select: { id: true, inventoryDeadlineAt: true, endsAt: true },
+  });
+  const found = await db.artfestFairInventoryItem.findMany({
+    where: { id: { in: wanted }, fairId: fair.id, status: { in: ADMIN_LABEL_STATUSES } },
+  });
+  const registrationIds = [...new Set(found.map((i) => i.registrationId))];
+  const approved = new Set(
+    (registrationIds.length
+      ? await db.artfestFairRegistration.findMany({ where: { id: { in: registrationIds }, status: "APPROVED" }, select: { id: true } })
+      : []
+    ).map((r) => r.id)
+  );
+  const byId = new Map(found.filter((i) => approved.has(i.registrationId)).map((i) => [i.id, i]));
+  const invalid = wanted.filter((v) => !byId.has(v));
+  if (invalid.length) {
+    throw new FairError(409, "label_items_invalid", "Unele produse selectate nu mai sunt în inventarul valid al târgului. Reîncarcă lista.", {
+      problems: invalid.map((v) => ({ id: v })),
+    });
+  }
+
+  // ordinea din PDF: pe vendor, apoi în ordinea adăugării (ca la etichetele târgului)
+  const items = wanted
+    .map((v) => byId.get(v))
+    .sort((a, b) => String(a.vendorId).localeCompare(String(b.vendorId)) || new Date(a.createdAt) - new Date(b.createdAt));
+  const locked = deadlinePassed(fair, now) || fairEnded(fair, now);
+  assertLabelPriceFresh({ deadlinePassed: locked }, items, await itemsWithProducts(db, items));
+  return items;
+}
+
 export async function markLabelsGenerated({ items, userId, db = prisma, now = new Date() }) {
   for (const item of items) {
     await db.artfestFairInventoryItem.update({
@@ -1099,7 +1143,7 @@ export async function markLabelsGenerated({ items, userId, db = prisma, now = ne
       data: { labelPriceCents: item.priceSnapshotCents, labelGeneratedAt: now },
     });
     await writeEvent(db, item, "LABEL_GENERATED", {
-      after: { labelPriceCents: item.priceSnapshotCents, copies: item.declaredQty },
+      after: { labelPriceCents: item.priceSnapshotCents, copies: item.labelCopies ?? item.declaredQty },
       actorUserId: userId,
     });
   }

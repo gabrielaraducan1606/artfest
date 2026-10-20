@@ -443,6 +443,10 @@ export default function PopularProducts() {
   const [saved, setSaved] =
     useState({});
 
+  // true = nu sunt produse din ultima săptămână, arătăm cele mai recente
+  const [showingLatest, setShowingLatest] =
+    useState(false);
+
   const loadingRef =
     useRef(false);
 
@@ -552,8 +556,31 @@ export default function PopularProducts() {
             pageItems.length > 0 &&
             !reachedOlderProducts;
 
+          /*
+           * Fără produse din ultimele RECENT_DAYS zile, secțiunea dispărea
+           * complet de pe homepage. Acum arătăm cele mai recente produse
+           * (prima pagină a feed-ului), cu subtitlul adaptat.
+           */
+          const useLatestInstead =
+            nextPage === 1 &&
+            recentPage.length === 0 &&
+            sortedPage.length > 0;
+
+          const visiblePage =
+            useLatestInstead
+              ? sortedPage
+              : recentPage;
+
+          if (nextPage === 1) {
+            setShowingLatest(
+              useLatestInstead
+            );
+          }
+
           setHasMore(
-            canLoadMore
+            useLatestInstead
+              ? false
+              : canLoadMore
           );
 
           setSaved(
@@ -583,10 +610,10 @@ export default function PopularProducts() {
             (prev) => {
               const merged =
                 nextPage === 1
-                  ? recentPage
+                  ? visiblePage
                   : [
                       ...prev,
-                      ...recentPage,
+                      ...visiblePage,
                     ];
 
               return dedupeProducts(
@@ -1016,9 +1043,9 @@ export default function PopularProducts() {
               styles.subheading
             }
           >
-            Descoperă creațiile
-            noi adăugate în
-            ultima săptămână.
+            {showingLatest
+              ? "Cele mai recente creații adăugate pe Artfest."
+              : "Descoperă creațiile noi adăugate în ultima săptămână."}
           </p>
         </div>
 

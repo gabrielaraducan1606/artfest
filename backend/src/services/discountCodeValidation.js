@@ -119,6 +119,31 @@ async function resolveEligibleProductIds({
       },
       select: { productId: true },
     });
+
+    /*
+     * Protecție suplimentară STRICT pentru codurile create de vendori: un
+     * cod de vendor cu produse selectate nu reduce NICIODATĂ produsul altui
+     * magazin - nici dacă produsul a ajuns între timp la alt vendor. Se
+     * verifică vendorul REAL al produsului din coș (ca la VENDOR_ALL_PRODUCTS).
+     * Codurile PLATFORM / INFLUENCER rămân neschimbate.
+     */
+    if (discountCode.ownerType === "VENDOR") {
+      const vendorIdByProductId = new Map(
+        cartItems
+          .filter((it) => it.product?.id)
+          .map((it) => [it.product.id, it.product?.service?.vendorId || null])
+      );
+      return new Set(
+        links
+          .map((l) => l.productId)
+          .filter(
+            (productId) =>
+              discountCode.vendorId &&
+              String(vendorIdByProductId.get(productId) || "") === String(discountCode.vendorId)
+          )
+      );
+    }
+
     return new Set(links.map((l) => l.productId));
   }
 

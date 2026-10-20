@@ -377,7 +377,8 @@ test("getSafeLoginRedirect: respinge redirect-uri externe / lipsă", () => {
 });
 
 test("Navbar (modalul global) și /autentificare folosesc ACELAȘI helper -> <Login redirectTo>", () => {
-  assert.match(navbar, /const loginRedirect = getSafeLoginRedirect\(location\.search\);/);
+  // modalul folosește redirect-ul din URL doar când e deschis de un flow (vezi loginRedirect.test.js)
+  assert.match(navbar, /const loginRedirect = authOpenedByFlow \? getSafeLoginRedirect\(location\.search\) : null;/);
   assert.match(navbar, /redirectTo=\{loginRedirect\}/);
 
   assert.match(appSrc, /function LoginPage\(\) \{/);
@@ -648,10 +649,12 @@ test("link din email fără sesiune -> /autentificare?redirect=... -> după logi
   }
 });
 
-test("loginPathFor păstrează și hash-ul; fără location -> /", () => {
+test("loginPathFor păstrează și hash-ul; fără location -> fără redirect (dashboard-ul rolului)", () => {
   const url = loginPathFor({ pathname: "/cont/mesaje", search: "?threadId=a", hash: "#ultimul" });
   assert.equal(getSafeLoginRedirect(url.slice("/autentificare".length)), "/cont/mesaje?threadId=a#ultimul");
-  assert.equal(getSafeLoginRedirect(loginPathFor(undefined).slice("/autentificare".length)), "/");
+  // "/" simplu nu e un flow de continuat -> nu se mai trimite ca redirect
+  assert.equal(loginPathFor(undefined), "/autentificare");
+  assert.equal(getSafeLoginRedirect(loginPathFor(undefined).slice("/autentificare".length)), null);
 });
 
 test("isQuoteDeepLink: doar ?assistant=quote|vendor-quote cu quoteId", () => {

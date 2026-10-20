@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from "react";
 import styles from "./NewsletterModal.module.css";
+import { hasAnyDecision } from "../../../lib/cookieConsent.js";
+import {
+  getScrollRatio,
+  isAnyDialogVisible,
+  shouldOpenNewsletter,
+} from "./newsletterTrigger.js";
 
 const SEEN_KEY = "artfest_newsletter_modal_seen";
 const SUBSCRIBED_KEY = "artfest_newsletter_subscribed";
@@ -21,7 +27,47 @@ export default function NewsletterModal() {
 
   useEffect(() => {
     let alive = true;
-    let timer = null;
+    let stopTrigger = null;
+
+    /*
+     * Popup-ul NU mai apare la intrare (era la 0,9 s, peste primul
+     * ecran): așteptăm ca vizitatorul să fi explorat pagina - timp minim
+     * + scroll, după bannerul de cookie-uri, fără alt dialog deschis.
+     * Vezi newsletterTrigger.js.
+     */
+    function armEngagementTrigger() {
+      const startedAt = Date.now();
+
+      const check = () => {
+        if (!alive) return;
+
+        const shouldOpen = shouldOpenNewsletter({
+          elapsedMs: Date.now() - startedAt,
+          scrollRatio: getScrollRatio({
+            scrollY: window.scrollY,
+            innerHeight: window.innerHeight,
+            scrollHeight: document.documentElement.scrollHeight,
+          }),
+          consentDecided: hasAnyDecision(),
+          otherDialogOpen: isAnyDialogVisible(document),
+        });
+
+        if (shouldOpen) {
+          stop();
+          setOpen(true);
+        }
+      };
+
+      const intervalId = window.setInterval(check, 1000);
+      window.addEventListener("scroll", check, { passive: true });
+
+      function stop() {
+        window.clearInterval(intervalId);
+        window.removeEventListener("scroll", check);
+      }
+
+      stopTrigger = stop;
+    }
 
     async function initNewsletterModal() {
       try {
@@ -54,9 +100,10 @@ export default function NewsletterModal() {
               return;
             }
 
-            timer = setTimeout(() => {
-              if (alive) setOpen(true);
-            }, 900);
+            // ca la vizitatori: o singură dată, nu la fiecare vizită
+            if (!savedSeen) {
+              armEngagementTrigger();
+            }
 
             return;
           }
@@ -65,9 +112,7 @@ export default function NewsletterModal() {
         setIsLoggedIn(false);
 
         if (!savedSubscribed && !savedSeen) {
-          timer = setTimeout(() => {
-            if (alive) setOpen(true);
-          }, 900);
+          armEngagementTrigger();
         }
       } catch (err) {
         console.warn("Newsletter status check failed:", err);
@@ -76,9 +121,7 @@ export default function NewsletterModal() {
         const savedSeen = localStorage.getItem(SEEN_KEY) === "1";
 
         if (!savedSubscribed && !savedSeen) {
-          timer = setTimeout(() => {
-            if (alive) setOpen(true);
-          }, 900);
+          armEngagementTrigger();
         }
       }
     }
@@ -87,7 +130,7 @@ export default function NewsletterModal() {
 
     return () => {
       alive = false;
-      if (timer) clearTimeout(timer);
+      stopTrigger?.();
     };
   }, []);
 

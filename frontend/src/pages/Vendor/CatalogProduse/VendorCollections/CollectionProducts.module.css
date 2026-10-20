@@ -1,0 +1,1438 @@
+/* =========================================================
+   Editor colecții: selectorul de produse + produsele din colecție
+   (mobile-first; tokenii din src/styles/variables.css)
+========================================================= */
+
+.picker,
+.manager {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  color: var(--color-text);
+}
+
+/* ---------- sursa (control segmentat) ---------- */
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--surface-muted, #f2f2f3);
+}
+
+.segment,
+.segmentActive {
+  min-height: 42px;
+  border: 0;
+  border-radius: 11px;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.segment {
+  color: var(--color-muted);
+  background: transparent;
+}
+
+.segmentActive {
+  color: var(--color-text);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+}
+
+.sourceHint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+/* ---------- căutare + filtre ---------- */
+
+.searchRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.searchField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--input-border, var(--color-border));
+  border-radius: 13px;
+  color: var(--color-muted);
+  background: var(--input-bg, var(--surface));
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.searchField:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.searchField input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  color: var(--color-text);
+  background: transparent;
+  font: inherit;
+  font-size: 0.98rem;
+}
+
+.filterButton,
+.filterButtonActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 13px;
+  color: var(--color-text);
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.filterButtonActive {
+  border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--surface));
+}
+
+.filtersPanel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.filtersPanel label {
+  display: grid;
+  gap: 6px;
+}
+
+.filtersPanel label > span {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.filtersPanel select,
+.filtersPanel input:not([type="checkbox"]) {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--input-border, var(--color-border));
+  border-radius: 11px;
+  color: var(--color-text);
+  background: var(--input-bg, var(--surface));
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.priceRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.checkLine {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.checkLine > span {
+  color: var(--color-text) !important;
+  font-size: 0.9rem !important;
+  font-weight: 600 !important;
+}
+
+.checkLine input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+
+.filtersActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---------- butoane ---------- */
+
+.primary,
+.ghost,
+.dangerButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.primary {
+  border: 1px solid var(--color-primary);
+  color: var(--on-primary, #fff);
+  background: var(--color-primary);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.ghost {
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  background: var(--surface);
+}
+
+.dangerButton {
+  border: 1px solid var(--color-danger);
+  color: #fff;
+  background: var(--color-danger);
+}
+
+.primary:disabled,
+.ghost:disabled,
+.dangerButton:disabled,
+.iconButton:disabled,
+.iconDanger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.link {
+  padding: 4px 0;
+  border: 0;
+  color: var(--color-primary);
+  background: none;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.iconButton,
+.iconDanger,
+.iconGhost {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.iconButton {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--surface));
+}
+
+.iconButton:hover:not(:disabled) {
+  border-color: var(--color-primary);
+}
+
+.iconDanger {
+  border: 1px solid var(--color-border);
+  color: var(--color-danger);
+  background: var(--surface);
+}
+
+.iconDanger:hover:not(:disabled) {
+  border-color: var(--color-danger);
+  background: var(--danger-bg-soft, #fef2f2);
+}
+
+.iconGhost {
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+  background: var(--surface);
+}
+
+/* ---------- mesaje ---------- */
+
+.error,
+.notice,
+.warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.error {
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+  color: var(--color-danger);
+  background: var(--danger-bg-soft, #fef2f2);
+  font-weight: 600;
+}
+
+.notice {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--surface));
+}
+
+.warning {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  align-items: start;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  background: var(--warning-bg-soft, #fffbeb);
+}
+
+.warning svg {
+  margin-top: 2px;
+  color: var(--color-warning);
+}
+
+.warning .link {
+  grid-column: 2;
+  justify-self: start;
+}
+
+/* ---------- lista de rezultate / produse ---------- */
+
+.resultsHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 14px;
+}
+
+.resultsCount {
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.resultsActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row,
+.rowChecked {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
+  border-radius: 16px;
+  background: var(--surface);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.rowChecked {
+  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--surface));
+}
+
+.rowMuted {
+  opacity: 0.75;
+}
+
+.rowMain {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.checkbox {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.thumb {
+  display: block;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  object-fit: cover;
+  background: var(--surface-muted, #f2f2f3);
+}
+
+.rowText {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rowText strong {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 0.94rem;
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.meta {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.badgeOwn,
+.badgeOther,
+.badgeSoft,
+.badgeWarn,
+.badgeDanger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.badgeOwn {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--surface));
+}
+
+.badgeOther {
+  color: var(--color-text);
+  background: var(--surface-muted, #f2f2f3);
+}
+
+.badgeSoft {
+  color: var(--color-muted);
+  background: var(--surface-muted, #f2f2f3);
+}
+
+.badgeWarn {
+  color: #92400e;
+  background: var(--warning-bg-soft, #fffbeb);
+}
+
+.badgeDanger {
+  color: var(--color-danger);
+  background: var(--danger-bg-soft, #fef2f2);
+}
+
+.rowAction {
+  display: flex;
+  align-items: center;
+}
+
+.stateAdded,
+.stateAuto {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-success);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.stateAuto {
+  color: var(--color-muted);
+}
+
+.empty {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: 18px;
+  border: 1px dashed var(--color-border);
+  border-radius: 16px;
+}
+
+.empty p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.loadMore {
+  justify-self: center;
+  min-height: 42px;
+  padding: 0 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text);
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ---------- bara de selecție (fixă jos, deasupra listei) ---------- */
+
+.selectionBar {
+  position: sticky;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px 10px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
+  border-radius: 18px;
+  background: var(--surface-elevated, var(--surface));
+  box-shadow:
+    0 18px 40px rgba(15, 23, 42, 0.14),
+    0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+.selectionInfo {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.selectionInfo strong {
+  font-size: 0.95rem;
+}
+
+.selectionInfo span {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.selectionActions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+/* ---------- produsele din colecție ---------- */
+
+.managerHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.managerTitle {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.capacity {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.capacity strong {
+  font-size: 1.15rem;
+}
+
+.capacity strong span {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.capacityBar {
+  display: block;
+  width: 96px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-muted, #f2f2f3);
+}
+
+.capacityBar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+}
+
+.managerTools {
+  display: grid;
+  gap: 10px;
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
+}
+
+.chip,
+.chipActive {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chip {
+  color: var(--color-text);
+  background: var(--surface);
+}
+
+.chipActive {
+  border-color: var(--color-text);
+  color: var(--surface);
+  background: var(--color-text);
+}
+
+/* ---------- focus ---------- */
+
+.segment:focus-visible,
+.segmentActive:focus-visible,
+.filterButton:focus-visible,
+.filterButtonActive:focus-visible,
+.primary:focus-visible,
+.ghost:focus-visible,
+.dangerButton:focus-visible,
+.link:focus-visible,
+.iconButton:focus-visible,
+.iconDanger:focus-visible,
+.iconGhost:focus-visible,
+.chip:focus-visible,
+.chipActive:focus-visible,
+.loadMore:focus-visible,
+.checkbox:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- tabletă / desktop ---------- */
+
+@media (min-width: 720px) {
+  .filtersPanel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .filtersPanel .checkLine,
+  .filtersActions {
+    grid-column: 1 / -1;
+  }
+
+  .managerTools {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .thumb {
+    width: 64px;
+    height: 64px;
+  }
+}
+
+@media (max-width: 420px) {
+  .selectionBar {
+    flex-wrap: wrap;
+  }
+
+  .selectionActions {
+    width: 100%;
+  }
+
+  .selectionActions .primary,
+  .selectionActions .dangerButton {
+    flex: 1 1 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segment,
+  .segmentActive,
+  .searchField,
+  .primary,
+  .ghost,
+  .dangerButton,
+  .iconButton,
+  .iconDanger,
+  .row,
+  .rowChecked {
+    transition: none;
+  }
+}
+
+/* =========================================================
+   Audit etapa 1: încărcare, confirmare, ținte mari pe mobil
+========================================================= */
+
+.listBusy {
+  opacity: 0.55;
+  transition: opacity 160ms ease;
+  pointer-events: none;
+}
+
+.skeletonRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.skeletonThumb,
+.skeletonLines span {
+  display: block;
+  border-radius: 10px;
+  background: linear-gradient(
+    100deg,
+    var(--surface-muted, #f2f2f3) 30%,
+    color-mix(in srgb, var(--surface-muted, #f2f2f3) 50%, var(--surface)) 50%,
+    var(--surface-muted, #f2f2f3) 70%
+  );
+  background-size: 200% 100%;
+  animation: pickerShimmer 1.3s linear infinite;
+}
+
+.skeletonThumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+}
+
+.skeletonLines {
+  display: grid;
+  gap: 8px;
+}
+
+.skeletonLines span:first-child {
+  width: 70%;
+  height: 14px;
+}
+
+.skeletonLines span:last-child {
+  width: 40%;
+  height: 12px;
+}
+
+@keyframes pickerShimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* butoane-text: zonă de atingere mai mare, stare dezactivată clară */
+.link {
+  min-height: 40px;
+}
+
+.link:disabled {
+  color: var(--color-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ținte de atingere >= 44px pe mobil */
+.iconButton,
+.iconDanger,
+.iconGhost {
+  width: 44px;
+  height: 44px;
+}
+
+.chip,
+.chipActive {
+  min-height: 40px;
+}
+
+.checkbox {
+  width: 22px;
+  height: 22px;
+}
+
+/* ---------- confirmarea eliminării ---------- */
+
+.confirmBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  align-items: end;
+  padding: 16px;
+  background: var(--overlay-bg, rgba(15, 23, 42, 0.5));
+}
+
+.confirmDialog {
+  display: grid;
+  gap: 10px;
+  width: min(460px, 100%);
+  margin: 0 auto;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--surface-elevated, var(--surface));
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+}
+
+.confirmDialog strong {
+  font-size: 1.05rem;
+  line-height: 1.35;
+}
+
+.confirmDialog p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.confirmActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+@media (min-width: 720px) {
+  .confirmBackdrop {
+    align-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonThumb,
+  .skeletonLines span {
+    animation: none;
+  }
+
+  .listBusy {
+    transition: none;
+  }
+}
+
+/* ---------- „Vezi selecția”: bifele din toate căutările ---------- */
+
+.selectionBar {
+  flex-wrap: wrap;
+}
+
+.reviewList {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 100%;
+  max-height: min(40vh, 320px);
+  margin: 0 0 4px;
+  padding: 0 0 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-bottom: 1px solid var(--color-border);
+  list-style: none;
+}
+
+.reviewItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.reviewThumb {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--surface-muted, #f2f2f3);
+}
+
+.reviewText {
+  display: grid;
+  min-width: 0;
+}
+
+.reviewText strong,
+.reviewText span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reviewText strong {
+  font-size: 0.88rem;
+}
+
+.reviewText span {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.selectionInfo .link {
+  justify-self: start;
+  min-height: 32px;
+  padding: 0;
+  font-size: 0.82rem;
+}
+
+/*
+ * Mobil (<= 768px): bara de navigare fixă de jos (--mobile-bottom-bar-h, din
+ * Navbar) și bula Asistentului (implicit în colțul dreapta-jos, ~84px de la
+ * marginea ecranului) acopereau bara de selecție și butonul „Adaugă”.
+ * Bara stă acum deasupra amândurora.
+ */
+@media (max-width: 768px) {
+  .selectionBar {
+    bottom: calc(var(--mobile-bottom-bar-h, 56px) + 40px);
+  }
+}
+
+/*
+ * Bara de selecție: position: fixed (NU sticky). `body` are overflow-x: hidden
+ * (stil global existent), ceea ce îl face container de scroll - un element
+ * sticky nu se mai lipea niciodată de marginea ecranului. Componenta afișează
+ * bara doar cât secțiunea ei e vizibilă (IntersectionObserver), iar lista
+ * primește spațiu jos (.withBar) ca ultimele produse să nu rămână sub bară.
+ */
+.selectionBar {
+  position: fixed;
+  left: 50%;
+  right: auto;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 1050;
+  width: min(720px, calc(100% - 24px));
+  transform: translateX(-50%);
+}
+
+/* a doua bară (produsele din colecție), dacă ambele secțiuni sunt pe ecran */
+.selectionBarRaised {
+  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+}
+
+.withBar {
+  padding-bottom: 110px;
+}
+
+@media (max-width: 768px) {
+  .selectionBar {
+    bottom: calc(var(--mobile-bottom-bar-h, 56px) + 40px);
+  }
+
+  .selectionBarRaised {
+    bottom: calc(var(--mobile-bottom-bar-h, 56px) + 120px);
+  }
+
+  .withBar {
+    padding-bottom: 190px;
+  }
+}
+
+/* confirmarea stă peste bare și peste bara de navigare */
+.confirmBackdrop {
+  z-index: 1200;
+}
+
+/* =========================================================
+   Specificitate: în tab, `.wrap button` / `.wrap input` (VendorCollectionsTab
+   .module.css) bat clasele simple de mai sus. Prefixăm cu rădăcina
+   componentelor ca butoanele și căutarea să arate cum au fost proiectate.
+========================================================= */
+
+:is(.picker, .manager) .primary {
+  border: 1px solid var(--color-primary);
+  border-radius: 12px;
+  color: var(--on-primary, #fff);
+  background: var(--color-primary);
+  padding: 0 18px;
+  min-height: 44px;
+  font-weight: 750;
+}
+
+:is(.picker, .manager) .primary:hover:not(:disabled) {
+  border-color: var(--color-hover);
+  color: var(--on-primary, #fff);
+  background: var(--color-hover);
+}
+
+:is(.picker, .manager) .ghost {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  color: var(--color-text);
+  background: var(--surface);
+  padding: 0 18px;
+  min-height: 44px;
+}
+
+:is(.picker, .manager) .dangerButton,
+:is(.picker, .manager) .dangerButton:hover:not(:disabled) {
+  border: 1px solid var(--color-danger);
+  border-radius: 12px;
+  color: #fff;
+  background: var(--color-danger);
+  padding: 0 18px;
+  min-height: 44px;
+}
+
+:is(.picker, .manager) .link,
+:is(.picker, .manager) .link:hover:not(:disabled) {
+  min-height: 40px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--color-primary);
+  background: none;
+  font-weight: 700;
+}
+
+:is(.picker, .manager) .link:disabled {
+  color: var(--color-muted);
+}
+
+:is(.picker, .manager) .selectionInfo .link {
+  min-height: 32px;
+  padding: 0;
+}
+
+:is(.picker, .manager) :is(.iconButton, .iconDanger, .iconGhost) {
+  padding: 0;
+  min-height: 0;
+  border-radius: 12px;
+}
+
+:is(.picker, .manager) .iconButton,
+:is(.picker, .manager) .iconButton:hover:not(:disabled) {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--surface));
+}
+
+:is(.picker, .manager) .iconDanger {
+  border: 1px solid var(--color-border);
+  color: var(--color-danger);
+  background: var(--surface);
+}
+
+:is(.picker, .manager) .iconDanger:hover:not(:disabled) {
+  border-color: var(--color-danger);
+  background: var(--danger-bg-soft, #fef2f2);
+}
+
+:is(.picker, .manager) .iconGhost {
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+  background: var(--surface);
+}
+
+:is(.picker, .manager) .segment,
+:is(.picker, .manager) .segmentActive {
+  min-height: 42px;
+  border: 0;
+  border-radius: 11px;
+}
+
+:is(.picker, .manager) .segment,
+:is(.picker, .manager) .segment:hover:not(:disabled) {
+  color: var(--color-muted);
+  background: transparent;
+}
+
+:is(.picker, .manager) .segmentActive,
+:is(.picker, .manager) .segmentActive:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--surface);
+}
+
+:is(.picker, .manager) .filterButton,
+:is(.picker, .manager) .filterButtonActive {
+  min-height: 46px;
+  border-radius: 13px;
+}
+
+:is(.picker, .manager) .filterButtonActive,
+:is(.picker, .manager) .filterButtonActive:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--surface));
+}
+
+:is(.picker, .manager) .chip,
+:is(.picker, .manager) .chipActive {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+}
+
+:is(.picker, .manager) .chipActive,
+:is(.picker, .manager) .chipActive:hover:not(:disabled) {
+  border-color: var(--color-text);
+  color: var(--surface);
+  background: var(--color-text);
+}
+
+:is(.picker, .manager) .loadMore {
+  min-height: 42px;
+  padding: 0 20px;
+  border-radius: 999px;
+}
+
+/* câmpul de căutare: fără al doilea chenar în interior */
+/* același număr de :not() ca regula .wrap input:not(...):not(...) + o clasă în plus */
+:is(.picker, .manager) .searchField input:not([type="checkbox"]):not([type="file"]),
+:is(.picker, .manager) .searchField input:not([type="checkbox"]):not([type="file"]):focus,
+:is(.picker, .manager) .searchField input:not([type="checkbox"]):not([type="file"]):focus-visible {
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+/* „Vezi selecția” pe mobil: nu acoperă prea mult din pagină */
+@media (max-width: 768px) {
+  .reviewList {
+    max-height: min(30vh, 240px);
+  }
+}
+
+/*
+ * Dialogul de confirmare: centrat pe toate ecranele. Jos, pe mobil, bula
+ * Asistentului (FloatingHub, z-index mai mare) acoperea butonul „Scoate”.
+ */
+.confirmBackdrop {
+  align-items: center;
+}
+
+/* =========================================================
+   „Găsește produse cu AI” (în selectorul existent)
+========================================================= */
+
+:is(.picker, .manager) .aiToggle,
+:is(.picker, .manager) .aiToggleActive {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 13px;
+  font-weight: 750;
+}
+
+:is(.picker, .manager) .aiToggle,
+:is(.picker, .manager) .aiToggle:hover:not(:disabled) {
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--surface));
+}
+
+:is(.picker, .manager) .aiToggleActive,
+:is(.picker, .manager) .aiToggleActive:hover:not(:disabled) {
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--surface));
+}
+
+.aiPanel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 25%, var(--color-border));
+  border-radius: 16px;
+  background:
+    radial-gradient(
+      120% 100% at 100% 0%,
+      color-mix(in srgb, var(--color-primary) 8%, transparent),
+      transparent 60%
+    ),
+    var(--surface);
+}
+
+.aiLabel {
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+:is(.picker, .manager) .aiTextarea {
+  min-height: 84px;
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+
+.aiHint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.aiActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.aiQuota {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.aiSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.aiReason {
+  color: var(--color-text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.aiReason::before {
+  content: "✦ ";
+  color: var(--color-primary);
+}
+
+@media (max-width: 480px) {
+  .aiActions :is(.primary) {
+    width: 100%;
+  }
+}
+
+/* „+” și „Elimină din propunere” unul sub altul, ca textul să rămână lizibil */
+.rowAction {
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* căutări AI rămase, pe butonul „Găsește produse cu AI” */
+.aiBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin-left: 4px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--surface));
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+/* „Găsește produse cu AI” - dezactivat până la lansare („Disponibil în curând”) */
+:is(.picker, .manager) .aiToggleSoon,
+:is(.picker, .manager) .aiToggleSoon:hover,
+:is(.picker, .manager) .aiToggleSoon:disabled {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 46px;
+  padding: 6px 16px;
+  border: 1px dashed var(--color-border);
+  border-radius: 13px;
+  color: var(--color-text-muted, #8a8a94);
+  background: color-mix(in srgb, var(--color-border) 30%, var(--surface));
+  font-weight: 750;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.aiSoonBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--color-text-muted, #8a8a94);
+  background: color-mix(in srgb, var(--color-border) 60%, var(--surface));
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+/* =========================================================
+   Sursa produselor: două carduri („Din magazinul meu” / „Din tot Artfest”)
+   - aceeași stare `scope` ca înainte (rol radio)
+========================================================= */
+
+.sources {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+@media (min-width: 560px) {
+  .sources {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+:is(.picker) .source,
+:is(.picker) .sourceActive {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 68px;
+  padding: 12px 40px 12px 12px;
+  border-radius: 14px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+:is(.picker) .source,
+:is(.picker) .source:hover:not(:disabled) {
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+:is(.picker) .source:hover:not(:disabled) {
+  border-color: var(--border-strong, var(--color-border));
+}
+
+:is(.picker) .sourceActive,
+:is(.picker) .sourceActive:hover:not(:disabled) {
+  border: 1.5px solid var(--color-primary);
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--surface));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+:is(.picker) .source:focus-visible,
+:is(.picker) .sourceActive:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.sourceIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  color: var(--color-muted);
+  background: var(--surface-muted, #f2f2f3);
+}
+
+.sourceActive .sourceIcon {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--surface));
+}
+
+.sourceText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sourceText strong {
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.sourceText span {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* indicator radio, în colțul cardului */
+.sourceDot {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--surface);
+  transform: translateY(-50%);
+}
+
+.sourceActive .sourceDot {
+  border-color: var(--color-primary);
+  background: radial-gradient(circle, var(--color-primary) 0 4px, var(--surface) 5px);
+}

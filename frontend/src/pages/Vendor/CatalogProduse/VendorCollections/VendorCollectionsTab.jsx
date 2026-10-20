@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { HandCoins, Package, Plus, Sparkles, Store } from "lucide-react";
+import { HandCoins, Sparkles } from "lucide-react";
 import { api } from "../../../../lib/api.js";
 import { uploadFile } from "../../../../lib/uploadFile.js";
-import { CATEGORIES_DETAILED } from "../../../../constants/productscategories.js";
-import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
+import CollectionItemsManager from "./CollectionItemsManager.jsx";
+import CollectionProductPicker from "./CollectionProductPicker.jsx";
 import styles from "./VendorCollectionsTab.module.css";
 
 /*
@@ -18,7 +18,10 @@ import styles from "./VendorCollectionsTab.module.css";
  *
  * Layout: [ lista colecțiilor ] [ editorul colecției ] pe desktop; pe mobil
  * lista sus, editorul dedesubt. Același formular pentru creare și editare:
- * 1. Date generale  2. Perioadă și reducere (accordion)  3. Produse  4. Căutare.
+ * 1. Date generale  2. Perioadă și reducere (accordion)  3. Produse din colecție
+ * (CollectionItemsManager: selecție fixă, eliminare în masă, stări clare)
+ * 4. Adaugă produse (CollectionProductPicker: magazinul meu / tot Artfest,
+ * filtre, bifare multiplă, „toate rezultatele filtrate”).
  * Backend-ul revalidează tot (eligibilitate, owner, perioadă, plafon reducere).
  */
 
@@ -31,11 +34,6 @@ const STATUS_LABELS = {
   EXPIRED: "Expirată",
   INACTIVE: "Inactivă",
 };
-
-function money(priceCents, currency = "RON") {
-  const value = Number(priceCents || 0) / 100;
-  return `${new Intl.NumberFormat("ro-RO", { maximumFractionDigits: 2 }).format(value)} ${currency}`;
-}
 
 function errorMessage(err, fallback) {
   return err?.data?.message || err?.message || fallback;
@@ -97,8 +95,22 @@ function settingsPayload(settings) {
   };
 }
 
+/* titlu de pas (01 / 02): doar structură vizuală, fără wizard - secțiunile rămân vizibile */
+function StepHeading({ number, title, subtitle, id }) {
+  return (
+    <div className={styles.step}>
+      <span className={styles.stepNumber} aria-hidden="true">
+        {number}
+      </span>
+      <div className={styles.stepText}>
+        <h3 id={id}>{title}</h3>
+        <p>{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function VendorCollectionsTab() {
-  const [myVendorId, setMyVendorId] = useState(null);
   const [collections, setCollections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -112,21 +124,18 @@ export default function VendorCollectionsTab() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
-  const [busyProductId, setBusyProductId] = useState(null);
   const [copied, setCopied] = useState(false);
 
-  const [search, setSearch] = useState({ q: "", store: "", category: "" });
-  const [results, setResults] = useState([]);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState("");
+  // CTA „Adaugă produse”: focus pe căutarea din selector (CollectionProductPicker)
+  const [pickerFocusSignal, setPickerFocusSignal] = useState(0);
 
   const isCreating = !selectedId;
+  // mobil: formularul „Colecție nouă” urcă deasupra listei doar când l-ai cerut
+  // explicit (sau nu ai încă nicio colecție); altfel colecțiile existente rămân primele
+  const [createRequested, setCreateRequested] = useState(false);
 
   // mobil: lista se scurtează la primele colecții (pe desktop e completă, cu scroll propriu)
   const [showAllCollections, setShowAllCollections] = useState(false);
-  const [showAllItems, setShowAllItems] = useState(false);
   const COMPACT_LIST_COUNT = 4;
 
   const searchSectionRef = useRef(null);
@@ -135,14 +144,12 @@ export default function VendorCollectionsTab() {
   const searchInputRef = useRef(null);
 
   /*
-   * CTA „+ Adaugă produse în colecție” / „Explorează produsele Artfest”:
-   * duce la căutarea din marketplace și o pornește (aceeași căutare existentă,
-   * fără filtre) dacă nu există încă rezultate.
+   * CTA „+ Adaugă produse în colecție” / „Adaugă produse”: duce la selectorul
+   * de produse (care își face singur prima căutare) și pune focus pe căutare.
    */
   function openProductSearch() {
     searchSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.setTimeout(() => searchInputRef.current?.focus({ preventScroll: true }), 250);
-    if (!results.length && !searching) runSearch(1);
+    window.setTimeout(() => setPickerFocusSignal((n) => n + 1), 250);
   }
 
   /* ---------- încărcare ---------- */
@@ -157,8 +164,7 @@ export default function VendorCollectionsTab() {
 
     (async () => {
       try {
-        const [me] = await Promise.all([api("/api/vendors/me"), loadCollections()]);
-        if (alive) setMyVendorId(me?.vendor?.id || null);
+        await loadCollections();
       } catch (err) {
         if (alive) setError(errorMessage(err, "Nu am putut încărca colecțiile."));
       } finally {
@@ -186,10 +192,6 @@ export default function VendorCollectionsTab() {
   }, []);
 
   useEffect(() => {
-    setResults([]);
-    setPage(1);
-    setHasMore(false);
-    setSearchError("");
     loadSelected(selectedId).catch((err) =>
       setError(errorMessage(err, "Nu am putut încărca colecția."))
     );
@@ -208,6 +210,7 @@ export default function VendorCollectionsTab() {
   }
 
   function startNewCollection() {
+    setCreateRequested(true);
     setNotice("");
     setError("");
     setSelectedId(null);
@@ -286,75 +289,12 @@ export default function VendorCollectionsTab() {
     }
   }
 
-  /* ---------- căutare produse (tot marketplace-ul) ---------- */
+  /* ---------- produse: reîncarcă colecția + lista după adăugare / scoatere ---------- */
 
-  async function runSearch(nextPage = 1) {
-    if (!selectedId) return;
-
-    setSearching(true);
-    setSearchError("");
-
-    try {
-      const params = new URLSearchParams({ page: String(nextPage), limit: String(PAGE_SIZE) });
-      if (search.q.trim()) params.set("q", search.q.trim());
-      if (search.store.trim()) params.set("store", search.store.trim());
-      if (search.category) params.set("category", search.category);
-
-      const data = await api(
-        `/api/vendor/collections/${encodeURIComponent(selectedId)}/product-search?${params}`
-      );
-      const products = Array.isArray(data?.products) ? data.products : [];
-
-      setResults((current) => (nextPage === 1 ? products : [...current, ...products]));
-      setPage(nextPage);
-      setHasMore(Boolean(data?.hasMore));
-    } catch (err) {
-      setSearchError(errorMessage(err, "Căutarea nu a reușit."));
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  function markInCollection(productId, inCollection) {
-    setResults((current) =>
-      current.map((p) => (p.id === productId ? { ...p, inCollection } : p))
-    );
-  }
-
-  async function addProduct(productId) {
-    setBusyProductId(productId);
-    setSearchError("");
-
-    try {
-      await api(`/api/vendor/collections/${encodeURIComponent(selectedId)}/products`, {
-        method: "POST",
-        body: { productIds: [productId] },
-      });
-      markInCollection(productId, true);
-      await Promise.all([loadSelected(selectedId), loadCollections()]);
-    } catch (err) {
-      setSearchError(errorMessage(err, "Produsul nu a putut fi adăugat."));
-    } finally {
-      setBusyProductId(null);
-    }
-  }
-
-  async function removeProduct(productId) {
-    setBusyProductId(productId);
-
-    try {
-      await api(
-        `/api/vendor/collections/${encodeURIComponent(selectedId)}/products/${encodeURIComponent(productId)}`,
-        { method: "DELETE" }
-      );
-      markInCollection(productId, false);
-      await Promise.all([loadSelected(selectedId), loadCollections()]);
-    } catch (err) {
-      setError(errorMessage(err, "Produsul nu a putut fi scos din colecție."));
-    } finally {
-      setBusyProductId(null);
-    }
-  }
+  const reloadAfterProductsChange = useCallback(
+    () => Promise.all([loadSelected(selectedId), loadCollections()]),
+    [loadSelected, loadCollections, selectedId]
+  );
 
   /* ---------- render ---------- */
 
@@ -363,6 +303,55 @@ export default function VendorCollectionsTab() {
   }
 
   const items = Array.isArray(selected?.items) ? selected.items : [];
+
+  /*
+   * Opțional: includerea automată a produselor proprii (inclusiv cele viitoare).
+   * Aceeași stare din formular (settings.allOwnProducts) și aceeași salvare
+   * (submit pe collection-settings-form) - nu e o a doua setare.
+   */
+  function autoOwnOption() {
+    const unsaved = !isCreating && selected && Boolean(selected.allOwnProducts) !== Boolean(settings.allOwnProducts);
+    return (
+      <details className={styles.autoOwn} open={unsaved || undefined}>
+        <summary className={styles.autoOwnSummary}>
+          <span className={styles.autoOwnLabel}>
+            <span className={styles.optionalTag}>Opțional</span>
+            Include automat produsele tale viitoare
+          </span>
+          <span className={settings.allOwnProducts ? styles.autoOwnOn : styles.autoOwnOff}>
+            {settings.allOwnProducts ? "Activă" : "Inactivă"}
+          </span>
+        </summary>
+        <div className={styles.autoOwnBody}>
+          <label className={styles.check}>
+            <input
+              type="checkbox"
+              checked={settings.allOwnProducts}
+              onChange={(e) => setSettings((s) => ({ ...s, allOwnProducts: e.target.checked }))}
+            />
+            Include automat toate produsele mele
+          </label>
+          <p className={styles.hint}>
+            Toate produsele tale publice intră singure în colecție, inclusiv cele pe care le publici de
+            acum înainte. Produsele altor creatori le alegi tu, manual.
+          </p>
+          {unsaved ? (
+            <div className={styles.autoOwnSave}>
+              <span>Modificare nesalvată</span>
+              <button
+                type="submit"
+                form="collection-settings-form"
+                className={styles.primary}
+                disabled={saving || settings.title.trim().length < 2}
+              >
+                {saving ? "Se salvează…" : "Salvează"}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </details>
+    );
+  }
   const allOwnActive = Boolean(selected?.allOwnProducts);
 
   return (
@@ -400,7 +389,10 @@ export default function VendorCollectionsTab() {
       </aside>
 
       {/* pe mobil, în modul „colecție nouă”, formularul urcă deasupra listei (vezi CSS) */}
-      <div className={styles.layout} data-mode={isCreating ? "create" : "edit"}>
+      <div
+        className={styles.layout}
+        data-mode={isCreating && (createRequested || !collections.length) ? "create" : "edit"}
+      >
         {/* =============== Lista colecțiilor (sidebar) =============== */}
         <aside className={styles.sidebar} aria-label="Colecțiile tale">
           <div className={styles.sidebarHeader}>
@@ -501,6 +493,13 @@ export default function VendorCollectionsTab() {
           {error ? <div className={styles.error}>{error}</div> : null}
           {notice ? <div className={styles.notice}>{notice}</div> : null}
 
+          <StepHeading
+            number="01"
+            id="collection-step-1"
+            title="Pasul 1 — Creează colecția"
+            subtitle="Alege un nume, adaugă o descriere și stabilește detaliile colecției."
+          />
+
           <section className={styles.card} ref={editorFormRef}>
             <form id="collection-settings-form" className={styles.settings} onSubmit={submitSettings}>
               {/* ---------- 1. Date generale ---------- */}
@@ -553,21 +552,11 @@ export default function VendorCollectionsTab() {
                     />
                     Colecție activă (vizibilă public)
                   </label>
-
-                  <label className={styles.check}>
-                    <input
-                      type="checkbox"
-                      checked={settings.allOwnProducts}
-                      onChange={(e) => setSettings((s) => ({ ...s, allOwnProducts: e.target.checked }))}
-                    />
-                    Include automat toate produsele mele
-                  </label>
                 </div>
-                <p className={styles.hint}>
-                  Toate produsele tale publice intră automat în colecție, inclusiv cele pe care le
-                  publici de acum înainte. Produsele altor magazine le adaugi manual, la „Produse”.
-                </p>
               </fieldset>
+
+              {/* colecție nouă: opțiunea secundară stă în formular (după creare, în „Produsele din colecție”) */}
+              {isCreating ? autoOwnOption() : null}
 
               {/* ---------- 2. Perioadă și reducere (accordion) ---------- */}
               <details
@@ -646,236 +635,67 @@ export default function VendorCollectionsTab() {
             </form>
           </section>
 
+          <StepHeading
+            number="02"
+            id="collection-step-2"
+            title="Pasul 2 — Adaugă produsele"
+            subtitle="Alege produse din magazinul tău sau din tot Artfest. Poți selecta unul, mai multe sau toate rezultatele dorite."
+          />
+
+          {isCreating ? (
+            <p className={styles.stepPending}>Salvează mai întâi colecția pentru a putea adăuga produse.</p>
+          ) : null}
+
           {!isCreating && selected ? (
             <>
-              {/* ---------- 3. Adaugă produse: avantajul + CTA principal ---------- */}
-              <section className={`${styles.card} ${styles.promo}`} aria-label="Adaugă produse în colecție">
-                <div className={styles.promoHead}>
-                  <span className={styles.promoIcon} aria-hidden="true">
-                    <HandCoins size={20} strokeWidth={1.75} />
-                  </span>
-                  <p className={styles.promoShort}>
-                    Poți adăuga produse de la alte magazine și poți primi remunerație din
-                    recomandările eligibile.
+              {/* ---------- 3. Produsele din colecție: sursa + căutare + selecție (selectorul existent) ---------- */}
+              <section
+                className={`${styles.card} ${styles.productsSection}`}
+                ref={searchSectionRef}
+                aria-labelledby="collection-products-title"
+              >
+                <header className={styles.productsHead}>
+                  <h3 id="collection-products-title">Produsele din colecție</h3>
+                  <p className={styles.productsMoney}>
+                    <HandCoins size={17} strokeWidth={1.75} aria-hidden="true" />
+                    <span>
+                      Produsele tale au comision Artfest redus. Pentru produsele altor creatori poți primi
+                      remunerație din recomandare la comenzile eligibile; prețul, stocul și livrarea rămân ale lor.
+                    </span>
                   </p>
-                </div>
+                </header>
 
-                <button type="button" className={`${styles.primary} ${styles.ctaAdd}`} onClick={openProductSearch}>
-                  <Plus size={18} strokeWidth={2.25} aria-hidden="true" />
-                  Adaugă produse în colecție
-                </button>
+                <CollectionProductPicker
+                  key={`picker-${selectedId}-${allOwnActive ? "auto" : "manual"}`}
+                  collectionId={selectedId}
+                  allOwnActive={allOwnActive}
+                  collectionCount={items.length}
+                  maxProducts={selected?.maxProducts || 300}
+                  focusSignal={pickerFocusSignal}
+                  inputRef={searchInputRef}
+                  onChanged={reloadAfterProductsChange}
+                />
 
-                <div className={styles.options}>
-                  <div className={styles.option}>
-                    <span className={styles.optionIcon} aria-hidden="true">
-                      <Package size={18} strokeWidth={1.75} />
-                    </span>
-                    <div>
-                      <strong>Produsele tale</strong>
-                      <p>
-                        {allOwnActive
-                          ? "Incluse automat în colecție (opțiunea „Include automat toate produsele mele” este activă)."
-                          : "Le poți adăuga din căutare sau poți activa „Include automat toate produsele mele”."}
-                      </p>
-                      <p className={styles.optionBenefit}>Beneficiu: comision Artfest redus, conform regulii colecției.</p>
-                    </div>
-                  </div>
-
-                  <div className={styles.option}>
-                    <span className={styles.optionIcon} aria-hidden="true">
-                      <Store size={18} strokeWidth={1.75} />
-                    </span>
-                    <div>
-                      <strong>Produse de la alte magazine</strong>
-                      <p>Le poți căuta în marketplace și le adaugi în colecție.</p>
-                      <p className={styles.optionBenefit}>
-                        Dacă generează o comandă eligibilă din colecția ta, poți primi remunerație de recomandare.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                {/* secundar, opțional: după alegerea manuală */}
+                {autoOwnOption()}
               </section>
 
-              {/* ---------- 4. Produse din colecție ---------- */}
+              {/* ---------- 4. Deja în colecție (selecție fixă, eliminare în masă) ---------- */}
               <section className={styles.card}>
-                <h3>Produse din colecție</h3>
-                {allOwnActive ? (
-                  <p className={styles.notice}>
-                    Toate produsele tale publice sunt incluse automat. Mai jos sunt doar produsele
-                    adăugate manual (de obicei de la alte magazine).
-                  </p>
-                ) : null}
-                {items.length ? (
-                  <div className={styles.grid}>
-                    {items.map(({ productId, product }, index) => {
-                      const sellerId = product?.service?.vendor?.id;
-                      const isOwn = myVendorId && String(sellerId) === String(myVendorId);
-                      return (
-                        <ProductRow
-                          key={productId}
-                          className={!showAllItems && index >= COMPACT_LIST_COUNT ? styles.listItemExtra : ""}
-                          image={Array.isArray(product?.images) ? product.images[0] : null}
-                          title={product?.title}
-                          price={money(product?.priceCents, product?.currency)}
-                          storeName={product?.service?.title || product?.service?.vendor?.displayName}
-                          isOwn={isOwn}
-                          badgeLabel={isOwn ? "Produs propriu" : "Recomandare"}
-                          unavailable={
-                            product &&
-                            (!product.isActive || product.isHidden || product.moderationStatus !== "APPROVED")
-                          }
-                          action={
-                            <button
-                              type="button"
-                              className={styles.danger}
-                              disabled={busyProductId === productId}
-                              onClick={() => removeProduct(productId)}
-                            >
-                              Scoate din colecție
-                            </button>
-                          }
-                        />
-                      );
-                    })}
-                  </div>
-                ) : null}
-                {items.length > COMPACT_LIST_COUNT ? (
-                  <button
-                    type="button"
-                    className={styles.listToggle}
-                    aria-expanded={showAllItems}
-                    onClick={() => setShowAllItems((v) => !v)}
-                  >
-                    {showAllItems ? "Arată mai puține" : `Vezi toate produsele (${items.length})`}
-                  </button>
-                ) : null}
-                {items.length ? null : (
-                  <div className={styles.emptyState}>
-                    <p>
-                      Adaugă produse de la alte magazine pentru a transforma colecția într-o selecție
-                      completă și pentru a putea primi remunerație din recomandările eligibile.
-                    </p>
-                    <button type="button" className={styles.secondary} onClick={openProductSearch}>
-                      Explorează produsele Artfest
-                    </button>
-                  </div>
-                )}
-              </section>
-
-              {/* ---------- 5. Căutare marketplace ---------- */}
-              <section className={styles.card} ref={searchSectionRef}>
-                <h3>Adaugă produse din tot Artfest</h3>
-                <form
-                  className={styles.row}
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    runSearch(1);
-                  }}
-                >
-                  <input
-                    ref={searchInputRef}
-                    value={search.q}
-                    onChange={(e) => setSearch((s) => ({ ...s, q: e.target.value }))}
-                    placeholder="Caută după titlu"
-                  />
-                  <input
-                    value={search.store}
-                    onChange={(e) => setSearch((s) => ({ ...s, store: e.target.value }))}
-                    placeholder="Magazin / vendor"
-                  />
-                  <select
-                    value={search.category}
-                    onChange={(e) => setSearch((s) => ({ ...s, category: e.target.value }))}
-                  >
-                    <option value="">Toate categoriile</option>
-                    {CATEGORIES_DETAILED.map((c) => (
-                      <option key={c.key} value={c.key}>
-                        {c.groupLabel} · {c.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="submit" className={styles.primary} disabled={searching}>
-                    {searching && page === 1 ? "Se caută…" : "Caută"}
-                  </button>
-                </form>
-
-                {searchError ? <div className={styles.error}>{searchError}</div> : null}
-
-                {results.length ? (
-                  <div className={`${styles.grid} ${styles.resultsGrid}`}>
-                    {results.map((p) => (
-                      <ProductRow
-                        key={p.id}
-                        image={p.image}
-                        title={p.title}
-                        price={money(p.priceCents, p.currency)}
-                        storeName={p.storeName}
-                        category={p.category ? getCanonicalLabel("category", p.category) : null}
-                        isOwn={p.isOwn}
-                        hint={p.isOwn ? null : "Poate genera remunerație din recomandare"}
-                        action={
-                          p.isOwn && allOwnActive ? (
-                            <button type="button" className={styles.stateAuto} disabled>
-                              Inclus automat
-                            </button>
-                          ) : p.inCollection ? (
-                            <button type="button" className={styles.stateAdded} disabled>
-                              Adăugat în colecție ✓
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className={styles.primary}
-                              disabled={busyProductId === p.id}
-                              onClick={() => addProduct(p.id)}
-                            >
-                              Adaugă în colecție
-                            </button>
-                          )
-                        }
-                      />
-                    ))}
-                  </div>
-                ) : !searching ? (
-                  <p className={styles.muted}>Caută produse după titlu, magazin sau categorie.</p>
-                ) : null}
-
-                {hasMore ? (
-                  <button type="button" className={styles.loadMore} disabled={searching} onClick={() => runSearch(page + 1)}>
-                    {searching ? "Se încarcă…" : "Încarcă mai multe"}
-                  </button>
-                ) : null}
+                <CollectionItemsManager
+                  key={`items-${selectedId}`}
+                  collectionId={selectedId}
+                  items={items}
+                  allOwnActive={allOwnActive}
+                  maxProducts={selected?.maxProducts || 300}
+                  onChanged={reloadAfterProductsChange}
+                  onAddClick={openProductSearch}
+                />
               </section>
             </>
           ) : null}
         </section>
       </div>
-    </div>
-  );
-}
-
-function ProductRow({ image, title, price, storeName, category, isOwn, badgeLabel, hint, unavailable, action, className = "" }) {
-  return (
-    <div className={className ? `${styles.product} ${className}` : styles.product}>
-      {image ? (
-        <img src={image} alt={title || ""} className={styles.thumb} loading="lazy" />
-      ) : (
-        <div className={styles.thumb} aria-hidden="true" />
-      )}
-      <div className={styles.productBody}>
-        <strong>{title || "Produs"}</strong>
-        <span>{price}</span>
-        <span className={styles.muted}>
-          {storeName || "Magazin"}
-          {category ? ` · ${category}` : ""}
-        </span>
-        <span className={isOwn ? styles.badgeOwn : styles.badgeOther}>
-          {badgeLabel || (isOwn ? "Produsul tău" : "Alt magazin")}
-        </span>
-        {hint ? <span className={styles.badgeHint}>{hint}</span> : null}
-        {unavailable ? <span className={styles.error}>Indisponibil public</span> : null}
-      </div>
-      <div>{action}</div>
     </div>
   );
 }

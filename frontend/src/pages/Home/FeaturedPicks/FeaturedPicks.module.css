@@ -1,0 +1,761 @@
+/* =========================================================
+   ALESE DE ARTFEST - Produsul zilei + Artizanul săptămânii
+   (homepage: varianta completă; /produse: .compact)
+========================================================= */
+
+.picksSection {
+  color: var(--color-text);
+}
+
+/* =========================================================
+   ALESE DE ARTFEST
+========================================================= */
+
+.picksSection {
+  padding: 8px 16px 36px;
+  background: var(--color-bg);
+}
+
+.picksInner {
+  width: min(1240px, 100%);
+  margin: 0 auto;
+}
+
+.picksHeader {
+  margin-bottom: 16px;
+}
+
+.sectionEyebrow {
+  color: var(--color-primary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.picksTitle {
+  margin: 6px 0 0;
+  font-family: var(--font-title);
+  font-size: clamp(1.45rem, 5.4vw, 2.1rem);
+  font-weight: 850;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.picksLead {
+  max-width: 60ch;
+  margin: 8px 0 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.picksGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.pickCard {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+  border-radius: 26px;
+  background: var(--surface);
+  box-shadow:
+    0 20px 54px rgba(15, 23, 42, 0.07),
+    0 3px 10px rgba(15, 23, 42, 0.03);
+}
+
+.pickVisual {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pickBadge {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(15, 15, 18, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.pickBadge svg {
+  font-size: 0.75rem;
+}
+
+.pickBody {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  padding: 18px 18px 20px;
+}
+
+.pickKicker {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickTitle {
+  margin: 6px 0 0;
+  font-family: var(--font-title);
+  font-size: 1.3rem;
+  font-weight: 800;
+  line-height: 1.22;
+  letter-spacing: -0.02em;
+}
+
+.pickTitle a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.pickTitle a:hover {
+  color: var(--color-primary);
+}
+
+.pickDescription {
+  display: -webkit-box;
+  margin: 8px 0 0;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.pickMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.pickMeta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--surface));
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.pickMeta svg {
+  color: var(--color-primary);
+  font-size: 0.75rem;
+}
+
+.pickFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+.pickOffer {
+  min-width: 0;
+}
+
+.pickPrice,
+.pickDiscountedPrice {
+  font-size: 1.35rem;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+}
+
+.pickPriceGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.pickDiscountedPrice {
+  color: var(--color-danger);
+}
+
+.pickOldPrice {
+  color: var(--color-muted);
+  font-size: 0.92rem;
+  text-decoration: line-through;
+}
+
+.pickDiscountBadge {
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--color-danger);
+  font-size: 0.75rem;
+  font-weight: 850;
+}
+
+.pickArtisanDiscount {
+  display: grid;
+  gap: 2px;
+}
+
+.pickArtisanDiscount strong {
+  color: var(--color-danger);
+  font-size: 0.98rem;
+  font-weight: 850;
+}
+
+.pickArtisanDiscount span {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+.pickCta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: 13px;
+  color: var(--on-primary, #fff);
+  background: var(--color-text);
+  font-size: 0.95rem;
+  font-weight: 750;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.pickCta:hover {
+  background: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+.pickCta svg {
+  font-size: 0.8rem;
+  transition: transform 160ms ease;
+}
+
+.pickCta:hover svg {
+  transform: translateX(3px);
+}
+
+/* =========================================================
+   GALERIE (imaginea din card)
+========================================================= */
+
+.spotlightMedia {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
+}
+
+.spotlightImageLink {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.spotlightImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.001);
+  transition:
+    transform 650ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 220ms ease;
+}
+
+.spotlightImageLink:hover .spotlightImage {
+  transform: scale(1.035);
+}
+
+.spotlightMedia::after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(8, 10, 14, 0.18), transparent 34%);
+}
+
+.spotlightArrowLeft,
+.spotlightArrowRight {
+  position: absolute;
+  top: 50%;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.44);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(15, 15, 18, 0.44);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition:
+    opacity 170ms ease,
+    transform 170ms ease,
+    background 170ms ease;
+}
+
+.spotlightArrowLeft {
+  left: 12px;
+}
+
+.spotlightArrowRight {
+  right: 12px;
+}
+
+.spotlightArrowLeft:hover,
+.spotlightArrowRight:hover {
+  background: rgba(15, 15, 18, 0.72);
+  transform: translateY(-50%) scale(1.05);
+}
+
+.spotlightDots {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(15, 15, 18, 0.42);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transform: translateX(-50%);
+}
+
+.spotlightDot {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition:
+    width 170ms ease,
+    background 170ms ease;
+}
+
+.spotlightDotActive {
+  width: 22px;
+  background: #fff;
+}
+
+
+/* =========================================================
+   FOCUS
+========================================================= */
+
+.pickTitle a:focus-visible,
+.pickCta:focus-visible,
+.spotlightArrowLeft:focus-visible,
+.spotlightArrowRight:focus-visible,
+.spotlightDot:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+/* =========================================================
+   SKELETON
+========================================================= */
+
+.skeletonHeading,
+.pickSkeletonImage,
+.pickSkeletonTitle,
+.pickSkeletonLine,
+.pickSkeletonLineShort {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-muted) 10%, var(--surface));
+}
+
+.skeletonHeading::after,
+.pickSkeletonImage::after,
+.pickSkeletonTitle::after,
+.pickSkeletonLine::after,
+.pickSkeletonLineShort::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.35) 48%,
+    transparent 76%
+  );
+  transform: translateX(-100%);
+  animation: spotlightShimmer 1.45s infinite;
+}
+
+.skeletonHeading {
+  width: min(320px, 70%);
+  height: 30px;
+}
+
+.pickSkeleton {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+  border-radius: 26px;
+  background: var(--surface);
+}
+
+.pickSkeletonImage {
+  aspect-ratio: 4 / 3;
+  border-radius: 0;
+}
+
+.pickSkeletonBody {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.pickSkeletonTitle {
+  width: 80%;
+  height: 26px;
+}
+
+.pickSkeletonLine {
+  width: 100%;
+  height: 14px;
+}
+
+.pickSkeletonLineShort {
+  width: 45%;
+  height: 14px;
+}
+
+@keyframes spotlightShimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+
+/* =========================================================
+   DESKTOP
+========================================================= */
+
+@media (min-width: 900px) {
+  .picksSection {
+    padding: 16px 22px 52px;
+  }
+
+  .picksHeader {
+    margin-bottom: 22px;
+  }
+
+  /*
+   * Două carduri echilibrate: același rând de grid -> aceeași înălțime;
+   * corpul cardului se întinde, iar prețul + butonul stau mereu jos.
+   */
+  .picksGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px;
+    align-items: stretch;
+  }
+
+  .picksGridSingle {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 640px;
+  }
+
+  .pickVisual {
+    aspect-ratio: 16 / 11;
+  }
+
+  .pickBody {
+    padding: 24px 26px 26px;
+  }
+
+  .pickTitle {
+    font-size: 1.5rem;
+  }
+}
+
+/* Pe desktop săgețile galeriei apar doar la hover / focus. */
+@media (hover: hover) and (pointer: fine) {
+  .spotlightArrowLeft,
+  .spotlightArrowRight {
+    opacity: 0;
+  }
+
+  .pickVisual:hover .spotlightArrowLeft,
+  .pickVisual:hover .spotlightArrowRight,
+  .spotlightMedia:focus-within .spotlightArrowLeft,
+  .spotlightMedia:focus-within .spotlightArrowRight {
+    opacity: 1;
+  }
+}
+
+/* =========================================================
+   VARIANTA COMPACTĂ (/produse)
+   Imagine mică în stânga, titlu + preț + buton. Pe mobil: un rând
+   glisant (scroll-snap, fără rotire automată), ca lista de produse
+   și filtrele să rămână aproape de primul ecran.
+========================================================= */
+
+.compact.picksSection {
+  padding: 4px 0 18px;
+  background: transparent;
+}
+
+.compact .picksInner {
+  width: 100%;
+}
+
+.compact .picksHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-bottom: 10px;
+}
+
+.compact .picksTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.015em;
+}
+
+.compact .picksGrid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(270px, 86%);
+  grid-template-columns: none;
+  gap: 12px;
+  margin: 0 -2px;
+  padding: 2px 2px 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.compact .picksGrid::-webkit-scrollbar {
+  display: none;
+}
+
+.compact .picksGridSingle {
+  grid-auto-columns: 100%;
+}
+
+.compact .pickCard,
+.compact .pickSkeleton {
+  flex-direction: row;
+  scroll-snap-align: start;
+  border-radius: 18px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+}
+
+.compact .pickSkeleton {
+  display: flex;
+}
+
+.compact .pickVisual,
+.compact .pickSkeletonImage {
+  flex: 0 0 104px;
+  width: 104px;
+  aspect-ratio: auto;
+  min-height: 132px;
+}
+
+.compact .pickBody {
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.compact .pickSkeletonBody {
+  flex: 1 1 auto;
+  padding: 14px;
+}
+
+.compact .pickBadge {
+  position: static;
+  align-self: flex-start;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 0;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--surface));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  font-size: 0.64rem;
+}
+
+.compact .pickTitle {
+  display: -webkit-box;
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-size: 0.98rem;
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.compact .pickKicker {
+  font-size: 0.7rem;
+}
+
+.compact .pickFooter {
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.compact .pickPrice,
+.compact .pickDiscountedPrice {
+  font-size: 1rem;
+}
+
+.compact .pickOldPrice {
+  font-size: 0.8rem;
+}
+
+.compact .pickArtisanDiscount strong {
+  font-size: 0.82rem;
+}
+
+.compact .pickCta {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+}
+
+@media (min-width: 900px) {
+  .compact.picksSection {
+    padding: 6px 0 22px;
+  }
+
+  /* desktop: două carduri pe un rând, aceeași înălțime, fără scroll */
+  .compact .picksGrid {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-columns: auto;
+    align-items: stretch;
+    overflow: visible;
+  }
+
+  .compact .picksGridSingle {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 620px;
+  }
+
+  .compact .pickVisual,
+  .compact .pickSkeletonImage {
+    flex-basis: 150px;
+    width: 150px;
+    aspect-ratio: auto;
+    min-height: 150px;
+  }
+
+  .compact .pickBody {
+    padding: 16px 18px;
+  }
+
+  .compact .pickTitle {
+    font-size: 1.08rem;
+  }
+}
+
+/* =========================================================
+   DARK MODE
+========================================================= */
+
+html[data-theme="dark"] .pickCard,
+html[data-theme="dark"] .pickSkeleton {
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme="dark"] .pickCta {
+  color: var(--color-bg);
+}
+
+html[data-theme="dark"] .spotlightArrowLeft,
+html[data-theme="dark"] .spotlightArrowRight {
+  background: rgba(4, 4, 6, 0.68);
+}
+
+html[data-theme="dark"] .spotlightDots,
+html[data-theme="dark"] .pickBadge {
+  background: rgba(4, 4, 6, 0.6);
+}
+
+html[data-theme="dark"] .compact .pickBadge {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 18%, var(--surface));
+}
+
+/* =========================================================
+   REDUCED MOTION
+========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  .pickCta,
+  .pickCta svg,
+  .spotlightImage,
+  .spotlightArrowLeft,
+  .spotlightArrowRight,
+  .spotlightDot {
+    transition: none;
+  }
+
+  .skeletonHeading::after,
+  .pickSkeletonImage::after,
+  .pickSkeletonTitle::after,
+  .pickSkeletonLine::after,
+  .pickSkeletonLineShort::after {
+    animation: none;
+  }
+}

@@ -1,10 +1,14 @@
 // src/pages/Home/WhyArtfest/WhyArtfest.jsx
 //
-// "De ce Artfest" - ultima secțiune importantă de homepage, înainte de
-// footer. Conținut static (4 beneficii, cerute explicit ca text fix,
-// nu date din API) - icon + titlu scurt + o singură propoziție.
+// „De ce să cumperi de pe Artfest” - elementele de încredere ale
+// homepage-ului. Conținut static, DOAR afirmații pe care platforma le
+// susține azi (plată card/ramburs, verificarea produselor înainte de
+// publicare, mesaje directe, politica de retur). Fără cifre („X creatori”)
+// până nu vin din date reale. La retur NU promitem „14 zile” fără nuanță:
+// produsele personalizate sunt excepție legală - trimitem la politică.
 import React from "react";
-import { FaComments, FaMapMarkerAlt, FaPalette, FaStore } from "react-icons/fa";
+import { Link } from "react-router-dom";
+import { FaComments, FaLock, FaShieldAlt, FaUndoAlt } from "react-icons/fa";
 
 import styles from "./WhyArtfest.module.css";
 
@@ -16,28 +20,29 @@ import styles from "./WhyArtfest.module.css";
  */
 const BENEFITS = [
   {
-    key: "romanian-creators",
-    icon: <FaMapMarkerAlt />,
-    title: "Creatori români",
-    text: "Ateliere și artizani verificați, din toată țara.",
+    key: "payment",
+    icon: <FaLock />,
+    title: "Plată sigură",
+    text: "Plătești cu cardul, online, sau ramburs la livrare.",
   },
   {
-    key: "customizable",
-    icon: <FaPalette />,
-    title: "Produse personalizabile",
-    text: "Multe creații se adaptează exact la ce ai nevoie.",
+    key: "verified",
+    icon: <FaShieldAlt />,
+    title: "Produse verificate",
+    text: "Fiecare produs trece printr-o verificare înainte să apară pe Artfest.",
   },
   {
-    key: "quote-requests",
+    key: "contact",
     icon: <FaComments />,
-    title: "Cereri de ofertă direct către creator",
-    text: "Spui ce cauți, primești oferte reale, fără intermediari.",
+    title: "Vorbești direct cu creatorul",
+    text: "Stabilești detaliile și personalizarea prin mesaje, fără intermediari.",
   },
   {
-    key: "all-in-one",
-    icon: <FaStore />,
-    title: "Totul într-un singur loc",
-    text: "Produse, mesaje și comenzi, într-un singur marketplace.",
+    key: "returns",
+    icon: <FaUndoAlt />,
+    title: "Retur clar",
+    text: "Știi dinainte ce se poate returna și cum.",
+    link: { to: "/politica-de-retur", label: "Vezi politica de retur" },
   },
 ];
 
@@ -45,17 +50,26 @@ export default function WhyArtfest() {
   return (
     <section className={styles.section} aria-labelledby="why-artfest-heading">
       <h2 id="why-artfest-heading" className={styles.heading}>
-        De ce Artfest
+        De ce să cumperi de pe Artfest
       </h2>
 
+      <p className={styles.lead}>
+        Produse handmade de la creatori români, cumpărate simplu și sigur.
+      </p>
+
       <div className={styles.grid}>
-        {BENEFITS.map(({ key, icon, title, text }) => (
+        {BENEFITS.map(({ key, icon, title, text, link }) => (
           <div key={key} className={styles.tile}>
             <span className={styles.iconWrap} aria-hidden="true">
               {icon}
             </span>
             <strong className={styles.tileTitle}>{title}</strong>
             <p className={styles.tileText}>{text}</p>
+            {link && (
+              <Link to={link.to} className={styles.tileLink}>
+                {link.label}
+              </Link>
+            )}
           </div>
         ))}
       </div>

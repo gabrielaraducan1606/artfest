@@ -7,8 +7,11 @@
 // - WITHDRAWN -> reînscriere pe ACEEAȘI înregistrare (status SUBMITTED,
 //   withdrawnAt null, submittedAt actualizat). REJECTED -> fără reînscriere.
 // - Condițiile de participare: acceptarea se salvează pe înscriere
-//   (termsAcceptedAt / termsVersion / termsIp / termsUa). Documentul juridic
-//   al târgului nu există încă -> termsVersion = ArtfestFair.termsVersion (null).
+//   (termsAcceptedAt / termsVersion / termsIp / termsUa). Înscrierea e posibilă
+//   DOAR cu o versiune publicată și legată de târg (termsVersion + termsUrl), iar
+//   clientul trimite versiunea pe care a citit-o și a bifat-o: dacă între timp s-a
+//   legat altă versiune => 409 terms_version_changed (nu înregistrăm o acceptare
+//   pentru un text pe care vendorul nu l-a văzut). Fără versiune => 409 terms_not_published.
 //   NU folosim VendorAcceptance / VendorDoc (ar intra în PolicyGate).
 //
 // Fără legături cu comenzi / checkout / Stripe / facturare / Shipment.
@@ -277,8 +280,13 @@ export function serializeRegistrationForVendor(row) {
 }
 
 // hasActiveInventory: inventar trimis / recepționat => retragerea doar prin flux controlat
+// înscrierea cere un regulament publicat și legat de târg (altfel nu există ce accepta)
+export function fairTermsReady(fair) {
+  return Boolean(publishedTermsUrl(fair?.termsVersion, fair?.termsUrl));
+}
+
 export function vendorActions(fair, registration, { hasActiveInventory = false } = {}) {
-  const open = fair?.registrationOpen !== false;
+  const open = fair?.registrationOpen !== false && fairTermsReady(fair);
   const status = registration?.status || null;
   return {
     canRegister: open && (!registration || status === "WITHDRAWN"),
@@ -344,6 +352,19 @@ export async function submitRegistration({ vendorId, userId, body, ip = null, ua
 
   if (fair.registrationOpen === false) {
     throw new FairError(409, "registration_closed", "Înscrierile pentru târg sunt închise.");
+  }
+
+  if (!fairTermsReady(fair)) {
+    throw new FairError(409, "terms_not_published", "Înscrierile se deschid după publicarea regulamentului târgului.");
+  }
+  // versiunea bifată de vendor trebuie să fie exact cea legată acum de târg
+  if (String(body?.termsVersion ?? "").trim() !== fair.termsVersion) {
+    throw new FairError(
+      409,
+      "terms_version_changed",
+      "Regulamentul târgului a fost actualizat. Citește versiunea nouă și bifează din nou acceptarea.",
+      { fields: { termsAccepted: "Citește versiunea nouă a regulamentului și bifează din nou acceptarea." } }
+    );
   }
 
   const terms = {
