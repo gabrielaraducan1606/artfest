@@ -30,6 +30,8 @@ import {
 import { api } from "../../../lib/api";
 import Register from "../Register/Register";
 import { useAuth } from "../Context/context.js";
+import { withMissingQueryParams } from "./loginRedirect.js";
+import { buildCheckoutReferralQuery } from "../../../utils/referralMemory.js";
 
 import styles from "./Login.module.css";
 
@@ -640,6 +642,16 @@ const influencerInviteToken = (() => {
     } else {
       next = "/desktop-user";
     }
+  }
+
+  /*
+   * Login-ul reîncarcă pagina (memoria de referral se golește): contextul
+   * de atribuire (?ref= / ?cref= / ?vcol=) merge mai departe prin URL-ul de
+   * destinație - doar parametrii care lipsesc, doar pe căi interne. Fără
+   * stocare pe dispozitiv (același helper ca Coș -> Checkout / produs -> login).
+   */
+  if (typeof next === "string" && next.startsWith("/") && !next.startsWith("//")) {
+    next = withMissingQueryParams(next, buildCheckoutReferralQuery());
   }
 
   window.location.assign(

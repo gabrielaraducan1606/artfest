@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { HandCoins, Sparkles } from "lucide-react";
+import { Check, HandCoins, Link2, Sparkles } from "lucide-react";
 import { api } from "../../../../lib/api.js";
 import { uploadFile } from "../../../../lib/uploadFile.js";
 import CollectionItemsManager from "./CollectionItemsManager.jsx";
@@ -34,6 +34,22 @@ const STATUS_LABELS = {
   EXPIRED: "Expirată",
   INACTIVE: "Inactivă",
 };
+
+/*
+ * URL-ul public al colecției, sau null dacă pagina publică nu există:
+ * GET /api/public/vendor-collections/:slug răspunde 404 pentru
+ * isActive=false (status INACTIVE). Programată / expirată se afișează.
+ * Calea vine din backend (publicPath = /colectie-vendor/:slug).
+ */
+function collectionPublicUrl(collection) {
+  if (!collection || collection.status === "INACTIVE") return null;
+
+  const slug = String(collection.slug || "").trim();
+  if (!slug) return null;
+
+  const path = collection.publicPath || `/colectie-vendor/${encodeURIComponent(slug)}`;
+  return `${window.location.origin}${path}`;
+}
 
 function errorMessage(err, fallback) {
   return err?.data?.message || err?.message || fallback;
@@ -124,7 +140,8 @@ export default function VendorCollectionsTab() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
-  const [copied, setCopied] = useState(false);
+  // id-ul colecției al cărei link tocmai a fost copiat (feedback „Link copiat”)
+  const [copiedId, setCopiedId] = useState(null);
 
   // CTA „Adaugă produse”: focus pe căutarea din selector (CollectionProductPicker)
   const [pickerFocusSignal, setPickerFocusSignal] = useState(0);
@@ -279,11 +296,17 @@ export default function VendorCollectionsTab() {
     }
   }
 
-  async function copyPublicLink(slug) {
+  async function copyPublicLink(collection) {
+    const url = collectionPublicUrl(collection);
+    if (!url) return; // inactivă / fără slug: fără link mort
+
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/colectie-vendor/${slug}`);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(url);
+      setCopiedId(collection.id);
+      window.setTimeout(
+        () => setCopiedId((current) => (current === collection.id ? null : current)),
+        1800
+      );
     } catch {
       setError("Nu am putut copia linkul.");
     }
@@ -408,12 +431,18 @@ export default function VendorCollectionsTab() {
           </div>
 
           {collections.length ? (
+            <>
             <ul className={styles.list}>
-              {collections.map((c, index) => (
+              {collections.map((c, index) => {
+                const publicUrl = collectionPublicUrl(c);
+                const isCopied = copiedId === c.id;
+
+                return (
                 <li
                   key={c.id}
                   className={[
                     c.id === selectedId ? styles.listItemActive : styles.listItem,
+                    styles.listItemWithCopy,
                     // ascuns doar pe mobil, cât lista e scurtată (colecția deschisă rămâne vizibilă)
                     !showAllCollections && index >= COMPACT_LIST_COUNT && c.id !== selectedId ? styles.listItemExtra : "",
                   ].join(" ")}
@@ -434,9 +463,33 @@ export default function VendorCollectionsTab() {
                       {STATUS_LABELS[c.status] || c.status}
                     </span>
                   </button>
+
+                  {/* linkul public al colecției; dezactivat dacă pagina publică nu există (inactivă) */}
+                  <button
+                    type="button"
+                    className={isCopied ? styles.copyLinkButtonDone : styles.copyLinkButton}
+                    onClick={() => copyPublicLink(c)}
+                    disabled={!publicUrl}
+                    aria-label={
+                      publicUrl
+                        ? `Copiază linkul public al colecției „${c.title}”`
+                        : `Colecția „${c.title}” e inactivă: nu are link public`
+                    }
+                    title={publicUrl ? "Copiază linkul" : "Colecția e inactivă: pagina publică nu e disponibilă."}
+                  >
+                    {isCopied ? <Check size={16} aria-hidden="true" /> : <Link2 size={16} aria-hidden="true" />}
+                    {isCopied ? <span>Link copiat</span> : null}
+                  </button>
                 </li>
-              ))}
+                );
+              })}
             </ul>
+
+            {/* anunț pentru cititoarele de ecran */}
+            <span className={styles.srOnly} role="status" aria-live="polite">
+              {copiedId ? "Link copiat" : ""}
+            </span>
+            </>
           ) : (
             <p className={styles.muted}>Nu ai încă nicio colecție.</p>
           )}
@@ -471,8 +524,14 @@ export default function VendorCollectionsTab() {
                   <a className={styles.linkAction} href={`/colectie-vendor/${selected.slug}`} target="_blank" rel="noreferrer">
                     Vezi public
                   </a>
-                  <button type="button" className={styles.secondary} onClick={() => copyPublicLink(selected.slug)}>
-                    {copied ? "Copiat" : "Copiază linkul"}
+                  <button
+                    type="button"
+                    className={styles.secondary}
+                    onClick={() => copyPublicLink(selected)}
+                    disabled={!collectionPublicUrl(selected)}
+                    title={collectionPublicUrl(selected) ? undefined : "Colecția e inactivă: pagina publică nu e disponibilă."}
+                  >
+                    {copiedId === selected.id ? "Link copiat" : "Copiază linkul"}
                   </button>
                   <button type="button" className={styles.secondary} onClick={openProductSearch}>
                     + Produse

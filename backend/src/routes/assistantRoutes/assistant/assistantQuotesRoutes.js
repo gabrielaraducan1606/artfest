@@ -751,34 +751,48 @@ router.post(
         vendorCollectionToken: vendorCollectionAttribution,
       });
 
-      const vendorCollectionAttributionResolved = requestReferrals.collection;
-
       const influencerAttributionResolved = requestReferrals.influencer;
       const vendorReferralAttributionResolved = requestReferrals.vendor;
 
+      /*
+       * Colecția atribuită ofertei: prima colecție vizitată (cele mai recente
+       * întâi) care chiar conține produsul - aceeași regulă ca la checkout
+       * (pickShipmentReferralCollection). Fără membru -> cea mai recentă,
+       * nemembră (comportamentul de dinainte: nu produce atribuire).
+       */
+      const visitedCollections =
+        requestReferrals.collections ||
+        (requestReferrals.collection ? [requestReferrals.collection] : []);
+
+      let vendorCollectionAttributionResolved = visitedCollections[0] || null;
       let vendorCollectionProductWasMember = false;
 
-      if (
-        vendorCollectionAttributionResolved &&
-        resolvedProductId
-      ) {
-        const membership =
-          await prisma.vendorCollectionItem.findFirst({
-            where: {
-              collectionId:
-                vendorCollectionAttributionResolved.collectionId,
+      if (resolvedProductId) {
+        for (const candidate of visitedCollections) {
+          const membership =
+            await prisma.vendorCollectionItem.findFirst({
+              where: {
+                collectionId:
+                  candidate.collectionId,
 
-              productId: resolvedProductId,
-            },
+                productId: resolvedProductId,
+              },
 
-            select: { productId: true },
-          });
+              select: { productId: true },
+            });
 
-        vendorCollectionProductWasMember =
-          Boolean(membership) ||
-          // allOwnProducts: orice produs propriu al ownerului colecției e membru
-          (vendorCollectionAttributionResolved.allOwnProducts === true &&
-            String(vendorCollectionAttributionResolved.vendorId) === String(resolvedVendorId));
+          const isMember =
+            Boolean(membership) ||
+            // allOwnProducts: orice produs propriu al ownerului colecției e membru
+            (candidate.allOwnProducts === true &&
+              String(candidate.vendorId) === String(resolvedVendorId));
+
+          if (isMember) {
+            vendorCollectionAttributionResolved = candidate;
+            vendorCollectionProductWasMember = true;
+            break;
+          }
+        }
       }
 
       const effectiveVendorAttribution =

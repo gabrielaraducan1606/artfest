@@ -376,6 +376,56 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
 
+/* rândul colecției: [ deschide colecția ][ copiază linkul public ] */
+.listItemWithCopy {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.copyLinkButton,
+.copyLinkButtonDone {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.copyLinkButton:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--surface));
+}
+
+.copyLinkButtonDone {
+  border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+  background: var(--success-bg-soft);
+  color: var(--color-success);
+}
+
+.copyLinkButton:disabled {
+  color: var(--color-muted);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.copyLinkButton:focus-visible,
+.copyLinkButtonDone:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

@@ -1,5 +1,4 @@
 import { useCallback, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 const MAX_DIMENSION = 1024;
 const JPEG_QUALITY = 0.82;
@@ -41,8 +40,15 @@ async function compressImageForSearch(file) {
   }
 }
 
+/*
+ * Butonul cu cameră din search bar NU mai caută singur (vechea rută
+ * CLIP /api/public/products/search-by-image nu mai e folosită aici):
+ * poza e trimisă Asistentului (FloatingHub -> AiAssistant), care o
+ * afișează în conversație și pornește căutarea vizuală AI existentă.
+ */
+export const IMAGE_SEARCH_EVENT = "artfest:image-search";
+
 export function useImageSearch() {
-  const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const [searching, setSearching] = useState(false);
 
@@ -56,54 +62,23 @@ export function useImageSearch() {
     if (!file.type?.startsWith("image/")) return;
 
     try {
-      // ✅ 1. Navighezi instant
-      navigate("/produse?by=image&page=1", {
-        state: { imageSearchPending: true },
-      });
-
       setSearching(true);
 
-      // ✅ 2. Procesezi în background
+      // JPEG ≤1024px: upload mai mic + format acceptat de Asistent
       const optimizedFile = await compressImageForSearch(file);
 
-      const fd = new FormData();
-      fd.append("image", optimizedFile);
-
-      const res = await fetch("/api/public/products/search-by-image", {
-        method: "POST",
-        body: fd,
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        navigate("/produse?by=image&error=1&page=1", { replace: true });
-        return;
-      }
-
-      const ids = Array.isArray(data?.ids) ? data.ids.filter(Boolean) : [];
-
-      if (ids.length > 0) {
-        try {
-          sessionStorage.setItem("imgsearch:last", JSON.stringify(data));
-        } catch {""}
-
-        navigate(
-          `/produse?by=image&ids=${encodeURIComponent(ids.join(","))}&page=1`,
-          { replace: true }
-        );
-        return;
-      }
-
-      navigate("/produse?by=image&page=1", { replace: true });
+      window.dispatchEvent(
+        new CustomEvent(IMAGE_SEARCH_EVENT, {
+          detail: { file: optimizedFile },
+        })
+      );
     } catch (err) {
       console.error("Image search failed:", err);
-      navigate("/produse?by=image&error=1&page=1", { replace: true });
     } finally {
       setSearching(false);
     }
   },
-  [navigate]
+  []
 );
 
   const handleFileChange = useCallback(

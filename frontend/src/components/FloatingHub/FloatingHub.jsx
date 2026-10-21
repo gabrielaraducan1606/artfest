@@ -386,8 +386,21 @@ export default function FloatingHub({ me, isVendor, isInfluencer }) {
       "artfest:assistant-prompt",
       openAssistantForBuyerEvent
     );
+    /*
+     * Butonul cu cameră din search bar (hooks/useImageSearch.js) -
+     * poza ({ file }) ajunge în Asistent ca o fotografie încărcată
+     * direct în conversație (căutare vizuală).
+     */
+    window.addEventListener(
+      "artfest:image-search",
+      openAssistantForBuyerEvent
+    );
 
     return () => {
+      window.removeEventListener(
+        "artfest:image-search",
+        openAssistantForBuyerEvent
+      );
       window.removeEventListener(
         "artfest:personalization-start",
         openAssistantForBuyerEvent

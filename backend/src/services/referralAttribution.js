@@ -125,18 +125,28 @@ export async function resolveRequestReferralAttributions({
     (await resolveVendorReferralAttribution({ token: vendorToken, db }));
 
   /*
-   * VendorCollection: cea mai recentă colecție VALIDĂ din navigarea curentă
-   * (o singură colecție, ca tokenul vechi - last-click). Apartenența
-   * produselor e verificată la checkout, per item.
+   * VendorCollection: TOATE colecțiile VALIDE din navigarea curentă, cele mai
+   * recente întâi (`collections`). Checkout-ul alege PER SHIPMENT prima
+   * colecție care chiar conține un produs al shipment-ului
+   * (pickShipmentReferralCollection, chekoutRoutes.js) - o colecție vizitată
+   * mai târziu, fără produsul cumpărat, nu mai anulează una anterioară.
+   * `collection` = cea mai recentă validă (compatibilitate pentru apelanți).
    */
-  const collection =
-    (await firstResolved(normalizeVendorCollectionSlugs(vendorCollectionSlugs), ({ slug, at }) =>
-      resolveVendorCollectionAttributionBySlug({ slug, capturedAt: at, db })
-    )) ||
-    // TRANZIȚIE - DE ELIMINAT: token vechi din bundle-uri vechi
-    (await resolveVendorCollectionAttribution({ token: vendorCollectionToken, db }));
+  const collections = [];
+  for (const { slug, at } of normalizeVendorCollectionSlugs(vendorCollectionSlugs)) {
+    const resolved = await resolveVendorCollectionAttributionBySlug({ slug, capturedAt: at, db });
+    if (resolved) collections.push(resolved);
+  }
 
-  return { influencer, vendor, collection };
+  // TRANZIȚIE - DE ELIMINAT: token vechi din bundle-uri vechi
+  if (!collections.length) {
+    const fromToken = await resolveVendorCollectionAttribution({ token: vendorCollectionToken, db });
+    if (fromToken) collections.push(fromToken);
+  }
+
+  const collection = collections[0] || null;
+
+  return { influencer, vendor, collection, collections };
 }
 
 /* =========================================================

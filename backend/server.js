@@ -14,6 +14,7 @@ import {
   createGlobalErrorHandler,
   createIncidentLoggingMiddleware,
 } from "./src/lib/routeIncidentLogging.js";
+import { createAiImageSearchLimiter } from "./src/middleware/aiImageSearchRateLimit.js";
 
 /* ---------------- IMPORT RUTE EXISTENTE ---------------- */
 import authRouter from "./src/routes/authRoutes.js";
@@ -294,6 +295,9 @@ const authLoginLimiter = rateLimit({
 
 // 1) aplicăm global pe /api
 app.use("/api", apiLimiter);
+
+// căutare vizuală AI a Asistentului: 10 / oră / IP (înainte de app.use("/api/assistant", ...))
+app.use("/api/assistant/products/search-by-image", createAiImageSearchLimiter());
 
 // 2) aplicăm limitere specifice pe endpoint-uri auth (înainte de router)
 app.use("/api/auth/me", authMeLimiter);

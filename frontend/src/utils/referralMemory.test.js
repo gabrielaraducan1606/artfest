@@ -687,3 +687,122 @@ test("AppLayout: deep-link cerere de ofertă fără sesiune -> login cu redirect
     /if \(!loading && !me && isQuoteDeepLink\(location\.search\)\) \{\s*return <Navigate to=\{loginPathFor\(location\)\} replace \/>;/
   );
 });
+
+/* =========================================================
+   VendorCollection: sessionStorage (doar cu consimțământ „Atribuire”) + login
+========================================================= */
+
+function fakeSessionStorage() {
+  const data = new Map();
+  return {
+    data,
+    getItem: (k) => (data.has(k) ? data.get(k) : null),
+    setItem: (k, v) => data.set(k, String(v)),
+    removeItem: (k) => data.delete(k),
+  };
+}
+
+const VCOL_KEY = memoryModule.VENDOR_COLLECTIONS_STORAGE_KEY;
+
+test("vcol + consimțământ: sessionStorage păstrează colecțiile -> refresh / login nu le pierd", () => {
+  const session = fakeSessionStorage();
+  const withConsent = { storage: session, canPersist: () => true };
+
+  const tab = makeMemory(withConsent);
+  tab.captureVendorCollection("colectie-a");
+  tab.captureVendorCollection("colectie-b");
+  assert.deepEqual(JSON.parse(session.getItem(VCOL_KEY)).map((e) => e.slug), ["colectie-b", "colectie-a"]);
+
+  // refresh pe Home / după login (aplicație nouă, URL fără ?vcol=)
+  const reloaded = makeMemory(withConsent);
+  assert.deepEqual(reloaded.getCheckoutFields().vendorCollectionSlugs.map((e) => e.slug), ["colectie-b", "colectie-a"]);
+
+  // ?vcol= rămâne sursă validă și actualizează lista (devine cea mai recentă)
+  reloaded.captureFromSearch("?vcol=colectie-a");
+  assert.deepEqual(JSON.parse(session.getItem(VCOL_KEY)).map((e) => e.slug), ["colectie-a", "colectie-b"]);
+
+  // nimic în localStorage
+  assert.equal(store.has(VCOL_KEY), false);
+});
+
+test("vcol fără consimțământ „Atribuire”: nimic în sessionStorage (politica §3.4); refresh -> doar URL", () => {
+  const session = fakeSessionStorage();
+  const noConsent = { storage: session, canPersist: () => false };
+
+  const tab = makeMemory(noConsent);
+  tab.captureVendorCollection("colectie-a");
+  assert.equal(session.getItem(VCOL_KEY), null);
+  assert.deepEqual(tab.getCheckoutFields().vendorCollectionSlugs.map((e) => e.slug), ["colectie-a"], "memoria merge");
+
+  // refresh fără ?vcol= -> pierdut (comportamentul de dinainte, fără stocare)
+  assert.deepEqual(makeMemory(noConsent).getCheckoutFields().vendorCollectionSlugs, []);
+});
+
+test("login generic: destinația poartă ?vcol= din memorie (fără stocare), doar parametrii lipsă", () => {
+  const tab = makeMemory({ storage: null });
+  tab.captureVendorCollection("colectie-a");
+  tab.captureVendorCollection("colectie-b");
+
+  const next = withMissingQueryParams("/desktop-user", tab.toCheckoutQuery());
+  assert.equal(next, "/desktop-user?vcol=colectie-b&vcol=colectie-a");
+
+  // după reîncărcare, captura globală din URL reface aceeași ordine
+  const afterLogin = makeMemory({ storage: null });
+  afterLogin.captureFromSearch(next.slice(next.indexOf("?")));
+  assert.deepEqual(afterLogin.getCheckoutFields().vendorCollectionSlugs.map((e) => e.slug), ["colectie-b", "colectie-a"]);
+
+  // parametrii deja prezenți nu sunt dublați / suprascriși
+  assert.equal(withMissingQueryParams("/checkout?vcol=x", "vcol=colectie-a"), "/checkout?vcol=x");
+
+  // sursa: finishLogin din Login.jsx aplică exact acest helper, doar pe căi interne
+  const loginSrc = readSrc("../pages/Auth/Login/Login.jsx");
+  assert.match(loginSrc, /next\.startsWith\("\/"\) && !next\.startsWith\("\/\/"\)\) \{\s*next = withMissingQueryParams\(next, buildCheckoutReferralQuery\(\)\);/);
+});
+
+test("consimțământ retras -> cheia vcol ștearsă; acordat ulterior -> memoria curentă e salvată", () => {
+  const session = fakeSessionStorage();
+  let consent = false;
+  const tab = makeMemory({ storage: session, canPersist: () => consent });
+
+  tab.captureVendorCollection("colectie-a");
+  assert.equal(session.getItem(VCOL_KEY), null);
+
+  // acord dat din banner
+  consent = true;
+  window.dispatchEvent(new CustomEvent("cookie:consent", { detail: { attribution: true } }));
+  assert.deepEqual(JSON.parse(session.getItem(VCOL_KEY)).map((e) => e.slug), ["colectie-a"]);
+
+  // retragere
+  consent = false;
+  window.dispatchEvent(new CustomEvent("cookie:consent", { detail: { attribution: false } }));
+  assert.equal(session.getItem(VCOL_KEY), null);
+
+  // clear() șterge și cheia
+  consent = true;
+  tab.captureVendorCollection("colectie-b");
+  tab.clear();
+  assert.equal(session.getItem(VCOL_KEY), null);
+});
+
+test("sessionStorage manipulat / invalid -> ignorat; cel mult 5, ordonat după vizită", () => {
+  const session = fakeSessionStorage();
+  const withConsent = { storage: session, canPersist: () => true };
+
+  session.setItem(VCOL_KEY, "{nu e json");
+  assert.deepEqual(makeMemory(withConsent).getCheckoutFields().vendorCollectionSlugs, []);
+
+  session.setItem(
+    VCOL_KEY,
+    JSON.stringify([
+      { slug: "veche", at: 1 },
+      { slug: "x".repeat(181), at: 9 },
+      { slug: "", at: 8 },
+      ...["c1", "c2", "c3", "c4", "c5", "c6"].map((slug, i) => ({ slug, at: 10 + i })),
+      { slug: "c6", at: 2 },
+    ])
+  );
+  assert.deepEqual(
+    makeMemory(withConsent).getCheckoutFields().vendorCollectionSlugs.map((e) => e.slug),
+    ["c6", "c5", "c4", "c3", "c2"]
+  );
+});

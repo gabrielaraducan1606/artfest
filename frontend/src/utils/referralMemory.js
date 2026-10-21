@@ -18,8 +18,16 @@
  * - aceeași semantică ca tokenurile vechi (câte unul pe tip), deci aceleași
  * priorități (influencer vs vendor, colecție, coduri de reducere, campanii).
  *
- * NU citește / scrie localStorage / sessionStorage / cookie; nu face request.
- * Refresh / tab nou: doar prin URL (?ref= / cref= pe paginile care contează).
+ * NU citește / scrie localStorage / cookie; nu face request.
+ * Refresh / tab nou: prin URL (?ref= / cref= / vcol= pe paginile care contează).
+ *
+ * EXCEPȚIE - vendorCollections (cel mult 5 slug-uri, fără date personale)
+ * sunt copiate și în sessionStorage (VENDOR_COLLECTIONS_STORAGE_KEY), ca un
+ * refresh / login să nu piardă atribuirea colecției. sessionStorage dispare la
+ * închiderea tab-ului (nu persistă între sesiuni). Politica de cookie-uri
+ * (§3.4) cere consimțământul „Atribuire recomandări” pentru stocarea pe
+ * dispozitiv - de aceea scrierea / citirea se fac DOAR cu acel consimțământ;
+ * la retragere cheia e ștearsă. Fără consimțământ: doar memorie + URL.
  *
  * Consimțământ: un singur punct de control, ATTRIBUTION_REQUIRES_CONSENT
  * (config/features.js), aplicat AICI. Cu false (varianta curentă) fluxul nu
@@ -46,6 +54,17 @@ export const VENDOR_COLLECTION_PARAM = "vcol";
 // compatibilitate cu linkurile deja distribuite: ?ref=X&refSource=collection
 export const LEGACY_COLLECTION_REF_SOURCE = "collection";
 
+// sessionStorage pentru vendorCollections (doar cu consimțământul „Atribuire”)
+export const VENDOR_COLLECTIONS_STORAGE_KEY = "artfest:referral:vcol:v1";
+
+function defaultSessionStorage() {
+  try {
+    return typeof window !== "undefined" && window.sessionStorage ? window.sessionStorage : null;
+  } catch {
+    return null; // stocare blocată (ex. setări stricte de confidențialitate)
+  }
+}
+
 function normalizeCode(value) {
   const code = String(value ?? "").trim();
   if (!code || code.length > REFERRAL_CODE_MAX_LENGTH) return null;
@@ -57,6 +76,10 @@ export function createReferralMemory({
   hasConsent = hasAttributionConsent,
   hasDecision = hasAnyDecision,
   now = () => Date.now(),
+  storage = defaultSessionStorage(),
+  // stocarea pe dispozitiv cere MEREU consimțământul „Atribuire” (politica §3.4),
+  // indiferent de requiresConsent (care privește doar folosirea codurilor)
+  canPersist = hasAttributionConsent,
 } = {}) {
   let explicit = []; // [{ code, at }] - cele mai recente întâi
   let collection = null; // { code, at }
@@ -65,6 +88,48 @@ export function createReferralMemory({
   // cu requiresConsent=false consimțământul nu e consultat deloc
   const allowed = () => !requiresConsent || hasConsent();
   const refused = () => requiresConsent && hasDecision() && !hasConsent();
+
+  const persistAllowed = (override) => {
+    try {
+      return typeof override === "boolean" ? override : canPersist() === true;
+    } catch {
+      return false;
+    }
+  };
+
+  // memorie -> sessionStorage (cu consimțământ), altfel cheia e ștearsă
+  function syncStorage(consentOverride) {
+    if (!storage) return;
+    try {
+      if (persistAllowed(consentOverride) && vendorCollections.length) {
+        storage.setItem(VENDOR_COLLECTIONS_STORAGE_KEY, JSON.stringify(vendorCollections));
+      } else {
+        storage.removeItem(VENDOR_COLLECTIONS_STORAGE_KEY);
+      }
+    } catch {
+      // stocare plină / blocată - memoria rămâne sursa
+    }
+  }
+
+  // sessionStorage -> memorie, la crearea instanței (refresh / login)
+  function rehydrate() {
+    if (!storage || !persistAllowed()) return;
+    try {
+      const parsed = JSON.parse(storage.getItem(VENDOR_COLLECTIONS_STORAGE_KEY) || "null");
+      if (!Array.isArray(parsed)) return;
+
+      const seen = new Set();
+      vendorCollections = parsed
+        .map((e) => ({ slug: String(e?.slug ?? "").trim(), at: Number(e?.at) || 0 }))
+        .filter((e) => e.slug && e.slug.length <= VENDOR_COLLECTION_SLUG_MAX_LENGTH && !seen.has(e.slug) && seen.add(e.slug))
+        .sort((a, b) => b.at - a.at)
+        .slice(0, MAX_VENDOR_COLLECTION_SLUGS);
+    } catch {
+      vendorCollections = [];
+    }
+  }
+
+  rehydrate();
 
   // ?ref= explicit -> last-click-wins (devine cel mai recent)
   function captureExplicit(referralCode) {
@@ -91,6 +156,7 @@ export function createReferralMemory({
       0,
       MAX_VENDOR_COLLECTION_SLUGS
     );
+    syncStorage();
     return true;
   }
 
@@ -149,12 +215,17 @@ export function createReferralMemory({
   }
 
   function handleConsent(detail) {
+    // sessionStorage urmează MEREU consimțământul „Atribuire” (acordat -> scriem
+    // memoria curentă; retras -> ștergem cheia), indiferent de requiresConsent
+    syncStorage(detail ? detail.attribution === true : undefined);
+
     if (!requiresConsent) return;
     const attribution = detail ? detail.attribution === true : hasConsent();
     if (!attribution) {
       explicit = [];
       collection = null;
       vendorCollections = [];
+      syncStorage(false);
     }
   }
 
@@ -168,6 +239,7 @@ export function createReferralMemory({
     explicit = [];
     collection = null;
     vendorCollections = [];
+    syncStorage(false);
   }
 
   return {
@@ -190,8 +262,9 @@ export function createReferralMemory({
 
 const appMemory = createReferralMemory();
 
-// ascultăm consimțământul doar când politica îl cere
-if (ATTRIBUTION_REQUIRES_CONSENT && typeof window !== "undefined" && window.addEventListener) {
+// ascultăm MEREU consimțământul: sessionStorage-ul vendorCollections îl urmează;
+// golirea memoriei rămâne doar când ATTRIBUTION_REQUIRES_CONSENT (handleConsent)
+if (typeof window !== "undefined" && window.addEventListener) {
   appMemory.attach(window);
 }
 

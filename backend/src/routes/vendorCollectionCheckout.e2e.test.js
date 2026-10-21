@@ -1485,3 +1485,122 @@ test("colecție mare (300 de produse, adăugate în lot): checkout atribuie doar
   assert.equal(byVendor("vendor-b").referrerVendorId ?? null, null);
   assert.deepEqual(snap(byVendor("vendor-b")), { b1: null });
 });
+
+/* =========================================================
+   MAI MULTE COLECȚII VIZITATE: per shipment, prima colecție (cele mai
+   recente întâi) care CHIAR conține un produs al shipment-ului
+========================================================= */
+
+// colecția C (ownerul C): b2 (vendor B) + a3 (vendor A); colecția A: a1, b1, c1
+function addCollectionC() {
+  db.__tables.vendorCollection.push({ id: "vcol-c", vendorId: "vendor-c", slug: "colectia-c", title: "Colecția C", isActive: true });
+  db.__tables.vendorCollectionItem.push(
+    { collectionId: "vcol-c", productId: "b2", position: 0 },
+    { collectionId: "vcol-c", productId: "a3", position: 1 }
+  );
+}
+
+// A vizitată prima, C mai recent (ordinea din client: cea mai recentă primul)
+const visitedAThenC = () => [
+  { slug: "colectia-c", at: Date.now() },
+  { slug: "colectia-a", at: Date.now() - 60_000 },
+];
+
+test("MULTI: colecție A -> colecție C -> cumpăr produs DOAR din A (b1) -> referral A (C nu-l mai anulează)", async () => {
+  addCollectionC();
+  const res = await placeGuest({ items: items("b1"), vendorCollectionSlugs: visitedAThenC() });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  const b = byVendor("vendor-b");
+  assert.equal(b.referrerVendorId, "vendor-a");
+  assert.equal(b.referrerVendorReferralCodeSnapshot, "COLLECTION:colectia-a");
+  assert.deepEqual(snap(b), { b1: "vcol-a" });
+
+  await deliverAndBook();
+  // procente neschimbate: B pe plan 15%, A 20% din comisionul Artfest pe b1
+  assert.ok(near(saleOf(b)[0].commissionNet, 80 * 0.15), "B plătește planul (15%)");
+  assert.ok(near(referralOf(b)[0].earningNet, 80 * 0.15 * 0.2), "referral A = 2,40");
+});
+
+test("MULTI: colecție A -> colecție C -> cumpăr produs din C (b2) -> referral C", async () => {
+  addCollectionC();
+  await placeGuest({ items: items("b2"), vendorCollectionSlugs: visitedAThenC() });
+
+  const b = byVendor("vendor-b");
+  assert.equal(b.referrerVendorId, "vendor-c");
+  assert.equal(b.referrerVendorReferralCodeSnapshot, "COLLECTION:colectia-c");
+  assert.deepEqual(snap(b), { b2: "vcol-c" });
+
+  await deliverAndBook();
+  assert.ok(near(referralOf(b)[0].earningNet, 60 * 0.15 * 0.2), "referral C = 1,80");
+});
+
+test("MULTI: coș mixt (b1 din A + a3 din C) -> fiecare shipment cu colecția lui; guest COD = user CARD", async () => {
+  addCollectionC();
+
+  const check = () => {
+    const a = byVendor("vendor-a");
+    const b = byVendor("vendor-b");
+    return {
+      a: { referrer: a.referrerVendorId ?? null, marker: a.referrerVendorReferralCodeSnapshot ?? null, own: a.vendorReferralCommissionOverrideBps ?? null, snap: snap(a) },
+      b: { referrer: b.referrerVendorId ?? null, marker: b.referrerVendorReferralCodeSnapshot ?? null, snap: snap(b) },
+    };
+  };
+
+  const expected = {
+    // a3 nu e în colecția proprie A -> fără own-sale; e în colecția C -> referral C
+    a: { referrer: "vendor-c", marker: "COLLECTION:colectia-c", own: null, snap: { a3: "vcol-c" } },
+    // b1 e în colecția A (vizitată MAI DEMULT) -> referral A
+    b: { referrer: "vendor-a", marker: "COLLECTION:colectia-a", snap: { b1: "vcol-a" } },
+  };
+
+  const cod = await placeGuest({ items: items("b1", "a3"), vendorCollectionSlugs: visitedAThenC(), paymentMethod: "COD" });
+  assert.equal(cod.status, 200, JSON.stringify(cod.body));
+  assert.deepEqual(check(), expected, "guest COD");
+
+  seed();
+  addCollectionC();
+  const card = await placeUser({ items: items("b1", "a3"), vendorCollectionSlugs: visitedAThenC(), paymentMethod: "CARD" });
+  assert.equal(card.status, 200, JSON.stringify(card.body));
+  assert.deepEqual(check(), expected, "user CARD");
+});
+
+test("MULTI: un singur shipment cu produse din colecții diferite (b1 în A, b2 în C) -> o singură colecție / shipment: cea mai recentă care conține un item", async () => {
+  addCollectionC();
+  await placeGuest({ items: items("b1", "b2"), vendorCollectionSlugs: visitedAThenC() });
+
+  const b = byVendor("vendor-b");
+  // limită de schemă: Shipment are un singur referrer + un singur marcaj COLLECTION:<slug>
+  assert.equal(b.referrerVendorId, "vendor-c");
+  assert.deepEqual(snap(b), { b1: null, b2: "vcol-c" });
+});
+
+test("MULTI: produs propriu din colecția proprie A (a1) + colecție C vizitată mai recent -> own-sale 5% rămâne separat", async () => {
+  addCollectionC();
+  await placeGuest({ items: items("a1"), vendorCollectionSlugs: visitedAThenC() });
+
+  const a = byVendor("vendor-a");
+  assert.equal(a.vendorReferralCommissionOverrideBps, 500, "own-sale din colecția proprie");
+  assert.equal(a.referrerVendorId ?? null, null, "C nu conține a1 -> fără referral");
+  assert.deepEqual(snap(a), { a1: "vcol-a" });
+});
+
+test("MULTI: influencer ?ref= + două colecții -> influencerul își păstrează prioritatea", async () => {
+  addCollectionC();
+  await placeGuest({ items: items("b1"), vendorCollectionSlugs: visitedAThenC(), referralCodes: ref(REF, Date.now() - 120_000) });
+
+  const b = byVendor("vendor-b");
+  assert.equal(b.influencerId, "inf-1");
+  assert.equal(b.referrerVendorId ?? null, null);
+  assert.deepEqual(snap(b), { b1: null });
+});
+
+test("MULTI: nicio colecție vizitată nu conține produsul -> fără referral de colecție", async () => {
+  addCollectionC();
+  await placeGuest({ items: items("a2"), vendorCollectionSlugs: [{ slug: "colectia-c", at: Date.now() }] });
+
+  const a = byVendor("vendor-a");
+  assert.equal(a.referrerVendorId ?? null, null);
+  assert.equal(a.vendorReferralCommissionOverrideBps ?? null, null);
+  assert.deepEqual(snap(a), { a2: null });
+});

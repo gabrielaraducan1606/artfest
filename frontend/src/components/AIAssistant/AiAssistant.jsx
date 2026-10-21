@@ -1603,6 +1603,33 @@ Poți reveni oricând la pasul anterior.`
           0
         );
       }
+    } else if (
+      pendingAssistantEvent.type ===
+      "artfest:image-search"
+    ) {
+      /*
+       * Butonul cu cameră din search bar (hooks/useImageSearch.js):
+       * aceeași cale ca o poză încărcată direct în conversație
+       * (handleImageChange), dar cu prioritate - pornește mereu
+       * căutarea vizuală, indiferent de flow-ul activ.
+       */
+      const imageFile =
+        pendingAssistantEvent.detail
+          ?.file;
+
+      if (imageFile) {
+        handleImageChange(
+          {
+            target: {
+              files: [imageFile],
+              value: "",
+            },
+          },
+          {
+            forceVisualSearch: true,
+          }
+        );
+      }
     }
 
     onPendingAssistantEventHandled?.();
@@ -3638,7 +3665,15 @@ if (
      Încărcare imagine
   ======================================================= */
 
- async function handleImageChange(event) {
+ /*
+  * `forceVisualSearch`: poza vine din butonul cu cameră din search bar
+  * (evenimentul "artfest:image-search") - e mereu o căutare vizuală,
+  * NU atașament de cerere ofertă / răspuns de personalizare.
+  */
+ async function handleImageChange(
+  event,
+  { forceVisualSearch = false } = {}
+ ) {
   const file =
     event.target.files?.[0];
 
@@ -3707,12 +3742,15 @@ if (
    */
 
   const isQuoteConversation =
-    activeFlow ===
-      QUOTE_FLOWS
-        .USER_QUOTE_THREAD ||
-    activeFlow ===
-      QUOTE_FLOWS
-        .VENDOR_QUOTE_THREAD;
+    !forceVisualSearch &&
+    (
+      activeFlow ===
+        QUOTE_FLOWS
+          .USER_QUOTE_THREAD ||
+      activeFlow ===
+        QUOTE_FLOWS
+          .VENDOR_QUOTE_THREAD
+    );
 
   /*
    * Pentru quote thread fotografia
@@ -3739,6 +3777,37 @@ if (
       filename:
         file.name,
     });
+  }
+
+  /*
+   * =====================================================
+   * CĂUTARE DIN SEARCH BAR (cameră) - prioritară
+   * =====================================================
+   *
+   * Aceeași pornire ca la „fotografie încărcată direct” de mai jos,
+   * dar înaintea ramurilor de personalizare / cerere ofertă, ca poza
+   * să nu fie tratată ca răspuns sau atașament al flow-ului activ.
+   */
+  if (forceVisualSearch) {
+    event.target.value = "";
+
+    setCurrentMenu(
+      "shopping"
+    );
+
+    setShowMenu(false);
+
+    setActiveFlow(
+      "image-search"
+    );
+
+    setVisualSearchId(null);
+
+    await runVisualSearch(
+      file
+    );
+
+    return;
   }
 
   /*

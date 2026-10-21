@@ -363,7 +363,7 @@ export function buildShipmentAttributionFields({
  *    Dacă produsul CHIAR e în colecție, tokenul rămâne valid candidat
  *    și own-sale-ul se acordă chiar și FĂRĂ cod de reducere introdus
  *    (simpla vizitare + cumpărare directă) - vezi
- *    collectionMemberProductIdsForToken mai sus. ?ref= își păstrează
+ *    pickShipmentReferralCollection mai sus. ?ref= își păstrează
  *    comportamentul existent, neschimbat (nu e cerut să-l atingem).
  * 2. Dacă rămân ambele candidate (ref + colecție), câștigă cel mai
  *    RECENT EMIS (issuedAt/iat al tokenului) - "global last click
@@ -522,6 +522,66 @@ export function collectionSnapshotForItem(productId, roles, ownCollection, refer
     };
   }
   return {};
+}
+
+/*
+ * Membrii (VendorCollectionItem) ai colecțiilor vizitate, pentru produsele
+ * din coș: Map(collectionId -> Set(productId)). Aceeași interogare ca înainte
+ * (produs public/eligibil, ca pagina publică), câte una per colecție (max 5).
+ */
+export async function loadReferralCollectionMembers({ collections = [], productIds = [], db = prisma } = {}) {
+  const members = new Map();
+  const ids = productIds.filter(Boolean);
+  if (!ids.length) return members;
+
+  for (const collection of collections) {
+    const key = String(collection?.collectionId || "");
+    if (!key || members.has(key)) continue;
+
+    const rows = await db.vendorCollectionItem.findMany({
+      where: {
+        collectionId: collection.collectionId,
+        productId: { in: ids },
+        product: { isActive: true, isHidden: false, moderationStatus: "APPROVED" },
+      },
+      select: { productId: true },
+    });
+
+    members.set(key, new Set(rows.map((row) => row.productId)));
+  }
+
+  return members;
+}
+
+/*
+ * Colecția de referral a UNUI shipment: prima colecție (cele mai recente
+ * întâi) care e validă pentru acest shipment și conține efectiv ≥1 produs
+ * al lui. Sărite: colecția proprie a sellerului (axă separată, own-sale) și
+ * cele respinse de `isAllowed` (self-referral). Niciuna -> fără referral de
+ * colecție. Un shipment are un singur referrer (Shipment.referrerVendorId +
+ * marcajul "COLLECTION:<slug>" citit de ledger), deci o singură colecție /
+ * shipment; shipment-uri diferite pot avea colecții diferite.
+ */
+export function pickShipmentReferralCollection({
+  collections = [],
+  membersByCollectionId = new Map(),
+  shipmentVendorId,
+  productIds = [],
+  isAllowed = () => true,
+} = {}) {
+  const seller = String(shipmentVendorId);
+
+  for (const collection of collections) {
+    if (!collection || String(collection.vendorId) === seller) continue;
+    if (!isAllowed(collection)) continue;
+
+    const members = membersByCollectionId.get(String(collection.collectionId)) || new Set();
+    if (productIds.some((id) => id && members.has(id))) {
+      return { collection, memberProductIds: members };
+    }
+  }
+
+  return { collection: null, memberProductIds: new Set() };
 }
 
 /*
@@ -3359,21 +3419,16 @@ const discountCodeCollectionSlug =
  * dacă own-sale-ul din colecție se acordă (produsul trebuie să fie
  * chiar în colecție) - NU face nimic eligibil la discount de preț.
  */
-const collectionMemberProductIdsForToken = refCollectionAttributionResolved
-  ? new Set(
-      (
-        await prisma.vendorCollectionItem.findMany({
-          where: {
-            collectionId: refCollectionAttributionResolved.collectionId,
-            productId: { in: cart.map((item) => item.product?.id).filter(Boolean) },
-            // produsul trebuie să fie și public/eligibil (aceleași reguli ca pagina publică)
-            product: { isActive: true, isHidden: false, moderationStatus: "APPROVED" },
-          },
-          select: { productId: true },
-        })
-      ).map((row) => row.productId)
-    )
-  : new Set();
+// toate colecțiile vizitate valide (cele mai recente întâi) + membrii lor din coș;
+// colecția de referral se alege apoi PER SHIPMENT (pickShipmentReferralCollection)
+const referralCollectionsResolved =
+  requestReferrals.collections ||
+  (refCollectionAttributionResolved ? [refCollectionAttributionResolved] : []);
+
+const referralCollectionMembers = await loadReferralCollectionMembers({
+  collections: referralCollectionsResolved,
+  productIds: cart.map((item) => item.product?.id).filter(Boolean),
+});
 
 const cartProducts = cart
   .map((item) => item.product)
@@ -3821,14 +3876,22 @@ for (const item of cart) {
               )
           );
 
-        const shipmentEligibleByCollectionMembership = its.some(
-          (item) =>
-            item.productId &&
-            collectionMemberProductIdsForToken.has(item.productId)
-        );
-
         // candidați fără self-referral (prioritățile rămân în resolveShipmentPromoter)
         const selfOpts = { self: buyerSelf, shipmentVendorId: s.vendorId };
+
+        // prima colecție vizitată (cele mai recente întâi) care conține un produs al shipment-ului
+        const {
+          collection: shipmentReferralCollection,
+          memberProductIds: shipmentReferralMemberIds,
+        } = pickShipmentReferralCollection({
+          collections: referralCollectionsResolved,
+          membersByCollectionId: referralCollectionMembers,
+          shipmentVendorId: s.vendorId,
+          productIds: its.map((item) => item.productId),
+          isAllowed: (collection) => Boolean(withoutSelfReferral(collection, { ...selfOpts, kind: "vendor" })),
+        });
+
+        const shipmentEligibleByCollectionMembership = Boolean(shipmentReferralCollection);
 
         // colecția proprie a sellerului e axă separată -> excludeOwnCollection
         const computeShipmentPromoter = (refCollectionAttribution) =>
@@ -3855,13 +3918,13 @@ for (const item of cart) {
             shipmentVendorId: s.vendorId,
             items: its,
             ownCollection,
-            referralCollection: refCollectionAttributionResolved,
-            referralMemberProductIds: collectionMemberProductIdsForToken,
+            referralCollection: shipmentReferralCollection,
+            referralMemberProductIds: shipmentReferralMemberIds,
             codeCollection: discountCodeCollectionAttribution,
             promoter,
           });
 
-        let shipmentPromoter = computeShipmentPromoter(refCollectionAttributionResolved);
+        let shipmentPromoter = computeShipmentPromoter(shipmentReferralCollection);
         let collectionRoles = planRoles(shipmentPromoter);
 
         // colecția cross-vendor a câștigat, dar toți itemii ei au rămas colecției proprii
@@ -4542,21 +4605,16 @@ const discountCodeCollectionSlug =
  * (audit 2026-09-15) - mirror identic cu /checkout/place, vezi
  * comentariul de acolo.
  */
-const collectionMemberProductIdsForToken = refCollectionAttributionResolved
-  ? new Set(
-      (
-        await prisma.vendorCollectionItem.findMany({
-          where: {
-            collectionId: refCollectionAttributionResolved.collectionId,
-            productId: { in: cart.map((item) => item.product?.id).filter(Boolean) },
-            // produsul trebuie să fie și public/eligibil (aceleași reguli ca pagina publică)
-            product: { isActive: true, isHidden: false, moderationStatus: "APPROVED" },
-          },
-          select: { productId: true },
-        })
-      ).map((row) => row.productId)
-    )
-  : new Set();
+// toate colecțiile vizitate valide (cele mai recente întâi) + membrii lor din coș;
+// colecția de referral se alege apoi PER SHIPMENT (pickShipmentReferralCollection)
+const referralCollectionsResolved =
+  requestReferrals.collections ||
+  (refCollectionAttributionResolved ? [refCollectionAttributionResolved] : []);
+
+const referralCollectionMembers = await loadReferralCollectionMembers({
+  collections: referralCollectionsResolved,
+  productIds: cart.map((item) => item.product?.id).filter(Boolean),
+});
 
 const guestCartProducts = cart
   .map((item) => item.product)
@@ -5073,14 +5131,22 @@ const storeAddresses = {};
                 )
             );
 
-          const shipmentEligibleByCollectionMembership = shipmentItems.some(
-            (item) =>
-              item.productId &&
-              collectionMemberProductIdsForToken.has(item.productId)
-          );
-
           // candidați fără self-referral (prioritățile rămân în resolveShipmentPromoter)
           const selfOpts = { self: buyerSelf, shipmentVendorId: shipmentQuote.vendorId };
+
+          // prima colecție vizitată (cele mai recente întâi) care conține un produs al shipment-ului
+          const {
+            collection: shipmentReferralCollection,
+            memberProductIds: shipmentReferralMemberIds,
+          } = pickShipmentReferralCollection({
+            collections: referralCollectionsResolved,
+            membersByCollectionId: referralCollectionMembers,
+            shipmentVendorId: shipmentQuote.vendorId,
+            productIds: shipmentItems.map((item) => item.productId),
+            isAllowed: (collection) => Boolean(withoutSelfReferral(collection, { ...selfOpts, kind: "vendor" })),
+          });
+
+          const shipmentEligibleByCollectionMembership = Boolean(shipmentReferralCollection);
 
           // colecția proprie a sellerului e axă separată -> excludeOwnCollection
           const computeShipmentPromoter = (refCollectionAttribution) =>
@@ -5107,13 +5173,13 @@ const storeAddresses = {};
               shipmentVendorId: shipmentQuote.vendorId,
               items: shipmentItems,
               ownCollection,
-              referralCollection: refCollectionAttributionResolved,
-              referralMemberProductIds: collectionMemberProductIdsForToken,
+              referralCollection: shipmentReferralCollection,
+              referralMemberProductIds: shipmentReferralMemberIds,
               codeCollection: discountCodeCollectionAttribution,
               promoter,
             });
 
-          let shipmentPromoter = computeShipmentPromoter(refCollectionAttributionResolved);
+          let shipmentPromoter = computeShipmentPromoter(shipmentReferralCollection);
           let collectionRoles = planRoles(shipmentPromoter);
 
           // colecția cross-vendor a câștigat, dar toți itemii ei au rămas colecției proprii
