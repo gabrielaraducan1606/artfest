@@ -39,6 +39,10 @@ import {
 } from "react-icons/fa";
 import { useImageSearch } from "../../hooks/useImageSearch";
 import { trackAddToCart } from "../../../services/analytics.js";
+import {
+  getQuoteCardPriceLabel,
+  isQuoteOnlyProduct,
+} from "../Vendor/Produse/hooks/priceDisplayMode.js";
 import FeaturedPicksSection from "../Home/FeaturedPicks/FeaturedPicks.jsx";
 // Încărcat dinamic doar când e nevoie (căutare vizuală) - fișierul
 // e mare (2000+ linii) și nu are ce căuta în bundle-ul inițial al
@@ -2238,10 +2242,19 @@ const clearImageSearch =
                                   <div className={styles.suggestProductTitle}>
                                     {p.title}
                                   </div>
-                                  <div className={styles.suggestProductPrice}>
-                                    {(p.priceCents / 100).toFixed(2)}{" "}
-                                    {p.currency || "RON"}
-                                  </div>
+                                  {/* QUOTE_ONLY: „De la X” sau nimic (fără „0.00 RON”) */}
+                                  {isQuoteOnlyProduct(p) ? (
+                                    getQuoteCardPriceLabel(p) && (
+                                      <div className={styles.suggestProductPrice}>
+                                        {getQuoteCardPriceLabel(p)}
+                                      </div>
+                                    )
+                                  ) : (
+                                    <div className={styles.suggestProductPrice}>
+                                      {(p.priceCents / 100).toFixed(2)}{" "}
+                                      {p.currency || "RON"}
+                                    </div>
+                                  )}
                                 </div>
                               </button>
                             ))}

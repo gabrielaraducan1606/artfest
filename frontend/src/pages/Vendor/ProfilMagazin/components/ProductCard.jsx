@@ -28,6 +28,10 @@ import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { api } from "../../../../lib/api";
 import { addToGuestCart } from "../../../../utils/guestCart";
 import { trackAddToCart } from "../../../../../services/analytics.js";
+import {
+  getQuoteCardPriceLabel,
+  getQuoteOrientativePrice,
+} from "../../Produse/hooks/priceDisplayMode.js";
 import { productPrefetchKey } from "../../../../lib/smartPrefetch";
 import {
   useSmartPrefetchItem,
@@ -397,6 +401,18 @@ promoLabel:
     }
   }, [safe.hasDiscount, safe.originalPrice, safe.currency, isQuoteOnly]);
 
+  /*
+   * QUOTE_ONLY: prețul orientativ („De la X”), fără reducere - aceeași
+   * regulă ca în ProductDetails (Produse/hooks/priceDisplayMode.js).
+   */
+  const quotePriceLabel = useMemo(
+    () =>
+      isQuoteOnly
+        ? getQuoteCardPriceLabel({ ...p, orderMode: "QUOTE_ONLY" })
+        : null,
+    [isQuoteOnly, p]
+  );
+
   const nextShipDateLabel = useMemo(() => {
     if (!safe.nextShipDate) return null;
     try {
@@ -577,17 +593,19 @@ promoLabel:
             id: safe.id,
             title: safe.title,
             images: safe.images,
-            price: safe.price,
+            // QUOTE_ONLY: prețul orientativ de bază, fără reducere
+            price: isQuoteOnly ? getQuoteOrientativePrice(p) : safe.price,
             currency: safe.currency,
-            hasDiscount: safe.hasDiscount,
-            originalPrice: safe.originalPrice,
-            discountPercent: safe.discountPercent,
+            orderMode: safe.orderMode,
+            hasDiscount: isQuoteOnly ? false : safe.hasDiscount,
+            originalPrice: isQuoteOnly ? null : safe.originalPrice,
+            discountPercent: isQuoteOnly ? 0 : safe.discountPercent,
             promoLabel: safe.promoLabel,
           },
         },
       });
     },
-    [href, isDisabled, goTo, safe]
+    [href, isDisabled, goTo, safe, isQuoteOnly, p]
   );
 
   const handleFav = useCallback(
@@ -1136,7 +1154,16 @@ const handleCart = useCallback(
           <div className={styles.metaLeft}>
             {isQuoteOnly ? (
               <div className={styles.priceBox}>
-                <p className={styles.price}>Cere ofertă</p>
+                {quotePriceLabel ? (
+                  <p
+                    className={`${styles.price} ${styles.quotePrice}`}
+                    aria-label={`Preț orientativ: ${quotePriceLabel}`}
+                  >
+                    {quotePriceLabel}
+                  </p>
+                ) : (
+                  <p className={styles.price}>Cere ofertă</p>
+                )}
               </div>
             ) : (
               priceLabel != null && (

@@ -184,6 +184,8 @@ router.get("/", authRequired, async (req, res) => {
         title: true,
         priceCents: true,
         currency: true,
+        // QUOTE_ONLY: frontend-ul afișează „De la X” și „Cere ofertă”, nu coș
+        orderMode: true,
         images: true, // pe termen mediu: înlocuiește cu thumbnail/coverImage
         isActive: true,
         readyQty: true,
@@ -231,6 +233,7 @@ router.get("/", authRequired, async (req, res) => {
             title: p.title || "Produs",
             price,
             currency: p.currency || "RON",
+            orderMode: p.orderMode || "DIRECT",
             images: Array.isArray(p.images) ? p.images.slice(0, 1) : [],
             vendorId,
             vendorSlug,

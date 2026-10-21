@@ -1755,6 +1755,8 @@ res.set("Expires", "0");
         currency: true,
         category: true,
         color: true,
+        // QUOTE_ONLY: sugestiile afișează „De la X” (priceCents = preț orientativ)
+        orderMode: true,
       },
     });
 

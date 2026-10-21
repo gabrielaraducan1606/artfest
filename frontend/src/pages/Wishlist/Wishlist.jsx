@@ -7,6 +7,7 @@ import { FaTrash, FaShoppingCart, FaFilter } from "react-icons/fa";
 import { api } from "../../lib/api";
 import { trackAddToCart } from "../../../services/analytics.js";
 import styles from "./Wishlist.module.css";
+import { getFavoriteCartBlock, getFavoritePriceLabel } from "./wishlistCart.js";
 
 /* ===================== Helpers globale ===================== */
 const formatters = new Map();
@@ -654,6 +655,12 @@ export default function Wishlist() {
         return;
       }
 
+      // QUOTE_ONLY nu intră niciodată în coș - se cere ofertă din pagina produsului
+      if (getFavoriteCartBlock(row.card, myVendorId) === "quote_only") {
+        nav(`/produs/${row.card.id}`);
+        return;
+      }
+
       if (row.card.isActive === false || row.card.stock === 0) {
         alert("Acest produs nu este disponibil pentru comandă.");
         return;
@@ -681,7 +688,7 @@ export default function Wishlist() {
         alert(e?.message || "Nu am putut adăuga produsul în coș. Încearcă din nou.");
       }
     },
-    [myVendorId, showInfo]
+    [myVendorId, showInfo, nav]
   );
 
   const addSelectedToCart = useCallback(async () => {
@@ -697,8 +704,8 @@ export default function Wishlist() {
     let skipped = 0;
 
     for (const row of targetItems) {
-      const isOwner = !!myVendorId && !!row.card.vendorId && myVendorId === row.card.vendorId;
-      if (isOwner || row.card.isActive === false || row.card.stock === 0) {
+      // proprietar / QUOTE_ONLY / indisponibil -> sărit
+      if (getFavoriteCartBlock(row.card, myVendorId)) {
         skipped++;
         continue;
       }
@@ -958,6 +965,8 @@ export default function Wishlist() {
             const isOwner = !!myVendorId && !!it.card.vendorId && myVendorId === it.card.vendorId;
             const checked = selectedIds.has(it.card.id);
             const createdAtDate = new Date(it.createdAt);
+            const isQuoteOnly = getFavoriteCartBlock(it.card, null) === "quote_only";
+            const priceLabel = getFavoritePriceLabel(it.card, money);
 
             return (
               <article
@@ -995,9 +1004,9 @@ export default function Wishlist() {
                 <div className={styles.cardBody}>
                   <div className={styles.cardTitle}>{it.card.title}</div>
 
-                  {typeof it.card.price === "number" && (
+                  {priceLabel && (
                     <div className={styles.cardPrice}>
-                      {money(it.card.price, it.card.currency)}
+                      {priceLabel}
                     </div>
                   )}
 
@@ -1016,7 +1025,16 @@ export default function Wishlist() {
                   </div>
 
                   <div className={styles.actions}>
-                    {!isOwner && (
+                    {!isOwner && isQuoteOnly && (
+                      <Link
+                        to={`/produs/${it.card.id}`}
+                        className={styles.quoteBtn}
+                      >
+                        Cere ofertă
+                      </Link>
+                    )}
+
+                    {!isOwner && !isQuoteOnly && (
                       <button
                         className={`${styles.btn} ${styles.btnPrimary}`}
                         onClick={() => addToCart(it)}

@@ -16,6 +16,11 @@ import {
   HomeIcon,
 } from "../icons/AssistantIcons.jsx";
 
+import {
+  getQuoteCardPriceLabel,
+  isQuoteOnlyProduct,
+} from "../../../pages/Vendor/Produse/hooks/priceDisplayMode.js";
+
 import SupportTicketList from "../Support/SupportTicketList.jsx";
 import SupportThread from "../Support/SupportThread.jsx";
 
@@ -311,6 +316,22 @@ function ProductResultCard({
     product?.title ||
     "Produs Artfest";
 
+  /*
+   * QUOTE_ONLY: „De la X” sau nimic (fără „0,00 RON”) - aceeași regulă
+   * ca ProductDetails și cardurile (priceDisplayMode.js).
+   */
+  const priceText =
+    isQuoteOnlyProduct(product)
+      ? getQuoteCardPriceLabel(
+          product
+        )
+      : formatPrice(
+          product
+            ?.priceCents,
+          product
+            ?.currency
+        );
+
   return (
     <button
       type="button"
@@ -352,14 +373,11 @@ function ProductResultCard({
           {title}
         </strong>
 
-        <small>
-          {formatPrice(
-            product
-              ?.priceCents,
-            product
-              ?.currency
-          )}
-        </small>
+        {priceText && (
+          <small>
+            {priceText}
+          </small>
+        )}
 
         {similarityPercent !==
           null && (

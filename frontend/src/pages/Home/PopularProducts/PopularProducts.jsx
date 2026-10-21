@@ -15,6 +15,7 @@ import {
 
 import styles from "./PopularProducts.module.css";
 import { api } from "../../../lib/api";
+import { getQuoteCardPriceLabel } from "../../Vendor/Produse/hooks/priceDisplayMode.js";
 
 /*
  * 12 (în loc de 8) - homepage mai "bogat" vizual, fără endpoint nou:
@@ -1120,6 +1121,14 @@ export default function PopularProducts() {
                 currency
               );
 
+            // QUOTE_ONLY: „De la X” (preț orientativ, fără reducere)
+            const quotePriceLabel =
+              isQuoteOnly
+                ? getQuoteCardPriceLabel(
+                    p
+                  )
+                : null;
+
             const availabilityLabel =
               getAvailabilityLabel(
                 p
@@ -1385,7 +1394,8 @@ export default function PopularProducts() {
                             styles.productPrice
                           }
                         >
-                          Cere ofertă
+                          {quotePriceLabel ||
+                            "Cere ofertă"}
                         </p>
                       ) : (
                         <>

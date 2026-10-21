@@ -718,6 +718,14 @@ html[data-theme="dark"] .card {
   gap: 8px;
 }
 
+/*
+ * QUOTE_ONLY „De la X RON” - pe carduri înguste se poate rupe doar după
+ * „De la” (suma și moneda sunt legate de spațiul non-breaking din Intl).
+ */
+.quotePrice {
+  line-height: 1.25;
+}
+
 .discountBadge {
   display: inline-flex;
   align-items: center;

@@ -31,6 +31,7 @@ import imageMain from "../../../assets/heroSectionImage.jpg";
 
 import { prefetchData, getPrefetchedData } from "../../../lib/smartPrefetch.js";
 import { trackEvent } from "../../../../services/analytics.js";
+import { getQuoteCardPriceLabel } from "../../Vendor/Produse/hooks/priceDisplayMode.js";
 import { logHpTimingSummary, markHpTiming } from "./homepageTiming.js";
 
 const STORE_PAGE_PREFIX =
@@ -1138,7 +1139,12 @@ function ProductPickCard({ product, onAnalytics, placement, compact }) {
         <div className={styles.pickFooter}>
           <div className={styles.pickOffer}>
             {product?.quoteOnly ? (
-              <strong className={styles.pickPrice}>Preț la cerere</strong>
+              <strong className={styles.pickPrice}>
+                {getQuoteCardPriceLabel({
+                  ...product,
+                  orderMode: "QUOTE_ONLY",
+                }) || "Preț la cerere"}
+              </strong>
             ) : productHasDiscount ? (
               <div className={styles.pickPriceGroup}>
                 <strong className={styles.pickDiscountedPrice}>

@@ -47,6 +47,10 @@ import {
 
 import { api } from "../../lib/api";
 import { useAuth } from "../../pages/Auth/Context/context.js";
+import {
+  getQuoteCardPriceLabel,
+  isQuoteOnlyProduct,
+} from "../../pages/Vendor/Produse/hooks/priceDisplayMode.js";
 import styles from "./Navbar.module.css";
 import logo from "../../assets/LogoArtfest.png";
 import Register from "../../pages/Auth/Register/Register";
@@ -2251,10 +2255,19 @@ const isAdminRoute = location.pathname.startsWith("/admin");
                                 )}
                                 <div className={styles.suggestProductMeta}>
                                   <div className={styles.suggestProductTitle}>{p.title}</div>
-                                  <div className={styles.suggestProductPrice}>
-                                    {(Number(p.priceCents || 0) / 100).toFixed(2)}{" "}
-                                    {p.currency || "RON"}
-                                  </div>
+                                  {/* QUOTE_ONLY: „De la X” sau nimic (fără „0.00 RON”) */}
+                                  {isQuoteOnlyProduct(p) ? (
+                                    getQuoteCardPriceLabel(p) && (
+                                      <div className={styles.suggestProductPrice}>
+                                        {getQuoteCardPriceLabel(p)}
+                                      </div>
+                                    )
+                                  ) : (
+                                    <div className={styles.suggestProductPrice}>
+                                      {(Number(p.priceCents || 0) / 100).toFixed(2)}{" "}
+                                      {p.currency || "RON"}
+                                    </div>
+                                  )}
                                 </div>
                               </button>
                             ))}
@@ -2729,9 +2742,18 @@ const isAdminRoute = location.pathname.startsWith("/admin");
                               )}
                               <div className={styles.suggestProductMeta}>
                                 <div className={styles.suggestProductTitle}>{p.title}</div>
-                                <div className={styles.suggestProductPrice}>
-                                  {(Number(p.priceCents || 0) / 100).toFixed(2)} {p.currency || "RON"}
-                                </div>
+                                {/* QUOTE_ONLY: „De la X” sau nimic (fără „0.00 RON”) */}
+                                {isQuoteOnlyProduct(p) ? (
+                                  getQuoteCardPriceLabel(p) && (
+                                    <div className={styles.suggestProductPrice}>
+                                      {getQuoteCardPriceLabel(p)}
+                                    </div>
+                                  )
+                                ) : (
+                                  <div className={styles.suggestProductPrice}>
+                                    {(Number(p.priceCents || 0) / 100).toFixed(2)} {p.currency || "RON"}
+                                  </div>
+                                )}
                               </div>
                             </button>
                           ))}

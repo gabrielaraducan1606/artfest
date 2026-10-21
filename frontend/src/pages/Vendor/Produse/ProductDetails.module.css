@@ -355,6 +355,13 @@
   margin: 10px 0 8px;
 }
 
+/* „Preț orientativ:” la QUOTE_ONLY - mai mic decât suma */
+.priceLabel {
+  font-size: 0.95rem;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
 .ownerNote {
   font-size: 0.85rem;
   opacity: 0.8;

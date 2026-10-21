@@ -22,6 +22,10 @@ import {
   onImgError,
 } from "../../../../components/utils/imageFallback.js";
 import { withCache, resolveFileUrl } from "../hooks/urlUtils.js";
+import {
+  getQuoteCardPriceLabel,
+  isQuoteOnlyProduct,
+} from "../hooks/priceDisplayMode.js";
 import { buildDiscoverSelection } from "../hooks/discoverMoreScoring.js";
 
 const CANDIDATE_POOL_LIMIT = 60; // cap existent pe backend (Math.min(60,...))
@@ -124,6 +128,8 @@ function DiscoverMoreProductsBase({ product, getExcludedIds, cacheT }) {
           ? withCache(resolveFileUrl(p.images[0]), cacheT)
           : productPlaceholder(480, 360, "Produs");
 
+      const isQuote = isQuoteOnlyProduct(p);
+
       const price =
         Number.isFinite(p.priceCents) && p.priceCents >= 0
           ? p.priceCents / 100
@@ -132,7 +138,7 @@ function DiscoverMoreProductsBase({ product, getExcludedIds, cacheT }) {
             : null;
 
       const badge =
-        p.hasDiscount && p.discountPercent > 0
+        !isQuote && p.hasDiscount && p.discountPercent > 0
           ? { kind: "discount", label: `-${p.discountPercent}%` }
           : p.acceptsCustom
             ? { kind: "custom", label: "Personalizabil" }
@@ -142,8 +148,12 @@ function DiscoverMoreProductsBase({ product, getExcludedIds, cacheT }) {
         ...p,
         imageSrc,
         price,
-        formattedPrice:
-          price != null ? formatMoney(price, p.currency || "RON") : null,
+        // QUOTE_ONLY: „De la X” sau nimic (fără „0 lei”) - ca în ProductDetails
+        formattedPrice: isQuote
+          ? getQuoteCardPriceLabel(p)
+          : price != null
+            ? formatMoney(price, p.currency || "RON")
+            : null,
         storeName: p.storeName || p.service?.profile?.displayName || null,
         badge,
       };

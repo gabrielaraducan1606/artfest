@@ -43,6 +43,10 @@ import { rankSimilarProducts } from "./hooks/similarProductsScoring.js";
 import { ProductGallery } from "./components/ProductGallery.jsx";
 import DetailsContent from "./components/DetailsContent.jsx";
 import { getHasStructuredDetails } from "./hooks/detailsUtils.js";
+import {
+  PRICE_DISPLAY_MODE,
+  getPriceDisplayMode,
+} from "./hooks/priceDisplayMode.js";
 import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
 /*
  * Helper comun cu feed-ul Google Shopping (backend/src/routes/
@@ -257,6 +261,15 @@ function ProductDetailsSkeleton({ preview }) {
   const previewImage = preview?.images?.[0];
   const previewPriceCurrency = preview?.currency || "RON";
 
+  /*
+   * Aceeași regulă ca pagina încărcată: QUOTE_ONLY doar cu preț > 0, ca
+   * preț orientativ, fără reducere; fără preț -> placeholder (nu „0.00”).
+   */
+  const previewPriceMode =
+    typeof preview?.price === "number"
+      ? getPriceDisplayMode(preview?.orderMode, preview.price)
+      : null;
+
   return (
     <div className={styles.pageWrap}>
       <div className={styles.breadcrumbs}>
@@ -328,7 +341,16 @@ function ProductDetailsSkeleton({ preview }) {
             }}
           />
 
-          {typeof preview?.price === "number" ? (
+          {previewPriceMode === PRICE_DISPLAY_MODE.ORIENTATIVE ? (
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: "1.6rem", fontWeight: 800 }}>
+                <span style={{ fontSize: "0.95rem", fontWeight: 600, opacity: 0.8 }}>
+                  Preț orientativ:
+                </span>{" "}
+                {preview.price.toFixed(2)} {previewPriceCurrency}
+              </div>
+            </div>
+          ) : previewPriceMode === PRICE_DISPLAY_MODE.REGULAR ? (
             <div style={{ marginBottom: 18 }}>
               {preview.hasDiscount &&
                 typeof preview.originalPrice === "number" && (
@@ -855,9 +877,27 @@ const homepageDiscountPercent =
     [product?.currency]
   );
 
+/*
+ * QUOTE_ONLY: priceCents e prețul orientativ / „de la” - îl afișăm doar
+ * dacă e > 0, cu eticheta „Preț orientativ”. Fluxul „Cere ofertă” rămâne
+ * neschimbat (vezi hooks/priceDisplayMode.js).
+ */
+const priceDisplayMode =
+  getPriceDisplayMode(
+    product?.orderMode,
+    displayPrice
+  );
+
 const priceInfo = useMemo(() => {
-  if (!product || displayPrice == null) {
+  if (!product || !priceDisplayMode) {
     return null;
+  }
+
+  if (
+    priceDisplayMode ===
+    PRICE_DISPLAY_MODE.ORIENTATIVE
+  ) {
+    return "Prețul final se stabilește prin ofertă.";
   }
 
   if (hasHomepageDiscount) {
@@ -867,7 +907,7 @@ const priceInfo = useMemo(() => {
   return "TVA inclus în preț.";
 }, [
   product,
-  displayPrice,
+  priceDisplayMode,
   hasHomepageDiscount,
   homepageDiscountPercent,
 ]);
@@ -4025,9 +4065,17 @@ const uploadCustomizationFile = useCallback(
             </div>
           )}
 
-          {displayPrice != null && !isQuoteOnly && (
+          {priceDisplayMode && (
   <>
-    {hasHomepageDiscount ? (
+    {priceDisplayMode ===
+    PRICE_DISPLAY_MODE.ORIENTATIVE ? (
+      <div className={styles.price}>
+        <span className={styles.priceLabel}>
+          Preț orientativ:
+        </span>{" "}
+        {fmt.format(displayPrice)}
+      </div>
+    ) : hasHomepageDiscount ? (
       <div
         style={{
           display: "flex",
