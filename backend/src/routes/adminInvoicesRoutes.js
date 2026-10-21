@@ -1,7 +1,7 @@
 // backend/src/routes/adminInvoicesRoutes.js
 import express from "express";
 import jwt from "jsonwebtoken";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../db.js";
 import { z } from "zod";
 
 import fs from "fs/promises";
@@ -25,7 +25,6 @@ import {
   sendVendorPayoutFiscalDocsRequestEmail,
 } from "../lib/mailer.js";
 
-const prisma = new PrismaClient();
 const router = express.Router();
 
 /*

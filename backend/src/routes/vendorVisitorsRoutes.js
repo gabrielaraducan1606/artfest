@@ -1,10 +1,9 @@
 // ./src/routes/vendorVisitorsRoutes.js
 import { Router } from "express";
 import { z } from "zod";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../db.js";
 import { authRequired, requireRole } from "../api/auth.js"; // ajustează calea dacă diferă
 
-const prisma = new PrismaClient();
 const router = Router();
 
 /* ------------ middleware: atașează vendorId pe baza user-ului logat ------------ */

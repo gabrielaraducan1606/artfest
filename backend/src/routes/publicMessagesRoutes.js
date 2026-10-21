@@ -1,9 +1,8 @@
 // backend/routes/publicContactRoutes.js
 import express from "express";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../db.js";
 import { moderateMarketplaceMessage } from "../services/marketplaceMessageModeration.js";
 
-const prisma = new PrismaClient();
 const router = express.Router();
 
 const MAX_MESSAGE_LENGTH = 5000;

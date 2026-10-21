@@ -1,9 +1,8 @@
 // ./src/routes/vendorVisitorsPublicRoutes.js
 import { Router } from "express";
 import { z } from "zod";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../db.js";
 
-const prisma = new PrismaClient();
 const router = Router();
 function anonymizeUserAgent(userAgent = "") {
   const ua = String(userAgent || "").toLowerCase();

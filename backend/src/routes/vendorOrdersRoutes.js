@@ -1,7 +1,7 @@
 // backend/src/routes/vendorOrdersRoutes.js  (ESM)
 import express from "express";
 import jwt from "jsonwebtoken";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../db.js";
 import { z } from "zod";
 import {
   expirePendingDepositsForOrder,
@@ -66,7 +66,6 @@ import {
   dismissCourierPrompt,
 } from "../couriers/manualShipment.js";
 
-const prisma = new PrismaClient();
 const router = express.Router();
 
 function getFrontendUrl() {

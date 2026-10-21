@@ -1,6 +1,6 @@
 import express from "express";
 import jwt from "jsonwebtoken";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../db.js";
 import { z } from "zod";
 
 import {
@@ -42,7 +42,6 @@ async function notifyClientOfAdminReturnChange(args) {
   }
 }
 
-const prisma = new PrismaClient();
 const router = express.Router();
 
 /* ---------------------------

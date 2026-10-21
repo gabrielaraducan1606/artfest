@@ -1,6 +1,5 @@
 // server/lib/platformBilling.js
-import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
+import { prisma } from "../db.js";
 
 export async function getPlatformBillingOrThrow() {
   const pb = await prisma.platformBilling.findUnique({ where: { id: "platform" } });
