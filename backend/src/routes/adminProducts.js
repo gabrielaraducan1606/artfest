@@ -1315,6 +1315,23 @@ async function adminListStoreProducts(req, res) {
   }
 }
 
+/*
+ * Câmpurile de configurare a comenzii, necesare editorului Admin
+ * (AdminProductEditModal.jsx). Lista (mapAdminProduct) nu le conține -
+ * editorul încarcă mereu produsul complet de aici, altfel ar porni cu
+ * DIRECT + scheme goale și le-ar șterge la salvare. Schemele sunt
+ * întoarse EXACT cum sunt salvate (fără normalizare - ex. `required`).
+ */
+export function adminProductEditorFields(p) {
+  return {
+    orderMode: p.orderMode || "DIRECT",
+    optionsSchema: Array.isArray(p.optionsSchema) ? p.optionsSchema : [],
+    customSchema: Array.isArray(p.customSchema) ? p.customSchema : [],
+    repeatedGroups: Array.isArray(p.repeatedGroups) ? p.repeatedGroups : [],
+    quoteSchema: Array.isArray(p.quoteSchema) ? p.quoteSchema : [],
+  };
+}
+
 async function adminGetProduct(req, res) {
   try {
     const id = String(req.params.id);
@@ -1340,6 +1357,7 @@ async function adminGetProduct(req, res) {
 
     return res.json({
       ...mapAdminProduct(p),
+      ...adminProductEditorFields(p),
       ownerVendorId: p.service.vendorId,
     });
   } catch (e) {

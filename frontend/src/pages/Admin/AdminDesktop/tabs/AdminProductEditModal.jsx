@@ -1,2003 +1,292 @@
 import {
+  useCallback,
   useEffect,
-  useMemo,
+  useRef,
   useState,
 } from "react";
 
 import { api } from "../../../../lib/api";
-import ProductGpsrSection from "../../../Vendor/ProfilMagazin/modals/ProductModal/components/ProductGpsrSection.jsx";
-import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
-import AdditionalCategoriesField from "../../../Vendor/ProfilMagazin/modals/ProductModal/components/AdditionalCategoriesField.jsx";
-import { normalizeAdditionalCategoryKeys } from "../../../../utils/additionalCategories.js";
 import { CATEGORIES_DETAILED } from "../../../../constants/productscategories.js";
-
-/* =========================================================
-   Helpers
-========================================================= */
-
-function asArray(value) {
-  return Array.isArray(value)
-    ? value
-    : [];
-}
-
-function asText(value) {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return "";
-  }
-
-  return String(value);
-}
-
-function makeKey(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(
-      /[\u0300-\u036f]/g,
-      ""
-    )
-    .replace(
-      /[^a-z0-9]+/g,
-      "_"
-    )
-    .replace(
-      /^_+|_+$/g,
-      ""
-    );
-}
-
-function normalizeSchema(
-  value
-) {
-  return asArray(value)
-    .map((field) => {
-      if (
-        !field ||
-        typeof field !==
-          "object"
-      ) {
-        return null;
-      }
-
-      return {
-        ...field,
-
-        key:
-          field.key ||
-          makeKey(
-            field.label
-          ),
-
-        label:
-          asText(
-            field.label
-          ),
-
-        type:
-          field.type ||
-          "text",
-
-        required:
-          field.required ===
-          true,
-      };
-    })
-    .filter(Boolean);
-}
-
-function normalizeRepeatedGroups(
-  value
-) {
-  return asArray(value)
-    .map((group) => {
-      if (
-        !group ||
-        typeof group !==
-          "object"
-      ) {
-        return null;
-      }
-
-      const fieldKeys =
-        asArray(
-          group.fields
-        )
-          .map((field) => {
-            /*
-             * Format simplu:
-             * "marime"
-             */
-            if (
-              typeof field ===
-              "string"
-            ) {
-              return field.trim();
-            }
-
-            /*
-             * Format vendor:
-             * {
-             *   key: "marime",
-             *   label: "Mărime"
-             * }
-             */
-            if (
-              field &&
-              typeof field ===
-                "object"
-            ) {
-              return String(
-                field.key ||
-                  field.value ||
-                  ""
-              ).trim();
-            }
-
-            return "";
-          })
-          .filter(Boolean);
-
-      /*
-       * Eliminăm automat
-       * duplicatele.
-       */
-      const uniqueFieldKeys =
-        [
-          ...new Set(
-            fieldKeys
-          ),
-        ];
-
-      return {
-        ...group,
-
-        key:
-          group.key ||
-          makeKey(
-            group.label ||
-              group.name ||
-              "grup"
-          ),
-
-        label:
-          asText(
-            group.label ||
-              group.name ||
-              "Grup"
-          ),
-
-        fields:
-          uniqueFieldKeys,
-      };
-    })
-    .filter(Boolean);
-}
-
-/* =========================================================
-   Field editor
-========================================================= */
-
-function SchemaEditor({
-  title,
-  description,
-  fields,
-  onChange,
-}) {
-  function updateField(
-    index,
-    patch
-  ) {
-    const next =
-      [...fields];
-
-    next[index] = {
-      ...next[index],
-      ...patch,
-    };
-
-    onChange(next);
-  }
-
-  function addField() {
-    onChange([
-      ...fields,
-      {
-        key: "",
-        label: "",
-        type: "text",
-        required: false,
-      },
-    ]);
-  }
-
-  function removeField(
-    index
-  ) {
-    onChange(
-      fields.filter(
-        (_, i) =>
-          i !== index
-      )
-    );
-  }
-
-  return (
-    <div
-      style={{
-        padding: 16,
-        border:
-          "1px solid #e5e7eb",
-        borderRadius: 12,
-        background:
-          "#fff",
-      }}
-    >
-      <div
-        style={{
-          fontWeight: 700,
-          marginBottom: 4,
-        }}
-      >
-        {title}
-      </div>
-
-      {description && (
-        <div
-          style={{
-            fontSize: 13,
-            color: "#6b7280",
-            marginBottom: 12,
-          }}
-        >
-          {description}
-        </div>
-      )}
-
-      {fields.length ===
-        0 && (
-        <div
-          style={{
-            fontSize: 13,
-            color: "#6b7280",
-            marginBottom: 10,
-          }}
-        >
-          Nu există câmpuri.
-        </div>
-      )}
-
-      {fields.map(
-        (
-          field,
-          index
-        ) => (
-          <div
-            key={
-              field.key ||
-              index
-            }
-            style={{
-              display:
-                "grid",
-              gridTemplateColumns:
-                "minmax(180px, 1fr) 150px auto auto",
-              gap: 8,
-              alignItems:
-                "center",
-              marginBottom: 8,
-            }}
-          >
-            <input
-              value={
-                field.label ||
-                ""
-              }
-              placeholder="Ex: Mărime"
-              onChange={(
-                e
-              ) => {
-                const label =
-                  e.target
-                    .value;
-
-                updateField(
-                  index,
-                  {
-                    label,
-
-                    key:
-                      field.key ||
-                      makeKey(
-                        label
-                      ),
-                  }
-                );
-              }}
-              style={{
-                width: "100%",
-                padding:
-                  "9px 10px",
-                border:
-                  "1px solid #d1d5db",
-                borderRadius:
-                  8,
-              }}
-            />
-
-            <select
-              value={
-                field.type ||
-                "text"
-              }
-              onChange={(
-                e
-              ) =>
-                updateField(
-                  index,
-                  {
-                    type:
-                      e.target
-                        .value,
-                  }
-                )
-              }
-              style={{
-                padding:
-                  "9px 10px",
-                border:
-                  "1px solid #d1d5db",
-                borderRadius:
-                  8,
-              }}
-            >
-              <option value="text">
-                Text
-              </option>
-
-              <option value="textarea">
-                Text lung
-              </option>
-
-              <option value="select">
-                Selectare
-              </option>
-
-              <option value="number">
-                Număr
-              </option>
-
-              <option value="date">
-                Dată
-              </option>
-
-              <option value="file">
-                Fișier
-              </option>
-            </select>
-
-            <label
-              style={{
-                display:
-                  "flex",
-                gap: 5,
-                alignItems:
-                  "center",
-                fontSize: 13,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={
-                  field.required ===
-                  true
-                }
-                onChange={(
-                  e
-                ) =>
-                  updateField(
-                    index,
-                    {
-                      required:
-                        e.target
-                          .checked,
-                    }
-                  )
-                }
-              />
-
-              Obligatoriu
-            </label>
-
-            <button
-              type="button"
-              onClick={() =>
-                removeField(
-                  index
-                )
-              }
-              style={{
-                border:
-                  "1px solid #fecaca",
-                background:
-                  "#fff",
-                color:
-                  "#b91c1c",
-                borderRadius:
-                  8,
-                padding:
-                  "8px 10px",
-                cursor:
-                  "pointer",
-              }}
-            >
-              Șterge
-            </button>
-          </div>
-        )
-      )}
-
-      <button
-        type="button"
-        onClick={addField}
-        style={{
-          marginTop: 4,
-          border:
-            "1px solid #d1d5db",
-          background:
-            "#fff",
-          borderRadius: 8,
-          padding:
-            "8px 12px",
-          cursor: "pointer",
-        }}
-      >
-        + Adaugă câmp
-      </button>
-    </div>
-  );
-}
-
-/* =========================================================
-   Repeated groups editor
-========================================================= */
-
-function RepeatedGroupsEditor({
-  groups,
-  availableFields,
-  onChange,
-}) {
-  const first =
-    groups[0] || null;
-
-  const enabled =
-    Boolean(first);
-
-  const selectedFields =
-  [
-    ...new Set(
-      asArray(
-        first?.fields
-      )
-        .map((field) => {
-          if (
-            typeof field ===
-            "string"
-          ) {
-            return field.trim();
-          }
-
-          if (
-            field &&
-            typeof field ===
-              "object"
-          ) {
-            return String(
-              field.key ||
-                field.value ||
-                ""
-            ).trim();
-          }
-
-          return "";
-        })
-        .filter(Boolean)
-    ),
-  ];
-
-  function toggleEnabled(
-    checked
-  ) {
-    if (!checked) {
-      onChange([]);
-      return;
-    }
-
-    onChange([
-      {
-        key:
-          "personalizari_repetate",
-
-        label:
-          "Personalizări repetate",
-
-        fields: [],
-      },
-    ]);
-  }
-
- function toggleField(
-  fieldKey
-) {
-  if (!first) {
-    return;
-  }
-
-  const normalizedKey =
-    String(
-      fieldKey || ""
-    ).trim();
-
-  if (!normalizedKey) {
-    return;
-  }
-
-  const exists =
-    selectedFields.includes(
-      normalizedKey
-    );
-
-  const nextFields =
-    exists
-      ? selectedFields.filter(
-          (key) =>
-            key !==
-            normalizedKey
-        )
-      : [
-          ...selectedFields,
-          normalizedKey,
-        ];
-
-  onChange([
-    {
-      ...first,
-
-      fields: [
-        ...new Set(
-          nextFields
-        ),
-      ],
-    },
-  ]);
-}
-
-  return (
-    <div
-      style={{
-        padding: 16,
-        border:
-          "1px solid #e5e7eb",
-        borderRadius: 12,
-        background:
-          "#fff",
-      }}
-    >
-      <label
-        style={{
-          display: "flex",
-          gap: 8,
-          alignItems:
-            "center",
-          fontWeight: 700,
-        }}
-      >
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={(e) =>
-            toggleEnabled(
-              e.target
-                .checked
-            )
-          }
-        />
-
-        Este un set / grup cu
-        personalizări diferite?
-      </label>
-
-      <div
-        style={{
-          marginTop: 6,
-          fontSize: 13,
-          color: "#6b7280",
-        }}
-      >
-        Exemplu: tricouri
-        pentru mai multe
-        persoane, fiecare cu
-        propria mărime sau
-        culoare.
-      </div>
-
-      {enabled && (
-        <div
-          style={{
-            marginTop: 14,
-          }}
-        >
-          <div
-            style={{
-              fontWeight:
-                600,
-              marginBottom:
-                8,
-            }}
-          >
-            Ce câmpuri trebuie
-            completate separat
-            pentru fiecare?
-          </div>
-
-          {availableFields
-            .length ===
-            0 ? (
-            <div
-              style={{
-                fontSize:
-                  13,
-                color:
-                  "#6b7280",
-              }}
-            >
-              Adaugă mai întâi
-              câmpuri în
-              „Opțiuni” sau
-              „Personalizare”.
-            </div>
-          ) : (
-            availableFields.map(
-              (
-                field
-              ) => (
-                <label
-                  key={
-                    field.key
-                  }
-                  style={{
-                    display:
-                      "flex",
-                    gap: 8,
-                    alignItems:
-                      "center",
-                    marginBottom:
-                      7,
-                    fontSize:
-                      14,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedFields.includes(
-                      field.key
-                    )}
-                    onChange={() =>
-                      toggleField(
-                        field.key
-                      )
-                    }
-                  />
-
-                  {field.label ||
-                    field.key}
-                </label>
-              )
-            )
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* =========================================================
-   Main component
-========================================================= */
-
+import ProductDetailsSection from "../../../Vendor/ProfilMagazin/modals/ProductModal/components/ProductDetailsSection.jsx";
+import ProductOrderModeSection from "../../../Vendor/ProfilMagazin/modals/ProductModal/components/ProductOrderModeSection.jsx";
+import ProductGpsrSection from "../../../Vendor/ProfilMagazin/modals/ProductModal/components/ProductGpsrSection.jsx";
+import {
+  useProductFieldOptions,
+  useQuoteSchemaEditor,
+} from "../../../Vendor/ProfilMagazin/modals/productEditorShared.js";
+import {
+  buildAdminProductPatch,
+  getAdminPublicProductLink,
+  productToAdminForm,
+  validateAdminProductForm,
+} from "./adminProductEditForm.js";
+
+/*
+ * Editorul de produs din Admin - REUTILIZEAZĂ secțiunile editorului de
+ * Vendor (detalii/atribute, mod de comandă + variante/personalizare/
+ * ofertă, GPSR). Separat rămân doar câmpurile strict Admin: statusurile
+ * de disponibilitate pe care editorul Vendor nu le are (Precomandă /
+ * Epuizat), activ / ascuns. Moderarea are acțiunile ei separate.
+ *
+ * Siguranță (audit 2026-10-23): produsul din listă NU conține modul de
+ * comandă și schemele - îl încărcăm COMPLET (GET /api/admin/products/:id)
+ * și trimitem la salvare DOAR câmpurile schimbate.
+ */
 export default function AdminProductEditForm({
   product,
   onSaved,
   onCancel,
 }) {
-  const [form, setForm] =
-    useState(null);
+  const productId = product?.id || null;
 
-  const [saving, setSaving] =
-    useState(false);
+  const [loaded, setLoaded] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const [form, setForm] = useState(null);
+  const initialRef = useRef(null);
 
-  const [error, setError] =
-    useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const fieldOptions = useProductFieldOptions(CATEGORIES_DETAILED);
+  const quoteEditor = useQuoteSchemaEditor(setForm);
 
   useEffect(() => {
-    if (!product) {
-      setForm(null);
-      return;
-    }
+    let alive = true;
 
-    setForm({
-      title:
-        product.title ||
-        "",
+    setLoaded(null);
+    setForm(null);
+    setLoadError("");
+    initialRef.current = null;
 
-      description:
-        product.description ||
-        "",
+    if (!productId) return undefined;
 
-      price:
-        product.price ??
-        (
-          Number(
-            product.priceCents ||
-              0
-          ) / 100
-        ),
-
-      currency:
-        product.currency ||
-        "RON",
-
-      category:
-        product.category ||
-        "",
-
-      // doar dacă API-ul a trimis lista (altfel nu o atingem la salvare)
-      ...(Array.isArray(
-        product.additionalCategories
-      )
-        ? {
-            additionalCategories:
-              normalizeAdditionalCategoryKeys(
-                product.additionalCategories,
-                product.category
-              ),
-          }
-        : {}),
-
-      images:
-        asArray(
-          product.images
-        ),
-
-      color:
-        product.color ||
-        "",
-
-      materialMain:
-        product.materialMain ||
-        "",
-
-      technique:
-        product.technique ||
-        "",
-
-      styleTags:
-        Array.isArray(
-          product.styleTags
-        )
-          ? product.styleTags.join(
-              ", "
-            )
-          : asText(
-              product.styleTags
-            ),
-
-      occasionTags:
-        Array.isArray(
-          product.occasionTags
-        )
-          ? product.occasionTags.join(
-              ", "
-            )
-          : asText(
-              product.occasionTags
-            ),
-
-      dimensions:
-        product.dimensions ||
-        "",
-
-      careInstructions:
-        product.careInstructions ||
-        "",
-
-      specialNotes:
-        product.specialNotes ||
-        "",
-
-      isActive:
-        product.isActive !==
-        false,
-
-      isHidden:
-        product.isHidden ===
-        true,
-
-      acceptsCustom:
-        product.acceptsCustom ===
-        true,
-
-      orderMode:
-        product.orderMode ||
-        "DIRECT",
-
-      optionsSchema:
-        normalizeSchema(
-          product.optionsSchema
-        ),
-
-      customSchema:
-        normalizeSchema(
-          product.customSchema
-        ),
-
-      repeatedGroups:
-        normalizeRepeatedGroups(
-          product.repeatedGroups
-        ),
-
-      quoteSchema:
-        normalizeSchema(
-          product.quoteSchema
-        ),
-
-      availability:
-        product.availability ||
-        "READY",
-
-      readyQty:
-        product.readyQty ??
-        "",
-
-      leadTimeDays:
-        product.leadTimeDays ??
-        "",
-
-      nextShipDate:
-        product.nextShipDate
-          ? String(
-              product.nextShipDate
-            ).slice(
-              0,
-              10
-            )
-          : "",
-
-      isOwnManufacturer:
-        product.isOwnManufacturer === true ||
-        product.isOwnManufacturer === false
-          ? product.isOwnManufacturer
-          : null,
-      manufacturerName: product.manufacturerName || "",
-      manufacturerAddress: product.manufacturerAddress || "",
-      manufacturerEmail: product.manufacturerEmail || "",
-      manufacturerInEU:
-        product.manufacturerInEU === true ||
-        product.manufacturerInEU === false
-          ? product.manufacturerInEU
-          : null,
-      responsiblePersonName: product.responsiblePersonName || "",
-      responsiblePersonAddress: product.responsiblePersonAddress || "",
-      responsiblePersonEmail: product.responsiblePersonEmail || "",
-      safetyWarnings:
-        product.safetyWarnings === null ||
-        product.safetyWarnings === undefined
-          ? null
-          : product.safetyWarnings,
-      isForChildren:
-        product.isForChildren === true ||
-        product.isForChildren === false
-          ? product.isForChildren
-          : null,
-    });
-
-    setError("");
-  }, [product]);
-
-  const availableRepeatedFields =
-    useMemo(() => {
-      if (!form) {
-        return [];
-      }
-
-      const all = [
-        ...form.optionsSchema,
-        ...form.customSchema,
-      ];
-
-      const seen =
-        new Set();
-
-      return all.filter(
-        (field) => {
-          const key =
-            field.key ||
-            makeKey(
-              field.label
-            );
-
-          if (
-            !key ||
-            seen.has(key)
-          ) {
-            return false;
-          }
-
-          seen.add(key);
-
-          return true;
-        }
-      );
-    }, [form]);
-
-  if (!form) {
-    return null;
-  }
-
-  function patch(
-    values
-  ) {
-    setForm(
-      (current) => ({
-        ...current,
-        ...values,
+    api(`/api/admin/products/${encodeURIComponent(productId)}`)
+      .then((full) => {
+        if (!alive) return;
+        const initial = productToAdminForm(full);
+        initialRef.current = initial;
+        setLoaded(full);
+        setForm(initial);
       })
-    );
-  }
-
-  function changeMode(
-    nextMode
-  ) {
-    if (
-      nextMode ===
-      "DIRECT"
-    ) {
-      patch({
-        orderMode:
-          nextMode,
-
-        acceptsCustom:
-          false,
-
-        optionsSchema:
-          [],
-
-        customSchema:
-          [],
-
-        repeatedGroups:
-          [],
-
-        quoteSchema:
-          [],
+      .catch((e) => {
+        if (!alive) return;
+        setLoadError(
+          e?.data?.message || e?.message || "Produsul nu a putut fi încărcat."
+        );
       });
 
-      return;
-    }
+    return () => {
+      alive = false;
+    };
+  }, [productId]);
 
-    if (
-      nextMode ===
-      "OPTIONS"
-    ) {
-      patch({
-        orderMode:
-          nextMode,
+  const updateField = useCallback(
+    (field) => (eventOrValue) => {
+      const value = eventOrValue?.target?.value ?? eventOrValue;
+      setForm((current) => ({ ...current, [field]: value }));
+    },
+    []
+  );
 
-        acceptsCustom:
-          true,
-
-        quoteSchema:
-          [],
-
-        availability:
-          form.availability ===
-          "READY"
-            ? "MADE_TO_ORDER"
-            : form.availability,
-      });
-
-      return;
-    }
-
-    /*
-     * BUGFIX (audit) - NU mai forțăm price la 0 la schimbarea
-     * modului - la fel ca la DIRECT/OPTIONS mai sus, nu atingem
-     * `price`, ca prețul orientativ deja completat (sau încărcat de
-     * pe produsul existent) să nu se piardă.
-     */
-    patch({
-      orderMode:
-        "QUOTE_ONLY",
-
-      acceptsCustom:
-        true,
-
-      optionsSchema:
-        [],
-
-      customSchema:
-        [],
-
-      repeatedGroups:
-        [],
-
-      availability:
-        "MADE_TO_ORDER",
-    });
-  }
+  const patch = (values) =>
+    setForm((current) => ({ ...current, ...values }));
 
   async function save() {
-    const title =
-      form.title.trim();
+    if (!form || !initialRef.current) return;
 
-    if (!title) {
-      setError(
-        "Titlul este obligatoriu."
-      );
+    const payload = buildAdminProductPatch(initialRef.current, form);
 
+    setError("");
+    setNotice("");
+
+    if (!Object.keys(payload).length) {
+      setNotice("Nu există modificări de salvat.");
       return;
     }
 
-    /*
-     * BUGFIX (audit) - QUOTE_ONLY validează acum prețul orientativ
-     * la fel ca celelalte moduri (nu mai există excepție), inclusiv
-     * pragul > 0 (nu doar >= 0).
-     */
-    const price =
-      Number(
-        form.price
-      );
-
-    if (
-      !Number.isFinite(
-        price
-      ) ||
-      price <= 0
-    ) {
-      setError(
-        form.orderMode ===
-        "QUOTE_ONLY"
-          ? "Introdu un preț orientativ mai mare decât 0."
-          : "Prețul nu este valid."
-      );
-
+    const validationError = validateAdminProductForm(form, payload);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
     try {
       setSaving(true);
-      setError("");
 
-      const payload = {
-        ...form,
-
-        title,
-
-        description:
-          form.description ||
-          "",
-
-        /*
-         * BUGFIX (audit) - trimite prețul orientativ real pentru
-         * QUOTE_ONLY, la fel ca celelalte moduri (deja validat > 0
-         * mai sus).
-         */
-        price,
-
-        images:
-          asArray(
-            form.images
-          ).filter(Boolean),
-
-        optionsSchema:
-          normalizeSchema(
-            form.optionsSchema
-          ),
-
-        customSchema:
-          normalizeSchema(
-            form.customSchema
-          ),
-
-        repeatedGroups:
-          normalizeRepeatedGroups(
-            form.repeatedGroups
-          ),
-
-        quoteSchema:
-          normalizeSchema(
-            form.quoteSchema
-          ),
-
-        readyQty:
-          form.readyQty ===
-          ""
-            ? null
-            : Number(
-                form.readyQty
-              ),
-
-        leadTimeDays:
-          form.leadTimeDays ===
-          ""
-            ? null
-            : Number(
-                form.leadTimeDays
-              ),
-
-        nextShipDate:
-          form.nextShipDate ||
-          null,
-      };
-
-      const data =
-        await api(
-          `/api/admin/products/${product.id}`,
-          {
-            method:
-              "PATCH",
-
-            body:
-              payload,
-          }
-        );
-
-      onSaved?.(
-        data?.product ||
-          {
-            ...product,
-            ...payload,
-          }
+      const data = await api(
+        `/api/admin/products/${encodeURIComponent(productId)}`,
+        { method: "PATCH", body: payload }
       );
+
+      onSaved?.(data?.product || { ...product, ...payload });
     } catch (e) {
       setError(
-        e?.data?.message ||
-          e?.message ||
-          "Produsul nu a putut fi salvat."
+        e?.data?.message || e?.message || "Produsul nu a putut fi salvat."
       );
     } finally {
       setSaving(false);
     }
   }
 
+  if (loadError) {
+    return (
+      <div style={{ display: "grid", gap: 12 }}>
+        <div style={errorBox}>{loadError}</div>
+        {onCancel && (
+          <div>
+            <button type="button" onClick={onCancel} style={secondaryBtn}>
+              Înapoi
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (!form) {
+    return <div style={{ padding: 12, color: "#6b7280" }}>Se încarcă produsul...</div>;
+  }
+
+  const vendor = loaded?.vendor || product?.vendor || {};
+  const publicLink = getAdminPublicProductLink(loaded);
+
   return (
-    <div
-      style={{
-        display: "grid",
-        gap: 16,
-      }}
-    >
-      {error && (
-        <div
-          style={{
-            padding:
-              "10px 12px",
-            border:
-              "1px solid #fecaca",
-            background:
-              "#fef2f2",
-            color:
-              "#991b1b",
-            borderRadius:
-              10,
-          }}
-        >
-          {error}
-        </div>
-      )}
+    <div style={{ display: "grid", gap: 16 }}>
+      {error && <div style={errorBox}>{error}</div>}
 
-      {/* =====================
-          INFORMAȚII
-      ====================== */}
-
-      <section
-        style={{
-          display:
-            "grid",
-          gap: 12,
-        }}
-      >
-        <h4
-          style={{
-            margin: 0,
-          }}
-        >
-          Informații produs
-        </h4>
-
-        <label>
-          <div>
-            Titlu
-          </div>
-
-          <input
-            value={
-              form.title
-            }
-            onChange={(e) =>
-              patch({
-                title:
-                  e.target
-                    .value,
-              })
-            }
-            style={inputStyle}
-          />
-        </label>
-
-        <label>
-          <div>
-            Descriere
-          </div>
-
-          <textarea
-            value={
-              form.description
-            }
-            onChange={(e) =>
-              patch({
-                description:
-                  e.target
-                    .value,
-              })
-            }
-            rows={5}
-            style={{
-              ...inputStyle,
-              resize:
-                "vertical",
-            }}
-          />
-        </label>
-
-        <div
-          style={
-            twoColumns
-          }
-        >
-          <label>
-            <div>
-              {form.orderMode ===
-              "QUOTE_ONLY"
-                ? "Preț orientativ / de la (RON)"
-                : "Preț"}
-            </div>
-
-            {/*
-             * BUGFIX (audit) - inputul nu mai e disabled pentru
-             * QUOTE_ONLY - prețul orientativ se completează la fel
-             * ca prețul normal, doar eticheta diferă.
-             */}
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={
-                form.price
-              }
-              onChange={(e) =>
-                patch({
-                  price:
-                    e.target
-                      .value,
-                })
-              }
-              style={
-                inputStyle
-              }
-            />
-          </label>
-
-          <label>
-            <div>
-              Categorie
-            </div>
-
-            <input
-              value={
-                form.category
-              }
-              onChange={(e) =>
-                patch({
-                  category:
-                    e.target
-                      .value,
-                })
-              }
-              style={
-                inputStyle
-              }
-            />
-
-            {form.category && (
-              <span style={canonicalHintStyle}>
-                Categorie selectată:{" "}
-                {getCanonicalLabel("category", form.category)}
-              </span>
-            )}
-          </label>
-
-          {Array.isArray(
-            form.additionalCategories
-          ) && (
-            <AdditionalCategoriesField
-              value={
-                form.additionalCategories
-              }
-              onChange={(next) =>
-                patch({
-                  additionalCategories:
-                    next,
-                })
-              }
-              options={
-                CATEGORIES_DETAILED
-              }
-              primaryCategory={
-                form.category || ""
-              }
-            />
-          )}
-        </div>
-
-        <div
-          style={
-            twoColumns
-          }
-        >
-          <label>
-            <div>
-              Culoare
-            </div>
-
-            <input
-              value={
-                form.color
-              }
-              onChange={(e) =>
-                patch({
-                  color:
-                    e.target
-                      .value,
-                })
-              }
-              style={
-                inputStyle
-              }
-            />
-
-            {form.color && (
-              <span style={canonicalHintStyle}>
-                Culoare selectată:{" "}
-                {getCanonicalLabel("color", form.color)}
-              </span>
-            )}
-          </label>
-
-          <label>
-            <div>
-              Material
-            </div>
-
-            <input
-              value={
-                form.materialMain
-              }
-              onChange={(e) =>
-                patch({
-                  materialMain:
-                    e.target
-                      .value,
-                })
-              }
-              style={
-                inputStyle
-              }
-            />
-
-            {form.materialMain && (
-              <span style={canonicalHintStyle}>
-                Material selectat:{" "}
-                {getCanonicalLabel("materialMain", form.materialMain)}
-              </span>
-            )}
-          </label>
-        </div>
-      </section>
-
-      {/* =====================
-          ORDER MODE
-      ====================== */}
-
-      <section
-        style={{
-          padding: 16,
-          border:
-            "1px solid #e5e7eb",
-          borderRadius:
-            12,
-        }}
-      >
-        <h4
-          style={{
-            margin:
-              "0 0 10px",
-          }}
-        >
-          Cum poate fi
-          comandat?
-        </h4>
-
-        {[
-          [
-            "DIRECT",
-            "Cumpărare directă",
-          ],
-
-          [
-            "OPTIONS",
-            "Cu opțiuni / personalizare",
-          ],
-
-          [
-            "QUOTE_ONLY",
-            "Doar cerere de ofertă",
-          ],
-        ].map(
-          ([
-            value,
-            label,
-          ]) => (
-            <label
-              key={
-                value
-              }
-              style={{
-                display:
-                  "flex",
-                alignItems:
-                  "center",
-                gap: 8,
-                marginBottom:
-                  8,
-              }}
-            >
-              <input
-                type="radio"
-                name="admin-order-mode"
-                checked={
-                  form.orderMode ===
-                  value
-                }
-                onChange={() =>
-                  changeMode(
-                    value
-                  )
-                }
-              />
-
-              {label}
-            </label>
-          )
-        )}
-      </section>
-
-      {/* =====================
-          OPTIONS
-      ====================== */}
-
-      {form.orderMode ===
-        "OPTIONS" && (
-        <>
-          <SchemaEditor
-            title="Opțiuni"
-            description="Ex: mărime, culoare, model."
-            fields={
-              form.optionsSchema
-            }
-            onChange={(
-              value
-            ) =>
-              patch({
-                optionsSchema:
-                  value,
-              })
-            }
-          />
-
-          <SchemaEditor
-            title="Personalizare"
-            description="Ex: nume, text, dată."
-            fields={
-              form.customSchema
-            }
-            onChange={(
-              value
-            ) =>
-              patch({
-                customSchema:
-                  value,
-              })
-            }
-          />
-
-          <RepeatedGroupsEditor
-            groups={
-              form.repeatedGroups
-            }
-            availableFields={
-              availableRepeatedFields
-            }
-            onChange={(
-              value
-            ) =>
-              patch({
-                repeatedGroups:
-                  value,
-              })
-            }
-          />
-        </>
-      )}
-
-      {/* =====================
-          QUOTE
-      ====================== */}
-
-      {form.orderMode ===
-        "QUOTE_ONLY" && (
-        <SchemaEditor
-          title="Câmpuri cerere ofertă"
-          description="Ce informații trebuie să ofere clientul?"
-          fields={
-            form.quoteSchema
-          }
-          onChange={(
-            value
-          ) =>
-            patch({
-              quoteSchema:
-                value,
-            })
-          }
+      {/* Titlu, categorie, descriere, material, tehnică, culoare,
+          stil, ocazii, dimensiuni, îngrijire, note - secțiunea Vendor */}
+      <section style={{ display: "grid", gap: 12 }}>
+        <ProductDetailsSection
+          form={form}
+          setForm={setForm}
+          updateField={updateField}
+          materialOptions={fieldOptions.materialOptions}
+          techniqueOptions={fieldOptions.techniqueOptions}
+          styleOptions={fieldOptions.styleOptions}
+          occasionOptions={fieldOptions.occasionOptions}
+          careOptions={fieldOptions.careOptions}
+          colorOptions={fieldOptions.colorOptions}
+          categoryProps={{ options: fieldOptions.options }}
+          isExistingProduct
         />
-      )}
+      </section>
 
-      {/* =====================
-          DISPONIBILITATE
-      ====================== */}
+      {/* Mod de comandă, preț, stoc / timp de execuție, variante,
+          personalizare, grupuri repetate, cerere ofertă - secțiunea Vendor */}
+      <section style={{ display: "grid", gap: 12 }}>
+        <ProductOrderModeSection
+          form={form}
+          setForm={setForm}
+          quoteSchema={form.quoteSchema}
+          {...quoteEditor}
+        />
+      </section>
 
-      <section
-        style={{
-          display:
-            "grid",
-          gap: 12,
-        }}
-      >
-        <h4
-          style={{
-            margin: 0,
-          }}
-        >
-          Disponibilitate
-        </h4>
+      {/* Doar Admin: statusurile pe care editorul Vendor nu le are */}
+      <section style={adminBox}>
+        <h4 style={{ margin: 0 }}>Disponibilitate (Admin)</h4>
+        <label>
+          <div>Status disponibilitate</div>
+          <select
+            value={form.availability}
+            onChange={(e) => patch({ availability: e.target.value })}
+            style={inputStyle}
+          >
+            <option value="READY">Disponibil (stoc)</option>
+            <option value="MADE_TO_ORDER">La comandă</option>
+            <option value="PREORDER">Precomandă</option>
+            <option value="SOLD_OUT">Epuizat</option>
+          </select>
+        </label>
 
-        <select
-          value={
-            form.availability
-          }
-          onChange={(e) =>
-            patch({
-              availability:
-                e.target
-                  .value,
-            })
-          }
-          style={
-            inputStyle
-          }
-        >
-          <option value="READY">
-            Disponibil
-          </option>
-
-          <option value="MADE_TO_ORDER">
-            La comandă
-          </option>
-
-          <option value="PREORDER">
-            Precomandă
-          </option>
-
-          <option value="SOLD_OUT">
-            Epuizat
-          </option>
-        </select>
-
-        {form.availability ===
-          "READY" && (
+        {form.availability === "PREORDER" && (
           <label>
-            <div>
-              Cantitate
-              disponibilă
-            </div>
-
-            <input
-              type="number"
-              min="0"
-              value={
-                form.readyQty
-              }
-              onChange={(e) =>
-                patch({
-                  readyQty:
-                    e.target
-                      .value,
-                })
-              }
-              style={
-                inputStyle
-              }
-            />
-          </label>
-        )}
-
-        {form.availability ===
-          "MADE_TO_ORDER" && (
-          <label>
-            <div>
-              Timp execuție
-              (zile)
-            </div>
-
-            <input
-              type="number"
-              min="1"
-              value={
-                form.leadTimeDays
-              }
-              onChange={(e) =>
-                patch({
-                  leadTimeDays:
-                    e.target
-                      .value,
-                })
-              }
-              style={
-                inputStyle
-              }
-            />
-          </label>
-        )}
-
-        {form.availability ===
-          "PREORDER" && (
-          <label>
-            <div>
-              Data estimată
-            </div>
-
+            <div>Data estimată de livrare</div>
             <input
               type="date"
-              value={
-                form.nextShipDate
-              }
-              onChange={(e) =>
-                patch({
-                  nextShipDate:
-                    e.target
-                      .value,
-                })
-              }
-              style={
-                inputStyle
-              }
+              value={form.nextShipDate || ""}
+              onChange={(e) => patch({ nextShipDate: e.target.value })}
+              style={inputStyle}
             />
           </label>
         )}
       </section>
 
-      {/* =====================
-          ALTE DETALII
-      ====================== */}
-
-      <section
-        style={{
-          display:
-            "grid",
-          gap: 12,
-        }}
-      >
-        <h4
-          style={{
-            margin: 0,
-          }}
-        >
-          Alte detalii
-        </h4>
-
-        <div
-          style={
-            twoColumns
-          }
-        >
-          <label>
-            <div>
-              Tehnică
-            </div>
-
-            <input
-              value={
-                form.technique
-              }
-              onChange={(e) =>
-                patch({
-                  technique:
-                    e.target
-                      .value,
-                })
-              }
-              style={
-                inputStyle
-              }
-            />
-
-            {form.technique && (
-              <span style={canonicalHintStyle}>
-                Tehnică selectată:{" "}
-                {getCanonicalLabel("technique", form.technique)}
-              </span>
-            )}
-          </label>
-
-          <label>
-            <div>
-              Dimensiuni
-            </div>
-
-            <input
-              value={
-                form.dimensions
-              }
-              onChange={(e) =>
-                patch({
-                  dimensions:
-                    e.target
-                      .value,
-                })
-              }
-              style={
-                inputStyle
-              }
-            />
-          </label>
-        </div>
-
-        <label>
-          <div>
-            Instrucțiuni
-            îngrijire
-          </div>
-
-          <textarea
-            value={
-              form.careInstructions
-            }
-            onChange={(e) =>
-              patch({
-                careInstructions:
-                  e.target
-                    .value,
-              })
-            }
-            rows={3}
-            style={{
-              ...inputStyle,
-              resize:
-                "vertical",
-            }}
-          />
-        </label>
-
-        <label>
-          <div>
-            Note speciale
-          </div>
-
-          <textarea
-            value={
-              form.specialNotes
-            }
-            onChange={(e) =>
-              patch({
-                specialNotes:
-                  e.target
-                    .value,
-              })
-            }
-            rows={3}
-            style={{
-              ...inputStyle,
-              resize:
-                "vertical",
-            }}
-          />
-        </label>
-      </section>
-
-      {/* =====================
-          GPSR (Reg. UE 2023/988)
-
-          Adminul poate corecta aceste date (ex. la cererea
-          vendorului prin suport), dar NU le completează
-          automat/nu inventează valori în locul vendorului.
-      ====================== */}
-
-      <section
-        style={{
-          display: "grid",
-          gap: 12,
-        }}
-      >
+      {/* GPSR (Reg. UE 2023/988) - adminul poate corecta, nu completează automat */}
+      <section style={{ display: "grid", gap: 12 }}>
         <ProductGpsrSection
           form={form}
           setForm={setForm}
           vendorPreview={{
-            displayName: product?.vendor?.displayName || "",
-            address: product?.vendor?.address || "",
-            email: product?.vendor?.email || "",
+            displayName: vendor.displayName || "",
+            address: vendor.address || "",
+            email: vendor.email || "",
           }}
         />
       </section>
 
-      {/* =====================
-          STATUS
-      ====================== */}
-
-      <section
-        style={{
-          display: "flex",
-          gap: 20,
-          flexWrap:
-            "wrap",
-        }}
-      >
-        <label
-          style={{
-            display:
-              "flex",
-            gap: 7,
-            alignItems:
-              "center",
-          }}
-        >
+      <section style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+        <label style={checkboxLabel}>
           <input
             type="checkbox"
-            checked={
-              form.isActive
-            }
-            onChange={(e) =>
-              patch({
-                isActive:
-                  e.target
-                    .checked,
-              })
-            }
+            checked={form.isActive}
+            onChange={(e) => patch({ isActive: e.target.checked })}
           />
-
           Produs activ
         </label>
 
-        <label
-          style={{
-            display:
-              "flex",
-            gap: 7,
-            alignItems:
-              "center",
-          }}
-        >
+        <label style={checkboxLabel}>
           <input
             type="checkbox"
-            checked={
-              form.isHidden
-            }
-            onChange={(e) =>
-              patch({
-                isHidden:
-                  e.target
-                    .checked,
-              })
-            }
+            checked={form.isHidden}
+            onChange={(e) => patch({ isHidden: e.target.checked })}
           />
-
           Produs ascuns
         </label>
       </section>
 
-      {/* =====================
-          ACTIONS
-      ====================== */}
+      {notice && <div style={{ fontSize: 13, color: "#374151" }}>{notice}</div>}
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent:
-            "flex-end",
-          gap: 10,
-          paddingTop:
-            10,
-          borderTop:
-            "1px solid #e5e7eb",
-        }}
-      >
+      <div style={actionsRow}>
+        {/* Doar deschide pagina publică - nu schimbă statusul / moderarea */}
+        <div style={previewWrap}>
+          {publicLink.href ? (
+            <a
+              href={publicLink.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={previewLink}
+              title="Pagina publică arată varianta salvată a produsului"
+            >
+              Vezi cum vede clientul ↗
+            </a>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled
+                aria-describedby="admin-public-preview-reason"
+                style={previewDisabled}
+              >
+                Vezi cum vede clientul
+              </button>
+              <span id="admin-public-preview-reason" style={previewReason}>
+                {publicLink.reason}
+              </span>
+            </>
+          )}
+        </div>
+
         {onCancel && (
-          <button
-            type="button"
-            onClick={
-              onCancel
-            }
-            disabled={
-              saving
-            }
-            style={{
-              padding:
-                "10px 14px",
-              border:
-                "1px solid #d1d5db",
-              background:
-                "#fff",
-              borderRadius:
-                9,
-              cursor:
-                "pointer",
-            }}
-          >
+          <button type="button" onClick={onCancel} disabled={saving} style={secondaryBtn}>
             Anulează
           </button>
         )}
 
-        <button
-          type="button"
-          onClick={save}
-          disabled={
-            saving
-          }
-          style={{
-            padding:
-              "10px 16px",
-            border: 0,
-            background:
-              "#111827",
-            color:
-              "#fff",
-            borderRadius:
-              9,
-            cursor:
-              saving
-                ? "default"
-                : "pointer",
-            fontWeight:
-              700,
-          }}
-        >
-          {saving
-            ? "Se salvează..."
-            : "Salvează modificările"}
+        <button type="button" onClick={save} disabled={saving} style={primaryBtn(saving)}>
+          {saving ? "Se salvează..." : "Salvează modificările"}
         </button>
       </div>
     </div>
@@ -2008,29 +297,93 @@ const inputStyle = {
   width: "100%",
   marginTop: 5,
   padding: "10px 11px",
-  border:
-    "1px solid #d1d5db",
+  border: "1px solid #d1d5db",
   borderRadius: 9,
-  boxSizing:
-    "border-box",
+  boxSizing: "border-box",
 };
 
-/*
- * Corectare label-uri canonice (audit 2026-09-23): stil pentru
- * label-ul user-friendly afișat lângă inputurile tehnice de
- * categorie/culoare/material/tehnică - inputul rămâne neschimbat
- * (value = slug tehnic), doar afișăm alături traducerea.
- */
-const canonicalHintStyle = {
-  display: "block",
-  marginTop: 4,
+const errorBox = {
+  padding: "10px 12px",
+  border: "1px solid #fecaca",
+  background: "#fef2f2",
+  color: "#991b1b",
+  borderRadius: 10,
+};
+
+const adminBox = {
+  display: "grid",
+  gap: 12,
+  padding: 16,
+  border: "1px solid #e5e7eb",
+  borderRadius: 12,
+  background: "#fff",
+};
+
+const checkboxLabel = {
+  display: "flex",
+  gap: 7,
+  alignItems: "center",
+};
+
+const actionsRow = {
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "center",
+  flexWrap: "wrap",
+  gap: 10,
+  paddingTop: 10,
+  borderTop: "1px solid #e5e7eb",
+};
+
+const previewWrap = {
+  marginRight: "auto",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: 4,
+  minWidth: 0,
+  maxWidth: "100%",
+};
+
+const previewLink = {
+  padding: "10px 14px",
+  border: "1px solid #c4b5fd",
+  background: "#f5f3ff",
+  color: "#5b21b6",
+  borderRadius: 9,
+  fontWeight: 600,
+  textDecoration: "none",
+  whiteSpace: "nowrap",
+};
+
+const previewDisabled = {
+  padding: "10px 14px",
+  border: "1px solid #e5e7eb",
+  background: "#f9fafb",
+  color: "#9ca3af",
+  borderRadius: 9,
+  cursor: "not-allowed",
+};
+
+const previewReason = {
   fontSize: 12,
   color: "#6b7280",
 };
 
-const twoColumns = {
-  display: "grid",
-  gridTemplateColumns:
-    "repeat(2, minmax(0, 1fr))",
-  gap: 12,
+const secondaryBtn = {
+  padding: "10px 14px",
+  border: "1px solid #d1d5db",
+  background: "#fff",
+  borderRadius: 9,
+  cursor: "pointer",
 };
+
+const primaryBtn = (saving) => ({
+  padding: "10px 16px",
+  border: 0,
+  background: "#111827",
+  color: "#fff",
+  borderRadius: 9,
+  cursor: saving ? "default" : "pointer",
+  fontWeight: 700,
+});

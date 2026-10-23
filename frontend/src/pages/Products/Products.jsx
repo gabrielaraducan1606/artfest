@@ -2159,7 +2159,19 @@ const clearImageSearch =
             type="file"
             accept="image/*"
             ref={imageInputRef}
-            style={{ display: "none" }}
+            // ascuns vizual, nu display:none - iOS Safari nu deschide
+            // selectorul pentru un input file nerandat
+            style={{
+              position: "absolute",
+              width: 1,
+              height: 1,
+              opacity: 0,
+              overflow: "hidden",
+              clip: "rect(0 0 0 0)",
+              pointerEvents: "none",
+            }}
+            tabIndex={-1}
+            aria-hidden="true"
             onChange={handleImageFileChange}
           />
 

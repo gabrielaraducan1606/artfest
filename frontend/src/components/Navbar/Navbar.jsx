@@ -585,6 +585,9 @@ export default function Navbar() {
     openPicker: openImagePicker,
     handleFileChange,
   } = useImageSearch();
+  // un input propriu pentru search bar-ul mobil - nu împărțim ref-ul cu
+  // cel de desktop (ar ținti inputul din bara ascunsă)
+  const mobileImageInputRef = useRef(null);
 
   const STORE_PAGE_PREFIX = "/magazin";
 
@@ -2138,12 +2141,14 @@ const isAdminRoute = location.pathname.startsWith("/admin");
                 accept="image/*"
                 className={styles.hiddenFile}
                 onChange={handleFileChange}
+                tabIndex={-1}
+                aria-hidden="true"
               />
 
               <button
                 className={styles.cameraBtn}
                 type="button"
-                onClick={openImagePicker}
+                onClick={() => openImagePicker(imageInputRef.current)}
                 aria-label="Caută după imagine"
                 title="Caută după imagine"
                 disabled={uploadingImg}
@@ -2626,17 +2631,19 @@ const isAdminRoute = location.pathname.startsWith("/admin");
             />
 
             <input
-              ref={imageInputRef}
+              ref={mobileImageInputRef}
               type="file"
               accept="image/*"
               className={styles.hiddenFile}
               onChange={handleFileChange}
+              tabIndex={-1}
+              aria-hidden="true"
             />
 
             <button
               className={styles.cameraBtn}
               type="button"
-              onClick={openImagePicker}
+              onClick={() => openImagePicker(mobileImageInputRef.current)}
               aria-label="Caută după imagine"
               title="Caută după imagine"
               disabled={uploadingImg}

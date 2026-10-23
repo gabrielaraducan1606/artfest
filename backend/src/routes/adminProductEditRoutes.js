@@ -85,6 +85,43 @@ function normalizeBoolean(
   return value === true;
 }
 
+// Câmpurile care declanșează regulile după orderMode / disponibilitate.
+const ORDER_CONFIG_KEYS = [
+  "orderMode",
+  "optionsSchema",
+  "customSchema",
+  "repeatedGroups",
+  "quoteSchema",
+];
+
+const AVAILABILITY_KEYS = [
+  "availability",
+  "leadTimeDays",
+  "readyQty",
+  "nextShipDate",
+];
+
+/*
+ * Editorul Admin reutilizează ProductOrderModeSection (Vendor), care
+ * folosește READY_TO_BUY / CUSTOMIZABLE în UI - enumul real e
+ * DIRECT / OPTIONS / QUOTE_ONLY (la fel ca normalizeOrderModePayload
+ * din vendorProductRoutes.js).
+ */
+export function normalizeAdminOrderMode(value) {
+  const mode =
+    normalizeText(value).toUpperCase();
+
+  if (mode === "READY_TO_BUY") {
+    return "DIRECT";
+  }
+
+  if (mode === "CUSTOMIZABLE") {
+    return "OPTIONS";
+  }
+
+  return mode;
+}
+
 function normalizeDateOrNull(
   value
 ) {
@@ -642,9 +679,9 @@ if (
         undefined
       ) {
         const orderMode =
-          normalizeText(
+          normalizeAdminOrderMode(
             body.orderMode
-          ).toUpperCase();
+          );
 
         const allowedModes = [
           "DIRECT",
@@ -721,9 +758,21 @@ if (
 
       /* =================================================
          REGULI DUPĂ orderMode
+
+         Doar când payload-ul atinge modul sau schemele.
+         Editarea unui câmp simplu (ex. titlul) nu rescrie
+         schemele / acceptsCustom ale produsului.
       ================================================= */
 
+      const touchesOrderConfig =
+        ORDER_CONFIG_KEYS.some(
+          (key) =>
+            body[key] !==
+            undefined
+        );
+
       if (
+        touchesOrderConfig &&
         finalOrderMode ===
         "DIRECT"
       ) {
@@ -744,6 +793,7 @@ if (
       }
 
       if (
+        touchesOrderConfig &&
         finalOrderMode ===
         "OPTIONS"
       ) {
@@ -759,6 +809,7 @@ if (
       }
 
       if (
+        touchesOrderConfig &&
         finalOrderMode ===
         "QUOTE_ONLY"
       ) {
@@ -979,7 +1030,17 @@ if (
         existing.availability ||
         "READY";
 
+      // doar când payload-ul atinge disponibilitatea - altfel
+      // editarea titlului ar rescrie stocul (ex. 0 -> null)
+      const touchesAvailability =
+        AVAILABILITY_KEYS.some(
+          (key) =>
+            body[key] !==
+            undefined
+        );
+
       if (
+        touchesAvailability &&
         finalAvailability ===
         "READY"
       ) {
@@ -991,6 +1052,7 @@ if (
       }
 
       if (
+        touchesAvailability &&
         finalAvailability ===
         "MADE_TO_ORDER"
       ) {
@@ -1012,6 +1074,7 @@ if (
       }
 
       if (
+        touchesAvailability &&
         finalAvailability ===
         "PREORDER"
       ) {
@@ -1023,6 +1086,7 @@ if (
       }
 
       if (
+        touchesAvailability &&
         finalAvailability ===
         "SOLD_OUT"
       ) {

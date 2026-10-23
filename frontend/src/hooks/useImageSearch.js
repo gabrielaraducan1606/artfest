@@ -3,8 +3,16 @@ import { useCallback, useRef, useState } from "react";
 const MAX_DIMENSION = 1024;
 const JPEG_QUALITY = 0.82;
 
+// Pe mobil unele galerii (Android) dau fișierul cu `type` gol - inputul
+// are deja accept="image/*", deci îl decodăm oricum; altfel poza era
+// ignorată fără niciun mesaj. Dacă nu e imagine, Asistentul o respinge.
+function looksLikeImage(file) {
+  if (!file) return false;
+  return !file.type || file.type.startsWith("image/");
+}
+
 async function compressImageForSearch(file) {
-  if (!file?.type?.startsWith("image/")) return file;
+  if (!looksLikeImage(file)) return file;
 
   try {
     const bitmap = await createImageBitmap(file);
@@ -52,14 +60,23 @@ export function useImageSearch() {
   const fileInputRef = useRef(null);
   const [searching, setSearching] = useState(false);
 
-  const openPicker = useCallback(() => {
-    fileInputRef.current?.click();
+  /*
+   * Sincron, direct din click/tap - pe mobil selectorul de fișiere se
+   * deschide doar în gestul utilizatorului (fără await/setTimeout înainte).
+   * `input` opțional: componentele cu mai multe search bar-uri (Navbar
+   * desktop + mobil) deschid inputul de lângă butonul apăsat.
+   */
+  const openPicker = useCallback((input) => {
+    const target =
+      typeof HTMLInputElement !== "undefined" && input instanceof HTMLInputElement
+        ? input
+        : fileInputRef.current;
+    target?.click();
   }, []);
 
   const searchByFile = useCallback(
   async (file) => {
-    if (!file) return;
-    if (!file.type?.startsWith("image/")) return;
+    if (!looksLikeImage(file)) return;
 
     try {
       setSearching(true);

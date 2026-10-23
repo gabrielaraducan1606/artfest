@@ -12,12 +12,10 @@ import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { uploadFile as uploadFileHelper } from "../../../../lib/uploadFile";
 import { api } from "../../../../lib/api";
 
-import { COLORS_DETAILED } from "../../../../../../backend/src/constants/colors.js";
-import { MATERIALS_DETAILED } from "../../../../../../backend/src/constants/materials.js";
-import { TECHNIQUES_DETAILED } from "../../../../../../backend/src/constants/tehniques.js";
-import { STYLE_TAGS_DETAILED } from "../../../../../../backend/src/constants/stylesTags.js";
-import { OCCASION_TAGS_DETAILED } from "../../../../../../backend/src/constants/occasinsTags.js";
-import { CARE_TAGS_DETAILED } from "../../../../../../backend/src/constants/careInstructions.js";
+import {
+  useProductFieldOptions,
+  useQuoteSchemaEditor,
+} from "./productEditorShared.js";
 
 /*
  * useProductEditorController - TOATĂ plumbing-ul din spatele
@@ -997,124 +995,19 @@ quoteSchema: [],
   ]);
 
   /* =====================================================
-     OPȚIUNI ȘI CONSTANTE
+     OPȚIUNI ȘI CONSTANTE (comune cu editorul Admin - productEditorShared.js)
   ===================================================== */
 
-  const isDetailed =
-    Array.isArray(categories) &&
-    categories.length > 0 &&
-    typeof categories[0] ===
-      "object" &&
-    categories[0] !== null &&
-    "key" in categories[0];
-
-  const options = useMemo(() => {
-    if (isDetailed) {
-      return categories.map(
-        (category) => ({
-          key: category.key,
-
-          label:
-            category.label ||
-            category.key,
-
-          group:
-            category.group ||
-            "alte",
-
-          groupLabel:
-            category.groupLabel ||
-            "Altele",
-        })
-      );
-    }
-
-    return categories.map(
-      (key) => ({
-        key,
-        label: key,
-        group: "alte",
-        groupLabel: "Altele",
-      })
-    );
-  }, [
-    categories,
-    isDetailed,
-  ]);
-
-  const getLabelFor = useCallback(
-    (key) =>
-      options.find(
-        (option) =>
-          option.key === key
-      )?.label ||
-      key ||
-      "",
-    [options]
-  );
-
-  const materialOptions =
-    useMemo(
-      () =>
-        MATERIALS_DETAILED.map(
-          (material) => ({
-            key: material.key,
-            label: material.label,
-          })
-        ),
-      []
-    );
-
-  const techniqueOptions =
-    useMemo(
-      () =>
-        TECHNIQUES_DETAILED.map(
-          (technique) => ({
-            key: technique.key,
-            label: technique.label,
-          })
-        ),
-      []
-    );
-
-  const colorOptions =
-    useMemo(
-      () =>
-        COLORS_DETAILED.map(
-          (color) => ({
-            key: color.key,
-            label: color.label,
-          })
-        ),
-      []
-    );
-
-  const styleOptions =
-    useMemo(
-      () =>
-        STYLE_TAGS_DETAILED.map(
-          (tag) => tag.label
-        ),
-      []
-    );
-
-  const occasionOptions =
-    useMemo(
-      () =>
-        OCCASION_TAGS_DETAILED.map(
-          (tag) => tag.label
-        ),
-      []
-    );
-
-  const careOptions =
-    useMemo(
-      () =>
-        CARE_TAGS_DETAILED.map(
-          (tag) => tag.label
-        ),
-      []
-    );
+  const {
+    options,
+    getLabelFor,
+    materialOptions,
+    techniqueOptions,
+    colorOptions,
+    styleOptions,
+    occasionOptions,
+    careOptions,
+  } = useProductFieldOptions(categories);
 
   /* =====================================================
      GESTIONARE IMAGINI
@@ -1974,201 +1867,15 @@ quoteSchema: [],
         initialStep,
       ]
     );
-const addQuoteField = useCallback(() => {
-  setForm((current) => {
-    const existingFields = Array.isArray(
-      current.quoteSchema
-    )
-      ? current.quoteSchema
-      : [];
-
-    const id = `quote_${Date.now()}_${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
-
-    return {
-      ...current,
-      quoteSchema: [
-        ...existingFields,
-        {
-          id,
-          key: id,
-          label: "",
-          type: "text",
-          required: true,
-          options: [],
-        },
-      ],
-    };
-  });
-}, [setForm]);
-
-const updateQuoteField = useCallback(
-  (fieldId, patch) => {
-    setForm((current) => ({
-      ...current,
-
-      quoteSchema: (
-        Array.isArray(
-          current.quoteSchema
-        )
-          ? current.quoteSchema
-          : []
-      ).map((field) =>
-        field.id === fieldId
-          ? {
-              ...field,
-              ...patch,
-            }
-          : field
-      ),
-    }));
-  },
-  [setForm]
-);
-
-const removeQuoteField = useCallback(
-  (fieldId) => {
-    setForm((current) => ({
-      ...current,
-
-      quoteSchema: (
-        Array.isArray(
-          current.quoteSchema
-        )
-          ? current.quoteSchema
-          : []
-      ).filter(
-        (field) =>
-          field.id !== fieldId
-      ),
-    }));
-  },
-  [setForm]
-);
-
-const addQuoteFieldOption =
-  useCallback(
-    (fieldId) => {
-      setForm((current) => ({
-        ...current,
-
-        quoteSchema: (
-          Array.isArray(
-            current.quoteSchema
-          )
-            ? current.quoteSchema
-            : []
-        ).map((field) =>
-          field.id === fieldId
-            ? {
-                ...field,
-                options: [
-                  ...(Array.isArray(
-                    field.options
-                  )
-                    ? field.options
-                    : []),
-                  "",
-                ],
-              }
-            : field
-        ),
-      }));
-    },
-    [setForm]
-  );
-
-const updateQuoteFieldOption =
-  useCallback(
-    (
-      fieldId,
-      optionIndex,
-      value
-    ) => {
-      setForm((current) => ({
-        ...current,
-
-        quoteSchema: (
-          Array.isArray(
-            current.quoteSchema
-          )
-            ? current.quoteSchema
-            : []
-        ).map((field) => {
-          if (
-            field.id !== fieldId
-          ) {
-            return field;
-          }
-
-          const options = [
-            ...(Array.isArray(
-              field.options
-            )
-              ? field.options
-              : []),
-          ];
-
-          options[
-            optionIndex
-          ] = value;
-
-          return {
-            ...field,
-            options,
-          };
-        }),
-      }));
-    },
-    [setForm]
-  );
-
-const removeQuoteFieldOption =
-  useCallback(
-    (
-      fieldId,
-      optionIndex
-    ) => {
-      setForm((current) => ({
-        ...current,
-
-        quoteSchema: (
-          Array.isArray(
-            current.quoteSchema
-          )
-            ? current.quoteSchema
-            : []
-        ).map((field) => {
-          if (
-            field.id !== fieldId
-          ) {
-            return field;
-          }
-
-          return {
-            ...field,
-
-            options: (
-              Array.isArray(
-                field.options
-              )
-                ? field.options
-                : []
-            ).filter(
-              (
-                _,
-                index
-              ) =>
-                index !==
-                optionIndex
-            ),
-          };
-        }),
-      }));
-    },
-    [setForm]
-  );
+  // CRUD câmpuri cerere ofertă - comun cu editorul Admin (productEditorShared.js)
+  const {
+    addQuoteField,
+    updateQuoteField,
+    removeQuoteField,
+    addQuoteFieldOption,
+    updateQuoteFieldOption,
+    removeQuoteFieldOption,
+  } = useQuoteSchemaEditor(setForm);
 
   return {
     activeStep,
