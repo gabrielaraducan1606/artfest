@@ -431,6 +431,53 @@
   color: var(--color-danger);
 }
 
+/* informarea despre activitatea legală - același ton de avertizare ca .eligibilityBox */
+.legalNotice {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-warning, var(--color-primary)) 35%, var(--color-border));
+  background: color-mix(in srgb, var(--color-warning, var(--color-primary)) 8%, var(--surface));
+  color: var(--color-text);
+  font-size: 15px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.legalNotice p {
+  margin: 0;
+}
+
+.legalNoticeTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* bifa obligatorie din formular (informarea e în .legalNotice, sus pe pagină) */
+.legalConfirm {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-warning, var(--color-primary)) 35%, var(--color-border));
+  background: color-mix(in srgb, var(--color-warning, var(--color-primary)) 8%, var(--surface));
+  overflow-wrap: anywhere;
+}
+
+.legalConfirm .checkbox {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.legalConfirm .fieldError {
+  font-size: 14px;
+  font-weight: 600;
+}
+
 @media (max-width: 640px) {
   .options,
   .radioGrid,

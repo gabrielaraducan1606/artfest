@@ -829,13 +829,15 @@ function SummaryRow({
         </div>
       </div>
 
-      <button
-        type="button"
-        className={styles.linkBtn}
-        onClick={onEdit}
-      >
-        Modifică
-      </button>
+      {onEdit && (
+        <button
+          type="button"
+          className={styles.linkBtn}
+          onClick={onEdit}
+        >
+          Modifică
+        </button>
+      )}
     </div>
   );
 }
@@ -851,6 +853,9 @@ export default function ProductOrderModeSection({
   addQuoteFieldOption,
   updateQuoteFieldOption,
   removeQuoteFieldOption,
+
+  // Editorul Admin: prețul e doar afișat (gestionat de vânzător)
+  priceReadOnly = false,
 }) {
   const [orderHelpOpen, setOrderHelpOpen] =
   useState(false);
@@ -1962,6 +1967,27 @@ return (
       : "Preț"}
   </strong>
 
+  {priceReadOnly ? (
+    <>
+      <div
+        id="product-order-price-readonly"
+        style={{
+          fontSize: "1rem",
+          fontWeight: 700,
+        }}
+      >
+        {form.price !== "" &&
+        form.price != null
+          ? `${form.price} RON`
+          : "Nesetat"}
+      </div>
+
+      <div className={styles.tip}>
+        Prețul este gestionat de vânzător.
+      </div>
+    </>
+  ) : (
+    <>
   <label
     className={styles.label}
     htmlFor="product-order-price"
@@ -1987,8 +2013,10 @@ return (
         : "Ex: 89"
     }
   />
+    </>
+  )}
 
-  {value === "QUOTE_ONLY" && (
+  {!priceReadOnly && value === "QUOTE_ONLY" && (
     <div className={styles.tip}>
       Introdu un preț orientativ de la care
       poate porni acest produs. Prețul final
@@ -3408,8 +3436,11 @@ return (
         (form.price === "" ||
           form.price == null)
       }
-      onEdit={() =>
-        openSection("price")
+      onEdit={
+        priceReadOnly
+          ? undefined
+          : () =>
+              openSection("price")
       }
     />
 

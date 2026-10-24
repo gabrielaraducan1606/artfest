@@ -21,6 +21,10 @@ import {
   moderateMarketplaceMessage,
 } from "../services/marketplaceMessageModeration.js";
 
+import {
+  notifyVendorsAboutCustomerRequest,
+} from "../services/customerRequestVendorNotifications.js";
+
 const router = Router();
 
 /* =========================================================
@@ -3787,6 +3791,25 @@ router.post(
             include:
               publicRequestInclude,
           });
+
+      /*
+       * Vendorii cu produse publice în categoria cererii - notificare +
+       * email, DUPĂ răspuns (nu întârzie / nu anulează publicarea;
+       * serviciul nu aruncă, e idempotent pe dedupeKey).
+       */
+      setImmediate(() => {
+        notifyVendorsAboutCustomerRequest(
+          created
+        ).then((summary) => {
+          if (summary.matched) {
+            console.info(
+              "[customer-requests] vendor match notifications:",
+              created.id,
+              summary
+            );
+          }
+        });
+      });
 
       return res
         .status(201)

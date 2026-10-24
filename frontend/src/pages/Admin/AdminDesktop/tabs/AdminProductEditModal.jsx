@@ -181,6 +181,7 @@ export default function AdminProductEditForm({
           setForm={setForm}
           quoteSchema={form.quoteSchema}
           {...quoteEditor}
+          priceReadOnly
         />
       </section>
 

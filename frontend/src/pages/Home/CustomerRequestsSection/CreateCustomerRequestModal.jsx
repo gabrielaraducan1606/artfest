@@ -356,6 +356,33 @@ function resolveCategoryValue({
   );
 }
 
+/*
+ * Singurele câmpuri obligatorii - aceleași praguri ca backend-ul
+ * (POST/PATCH /api/customer-requests: title_required / description_required).
+ * Completarea cu AI nu e o condiție de publicare.
+ */
+const TITLE_MIN_LENGTH = 5;
+const DESCRIPTION_MIN_LENGTH = 10;
+
+function minLengthHint(value, min) {
+  const missing =
+    min - String(value || "").trim().length;
+
+  if (missing <= 0) {
+    return "";
+  }
+
+  return missing === min
+    ? `Minimum ${min} caractere.`
+    : `Minimum ${min} caractere - mai adaugă ${missing}.`;
+}
+
+// început, dar sub minim -> eroare vizibilă; un câmp gol rămâne neutru
+function isStartedButTooShort(value, min) {
+  const length = String(value || "").trim().length;
+  return length > 0 && length < min;
+}
+
 /* =========================================================
    COMPONENT
 ========================================================= */
@@ -445,15 +472,28 @@ export default function CreateCustomerRequestModal({
   ] =
     useState([]);
 
+  // doar afișare (roșu) - nu schimbă validarea / canSubmit
+  const titleTooShort =
+    isStartedButTooShort(
+      form.title,
+      TITLE_MIN_LENGTH
+    );
+
+  const descriptionTooShort =
+    isStartedButTooShort(
+      form.description,
+      DESCRIPTION_MIN_LENGTH
+    );
+
   const canSubmit =
     useMemo(() => {
       return (
         form.title
           .trim()
-          .length >= 5 &&
+          .length >= TITLE_MIN_LENGTH &&
         form.description
           .trim()
-          .length >= 10 &&
+          .length >= DESCRIPTION_MIN_LENGTH &&
         !submitting &&
         !aiLoading &&
         !imageChecking
@@ -1066,7 +1106,7 @@ export default function CreateCustomerRequestModal({
 
     if (
       title.length <
-      5
+      TITLE_MIN_LENGTH
     ) {
       setError(
         "Spune pe scurt ce cauți."
@@ -1081,7 +1121,7 @@ export default function CreateCustomerRequestModal({
 
     if (
       description.length <
-      10
+      DESCRIPTION_MIN_LENGTH
     ) {
       setError(
         "Adaugă câteva detalii despre ce cauți."
@@ -1611,8 +1651,15 @@ export default function CreateCustomerRequestModal({
               <input
                 type="text"
                 className={
-                  styles.input
+                  titleTooShort
+                    ? `${styles.input} ${styles.inputInvalid}`
+                    : styles.input
                 }
+                aria-invalid={
+                  titleTooShort ||
+                  undefined
+                }
+                aria-describedby="customer-request-title-help"
                 value={
                   form.title
                 }
@@ -1628,6 +1675,25 @@ export default function CreateCustomerRequestModal({
                 }
                 placeholder="Ex: Caut mărturii pentru botez"
               />
+
+              {minLengthHint(
+                form.title,
+                TITLE_MIN_LENGTH
+              ) && (
+                <p
+                  id="customer-request-title-help"
+                  className={
+                    titleTooShort
+                      ? `${styles.fieldHelp} ${styles.fieldError}`
+                      : styles.fieldHelp
+                  }
+                >
+                  {minLengthHint(
+                    form.title,
+                    TITLE_MIN_LENGTH
+                  )}
+                </p>
+              )}
             </div>
 
             {/* DESCRIPTION */}
@@ -1647,8 +1713,15 @@ export default function CreateCustomerRequestModal({
 
               <textarea
                 className={
-                  styles.textarea
+                  descriptionTooShort
+                    ? `${styles.textarea} ${styles.inputInvalid}`
+                    : styles.textarea
                 }
+                aria-invalid={
+                  descriptionTooShort ||
+                  undefined
+                }
+                aria-describedby="customer-request-description-help"
                 value={
                   form.description
                 }
@@ -1664,6 +1737,25 @@ export default function CreateCustomerRequestModal({
                 }
                 placeholder="Culori, stil, personalizare, preferințe sau orice altceva este important pentru tine..."
               />
+
+              {minLengthHint(
+                form.description,
+                DESCRIPTION_MIN_LENGTH
+              ) && (
+                <p
+                  id="customer-request-description-help"
+                  className={
+                    descriptionTooShort
+                      ? `${styles.fieldHelp} ${styles.fieldError}`
+                      : styles.fieldHelp
+                  }
+                >
+                  {minLengthHint(
+                    form.description,
+                    DESCRIPTION_MIN_LENGTH
+                  )}
+                </p>
+              )}
             </div>
 
             {/* CATEGORY / QUANTITY */}

@@ -3736,6 +3736,118 @@ export async function sendVendorNewQuoteRequestEmail({
   });
 }
 
+/*
+ * Cerere publică nouă de client, potrivită cu categoriile magazinului
+ * (services/customerRequestVendorNotifications.js). Conține DOAR date
+ * deja publice pe pagina cererii (titlu, categorie, buget, termen) -
+ * nimic despre client (nume, email, telefon, adresă).
+ */
+export async function sendVendorCustomerRequestMatchEmail({
+  to,
+  vendorName,
+  requestId,
+  requestTitle,
+  categoryLabel,
+  budgetText = "",
+  deadlineText = "",
+}) {
+  if (!to || !requestId) {
+    return;
+  }
+
+  const requestLink = APP_URL
+    ? `${APP_URL}/cereri/${encodeURIComponent(requestId)}`
+    : null;
+
+  const subject = `O cerere nouă pe ${BRAND_NAME} ți s-ar putea potrivi`;
+
+  const rows = [
+    ["Cerere", requestTitle],
+    ["Categorie", categoryLabel],
+    ["Buget", budgetText],
+    ["Termen", deadlineText],
+  ].filter(([, value]) => String(value || "").trim());
+
+  const rowsHtml = rows
+    .map(
+      ([label, value]) => `
+        <tr>
+          <td style="padding:6px 12px 6px 0;color:#6b7280;white-space:nowrap;vertical-align:top;">${escapeEmailHtml(label)}</td>
+          <td style="padding:6px 0;color:#111827;font-weight:600;">${escapeEmailHtml(value)}</td>
+        </tr>`
+    )
+    .join("");
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px;">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:22px;">
+    <h2 style="color:#111827;margin:0 0 12px;font-size:22px;">O cerere nouă ți s-ar putea potrivi</h2>
+
+    <p style="color:#374151;margin:0 0 16px;line-height:1.6;">
+      Bună, ${escapeEmailHtml(vendorName || "Vânzător")}! A fost publicată o cerere
+      într-o categorie în care ai produse pe ${BRAND_NAME}.
+    </p>
+
+    <table role="presentation" style="border-collapse:collapse;margin:0 0 16px;font-size:14px;">${rowsHtml}</table>
+
+    <p style="color:#374151;margin:0 0 18px;line-height:1.6;">
+      Vezi detaliile și trimite o ofertă dacă te interesează.
+    </p>
+
+    ${
+      requestLink
+        ? `
+    <p style="text-align:center;margin:24px 0 8px;">
+      <a href="${requestLink}" style="display:inline-block;background:#111827;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">
+        Vezi cererea și trimite ofertă
+      </a>
+    </p>`
+        : ""
+    }
+  </div>
+
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:20px 0 0;">
+    Primești acest email pentru că magazinul tău are produse în categoria cererii.
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>
+`.trim();
+
+  const text = [
+    "O cerere nouă ți s-ar putea potrivi",
+    "",
+    `Bună, ${vendorName || "Vânzător"}!`,
+    `A fost publicată o cerere într-o categorie în care ai produse pe ${BRAND_NAME}.`,
+    "",
+    ...rows.map(([label, value]) => `${label}: ${value}`),
+    "",
+    "Vezi detaliile și trimite o ofertă dacă te interesează.",
+    requestLink ? `Vezi cererea și trimite ofertă: ${requestLink}` : "",
+  ]
+    .filter((line, index, all) => line || all[index - 1])
+    .join("\n");
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "vendor_customer_request_match",
+    toName: vendorName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
 export async function sendVendorCommissionInvoiceEmail({
   to,
   vendorName,

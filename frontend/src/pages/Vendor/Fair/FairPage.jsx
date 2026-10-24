@@ -54,6 +54,8 @@ function emptyForm(prefill) {
     notes: prefill?.notes || "",
     // acceptarea condițiilor se cere de fiecare dată
     termsAccepted: false,
+    // declarația de activitate legală - doar validare în formular, nu se trimite / salvează
+    legalActivityConfirmed: false,
   };
 }
 
@@ -140,6 +142,10 @@ export default function FairPage() {
     const count = Number(values.estimatedProductCount);
     if (!Number.isInteger(count) || count < 1) {
       errors.estimatedProductCount = "Completează un număr estimativ de produse (minimum 1).";
+    }
+    if (!values.legalActivityConfirmed) {
+      errors.legalActivityConfirmed =
+        "Pentru a trimite înscrierea, confirmă că desfășori activitatea într-o formă legală și autorizată și că poți emite documentele necesare.";
     }
     if (!values.termsAccepted) errors.termsAccepted = "Trebuie să accepți condițiile de participare.";
     return errors;
@@ -281,6 +287,22 @@ export default function FairPage() {
             </article>
           );
         })}
+      </section>
+
+      {/* pentru toți vendorii, indiferent de înscriere; bifa obligatorie e doar în formular */}
+      <section className={styles.legalNotice} aria-labelledby="fair-legal-notice-title">
+        <h2 id="fair-legal-notice-title" className={styles.legalNoticeTitle}>
+          Important pentru participarea la Târgul Artfest
+        </h2>
+        <p>
+          Pentru participarea la târg și comercializarea produselor prin Artfest, este necesar să desfășori activitatea
+          într-o formă legală și autorizată și să poți emite documentele fiscale/comerciale necesare pentru produsele
+          vândute.
+        </p>
+        <p>
+          Persoanele care desfășoară activitatea fără o formă legală de organizare și fără posibilitatea de a emite
+          documentele necesare nu pot participa la comercializarea produselor în cadrul târgului.
+        </p>
       </section>
 
       {registration && (
@@ -560,6 +582,29 @@ export default function FairPage() {
               onChange={(e) => update("notes", e.target.value)}
             />
           </label>
+
+          {/* ambele tipuri de participare: vânzarea se face prin Artfest; informarea e în zona comună a paginii */}
+          <div className={styles.legalConfirm}>
+            <label className={styles.checkbox} htmlFor="fair-legal-activity">
+              <input
+                id="fair-legal-activity"
+                type="checkbox"
+                checked={form.legalActivityConfirmed}
+                onChange={(e) => update("legalActivityConfirmed", e.target.checked)}
+                aria-invalid={fieldErrors.legalActivityConfirmed ? "true" : undefined}
+                aria-describedby={fieldErrors.legalActivityConfirmed ? "fair-legal-activity-error" : undefined}
+              />
+              <span>
+                Confirm că desfășor activitatea într-o formă legală și autorizată și că pot emite documentele
+                fiscale/comerciale necesare pentru produsele comercializate prin Târgul Artfest.
+              </span>
+            </label>
+            {fieldErrors.legalActivityConfirmed && (
+              <p id="fair-legal-activity-error" className={styles.fieldError} role="alert">
+                {fieldErrors.legalActivityConfirmed}
+              </p>
+            )}
+          </div>
 
           <label className={styles.checkbox}>
             <input

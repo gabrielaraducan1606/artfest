@@ -21,12 +21,12 @@ const GPSR_KEYS = [
   "isForChildren",
 ];
 
-// Câmpurile pe care editorul Admin le poate trimite. Imaginile / video NU
-// sunt editate aici - nu sunt trimise niciodată.
+// Câmpurile pe care editorul Admin le poate trimite. NU sunt trimise
+// niciodată: prețul / moneda (gestionate de vânzător - doar afișate),
+// imaginile / video (needitate aici).
 export const ADMIN_EDITABLE_KEYS = [
   "title",
   "description",
-  "price",
   "category",
   "additionalCategories",
   "color",
@@ -177,7 +177,6 @@ const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 function serialize(key, value) {
   if (key === "orderMode") return toApiOrderMode(value);
-  if (key === "price") return value === "" ? value : Number(value);
   if (key === "readyQty" || key === "leadTimeDays") {
     return value === "" || value === null || value === undefined ? null : Number(value);
   }
@@ -210,15 +209,6 @@ export function buildAdminProductPatch(initial, form) {
 export function validateAdminProductForm(form, payload) {
   if ("title" in payload && !String(form.title || "").trim()) {
     return "Titlul nu poate fi gol.";
-  }
-
-  if ("price" in payload) {
-    const price = Number(form.price);
-    if (!Number.isFinite(price) || price <= 0) {
-      return toApiOrderMode(form.orderMode) === "QUOTE_ONLY"
-        ? "Introdu un preț orientativ mai mare decât 0."
-        : "Preț invalid.";
-    }
   }
 
   if (

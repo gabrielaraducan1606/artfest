@@ -158,6 +158,7 @@ function normalizeDateOrNull(
    - owner-ul produsului
    - moderationStatus
    - datele de aprobare
+   - prețul / moneda (gestionate de vânzător)
 
    Acestea rămân exact cum sunt.
 ========================================================= */
@@ -308,60 +309,21 @@ router.patch(
       ================================================= */
 
       /*
-       * BUGFIX (audit) - QUOTE_ONLY cere acum preț orientativ > 0, la
-       * fel ca celelalte moduri (nu mai există excepție care să
-       * sară peste validare sau să forțeze 0). Dacă `body.price`
-       * lipsește din request, blocul ăsta nu rulează deloc -
-       * `data.priceCents` rămâne neatins, deci prețul existent al
-       * produsului e păstrat automat (nu doar pentru QUOTE_ONLY, ca
-       * înainte, ci pentru orice mod).
+       * Prețul (și moneda) sunt gestionate DOAR de vânzător - Adminul
+       * nu le poate modifica din acest editor. `price`, `priceCents`
+       * și `currency` din body sunt ignorate intenționat, deci prețul
+       * existent (inclusiv cel orientativ la QUOTE_ONLY) rămâne mereu
+       * neatins, oricare ar fi celelalte câmpuri salvate.
        */
       if (
-        body.price !==
-        undefined
+        body.price !== undefined ||
+        body.priceCents !== undefined ||
+        body.currency !== undefined
       ) {
-        const price =
-          Number(
-            body.price
-          );
-
-        if (
-          !Number.isFinite(
-            price
-          ) ||
-          price <= 0
-        ) {
-          return res
-            .status(400)
-            .json({
-              error:
-                "invalid_price",
-
-              message:
-                "Prețul produsului nu este valid. Introdu o valoare mai mare decât 0.",
-            });
-        }
-
-        data.priceCents =
-          Math.round(
-            price * 100
-          );
-      }
-
-      /* =================================================
-         MONEDĂ
-      ================================================= */
-
-      if (
-        body.currency !==
-        undefined
-      ) {
-        data.currency =
-          normalizeText(
-            body.currency ||
-              "RON"
-          ).toUpperCase() ||
-          "RON";
+        console.info(
+          "[ADMIN PRODUCT UPDATE] price fields ignored",
+          { productId }
+        );
       }
 
       /* =================================================
@@ -817,11 +779,9 @@ if (
           true;
 
         /*
-         * BUGFIX (audit) - NU mai resetăm priceCents la 0 aici.
-         * Trecerea pe QUOTE_ONLY nu mai șterge silențios prețul
-         * orientativ existent - dacă adminul nu a trimis explicit
-         * `body.price`, blocul de mai sus (PREȚ) nu a atins deloc
-         * `data.priceCents`, deci valoarea din DB rămâne neschimbată.
+         * NU resetăm priceCents la 0 aici - trecerea pe QUOTE_ONLY
+         * păstrează prețul orientativ existent (Adminul nu modifică
+         * deloc prețul, vezi blocul PREȚ de mai sus).
          */
 
         data.optionsSchema =

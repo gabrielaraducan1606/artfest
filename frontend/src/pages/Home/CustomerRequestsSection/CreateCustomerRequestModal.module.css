@@ -687,6 +687,24 @@
     color-mix(in srgb, var(--color-primary, #8b5cf6) 9%, transparent);
 }
 
+/* completat, dar sub minimul obligatoriu (titlu / descriere) */
+.inputInvalid,
+.inputInvalid:focus {
+  border-color:
+    color-mix(in srgb, var(--color-danger, #a32020) 60%, transparent);
+
+  box-shadow:
+    0 0 0 3px
+    color-mix(in srgb, var(--color-danger, #a32020) 10%, transparent);
+}
+
+.fieldError {
+  color:
+    var(--color-danger, #a32020);
+
+  font-weight: 600;
+}
+
 .input::placeholder,
 .textarea::placeholder {
   color:
