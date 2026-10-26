@@ -3,7 +3,9 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import styles from "../ProfilMagazin.module.css";
 
-export default function Modal({ open, onClose, children, maxWidth = 640 }) {
+// zIndex: doar când modalul se deschide peste un overlay cu z-index mai mare
+// decât .modalBackdrop (ex. fereastra de editare din Admin)
+export default function Modal({ open, onClose, children, maxWidth = 640, zIndex }) {
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -27,6 +29,7 @@ export default function Modal({ open, onClose, children, maxWidth = 640 }) {
   return createPortal(
     <div
       className={styles.modalBackdrop}
+      style={zIndex ? { zIndex } : undefined}
       onClick={() => onClose?.()}
       role="presentation"
     >

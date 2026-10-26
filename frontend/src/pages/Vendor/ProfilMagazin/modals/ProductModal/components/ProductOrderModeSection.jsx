@@ -856,6 +856,10 @@ export default function ProductOrderModeSection({
 
   // Editorul Admin: prețul e doar afișat (gestionat de vânzător)
   priceReadOnly = false,
+
+  // Editorul Admin e într-o fereastră cu z-index 9999: promptul „configurează
+  // manual” și asistentul de variante trebuie deschise deasupra ei
+  nestedModalZIndex,
 }) {
   const [orderHelpOpen, setOrderHelpOpen] =
   useState(false);
@@ -916,6 +920,9 @@ const [
 
   const value =
     normalizeMode(form.orderMode);
+
+  const stashedOptionsRef =
+    useRef(null);
 
   const optionFields =
     getSchemaFields(
@@ -1162,14 +1169,45 @@ const openSection = (
  const selectMode = (
   modeValue
 ) => {
-  setForm((current) => ({
-    ...applyOrderModeRules(
+  /*
+   * Ieșirea din OPTIONS golește schemele (applyOrderModeRules). Le ținem
+   * minte cât e deschis editorul, ca un click greșit pe alt mod urmat de
+   * revenirea la OPTIONS să nu piardă variantele nesalvate.
+   */
+  if (
+    value === "OPTIONS" &&
+    modeValue !== "OPTIONS"
+  ) {
+    stashedOptionsRef.current = {
+      optionsSchema: form.optionsSchema,
+      customSchema: form.customSchema,
+      repeatedGroups: form.repeatedGroups,
+    };
+  }
+
+  const restored =
+    modeValue === "OPTIONS" &&
+    value !== "OPTIONS"
+      ? stashedOptionsRef.current
+      : null;
+
+  setForm((current) => {
+    const next = applyOrderModeRules(
       current,
       modeValue
-    ),
+    );
 
-    aiManuallyEdited: true,
-  }));
+    const isEmpty =
+      !getSchemaFields(next.optionsSchema).length &&
+      !getSchemaFields(next.customSchema).length;
+
+    return {
+      ...next,
+      ...(restored && isEmpty ? restored : {}),
+
+      aiManuallyEdited: true,
+    };
+  });
 
   if (modeValue === "OPTIONS") {
     setOptionsAssistantOpen(true);
@@ -3526,8 +3564,10 @@ return (
       form={form}
       setForm={setForm}
       optionPresets={optionPresets}
+      zIndex={nestedModalZIndex}
     />
     <OptionsManualChoiceModal
+  zIndex={nestedModalZIndex}
   open={manualOptionsPromptOpen}
   onClose={closeManualOptionsPrompt}
   onGuided={chooseGuidedOptions}

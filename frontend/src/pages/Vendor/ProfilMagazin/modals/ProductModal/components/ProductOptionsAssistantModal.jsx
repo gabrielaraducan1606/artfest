@@ -154,6 +154,7 @@ export default function ProductOptionsAssistantModal({
   form,
   setForm,
   optionPresets = {},
+  zIndex,
 }) {
   const [step, setStep] =
     useState("fields");
@@ -1013,6 +1014,7 @@ setCustomFields([
       open={open}
       onClose={onClose}
       maxWidth={620}
+      zIndex={zIndex}
     >
       <div
         className={modalStyles.modalContent}

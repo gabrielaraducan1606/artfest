@@ -5,12 +5,14 @@ export default function OptionsManualChoiceModal({
   onClose,
   onGuided,
   onContinueManual,
+  zIndex,
 }) {
   return (
     <Modal
       open={open}
       onClose={onClose}
       maxWidth={480}
+      zIndex={zIndex}
     >
       <div
         style={{

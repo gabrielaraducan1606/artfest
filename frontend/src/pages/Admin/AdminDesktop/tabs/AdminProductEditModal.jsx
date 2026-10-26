@@ -182,6 +182,8 @@ export default function AdminProductEditForm({
           quoteSchema={form.quoteSchema}
           {...quoteEditor}
           priceReadOnly
+          // peste .modalBackdrop din AdminProductsTab (z-index 9999)
+          nestedModalZIndex={10000}
         />
       </section>
 
