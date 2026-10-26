@@ -228,15 +228,31 @@ export async function loadOlderThreadPage(base, { pageSize = 50 } = {}) {
 }
 
 // PATCH /read - complet separat de GET. Apelată DOAR pt. o vizualizare
-// reală (subscribeThread), niciodată din prefetch.
-export async function markThreadRead(base) {
-  try {
-    await api(`${base}/read`, { method: "PATCH" });
-    dispatchMessagesChanged();
-  } catch {
-    // best-effort, ca înainte - o eroare la marcarea "citit" nu trebuie
-    // să arate ca o eroare de încărcare a mesajelor.
-  }
+// reală (subscribeThread), niciodată din prefetch. Un PATCH deja în zbor
+// pt. același `base` e reutilizat (MiniThread + pagina completă pe
+// același thread => un singur PATCH). Evenimentul poartă reason "read":
+// badge-ul și lista de conversații se reîmprospătează, dar handler-ul de
+// mai jos nu mai refetch-uiește mesajele (altfel refetch -> markRead ->
+// dispatch -> refetch, buclă continuă).
+const inFlightRead = new Map();
+
+export function markThreadRead(base) {
+  const pending = inFlightRead.get(base);
+  if (pending) return pending;
+
+  const run = (async () => {
+    try {
+      await api(`${base}/read`, { method: "PATCH" });
+      dispatchMessagesChanged(base.split("/").pop(), "read");
+    } catch {
+      // best-effort, ca înainte - o eroare la marcarea "citit" nu trebuie
+      // să arate ca o eroare de încărcare a mesajelor.
+    } finally {
+      inFlightRead.delete(base);
+    }
+  })();
+  inFlightRead.set(base, run);
+  return run;
 }
 
 // Update optimist local (mesaj trimis/retry) - propagat la toți
@@ -294,6 +310,8 @@ function invalidate(threadIdOrAll) {
 }
 
 function handleMessagesChanged(event) {
+  // propriul "marcat citit" (markThreadRead) - mesajele nu s-au schimbat
+  if (event?.detail?.reason === "read") return;
   invalidate(event?.detail?.threadId);
 }
 

@@ -6,6 +6,8 @@ import styles from "../css/AdminProductsTab.module.css";
 import { getCanonicalLabel } from "../../../../utils/optionLabels.js";
 import AdminProductEditForm
   from "./AdminProductEditModal.jsx";
+import ProductChangeRequestModal
+  from "./ProductChangeRequestModal.jsx";
 
 const PAGE_SIZE = 200;
 
@@ -61,6 +63,114 @@ function getModerationLabel(status) {
     default:
       return "În verificare";
   }
+}
+
+/*
+ * Statusul afișat: „De reverificat” = vendorul a confirmat modificările
+ * solicitate (changeRequest.stage REREVIEW, produs PENDING) - vezi
+ * backend/src/services/productChangeRequest.js.
+ */
+function getDisplayModeration(product) {
+  const status = String(product?.moderationStatus || "PENDING").toUpperCase();
+
+  if (
+    status === "PENDING" &&
+    product?.changeRequest?.open &&
+    product.changeRequest.stage === "REREVIEW"
+  ) {
+    return { label: "De reverificat", tone: "warn" };
+  }
+
+  return { label: getModerationLabel(status), tone: getModerationTone(status) };
+}
+
+const HISTORY_LABELS = {
+  REQUESTED: "Artfest a solicitat modificări",
+  CONFIRMED: "Vânzătorul a confirmat modificările",
+  APPROVED: "Produs aprobat",
+  REJECTED: "Produs respins",
+};
+
+function formatDay(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+
+  return new Intl.DateTimeFormat("ro-RO", { day: "numeric", month: "short", year: "numeric" }).format(d);
+}
+
+/*
+ * Solicitarea curentă + istoricul (GET /api/admin/products/:id/change-history,
+ * construit din notificările vendorului - fără tabel separat).
+ */
+function ChangeRequestHistory({ productId, refreshKey }) {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    api(`/api/admin/products/${encodeURIComponent(productId)}/change-history`)
+      .then((res) => {
+        if (alive) setData(res);
+      })
+      .catch(() => {
+        if (alive) setData(null);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [productId, refreshKey]);
+
+  const current = data?.changeRequest?.open ? data.changeRequest : null;
+  const history = Array.isArray(data?.history) ? data.history : [];
+
+  if (!current && !history.length) return null;
+
+  return (
+    <div className={styles.moderationBox}>
+      {current ? (
+        <div>
+          <strong>
+            {current.stage === "REREVIEW"
+              ? "Vânzătorul a confirmat modificările - de reverificat"
+              : "Solicitare deschisă - vânzătorul face modificările"}
+          </strong>
+
+          {current.reasonLabels?.length ? (
+            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+              {current.reasonLabels.map((label) => (
+                <li key={label}>{label}</li>
+              ))}
+            </ul>
+          ) : null}
+
+          {current.note ? (
+            <p className={styles.moderationOldMessage} style={{ whiteSpace: "pre-wrap" }}>
+              {current.note}
+            </p>
+          ) : null}
+
+          {current.hideProduct ? (
+            <p className={styles.moderationOldMessage}>Produs ascuns temporar până la corectare.</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {history.length ? (
+        <div>
+          <strong>Istoric</strong>
+          <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            {history.map((event, index) => (
+              <li key={`${event.type}-${event.at}-${index}`}>
+                {formatDay(event.at)} - {HISTORY_LABELS[event.type] || event.type}
+                {event.reasonLabels?.length ? `: ${event.reasonLabels.join(", ")}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function StatusBadge({ children, tone = "neutral" }) {
@@ -277,8 +387,9 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
     }
   };
 
-  const requestChangesProduct = async (productId, message) => {
-    if (!productId || !String(message || "").trim()) return;
+  // { reasons, note, hideProduct } din ProductChangeRequestModal
+  const requestChangesProduct = async (productId, request) => {
+    if (!productId || !request) return false;
 
     try {
       setWorkingProductId(productId);
@@ -288,7 +399,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
         `/api/admin/products/${productId}/request-changes`,
         {
           method: "PATCH",
-          body: { message: String(message).trim() },
+          body: request,
         }
       );
 
@@ -296,8 +407,11 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
         setProductEverywhere(productId, data.product);
         setModerationMessage("");
       }
+
+      return true;
     } catch (e) {
       setError(e?.message || "Nu am putut cere modificări.");
+      return false;
     } finally {
       setWorkingProductId("");
     }
@@ -555,6 +669,8 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
                 ).toUpperCase();
 
                 const isApproved = moderationStatus === "APPROVED";
+                const openChangeRequest = p.changeRequest?.open ? p.changeRequest : null;
+                const displayModeration = getDisplayModeration(p);
 
                 return (
                   <tr
@@ -675,9 +791,17 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
 
                     <td>
                       <div className={styles.badgesCol}>
-                        <StatusBadge tone={getModerationTone(moderationStatus)}>
-                          {getModerationLabel(moderationStatus)}
+                        <StatusBadge tone={displayModeration.tone}>
+                          {displayModeration.label}
                         </StatusBadge>
+
+                        {isApproved && openChangeRequest ? (
+                          <StatusBadge tone="warn">
+                            {openChangeRequest.stage === "REREVIEW"
+                              ? "De reverificat (vizibil)"
+                              : "Modificări solicitate (vizibil)"}
+                          </StatusBadge>
+                        ) : null}
 
                         {p.aiModeration?.decision ? (
                           <span className={styles.inlineMeta}>
@@ -752,13 +876,13 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
                         <button
                           type="button"
                           className={styles.approveBtn}
-                          disabled={isApproved || workingProductId === p.id}
+                          disabled={(isApproved && !openChangeRequest) || workingProductId === p.id}
                           onClick={(e) => {
                             e.stopPropagation();
                             approveProduct(p.id);
                           }}
                         >
-                          {isApproved
+                          {isApproved && !openChangeRequest
                             ? "Aprobat"
                             : workingProductId === p.id
                             ? "Se procesează..."
@@ -802,11 +926,11 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
     )
   }
   onRequestChanges={(
-    message
+    request
   ) =>
     requestChangesProduct(
       selectedProduct.id,
-      message
+      request
     )
   }
   onReject={(message) =>
@@ -843,6 +967,17 @@ function ProductReviewModal({
   const [modalMode, setModalMode] =
     useState("details");
 
+  const [showChangeRequest, setShowChangeRequest] =
+    useState(false);
+
+  const openChangeRequest =
+    product.changeRequest?.open
+      ? product.changeRequest
+      : null;
+
+  const displayModeration =
+    getDisplayModeration(product);
+
   const images =
     Array.isArray(product.images)
       ? product.images
@@ -873,6 +1008,25 @@ function ProductReviewModal({
           e.stopPropagation()
         }
       >
+        {showChangeRequest ? (
+          <ProductChangeRequestModal
+            product={product}
+            working={working}
+            onClose={() =>
+              setShowChangeRequest(false)
+            }
+            onSubmit={async (request) => {
+              const ok =
+                await onRequestChanges(
+                  request
+                );
+
+              if (ok) setShowChangeRequest(false);
+              return ok;
+            }}
+          />
+        ) : null}
+
         {/* =========================
             HEADER
         ========================== */}
@@ -1029,14 +1183,16 @@ function ProductReviewModal({
                   styles.approveBtn
                 }
                 disabled={
-                  isApproved ||
+                  (isApproved &&
+                    !openChangeRequest) ||
                   working
                 }
                 onClick={
                   onApprove
                 }
               >
-                {isApproved
+                {isApproved &&
+                !openChangeRequest
                   ? "Produs aprobat"
                   : working
                   ? "Se procesează..."
@@ -1065,15 +1221,20 @@ function ProductReviewModal({
                 }
               >
                 <StatusBadge
-                  tone={getModerationTone(
-                    moderationStatus
-                  )}
+                  tone={
+                    displayModeration.tone
+                  }
                 >
-                  {getModerationLabel(
-                    moderationStatus
-                  )}
+                  {
+                    displayModeration.label
+                  }
                 </StatusBadge>
               </div>
+
+              <ChangeRequestHistory
+                productId={product.id}
+                refreshKey={`${product.moderationStatus}:${openChangeRequest?.id || ""}:${openChangeRequest?.confirmedAt || ""}`}
+              />
 
               {product.moderationMessage ? (
                 <p
@@ -1092,7 +1253,7 @@ function ProductReviewModal({
                 className={
                   styles.textarea
                 }
-                placeholder="Scrie motivul pentru modificări sau respingere..."
+                placeholder="Motivul respingerii (pentru „Cere modificări” se deschide o fereastră separată)..."
                 value={
                   moderationMessage
                 }
@@ -1113,13 +1274,10 @@ function ProductReviewModal({
                   className={
                     styles.warnBtn
                   }
-                  disabled={
-                    working ||
-                    !moderationMessage.trim()
-                  }
+                  disabled={working}
                   onClick={() =>
-                    onRequestChanges(
-                      moderationMessage
+                    setShowChangeRequest(
+                      true
                     )
                   }
                 >

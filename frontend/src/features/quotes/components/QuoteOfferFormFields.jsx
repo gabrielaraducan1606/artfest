@@ -29,10 +29,14 @@ export default function QuoteOfferFormFields({
   error,
   onSubmit,
   onCancel,
+  // ofertă din conversație: vendorul completează și descrierea + cantitatea
+  conversationMode = false,
 }) {
   const quantity =
     Number(
-      quoteRequest?.quantity
+      conversationMode
+        ? form.quantity
+        : quoteRequest?.quantity
     ) || 0;
 
   const unitPrice =
@@ -64,6 +68,54 @@ export default function QuoteOfferFormFields({
       }
       onSubmit={onSubmit}
     >
+      {conversationMode && (
+        <>
+          <label className={styles.quoteNotesLabel}>
+            <span>Ce oferi (descriere scurtă)</span>
+
+            <div className={styles.quoteDaysInput}>
+              <input
+                type="text"
+                maxLength={160}
+                value={form.title}
+                placeholder="Ex: Set 10 lumânări personalizate"
+                autoFocus
+                required
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    title: event.target.value,
+                  }))
+                }
+              />
+            </div>
+          </label>
+
+          <label className={styles.quoteNotesLabel}>
+            <span>Cantitate</span>
+
+            <div className={styles.quoteDaysInput}>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                step="1"
+                value={form.quantity}
+                required
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    quantity: event.target.value,
+                  }))
+                }
+              />
+
+              <span>buc.</span>
+            </div>
+          </label>
+        </>
+      )}
+
       <div
         className={
           styles.quoteFormGrid
@@ -86,7 +138,7 @@ export default function QuoteOfferFormFields({
               value={
                 form.unitPrice
               }
-              autoFocus
+              autoFocus={!conversationMode}
               required
               onChange={(event) =>
                 setForm(

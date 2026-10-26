@@ -8,6 +8,19 @@ import {
 } from "../constants/categories.js";
 import { COLOR_SET } from "../constants/colors.js";
 import { notifyVendorOnProductModeration } from "../services/notifications.js";
+import { sendVendorProductChangesRequestedEmail } from "../lib/mailer.js";
+import {
+  CHANGE_REQUEST_NOTE_MAX,
+  buildChangeRequestHistory,
+  buildChangeRequestMessage,
+  createChangeRequest,
+  normalizeReasons,
+  reasonLabels,
+  resolveChangeRequestPatch,
+  summarizeChangeRequest,
+  vendorChangeRequestPath,
+  withChangeRequest,
+} from "../services/productChangeRequest.js";
 import {
   isGpsrComplete,
   getGpsrMissingFields,
@@ -194,6 +207,9 @@ function mapAdminProduct(p) {
     // verdict complet al moderării AI (per imagine, clasificare, motive
     // interne) - doar pentru admin, vezi services/productAiModeration.js
     aiModeration: p.aiModeration || null,
+
+    // solicitarea de modificări curentă (stage REREVIEW = „De reverificat”)
+    changeRequest: summarizeChangeRequest(p),
 
     service: {
       id: service?.id || null,
@@ -1165,6 +1181,8 @@ async function adminApproveProduct(req, res) {
     }
 
     const now = new Date();
+    // solicitarea de modificări deschisă (dacă există) se închide la aprobare
+    const changeRequestPatch = resolveChangeRequestPatch(product, "APPROVED", now);
 
     const updated = await prisma.product.update({
       where: { id },
@@ -1176,8 +1194,16 @@ async function adminApproveProduct(req, res) {
         approvedAt: now,
         isActive: true,
         isHidden: false,
+        ...(changeRequestPatch ? { aiModeration: changeRequestPatch } : {}),
       },
       include: { service: { include: { vendor: true, profile: true, type: true } } },
+    });
+
+    await notifyVendorOnProductModeration(updated.id, "APPROVED", null, {
+      approvedAt: now,
+      link: changeRequestPatch ? vendorChangeRequestPath(updated.id) : undefined,
+    }).catch((e) => {
+      console.error("notify product approved error:", e);
     });
 
     return res.json({ ok: true, product: mapAdminProduct(updated) });
@@ -1187,15 +1213,67 @@ async function adminApproveProduct(req, res) {
   }
 }
 
+// emailul solicitării - același destinatar ca la cererile de ofertă
+async function sendChangeRequestEmail(product, changeRequest) {
+  const vendor = await prisma.vendor.findUnique({
+    where: { id: product.service?.vendorId },
+    select: {
+      displayName: true,
+      user: { select: { email: true } },
+      billing: { select: { email: true, vendorName: true } },
+    },
+  });
+
+  const to = vendor?.billing?.email || vendor?.user?.email || null;
+  if (!to) return;
+
+  await sendVendorProductChangesRequestedEmail({
+    to,
+    vendorName: vendor?.billing?.vendorName || vendor?.displayName || "Vânzător",
+    productId: product.id,
+    productTitle: product.title,
+    reasons: reasonLabels(changeRequest.reasons),
+    note: changeRequest.note,
+  });
+}
+
+/*
+ * „Cere modificări” - motive (multi-select) + observații + opțiunea
+ * explicită „Ascunde temporar produsul”. Vezi services/productChangeRequest.js.
+ *
+ * Vizibilitate: site-ul public arată DOAR produse APPROVED. Un produs
+ * aprobat, fără „Ascunde temporar”, rămâne APPROVED (vizibil) cu
+ * solicitarea deschisă; altfel devine CHANGES_REQUESTED. moderationMessage
+ * nu se scrie pe un produs vizibil (apare în răspunsurile publice).
+ *
+ * Trimite O notificare + UN email per solicitare. `message` (text liber,
+ * vechiul format) e acceptat în continuare ca observație.
+ */
 async function adminRequestProductChanges(req, res) {
   try {
     const id = String(req.params.id || "").trim();
-    const message = String(req.body?.message || "").trim();
+    const reasons = normalizeReasons(req.body?.reasons);
+    const note = String(req.body?.note ?? req.body?.message ?? "").trim();
+    const hideProduct = req.body?.hideProduct === true;
 
-    if (!message) {
+    if (!reasons.length && !note) {
       return res.status(400).json({
         error: "moderation_message_required",
-        message: "Trebuie să trimiți modificările cerute.",
+        message: "Alege cel puțin un motiv sau scrie o observație.",
+      });
+    }
+
+    if (reasons.includes("OTHER") && !note) {
+      return res.status(400).json({
+        error: "moderation_note_required",
+        message: "Pentru „Alt motiv”, scrie ce trebuie modificat.",
+      });
+    }
+
+    if (note.length > CHANGE_REQUEST_NOTE_MAX) {
+      return res.status(400).json({
+        error: "moderation_note_too_long",
+        message: `Observațiile pot avea cel mult ${CHANGE_REQUEST_NOTE_MAX} de caractere.`,
       });
     }
 
@@ -1209,22 +1287,45 @@ async function adminRequestProductChanges(req, res) {
       return res.status(400).json({ error: "not_a_products_store" });
     }
 
+    const now = new Date();
+    const changeRequest = createChangeRequest({
+      reasons,
+      note,
+      hideProduct,
+      adminUserId: req.user.sub,
+      now,
+    });
+    const message = buildChangeRequestMessage({ reasons, note });
+    const keepVisible = !hideProduct && product.moderationStatus === "APPROVED";
+
     const updated = await prisma.product.update({
       where: { id },
       data: {
-        moderationStatus: "CHANGES_REQUESTED",
-        moderationMessage: message,
-        reviewedAt: new Date(),
+        aiModeration: withChangeRequest(product.aiModeration, changeRequest),
+        reviewedAt: now,
         reviewedByUserId: req.user.sub,
-        approvedAt: null,
-        isActive: false,
-        isHidden: true,
+        ...(keepVisible
+          ? {}
+          : {
+              moderationStatus: "CHANGES_REQUESTED",
+              moderationMessage: message,
+              approvedAt: null,
+            }),
+        ...(hideProduct ? { isActive: false, isHidden: true } : {}),
       },
       include: { service: { include: { vendor: true, profile: true, type: true } } },
     });
-await notifyVendorOnProductModeration(updated.id, "CHANGES_REQUESTED", message).catch((e) => {
-  console.error("notify product changes requested error:", e);
-});
+
+    await notifyVendorOnProductModeration(updated.id, "CHANGES_REQUESTED", message, {
+      changeRequest,
+    }).catch((e) => {
+      console.error("notify product changes requested error:", e);
+    });
+
+    await sendChangeRequestEmail(updated, changeRequest).catch((e) => {
+      console.error("email product changes requested error:", e);
+    });
+
     return res.json({ ok: true, product: mapAdminProduct(updated) });
   } catch (e) {
     console.error("PATCH /admin/products/:id/request-changes error:", e);
@@ -1254,16 +1355,20 @@ async function adminRejectProduct(req, res) {
       return res.status(400).json({ error: "not_a_products_store" });
     }
 
+    const now = new Date();
+    const changeRequestPatch = resolveChangeRequestPatch(product, "REJECTED", now);
+
     const updated = await prisma.product.update({
       where: { id },
       data: {
         moderationStatus: "REJECTED",
         moderationMessage: message,
-        reviewedAt: new Date(),
+        reviewedAt: now,
         reviewedByUserId: req.user.sub,
         approvedAt: null,
         isActive: false,
         isHidden: true,
+        ...(changeRequestPatch ? { aiModeration: changeRequestPatch } : {}),
       },
       include: { service: { include: { vendor: true, profile: true, type: true } } },
     });
@@ -1366,9 +1471,48 @@ async function adminGetProduct(req, res) {
   }
 }
 
+// solicitarea curentă + istoricul (din notificările vendorului)
+async function adminGetProductChangeHistory(req, res) {
+  try {
+    const id = String(req.params.id || "").trim();
+
+    const product = await prisma.product.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        moderationStatus: true,
+        aiModeration: true,
+        service: { select: { vendorId: true } },
+      },
+    });
+
+    if (!product) return res.status(404).json({ error: "not_found" });
+
+    const history = await buildChangeRequestHistory(prisma, {
+      vendorId: product.service?.vendorId,
+      product,
+    });
+
+    return res.json({
+      changeRequest: summarizeChangeRequest(product),
+      history,
+    });
+  } catch (e) {
+    console.error("GET /admin/products/:id/change-history error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
 /* ================= Mount routes ================= */
 
 router.get("/products", authRequired, adminRequired, adminListProducts);
+
+router.get(
+  "/products/:id/change-history",
+  authRequired,
+  adminRequired,
+  adminGetProductChangeHistory
+);
 
 router.patch(
   "/products/:id/approve",

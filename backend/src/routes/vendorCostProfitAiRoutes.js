@@ -40,12 +40,13 @@ import {
   resolveOwnedProduct,
   costingToCostDraft,
   detectReusableCostItemMention,
+  applyLibraryChoices,
+  buildLibraryProposal,
+  carryCostItemIds,
+  findCostItemMatches,
 } from "../services/costProfitService.js";
 
-import {
-  normalizeText,
-  findBestMatch,
-} from "../lib/textMatch.js";
+import { normalizeText } from "../lib/textMatch.js";
 
 const router = Router();
 
@@ -239,7 +240,10 @@ function findCostItemDetectionCandidate(
   );
 
   for (const material of afterDraft?.materials || []) {
-    if (material.costItemId) continue;
+    // fără preț spus (0) -> nimic de propus aici; e tratat de propunerea
+    // din bibliotecă (buildLibraryProposal). Un material legat de
+    // bibliotecă intră doar dacă prețul s-a schimbat (comparația de mai jos).
+    if (!(Number(material.unitCost) > 0)) continue;
 
     const key = normalizeText(material.name);
     const prev = beforeMaterials.get(key);
@@ -294,7 +298,17 @@ function buildPriceCalculatorPrompt({
   message,
   history,
   costDraft,
+  libraryNames = [],
 }) {
+  /*
+   * Biblioteca vendorului: serverul propune singur prețurile salvate
+   * (buildLibraryProposal) - modelul doar nu trebuie să le mai ceară.
+   */
+  const libraryRule = libraryNames.length
+    ? `
+- Vânzătorul are costuri salvate în bibliotecă pentru: ${libraryNames.join(", ")}. Pentru materialele care seamănă cu acestea NU cere prețul - serverul i le propune separat. Cere doar prețul materialelor care nu apar în listă.`
+    : "";
+
   return `
 Ești asistentul ArtFest care ajută vânzătorii să își calculeze costurile unui produs handmade, înainte de a stabili prețul de vânzare.
 
@@ -318,6 +332,7 @@ Reguli:
 - Materialele, ambalajul, alte costuri și profitul dorit sunt opționale. Dacă vânzătorul pare să fi terminat descrierea costurilor și nu le-a menționat, NU insista - poți presupune 0 pentru ele și menționează asumpția pe scurt în mesajul tău, în loc să întrebi la nesfârșit.
 - Pune cel mult 1-2 întrebări per tură, doar despre informația esențială care lipsește.
 - Nu inventa cifre. Dacă vânzătorul dă o valoare aproximativă ("cam 10 lei"), folosește acea valoare ca atare.
+- Dacă vânzătorul menționează un material fără să spună cât costă, include-l oricum în "patch.materials", cu "unitCost": 0 (și cantitatea spusă, sau 1).${libraryRule}
 - Formulează întrebările necesare direct în câmpul "message", ca text conversațional prietenos, în română.
 - Returnează EXCLUSIV JSON valid, fără markdown.
 
@@ -469,6 +484,40 @@ router.post(
       );
 
       /*
+       * Biblioteca de costuri - STRICT a vendorului autentificat
+       * (vendor.id din sesiune, nu din client).
+       */
+      const costItems =
+        await prisma.vendorCostItem.findMany({
+          where: {
+            vendorId: vendor.id,
+            isActive: true,
+          },
+          select: {
+            id: true,
+            type: true,
+            label: true,
+            unit: true,
+            unitCostCents: true,
+            updatedAt: true,
+          },
+        });
+
+      // alegeri confirmate din propunerea bibliotecii (vezi buildLibraryProposal)
+      const libraryApply = (Array.isArray(req.body?.libraryApply) ? req.body.libraryApply : [])
+        .slice(0, 30)
+        .map((entry) => ({
+          material: String(entry?.material || "").trim().slice(0, 120),
+          costItemId: String(entry?.costItemId || "").trim().slice(0, 64),
+        }))
+        .filter((entry) => entry.material && entry.costItemId);
+
+      const libraryDismissed = (Array.isArray(req.body?.libraryDismissed) ? req.body.libraryDismissed : [])
+        .slice(0, 30)
+        .map((name) => String(name || "").trim().slice(0, 120))
+        .filter(Boolean);
+
+      /*
        * Un mesaj gol e valid când:
        * - avem un productId (deschidem/reîncărcăm conversația
        *   pentru acel produs, cu sau fără costing deja salvat);
@@ -500,7 +549,35 @@ router.post(
 
       let parsed;
 
-      if (isPureLoadTurn) {
+      if (!message && libraryApply.length) {
+        /*
+         * Vendorul a ales valori din bibliotecă - aplicare
+         * deterministă, fără LLM; doar id-urile din biblioteca
+         * LUI sunt folosite (costItems de mai sus).
+         */
+        const { draft, applied } = applyLibraryChoices(
+          incomingDraft,
+          libraryApply,
+          costItems
+        );
+
+        const nextQuestion = !(Number(draft.laborHours) > 0)
+          ? "Cât timp îți ia să faci un produs (în ore)?"
+          : !(Number(draft.hourlyRate) > 0)
+            ? "Cât valorează o oră din munca ta (lei/oră)?"
+            : "Am recalculat prețul.";
+
+        parsed = {
+          message: applied.length
+            ? `Am folosit valorile din bibliotecă: ${applied
+                .map((entry) => `${entry.label} (${entry.priceText})`)
+                .join(", ")}. ${nextQuestion}`
+            : "Nu am găsit costul ales în biblioteca ta. Spune-mi prețul și îl folosesc.",
+          patch: draft,
+          questions: [],
+          confidence: null,
+        };
+      } else if (isPureLoadTurn) {
         /*
          * Nimic de extras - fie am încărcat costing-ul
          * salvat, fie produsul nu are încă unul, fie clientul
@@ -541,6 +618,9 @@ router.post(
                       message,
                       history,
                       costDraft: incomingDraft,
+                      libraryNames: costItems
+                        .map((item) => item.label)
+                        .slice(0, 60),
                     }),
                   },
                 ],
@@ -562,9 +642,13 @@ router.post(
         }
       }
 
-      const updatedDraft = sanitizeCostDraft(
-        parsed.patch,
-        incomingDraft
+      // legătura cu biblioteca (costItemId) se păstrează peste lista din LLM
+      const updatedDraft = carryCostItemIds(
+        incomingDraft,
+        sanitizeCostDraft(
+          parsed.patch,
+          incomingDraft
+        )
       );
 
       const ready = isReadyToCalculate(
@@ -638,6 +722,38 @@ router.post(
           })
         : null;
 
+      /*
+       * Propunerea din bibliotecă - doar când s-a schimbat față de
+       * tura anterioară (altfel n-o repetăm la fiecare mesaj; butoanele
+       * ei rămân în conversație).
+       */
+      const proposalKey = (proposal) =>
+        proposal
+          ? JSON.stringify([
+              proposal.items.map((item) => [item.material, item.costItemId]),
+              proposal.ambiguous.map((entry) => entry.material),
+            ])
+          : "";
+
+      const nextLibraryProposal = buildLibraryProposal({
+        costDraft: updatedDraft,
+        costItems,
+        dismissed: libraryDismissed,
+      });
+
+      const libraryProposal =
+        nextLibraryProposal &&
+        proposalKey(nextLibraryProposal) !==
+          proposalKey(
+            buildLibraryProposal({
+              costDraft: incomingDraft,
+              costItems,
+              dismissed: libraryDismissed,
+            })
+          )
+          ? nextLibraryProposal
+          : null;
+
       return res.json({
         message: (
           String(
@@ -645,6 +761,8 @@ router.post(
               "Am notat informațiile despre costuri."
           ).trim() + profitNudge
         ).slice(0, 2000),
+
+        libraryProposal,
 
         costDraft: updatedDraft,
 
@@ -735,9 +853,8 @@ function findBestCostItemMatch(
   label,
   costItems
 ) {
-  return findBestMatch(label, costItems, {
-    nameField: "name",
-  });
+  // VendorCostItem are `label` (coloana fostă `name`) - pe `name` nu găsea nimic
+  return findCostItemMatches(label, costItems)[0]?.item || null;
 }
 
 /* ======================================================
@@ -918,7 +1035,7 @@ router.post(
             matchedCostItemId: match?.id || null,
 
             matchedCostItemName:
-              match?.name || null,
+              match?.label || null,
 
             matchedUnitCostCents:
               match?.unitCostCents ?? null,

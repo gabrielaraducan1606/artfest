@@ -20,6 +20,7 @@ import {
   FaFileInvoice,
 } from "react-icons/fa";
 import styles from "./css/ProductCard.module.css";
+import { vendorChangesPath } from "../../../../features/productChanges/changeRequestReasons.js";
 import {
   productPlaceholder,
   onImgError,
@@ -93,6 +94,8 @@ function moderationMeta(status) {
       return { label: "Aprobat", tone: "success" };
     case "CHANGES_REQUESTED":
       return { label: "Necesită modificări", tone: "warning" };
+    case "REREVIEW":
+      return { label: "De reverificat", tone: "info" };
     case "REJECTED":
       return { label: "Respins", tone: "danger" };
     case "PENDING":
@@ -315,6 +318,7 @@ promoLabel:
       moderationStatus: String(p?.moderationStatus || "PENDING").toUpperCase(),
       moderationMessage: p?.moderationMessage || null,
       moderationReport: p?.moderationReport || null,
+      changeRequest: p?.changeRequest || null,
       availability,
       leadTimeDays: Number.isFinite(Number(p?.leadTimeDays))
         ? Number(p.leadTimeDays)
@@ -494,9 +498,14 @@ promoLabel:
       ? FaFileInvoice
       : FaShoppingCart;
 
+  // solicitare de modificări deschisă -> stage (CHANGES_REQUESTED / REREVIEW)
+  const moderationStage = safe.changeRequest?.open
+    ? safe.changeRequest.stage
+    : safe.moderationStatus;
+
   const moderation = useMemo(
-    () => moderationMeta(safe.moderationStatus),
-    [safe.moderationStatus]
+    () => moderationMeta(moderationStage),
+    [moderationStage]
   );
 
   const status = useMemo(() => {
@@ -1057,6 +1066,18 @@ const handleCart = useCallback(
           )}
         </h4>
 
+        {viewMode === "vendor" && safe.changeRequest?.open && (
+          <Link
+            to={vendorChangesPath(safe.id)}
+            className={styles.moderationMessage}
+            style={{ display: "block", fontWeight: 600 }}
+          >
+            {safe.changeRequest.stage === "REREVIEW"
+              ? "Modificări confirmate - vezi detalii →"
+              : "Vezi modificările solicitate →"}
+          </Link>
+        )}
+
         {/*
          * Verificare automată (AI): la blocare, vendorul vede exact
          * imaginea și ce trebuie corectat; la verificare suplimentară,
@@ -1128,6 +1149,7 @@ const handleCart = useCallback(
 
         {viewMode === "vendor" &&
           !safe.moderationReport &&
+          !safe.changeRequest?.open &&
           safe.moderationMessage && (
             <p className={styles.moderationMessage}>
               Mesaj admin: {safe.moderationMessage}

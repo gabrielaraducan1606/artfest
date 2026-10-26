@@ -26,6 +26,7 @@ import { useMessageThreads } from "../../../features/messages/hooks/useMessageTh
 import { useThreadMessages } from "../../../features/messages/hooks/useThreadMessages";
 import { useMessageSend } from "../../../features/messages/hooks/useMessageSend";
 import MessageBubble from "../../../features/messages/components/MessageBubble";
+import { quoteRequestTitle } from "../../../features/quotes/conversationOffer.js";
 import {
   nowIso,
   fmtTime,
@@ -1180,8 +1181,7 @@ function UserQuoteOfferPreview({
   onOpen,
 }) {
   const productTitle =
-    quoteRequest?.product?.title ||
-    "Produs personalizat";
+    quoteRequestTitle(quoteRequest);
 
   const total =
     Number(offer?.total);
@@ -1367,9 +1367,9 @@ function UserQuoteOfferModal({
     ) || 0;
 
   const productTitle =
-    quoteRequest?.product
-      ?.title ||
-    "Produs personalizat";
+    quoteRequestTitle(
+      quoteRequest
+    );
 
   const productImage =
     Array.isArray(

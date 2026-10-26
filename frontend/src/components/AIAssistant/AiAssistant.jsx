@@ -1243,7 +1243,7 @@ if (detail.fromStore) {
 
 Înainte să începem, te rog să încarci o fotografie cu produsul sau modelul pe care îl dorești.
 
-Dacă nu ai o fotografie, poți continua și fără ea.`
+Dacă nu ai o fotografie, poți continua și fără ea: scrie direct de câte bucăți ai nevoie.`
     ),
   ]);
 } else {
@@ -4040,6 +4040,33 @@ if (
     activeFlow ===
     "quote-from-store"
   ) {
+    /*
+     * Fotografia (opțională) e ținută în composer și trimisă ca
+     * atașament după crearea cererii (sendInspirationImage). Aici
+     * doar avansăm la cantitate - înainte pasul rămânea "photo".
+     */
+    if (
+      quoteDraft?.step ===
+      "photo"
+    ) {
+      setQuoteDraft(
+        (current) => ({
+          ...current,
+          step:
+            "quantity",
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Am primit fotografia. O atașăm cererii când o trimiți.\n\nDe câte bucăți ai nevoie?"
+        )
+      );
+
+      return;
+    }
+
     const response =
       getPersonalizationImageUploadResponse?.(
         {

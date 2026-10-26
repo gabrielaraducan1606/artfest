@@ -33,36 +33,18 @@ const MIN_ARTISAN_PRODUCTS =
     )
   );
 
+/*
+ * Cooldown produs (zile): același produs nu revine ca Produsul zilei
+ * mai devreme. Cooldown-ul vendorului / artizanului e ADAPTIV, vezi
+ * computeVendorCooldownDays / computeArtisanCooldownWeeks.
+ */
 const PRODUCT_REPEAT_DAYS =
   Math.max(
     1,
     Number(
       process.env
         .HOMEPAGE_PRODUCT_REPEAT_DAYS ||
-        30
-    )
-  );
-
-const ARTISAN_REPEAT_WEEKS =
-  Math.max(
-    1,
-    Number(
-      process.env
-        .HOMEPAGE_ARTISAN_REPEAT_WEEKS ||
-        12
-    )
-  );
-
-const FEATURE_CANDIDATE_LIMIT =
-  Math.max(
-    10,
-    Math.min(
-      500,
-      Number(
-        process.env
-          .HOMEPAGE_FEATURE_CANDIDATE_LIMIT ||
-          100
-      )
+        60
     )
   );
 
@@ -301,24 +283,6 @@ function addWeeks(
    HELPERS GENERALE
 ========================================================= */
 
-function pickRandom(items) {
-  if (
-    !Array.isArray(items) ||
-    !items.length
-  ) {
-    return null;
-  }
-
-  const index =
-    Math.floor(
-      Math.random() *
-        items.length
-    );
-
-  return items[index] ||
-    null;
-}
-
 function uniqueIds(values) {
   return [
     ...new Set(
@@ -388,512 +352,472 @@ export function isServiceVisuallyEligible(
 }
 
 /* =========================================================
-   PRODUSUL ZILEI – CANDIDAȚI
+   ROTAȚIE ECHILIBRATĂ (audit 2026-10-26)
+
+   Înainte: random per PRODUS din cele mai noi 100 de produse,
+   produsele promovate vreodată excluse permanent, fără pauză pe
+   vendor -> un vendor cu multe produse noi domina, iar fallback-ul
+   (care excludea Artizanul săptămânii) lăsa adesea un singur vendor.
+
+   Acum, pe istoricul REAL (inclusiv programările viitoare deja
+   generate, în ambele direcții față de data țintă):
+   - Produsul zilei: întâi VENDORUL, apoi produsul lui;
+   - Artizanul săptămânii: magazinul;
+   - prioritate celor nepromovați, apoi celui folosit cel mai demult;
+     random DOAR la egalitate;
+   - cooldown adaptiv: vendor min(14, vendori eligibili - 1) zile,
+     produs PRODUCT_REPEAT_DAYS (60) zile, artizan
+     min(26, artizani eligibili - 1) săptămâni;
+   - fallback gradual (etapele de mai jos), nu toate regulile deodată.
+
+   Distanțele se calculează pe ZILE CALENDARISTICE din România
+   (dateKey "YYYY-MM-DD"), nu pe milisecunde - corecte și la
+   trecerea la ora de vară/iarnă.
 ========================================================= */
 
-async function getRecentProductIds(
-  targetDate
-) {
-  const repeatCutoff =
-    new Date(
-      targetDate.getTime() -
-        PRODUCT_REPEAT_DAYS *
-          24 *
-          60 *
-          60 *
-          1000
-    );
+export const VENDOR_COOLDOWN_MAX_DAYS = 14;
+export const ARTISAN_COOLDOWN_MAX_WEEKS = 26;
 
-  const recentFeatures =
-    await prisma.homepageFeature.findMany({
-      where: {
-        type:
-          "PRODUCT_OF_DAY",
-
-        startsAt: {
-          gte:
-            repeatCutoff,
-
-          lt:
-            targetDate,
-        },
-
-        productId: {
-          not:
-            null,
-        },
-      },
-
-      select: {
-        productId:
-          true,
-      },
-    });
-
-  return uniqueIds(
-    recentFeatures.map(
-      (feature) =>
-        feature.productId
+export function computeVendorCooldownDays(eligibleVendorCount) {
+  return Math.max(
+    0,
+    Math.min(
+      VENDOR_COOLDOWN_MAX_DAYS,
+      Number(eligibleVendorCount || 0) - 1
     )
   );
 }
 
-async function getScheduledProductIds() {
-  const scheduled =
-    await prisma.homepageFeature.findMany({
-      where: {
-        type:
-          "PRODUCT_OF_DAY",
-
-        productId: {
-          not:
-            null,
-        },
-      },
-
-      select: {
-        productId:
-          true,
-      },
-    });
-
-  return uniqueIds(
-    scheduled.map(
-      (feature) =>
-        feature.productId
+export function computeArtisanCooldownWeeks(eligibleArtisanCount) {
+  return Math.max(
+    0,
+    Math.min(
+      ARTISAN_COOLDOWN_MAX_WEEKS,
+      Number(eligibleArtisanCount || 0) - 1
     )
   );
 }
 
-async function getArtisanServiceIdForDate(
-  targetDate
-) {
-  const weekKey =
-    getWeekKey(targetDate);
+// indexul zilei calendaristice din România (independent de DST)
+function dayIndexOf(value) {
+  const key = getZonedDayKey(value);
+  if (!key) return null;
 
-  if (!weekKey) {
-    return null;
+  const [year, month, day] = key.split("-").map(Number);
+  return Math.round(Date.UTC(year, month - 1, day) / 86400000);
+}
+
+/*
+ * Distanța (în zile) până la cea mai apropiată promovare a fiecărei
+ * chei (vendor / produs / magazin), față de ziua țintă. Ziua țintă
+ * însăși nu intră (ar fi chiar selecția pe care o facem).
+ */
+function buildDistanceMap(history, keyOf, targetDayIndex) {
+  const map = new Map();
+
+  for (const item of history) {
+    const key = keyOf(item);
+    const index = dayIndexOf(item.startsAt);
+
+    if (!key || index === null || index === targetDayIndex) continue;
+
+    const distance = Math.abs(index - targetDayIndex);
+    if (!map.has(key) || distance < map.get(key)) map.set(key, distance);
   }
 
-  const feature =
-    await prisma.homepageFeature.findUnique({
-      where: {
-        type_dateKey: {
-          type:
-            "ARTISAN_OF_WEEK",
-
-          dateKey:
-            weekKey,
-        },
-      },
-
-      select: {
-        serviceId:
-          true,
-      },
-    });
-
-  return (
-    feature?.serviceId ||
-    null
-  );
+  return map;
 }
 
-async function findProductCandidates({
-  excludedProductIds,
-  excludedServiceId,
-  allowRecentProducts,
-  allowArtisanService,
+/*
+ * Cel mai bun element: nepromovat (distanță infinită) > cel folosit
+ * cel mai demult (distanță mai mare); random doar la egalitate.
+ */
+function pickLeastRecent(items, distanceOf, random) {
+  if (!items.length) return null;
+
+  let best = [];
+  let bestDistance = -1;
+
+  for (const item of items) {
+    const distance = distanceOf(item);
+
+    if (distance > bestDistance) {
+      best = [item];
+      bestDistance = distance;
+    } else if (distance === bestDistance) {
+      best.push(item);
+    }
+  }
+
+  return best[Math.min(best.length - 1, Math.floor(random() * best.length))];
+}
+
+/*
+ * Etapele de relaxare pentru Produsul zilei, în ordine. Evitarea
+ * vendorului Artizanului săptămânii e cea mai slabă preferință - prima
+ * renunțată (altfel, cu puțini vendori, ar bloca alternanța o săptămână
+ * întreagă). În ORICE etapă alegerea rămâne „cel mai puțin recent”,
+ * deci și după relaxare vendorii se rotesc.
+ */
+const PRODUCT_SELECTION_STAGES = Object.freeze([
+  { stage: "normal", vendorCooldown: true, productCooldown: true, avoidArtisan: true },
+  { stage: "allow_artisan_vendor", vendorCooldown: true, productCooldown: true, avoidArtisan: false },
+  { stage: "relax_vendor_cooldown", vendorCooldown: false, productCooldown: true, avoidArtisan: false },
+  // ultima instanță: orice produs eligibil (tot cel mai puțin recent)
+  { stage: "relax_product_cooldown", vendorCooldown: false, productCooldown: false, avoidArtisan: false },
+]);
+
+/**
+ * Selecția PURĂ pentru Produsul zilei (testabilă fără DB).
+ *  products: produse eligibile [{ id, vendorId, ... }]
+ *  history:  promovări PRODUCT_OF_DAY existente [{ productId, vendorId, startsAt }]
+ *            (trecute ȘI viitoare; ziua țintă e ignorată)
+ * Returnează { product, stage, vendorCooldownDays } sau null.
+ */
+export function selectProductOfDay({
+  products = [],
+  history = [],
+  targetDate,
+  artisanVendorId = null,
+  productCooldownDays = PRODUCT_REPEAT_DAYS,
+  random = Math.random,
 }) {
-  const excludedIds =
-    uniqueIds(
-      excludedProductIds
+  const valid = products.filter((product) => product?.id && product?.vendorId);
+  if (!valid.length) return null;
+
+  const targetDayIndex = dayIndexOf(targetDate);
+  const vendorDistance = buildDistanceMap(history, (item) => item.vendorId, targetDayIndex);
+  const productDistance = buildDistanceMap(history, (item) => item.productId, targetDayIndex);
+
+  const vendorIds = uniqueIds(valid.map((product) => product.vendorId));
+  const vendorCooldownDays = computeVendorCooldownDays(vendorIds.length);
+  const distanceOr = (map, key) => (map.has(key) ? map.get(key) : Infinity);
+
+  for (const rules of PRODUCT_SELECTION_STAGES) {
+    const pool = valid.filter((product) => {
+      if (rules.productCooldown && distanceOr(productDistance, product.id) <= productCooldownDays) {
+        return false;
+      }
+
+      if (rules.vendorCooldown && distanceOr(vendorDistance, product.vendorId) <= vendorCooldownDays) {
+        return false;
+      }
+
+      return !(rules.avoidArtisan && artisanVendorId && product.vendorId === artisanVendorId);
+    });
+
+    if (!pool.length) continue;
+
+    const vendorId = pickLeastRecent(
+      uniqueIds(pool.map((product) => product.vendorId)),
+      (id) => distanceOr(vendorDistance, id),
+      random
     );
 
-  return prisma.product.findMany({
-    where: {
-      ...eligibleProductWhere,
+    const product = pickLeastRecent(
+      pool.filter((item) => item.vendorId === vendorId),
+      (item) => distanceOr(productDistance, item.id),
+      random
+    );
 
-      ...(
-        !allowRecentProducts &&
-        excludedIds.length
-          ? {
-              id: {
-                notIn:
-                  excludedIds,
-              },
-            }
-          : {}
-      ),
+    return { product, stage: rules.stage, vendorCooldownDays };
+  }
 
-      ...(
-        !allowArtisanService &&
-        excludedServiceId
-          ? {
-              serviceId: {
-                not:
-                  excludedServiceId,
-              },
-            }
-          : {}
-      ),
-    },
+  return null;
+}
 
+/**
+ * Selecția PURĂ pentru Artizanul săptămânii (pe magazin).
+ *  services: magazine eligibile [{ id, vendorId, ... }]
+ *  history:  promovări ARTISAN_OF_WEEK existente [{ serviceId, startsAt }]
+ */
+export function selectArtisanOfWeek({
+  services = [],
+  history = [],
+  targetDate,
+  random = Math.random,
+}) {
+  const valid = services.filter((service) => service?.id);
+  if (!valid.length) return null;
+
+  const targetDayIndex = dayIndexOf(targetDate);
+  const dayDistance = buildDistanceMap(history, (item) => item.serviceId, targetDayIndex);
+  // săptămâni întregi (startsAt-urile sunt mereu luni 00:00 ora României)
+  const weekDistance = (id) => (dayDistance.has(id) ? Math.round(dayDistance.get(id) / 7) : Infinity);
+  const cooldownWeeks = computeArtisanCooldownWeeks(valid.length);
+
+  const rested = valid.filter((service) => weekDistance(service.id) > cooldownWeeks);
+  const pool = rested.length ? rested : valid;
+
+  return {
+    service: pickLeastRecent(pool, (service) => weekDistance(service.id), random),
+    stage: rested.length ? "normal" : "relax_artisan_cooldown",
+    cooldownWeeks,
+  };
+}
+
+/*
+ * Random determinist pentru o zi (fallback la afișare): același
+ * rezultat la fiecare request din aceeași zi.
+ */
+export function seededRandom(seedText) {
+  let seed = 2166136261;
+
+  for (const char of String(seedText || "")) {
+    seed = Math.imul(seed ^ char.charCodeAt(0), 16777619);
+  }
+
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* =========================================================
+   PRODUSUL ZILEI – DATE DIN DB
+========================================================= */
+
+async function getArtisanVendorIdForDate(targetDate) {
+  const weekKey = getWeekKey(targetDate);
+  if (!weekKey) return null;
+
+  const feature = await prisma.homepageFeature.findUnique({
+    where: { type_dateKey: { type: "ARTISAN_OF_WEEK", dateKey: weekKey } },
+    select: { vendorId: true, service: { select: { vendorId: true } } },
+  });
+
+  return feature?.vendorId || feature?.service?.vendorId || null;
+}
+
+async function chooseProductForDate(targetDate, { random = Math.random } = {}) {
+  const [products, history, artisanVendorId] = await Promise.all([
+    prisma.product.findMany({
+      where: eligibleProductWhere,
+      select: {
+        id: true,
+        serviceId: true,
+        service: { select: { vendorId: true } },
+      },
+    }),
+    prisma.homepageFeature.findMany({
+      where: { type: "PRODUCT_OF_DAY" },
+      select: { productId: true, vendorId: true, startsAt: true },
+    }),
+    getArtisanVendorIdForDate(targetDate),
+  ]);
+
+  const result = selectProductOfDay({
+    products: products.map((product) => ({
+      id: product.id,
+      serviceId: product.serviceId,
+      vendorId: product.service?.vendorId || null,
+    })),
+    history,
+    targetDate,
+    artisanVendorId,
+    random,
+  });
+
+  if (!result) return null;
+
+  if (result.stage !== "normal") {
+    console.info("[homepage-feature-scheduler] product fallback", {
+      targetDate,
+      stage: result.stage,
+    });
+  }
+
+  return prisma.product.findUnique({
+    where: { id: result.product.id },
     include: {
       service: {
         include: {
-          profile:
-            true,
-
-          vendor:
-            true,
+          profile: true,
+          vendor: true,
         },
       },
-    },
-
-    take:
-      FEATURE_CANDIDATE_LIMIT,
-
-    orderBy: {
-      createdAt:
-        "desc",
     },
   });
 }
 
-async function chooseProductForDate(
-  targetDate
-) {
-  const recentProductIds =
-    await getRecentProductIds(
-      targetDate
-    );
+/* =========================================================
+   ARTIZANUL SĂPTĂMÂNII – DATE DIN DB
+========================================================= */
 
-  const scheduledProductIds =
-    await getScheduledProductIds();
+async function findEligibleArtisanServices() {
+  const services = await prisma.vendorService.findMany({
+    where: {
+      isActive: true,
+      status: "ACTIVE",
+      vendor: { isActive: true },
+      products: { some: eligibleProductWhere },
+    },
+    select: {
+      id: true,
+      vendorId: true,
+      mediaUrls: true,
+      profile: { select: { coverUrl: true, logoUrl: true } },
+      vendor: { select: { coverUrl: true, logoUrl: true } },
+      _count: {
+        select: {
+          products: { where: eligibleProductWhere },
+        },
+      },
+    },
+  });
 
-  const excludedProductIds =
-    uniqueIds([
-      ...recentProductIds,
-      ...scheduledProductIds,
-    ]);
+  return services.filter(isServiceVisuallyEligible);
+}
 
-  const artisanServiceId =
-    await getArtisanServiceIdForDate(
-      targetDate
-    );
+async function chooseArtisanForDate(targetDate, { random = Math.random } = {}) {
+  const [services, history] = await Promise.all([
+    findEligibleArtisanServices(),
+    prisma.homepageFeature.findMany({
+      where: { type: "ARTISAN_OF_WEEK" },
+      select: { serviceId: true, startsAt: true },
+    }),
+  ]);
 
-  /*
-   * Încercarea 1:
-   * - fără produse recente/programate;
-   * - fără produse de la Artizanul săptămânii.
-   */
-  let candidates =
-    await findProductCandidates({
-      excludedProductIds,
-      excludedServiceId:
-        artisanServiceId,
-      allowRecentProducts:
-        false,
-      allowArtisanService:
-        false,
-    });
-
-  /*
-   * Încercarea 2:
-   * - fără produse recente/programate;
-   * - permitem magazinul Artizanului săptămânii.
-   */
-  if (!candidates.length) {
-    candidates =
-      await findProductCandidates({
-        excludedProductIds,
-        excludedServiceId:
-          artisanServiceId,
-        allowRecentProducts:
-          false,
-        allowArtisanService:
-          true,
-      });
-  }
-
-  /*
-   * Încercarea 3:
-   * - permitem repetarea;
-   * - evităm Artizanul săptămânii.
-   */
-  if (!candidates.length) {
-    candidates =
-      await findProductCandidates({
-        excludedProductIds:
-          [],
-        excludedServiceId:
-          artisanServiceId,
-        allowRecentProducts:
-          true,
-        allowArtisanService:
-          false,
-      });
-  }
-
-  /*
-   * Ultimul fallback:
-   * orice produs eligibil.
-   */
-  if (!candidates.length) {
-    candidates =
-      await findProductCandidates({
-        excludedProductIds:
-          [],
-        excludedServiceId:
-          null,
-        allowRecentProducts:
-          true,
-        allowArtisanService:
-          true,
-      });
-  }
-
-  return pickRandom(
-    candidates
-  );
+  const result = selectArtisanOfWeek({ services, history, targetDate, random });
+  return result?.service || null;
 }
 
 /* =========================================================
-   ARTIZANUL SĂPTĂMÂNII – CANDIDAȚI
+   AFIȘARE PE HOMEPAGE - eligibilitate la momentul afișării
+
+   O selecție programată poate deveni neeligibilă (produs dezactivat,
+   ascuns, respins; magazin/vendor inactiv). Atunci NU o afișăm și
+   alegem, DOAR pentru afișare, un înlocuitor eligibil pentru ziua /
+   săptămâna respectivă (determinist pe zi). Rândul din calendar și
+   istoricul rămân neatinse.
 ========================================================= */
 
-async function getRecentServiceIds(
-  targetDate
-) {
-  const repeatCutoff =
-    new Date(
-      targetDate.getTime() -
-        ARTISAN_REPEAT_WEEKS *
-          7 *
-          24 *
-          60 *
-          60 *
-          1000
-    );
+const ELIGIBLE_AVAILABILITY = ["READY", "MADE_TO_ORDER", "PREORDER"];
 
-  const recentFeatures =
-    await prisma.homepageFeature.findMany({
-      where: {
-        type:
-          "ARTISAN_OF_WEEK",
-
-        startsAt: {
-          gte:
-            repeatCutoff,
-
-          lt:
-            targetDate,
-        },
-
-        serviceId: {
-          not:
-            null,
-        },
-      },
-
-      select: {
-        serviceId:
-          true,
-      },
-    });
-
-  return uniqueIds(
-    recentFeatures.map(
-      (feature) =>
-        feature.serviceId
-    )
+function isServiceLiveForDisplay(service) {
+  return Boolean(
+    service &&
+      service.isActive === true &&
+      service.status === "ACTIVE" &&
+      service.vendor?.isActive === true
   );
 }
 
-async function getScheduledServiceIds() {
-  const scheduled =
-    await prisma.homepageFeature.findMany({
-      where: {
-        type:
-          "ARTISAN_OF_WEEK",
+export function isProductFeatureDisplayable(feature) {
+  const product = feature?.product;
 
-        serviceId: {
-          not:
-            null,
-        },
-      },
-
-      select: {
-        serviceId:
-          true,
-      },
-    });
-
-  return uniqueIds(
-    scheduled.map(
-      (feature) =>
-        feature.serviceId
-    )
+  return Boolean(
+    product &&
+      product.isActive === true &&
+      product.isHidden !== true &&
+      product.moderationStatus === "APPROVED" &&
+      ELIGIBLE_AVAILABILITY.includes(product.availability) &&
+      Array.isArray(product.images) &&
+      product.images.length > 0 &&
+      isServiceLiveForDisplay(product.service)
   );
 }
 
-async function findArtisanCandidates({
-  excludedServiceIds,
-}) {
-  const excludedIds =
-    uniqueIds(
-      excludedServiceIds
-    );
+export function isArtisanFeatureDisplayable(feature) {
+  const service = feature?.service;
 
-  const services =
-    await prisma.vendorService.findMany({
-      where: {
-        ...(
-          excludedIds.length
-            ? {
-                id: {
-                  notIn:
-                    excludedIds,
-                },
-              }
-            : {}
-        ),
-
-        isActive:
-          true,
-
-        status:
-          "ACTIVE",
-
-        vendor: {
-          isActive:
-            true,
-        },
-
-        products: {
-          some:
-            eligibleProductWhere,
-        },
-      },
-
-      select: {
-        id:
-          true,
-
-        vendorId:
-          true,
-
-        title:
-          true,
-
-        description:
-          true,
-
-        city:
-          true,
-
-        mediaUrls:
-          true,
-
-        profile:
-          true,
-
-        vendor: {
-          select: {
-            id:
-              true,
-
-            displayName:
-              true,
-
-            about:
-              true,
-
-            logoUrl:
-              true,
-
-            coverUrl:
-              true,
-
-            city:
-              true,
-
-            email:
-              true,
-
-            userId:
-              true,
-          },
-        },
-
-        _count: {
-          select: {
-            products: {
-              where:
-                eligibleProductWhere,
-            },
-          },
-        },
-      },
-
-      take:
-        FEATURE_CANDIDATE_LIMIT,
-
-      orderBy: {
-        createdAt:
-          "desc",
-      },
-    });
-
-  return services.filter(
-    isServiceVisuallyEligible
+  // artisanFeatureInclude încarcă DOAR produsele eligibile ale magazinului
+  return Boolean(
+    isServiceLiveForDisplay(service) &&
+      Array.isArray(service.products) &&
+      service.products.length > 0
   );
 }
 
-async function chooseArtisanForDate(
-  targetDate
-) {
-  const recentServiceIds =
-    await getRecentServiceIds(
-      targetDate
-    );
+/*
+ * Rândul de afișat pentru Produsul zilei: selecția zilei dacă e încă
+ * eligibilă, altfel un înlocuitor (fără reducere, nesalvat).
+ * Returnează { feature, replaced, originalFeatureId }.
+ */
+export async function resolveDisplayProductFeature(now = new Date()) {
+  let { feature } = await generateProductFeatureForDate(now);
 
-  const scheduledServiceIds =
-    await getScheduledServiceIds();
-
-  const excludedServiceIds =
-    uniqueIds([
-      ...recentServiceIds,
-      ...scheduledServiceIds,
-    ]);
-
-  /*
-   * Încercarea principală:
-   * evităm magazinele promovate recent
-   * și magazinele deja programate.
-   */
-  let candidates =
-    await findArtisanCandidates({
-      excludedServiceIds,
-    });
-
-  /*
-   * Fallback:
-   * permitem reutilizarea unui magazin
-   * dacă nu mai există alt candidat.
-   */
-  if (!candidates.length) {
-    candidates =
-      await findArtisanCandidates({
-        excludedServiceIds:
-          [],
-      });
+  if (isProductFeatureDisplayable(feature)) {
+    return { feature, replaced: false, originalFeatureId: feature.id };
   }
 
-  return pickRandom(
-    candidates
-  );
+  const { startsAt, endsAt } = getDayRange(now);
+  const product = await chooseProductForDate(startsAt, {
+    random: seededRandom(`PRODUCT_OF_DAY:${getDayKey(startsAt)}`),
+  });
+
+  if (!product) {
+    return { feature: null, replaced: Boolean(feature), originalFeatureId: feature?.id || null };
+  }
+
+  return {
+    feature: {
+      id: null,
+      type: "PRODUCT_OF_DAY",
+      source: "FALLBACK",
+      startsAt,
+      endsAt,
+      productId: product.id,
+      serviceId: product.serviceId,
+      vendorId: product.service?.vendorId || null,
+      platformDiscountPercent: 0,
+      vendorDiscountPercent: 0,
+      vendorDiscountStatus: "DECLINED",
+      product,
+      service: product.service,
+      vendor: product.service?.vendor || null,
+    },
+    replaced: true,
+    originalFeatureId: feature?.id || null,
+  };
+}
+
+export async function resolveDisplayArtisanFeature(now = new Date()) {
+  const { feature } = await generateArtisanFeatureForDate(now);
+
+  if (isArtisanFeatureDisplayable(feature)) {
+    return { feature, replaced: false, originalFeatureId: feature.id };
+  }
+
+  const { startsAt, endsAt } = getWeekRange(now);
+  const service = await chooseArtisanForDate(startsAt, {
+    random: seededRandom(`ARTISAN_OF_WEEK:${getWeekKey(startsAt)}`),
+  });
+
+  if (!service) {
+    return { feature: null, replaced: Boolean(feature), originalFeatureId: feature?.id || null };
+  }
+
+  const full = await prisma.vendorService.findUnique({
+    where: { id: service.id },
+    include: artisanFeatureInclude.service.include,
+  });
+
+  if (!full) {
+    return { feature: null, replaced: Boolean(feature), originalFeatureId: feature?.id || null };
+  }
+
+  return {
+    feature: {
+      id: null,
+      type: "ARTISAN_OF_WEEK",
+      source: "FALLBACK",
+      startsAt,
+      endsAt,
+      productId: null,
+      serviceId: full.id,
+      vendorId: full.vendorId,
+      platformDiscountPercent: 0,
+      vendorDiscountPercent: 0,
+      vendorDiscountStatus: "DECLINED",
+      service: full,
+      vendor: full.vendor || null,
+    },
+    replaced: true,
+    originalFeatureId: feature?.id || null,
+  };
 }
 
 /* =========================================================

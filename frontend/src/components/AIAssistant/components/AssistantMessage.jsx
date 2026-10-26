@@ -3575,6 +3575,12 @@ export default function AssistantMessage({
               ? styles["message-bubble"]
               : undefined
           }
+          // liste pe rânduri (ex. costurile din bibliotecă) - opțional, per mesaj
+          style={
+            message?.preserveLineBreaks
+              ? { whiteSpace: "pre-line" }
+              : undefined
+          }
         >
           {
             message

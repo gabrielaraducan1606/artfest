@@ -13,6 +13,7 @@ import MessageBubble from "./MessageBubble";
 import QuoteRequestPanel from "../../quotes/components/QuoteRequestPanel.jsx";
 import QuoteOfferFormFields from "../../quotes/components/QuoteOfferFormFields.jsx";
 import { useVendorQuoteOfferSubmit } from "../../quotes/hooks/useVendorQuoteOfferSubmit.js";
+import { isConversationQuoteRequest, resolveCanSendQuoteOffer } from "../../quotes/conversationOffer.js";
 import styles from "./MiniMessages.module.css";
 
 // scrollTop per thread, la nivel de modul (nu React state) - supraviețuiește
@@ -48,22 +49,15 @@ export default function MiniThread({ threadId, isVendor, onBack, onOpenFull }) {
   const [offerOpen, setOfferOpen] = useState(false);
 
   /*
-   * Regulă de eligibilitate IDENTICĂ cu canSendQuoteOffer din
-   * Messages.jsx (Vendor) - nicio regulă de business nouă, doar
-   * copiată 1:1, ca butonul "Trimite ofertă" să apară exact în
-   * aceleași condiții ca pe pagina completă.
+   * Aceeași regulă ca pagina completă (Messages.jsx): butonul apare
+   * în orice conversație client eligibilă (threadMeta.canSendOffer).
    */
   const latestOffer = Array.isArray(quoteRequest?.offers)
     ? quoteRequest.offers[0] || null
     : null;
 
-  const canSendOffer =
-    isVendor &&
-    Boolean(quoteRequest?.id) &&
-    !quoteRequest?.orderId &&
-    !["ACCEPTED", "CANCELLED", "EXPIRED"].includes(
-      String(quoteRequest?.status || "").trim().toUpperCase()
-    );
+  const canSendOffer = isVendor && resolveCanSendQuoteOffer({ threadMeta, quoteRequest });
+  const conversationOffer = isConversationQuoteRequest(quoteRequest);
 
   const {
     form: offerForm,
@@ -75,7 +69,21 @@ export default function MiniThread({ threadId, isVendor, onBack, onOpenFull }) {
   } = useVendorQuoteOfferSubmit({
     quoteId: quoteRequest?.id,
     quantity: quoteRequest?.quantity,
+    threadId,
+    conversationMode: conversationOffer,
   });
+
+  function openOffer() {
+    setOfferError("");
+    if (conversationOffer && quoteRequest?.id) {
+      setOfferForm((current) => ({
+        ...current,
+        title: current.title || quoteRequest?.requestData?.title || "",
+        quantity: current.quantity !== "1" ? current.quantity : String(quoteRequest?.quantity || 1),
+      }));
+    }
+    setOfferOpen(true);
+  }
 
   async function handleSubmitOffer(event) {
     const ok = await submitOffer(event);
@@ -161,21 +169,19 @@ export default function MiniThread({ threadId, isVendor, onBack, onOpenFull }) {
       </div>
 
       <div className={styles.threadBody} ref={listRef}>
-        {quoteRequest && (
+        {(quoteRequest || (canSendOffer && !offerOpen && !loading)) && (
           <QuoteRequestPanel
             quoteRequest={quoteRequest}
             latestOffer={latestOffer}
             canSendOffer={canSendOffer && !offerOpen}
-            onOpenOffer={() => {
-              setOfferError("");
-              setOfferOpen(true);
-            }}
+            onOpenOffer={openOffer}
           />
         )}
 
-        {quoteRequest && offerOpen && (
+        {offerOpen && (quoteRequest || canSendOffer) && (
           <QuoteOfferFormFields
             quoteRequest={quoteRequest}
+            conversationMode={conversationOffer}
             form={offerForm}
             setForm={setOfferForm}
             sending={offerSending}

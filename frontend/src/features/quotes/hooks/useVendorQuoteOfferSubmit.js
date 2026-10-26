@@ -1,39 +1,61 @@
 // frontend/src/features/quotes/hooks/useVendorQuoteOfferSubmit.js
 
 /*
- * Logica de câmpuri/validare/submit pentru "Trimite ofertă" (vendor),
- * extrasă din handleSendQuoteOffer (Messages.jsx) - SINGURA logică de
- * submit pentru suprafețele NOI care reutilizează formularul
- * (Asistent, mini-fereastra de mesaje). Messages.jsx își păstrează
- * propriul handler, neatins (nu era permisă modificarea lui) - dar
- * validarea/payload-ul de mai jos sunt identice cu ale lui.
+ * Logica de câmpuri/validare/submit pentru "Trimite ofertă" (vendor) -
+ * SINGURA logică de submit, folosită de pagina Mesaje, mini-fereastra
+ * de mesaje și Asistent.
  *
  * Reutilizează EXACT createVendorQuoteOffer (quoteApi.js) - același
  * endpoint, același payload, nicio validare paralelă.
+ *
+ * conversationMode: ofertă pornită direct din conversație (fără „Cere
+ * ofertă”) - vendorul alege și descrierea + cantitatea, iar oferta se
+ * trimite pe thread (clientul e luat server-side din conversație).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createVendorQuoteOffer } from "../../../components/AIAssistant/quotes/quoteApi.js";
 
-export function useVendorQuoteOfferSubmit({ quoteId, quantity }) {
-  const [form, setForm] = useState({
+export const CONVERSATION_OFFER_TITLE_MIN = 3;
+
+function emptyOfferForm() {
+  return {
     unitPrice: "",
     shippingPrice: "0",
     productionDays: "",
     notes: "",
-  });
+    // doar pentru oferta din conversație
+    title: "",
+    quantity: "1",
+  };
+}
+
+export function useVendorQuoteOfferSubmit({
+  quoteId,
+  quantity,
+  threadId = null,
+  conversationMode = false,
+}) {
+  const [form, setForm] = useState(emptyOfferForm);
 
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
+  // altă conversație / cerere -> formular gol
+  useEffect(() => {
+    setForm(emptyOfferForm());
+    setError("");
+  }, [threadId, quoteId]);
+
   async function submit(event) {
     event?.preventDefault?.();
 
-    if (!quoteId || sending) {
+    if (sending || (conversationMode ? !threadId : !quoteId)) {
       return false;
     }
 
-    const qty = Number(quantity);
+    const qty = Number(conversationMode ? form.quantity : quantity);
+    const title = String(form.title || "").replace(/\s+/g, " ").trim();
 
     const unitPrice = Number(
       String(form.unitPrice || "")
@@ -52,8 +74,17 @@ export function useVendorQuoteOfferSubmit({ quoteId, quantity }) {
       10
     );
 
-    if (!Number.isFinite(qty) || qty <= 0) {
-      setError("Cantitatea cererii nu este validă.");
+    if (conversationMode && title.length < CONVERSATION_OFFER_TITLE_MIN) {
+      setError(`Descrie pe scurt produsul oferit (minimum ${CONVERSATION_OFFER_TITLE_MIN} caractere).`);
+      return false;
+    }
+
+    if (!Number.isInteger(qty) || qty <= 0) {
+      setError(
+        conversationMode
+          ? "Introdu o cantitate validă (număr întreg, minimum 1)."
+          : "Cantitatea cererii nu este validă."
+      );
       return false;
     }
 
@@ -76,14 +107,20 @@ export function useVendorQuoteOfferSubmit({ quoteId, quantity }) {
     setError("");
 
     try {
-      await createVendorQuoteOffer(quoteId, {
-        quantity: qty,
-        unitPrice,
-        shippingPrice,
-        currency: "RON",
-        productionDays,
-        notes: String(form.notes || "").trim() || null,
-      });
+      await createVendorQuoteOffer(
+        quoteId,
+        {
+          quantity: qty,
+          unitPrice,
+          shippingPrice,
+          currency: "RON",
+          productionDays,
+          notes: String(form.notes || "").trim() || null,
+        },
+        conversationMode ? { threadId, title } : undefined
+      );
+
+      setForm(emptyOfferForm());
 
       return true;
     } catch (err) {

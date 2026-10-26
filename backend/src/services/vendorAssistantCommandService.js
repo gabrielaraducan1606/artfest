@@ -15,7 +15,7 @@
 
 import { prisma } from "../db.js";
 import { getActivePlanForVendor } from "../payments/marketplaceCalc.js";
-import { findBestMatch, findMatchingItems } from "../lib/textMatch.js";
+import { findBestMatch } from "../lib/textMatch.js";
 import { scoreTextMatch } from "../lib/textRelevance.js";
 
 /*
@@ -45,6 +45,7 @@ import {
   buildUpdateCostItemPendingActionFromMatch,
   computeUnitCostCentsFromExtraction,
   formatCostItem,
+  findCostItemMatches,
 } from "./costProfitService.js";
 
 /*
@@ -644,10 +645,10 @@ export async function handleUpdateCostItem(
     }
   );
 
-  const matches = findMatchingItems(
+  // VendorCostItem are `label` (coloana fostă `name`)
+  const matches = findCostItemMatches(
     costItemName,
-    costItems,
-    { nameField: "name" }
+    costItems
   );
 
   if (!matches.length) {
@@ -811,11 +812,11 @@ export async function handleRecalculateBatch(
         where: { vendorId, isActive: true },
       });
 
-    const match = findBestMatch(
-      costItemNameForRecalc,
-      costItems,
-      { nameField: "name" }
-    );
+    const match =
+      findCostItemMatches(
+        costItemNameForRecalc,
+        costItems
+      )[0]?.item || null;
 
     if (!match) {
       return {
@@ -829,7 +830,7 @@ export async function handleRecalculateBatch(
       vendorId
     );
 
-    targetDescription = `care folosesc „${match.name}”`;
+    targetDescription = `care folosesc „${match.label}”`;
   } else {
     const result = await getProductProfitability({
       vendorId,

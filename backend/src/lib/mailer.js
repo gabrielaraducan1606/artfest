@@ -3848,6 +3848,115 @@ export async function sendVendorCustomerRequestMatchEmail({
   });
 }
 
+/*
+ * „Modificări solicitate” la un produs - UN email per solicitare (trimis
+ * doar din adminRequestProductChanges). Fără ton alarmant: produsul,
+ * motivele, observația Artfest și linkul spre pagina dedicată.
+ */
+export async function sendVendorProductChangesRequestedEmail({
+  to,
+  vendorName,
+  productId,
+  productTitle,
+  reasons = [],
+  note = "",
+}) {
+  if (!to || !productId) {
+    return;
+  }
+
+  const link = APP_URL
+    ? `${APP_URL}/vendor/products/${encodeURIComponent(productId)}/modificari`
+    : null;
+
+  const subject = "Produsul tău necesită câteva modificări";
+  const title = productTitle || "Produsul tău";
+  const cleanNote = String(note || "").trim();
+
+  const reasonsHtml = reasons.length
+    ? `<ul style="margin:0 0 16px;padding-left:20px;color:#111827;line-height:1.7;">${reasons
+        .map((label) => `<li>${escapeEmailHtml(label)}</li>`)
+        .join("")}</ul>`
+    : "";
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px;">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:22px;">
+    <h2 style="color:#111827;margin:0 0 12px;font-size:22px;">Câteva modificări pentru produsul tău</h2>
+
+    <p style="color:#374151;margin:0 0 16px;line-height:1.6;">
+      Bună, ${escapeEmailHtml(vendorName || "Vânzător")}! Am verificat produsul
+      <strong>„${escapeEmailHtml(title)}”</strong> și îți propunem câteva completări.
+    </p>
+
+    ${reasons.length ? `<p style="color:#374151;margin:0 0 6px;font-weight:600;">Ce trebuie să modifici</p>${reasonsHtml}` : ""}
+
+    ${
+      cleanNote
+        ? `
+    <div style="background:#f8f6f4;border-radius:12px;padding:14px 16px;margin:0 0 18px;">
+      <p style="margin:0 0 6px;color:#374151;font-weight:600;">Observația ${BRAND_NAME}</p>
+      <p style="margin:0;color:#4b5563;line-height:1.6;white-space:pre-wrap;">${escapeEmailHtml(cleanNote)}</p>
+    </div>`
+        : ""
+    }
+
+    <p style="color:#374151;margin:0 0 18px;line-height:1.6;">
+      După ce faci modificările, apasă „Am făcut modificările”, iar noi verificăm din nou produsul.
+    </p>
+
+    ${
+      link
+        ? `
+    <p style="text-align:center;margin:24px 0 8px;">
+      <a href="${link}" style="display:inline-block;background:#111827;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">
+        Vezi modificările
+      </a>
+    </p>`
+        : ""
+    }
+  </div>
+
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:20px 0 0;">
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>
+`.trim();
+
+  const text = [
+    "Câteva modificări pentru produsul tău",
+    "",
+    `Bună, ${vendorName || "Vânzător"}! Am verificat produsul „${title}” și îți propunem câteva completări.`,
+    "",
+    ...(reasons.length ? ["Ce trebuie să modifici:", ...reasons.map((label) => `- ${label}`), ""] : []),
+    ...(cleanNote ? [`Observația ${BRAND_NAME}:`, cleanNote, ""] : []),
+    "După ce faci modificările, apasă „Am făcut modificările”, iar noi verificăm din nou produsul.",
+    link ? `Vezi modificările: ${link}` : "",
+  ]
+    .filter((line, index, all) => line || all[index - 1])
+    .join("\n");
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "vendor_product_changes_requested",
+    toName: vendorName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
 export async function sendVendorCommissionInvoiceEmail({
   to,
   vendorName,

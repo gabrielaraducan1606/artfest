@@ -30,10 +30,14 @@ import {
   X,
   Download,
 } from "lucide-react";
-import {
-  createVendorQuoteOffer,
-} from "../../../components/AIAssistant/quotes/quoteApi.js";
 import QuoteOfferFormFields from "../../../features/quotes/components/QuoteOfferFormFields.jsx";
+import SharedQuoteRequestPanel from "../../../features/quotes/components/QuoteRequestPanel.jsx";
+import { useVendorQuoteOfferSubmit } from "../../../features/quotes/hooks/useVendorQuoteOfferSubmit.js";
+import {
+  isConversationQuoteRequest,
+  quoteRequestTitle,
+  resolveCanSendQuoteOffer,
+} from "../../../features/quotes/conversationOffer.js";
 import styles from "./Messages.module.css";
 import { useMessageThreads } from "../../../features/messages/hooks/useMessageThreads";
 import { useThreadMessages } from "../../../features/messages/hooks/useThreadMessages";
@@ -252,6 +256,7 @@ const {
   reload: reloadMsgs,
   loadOlder,
   quoteRequest,
+  threadMeta,
 } = useThreadMessages(currentThreadId, {
   buildEndpoint: buildMessagesEndpoint,
   includeQuoteRequest: conversationMode === "customer",
@@ -266,27 +271,18 @@ const latestQuoteOffer =
       null
     : null;
 
-const quoteStatus =
-  String(
-    quoteRequest?.status ||
-      ""
-  )
-    .trim()
-    .toUpperCase();
-
+// „Trimite ofertă” din orice conversație client eligibilă (regula vine de pe server)
 const canSendQuoteOffer =
   conversationMode ===
     "customer" &&
-  Boolean(
-    quoteRequest?.id
-  ) &&
-  !quoteRequest?.orderId &&
-  ![
-    "ACCEPTED",
-    "CANCELLED",
-    "EXPIRED",
-  ].includes(
-    quoteStatus
+  resolveCanSendQuoteOffer({
+    threadMeta,
+    quoteRequest,
+  });
+
+const conversationOffer =
+  isConversationQuoteRequest(
+    quoteRequest
   );
 
 const listRef = useRef(null);
@@ -337,38 +333,39 @@ const [
   setQuoteOfferOpen,
 ] = useState(false);
 
-const [
-  quoteOfferSending,
-  setQuoteOfferSending,
-] = useState(false);
-
-const [
-  quoteOfferError,
-  setQuoteOfferError,
-] = useState("");
-
-const [
-  quoteOfferForm,
-  setQuoteOfferForm,
-] = useState({
-  unitPrice: "",
-  shippingPrice: "0",
-  productionDays: "",
-  notes: "",
+// aceeași logică de submit ca mini-fereastra și Asistentul (formularul se golește la schimbarea conversației)
+const {
+  form: quoteOfferForm,
+  setForm: setQuoteOfferForm,
+  sending: quoteOfferSending,
+  error: quoteOfferError,
+  setError: setQuoteOfferError,
+  submit: submitQuoteOffer,
+} = useVendorQuoteOfferSubmit({
+  quoteId: quoteRequest?.id,
+  quantity: quoteRequest?.quantity,
+  threadId: currentThreadId,
+  conversationMode: conversationOffer,
 });
 
 useEffect(() => {
   setQuoteOfferOpen(false);
-  setQuoteOfferSending(false);
+}, [currentThreadId]);
+
+function openQuoteOffer() {
   setQuoteOfferError("");
 
-  setQuoteOfferForm({
-    unitPrice: "",
-    shippingPrice: "0",
-    productionDays: "",
-    notes: "",
-  });
-}, [currentThreadId]);
+  // ofertă nouă în conversație: pornește de la descrierea/cantitatea ultimei oferte
+  if (conversationOffer && quoteRequest?.id) {
+    setQuoteOfferForm((current) => ({
+      ...current,
+      title: current.title || quoteRequest?.requestData?.title || "",
+      quantity: current.quantity !== "1" ? current.quantity : String(quoteRequest?.quantity || 1),
+    }));
+  }
+
+  setQuoteOfferOpen(true);
+}
 
 useEffect(() => {
   const el = listRef.current;
@@ -511,162 +508,20 @@ function normalizeChatError(err) {
 async function handleSendQuoteOffer(
   event
 ) {
-  event?.preventDefault?.();
+  const ok =
+    await submitQuoteOffer(
+      event
+    );
 
-  if (
-    !quoteRequest?.id ||
-    quoteOfferSending
-  ) {
+  if (!ok) {
     return;
   }
 
-  const quantity =
-    Number(
-      quoteRequest.quantity
-    );
+  setQuoteOfferOpen(false);
 
-  const unitPrice =
-    Number(
-      String(
-        quoteOfferForm
-          .unitPrice ||
-          ""
-      )
-        .trim()
-        .replace(
-          ",",
-          "."
-        )
-    );
-
-  const shippingPrice =
-    Number(
-      String(
-        quoteOfferForm
-          .shippingPrice ||
-          "0"
-      )
-        .trim()
-        .replace(
-          ",",
-          "."
-        )
-    );
-
-  const productionDays =
-    Number.parseInt(
-      quoteOfferForm
-        .productionDays,
-      10
-    );
-
-  if (
-    !Number.isFinite(
-      quantity
-    ) ||
-    quantity <= 0
-  ) {
-    setQuoteOfferError(
-      "Cantitatea cererii nu este validă."
-    );
-
-    return;
-  }
-
-  if (
-    !Number.isFinite(
-      unitPrice
-    ) ||
-    unitPrice < 0
-  ) {
-    setQuoteOfferError(
-      "Introdu un preț unitar valid."
-    );
-
-    return;
-  }
-
-  if (
-    !Number.isFinite(
-      shippingPrice
-    ) ||
-    shippingPrice < 0
-  ) {
-    setQuoteOfferError(
-      "Introdu un cost de transport valid."
-    );
-
-    return;
-  }
-
-  if (
-    !Number.isFinite(
-      productionDays
-    ) ||
-    productionDays <= 0
-  ) {
-    setQuoteOfferError(
-      "Introdu un termen de producție valid."
-    );
-
-    return;
-  }
-
-  setQuoteOfferSending(true);
-  setQuoteOfferError("");
-
-  try {
-    await createVendorQuoteOffer(
-      quoteRequest.id,
-      {
-        quantity,
-
-        unitPrice,
-
-        shippingPrice,
-
-        currency:
-          "RON",
-
-        productionDays,
-
-        notes:
-          String(
-            quoteOfferForm
-              .notes ||
-              ""
-          ).trim() ||
-          null,
-      }
-    );
-
-    setQuoteOfferOpen(false);
-
-    setQuoteOfferForm({
-      unitPrice: "",
-      shippingPrice:
-        "0",
-      productionDays:
-        "",
-      notes:
-        "",
-    });
-
-    await reloadMsgs();
-    await reloadThreads();
-    await reloadUnreadTabs();
-  } catch (error) {
-    setQuoteOfferError(
-      error?.data
-        ?.message ||
-        error?.message ||
-        "Oferta nu a putut fi trimisă."
-    );
-  } finally {
-    setQuoteOfferSending(
-      false
-    );
-  }
+  await reloadMsgs();
+  await reloadThreads();
+  await reloadUnreadTabs();
 }
 
   /*
@@ -1726,11 +1581,21 @@ disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
   quoteRequest={quoteRequest}
   latestOffer={latestQuoteOffer}
   canSendOffer={canSendQuoteOffer}
-  onOpenOffer={() => {
-    setQuoteOfferError("");
-    setQuoteOfferOpen(true);
-  }}
+  onOpenOffer={openQuoteOffer}
 />
+    )}
+
+  {/* conversație fără cerere de ofertă: oferta pornește direct de aici */}
+  {conversationMode ===
+      "customer" &&
+    !quoteRequest &&
+    canSendQuoteOffer &&
+    !loadingMsgs && (
+      <SharedQuoteRequestPanel
+        quoteRequest={null}
+        canSendOffer
+        onOpenOffer={openQuoteOffer}
+      />
     )}
 
   {loadingOlder && (
@@ -1894,9 +1759,10 @@ disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
         </section>
       </div>
 {quoteOfferOpen &&
-  quoteRequest && (
+  (quoteRequest || canSendQuoteOffer) && (
     <QuoteOfferModal
       quoteRequest={quoteRequest}
+      conversationMode={conversationOffer}
       form={quoteOfferForm}
       setForm={setQuoteOfferForm}
       sending={quoteOfferSending}
@@ -1935,9 +1801,14 @@ function QuoteRequestPanel({
     ) || 0;
 
   const productTitle =
-    quoteRequest?.product
-      ?.title ||
-    "Produs personalizat";
+    quoteRequestTitle(
+      quoteRequest
+    );
+
+  const fromConversation =
+    isConversationQuoteRequest(
+      quoteRequest
+    );
 
   const productImage =
     Array.isArray(
@@ -1986,7 +1857,9 @@ function QuoteRequestPanel({
               styles.quotePanelEyebrow
             }
           >
-            Cerere de ofertă
+            {fromConversation
+              ? "Ofertă din conversație"
+              : "Cerere de ofertă"}
           </div>
 
           <div
@@ -2103,6 +1976,7 @@ function QuoteOfferModal({
   setError,
   onSubmit,
   onClose,
+  conversationMode = false,
 }) {
   const quantity =
     Number(
@@ -2110,9 +1984,9 @@ function QuoteOfferModal({
     ) || 0;
 
   const productTitle =
-    quoteRequest?.product
-      ?.title ||
-    "Produs personalizat";
+    quoteRequestTitle(
+      quoteRequest
+    );
 
   return (
     <div
@@ -2157,8 +2031,9 @@ function QuoteOfferModal({
             </h2>
 
             <p>
-              {productTitle} ·{" "}
-              {quantity} buc.
+              {conversationMode
+                ? "Ofertă din conversație - clientul o poate accepta și plăti din Mesaje."
+                : `${productTitle} · ${quantity} buc.`}
             </p>
           </div>
 
@@ -2184,6 +2059,7 @@ function QuoteOfferModal({
           sending={sending}
           error={error}
           onSubmit={onSubmit}
+          conversationMode={conversationMode}
           onCancel={() => {
             setError("");
             onClose();

@@ -30,6 +30,10 @@ import {
   getPromotionPricingForProduct,
 } from "../../../services/productPromotionPrice.js";
 
+import {
+  getConversationOfferBlockReason,
+} from "../../../services/conversationQuoteOffer.js";
+
 const router =
   Router();
 
@@ -61,6 +65,60 @@ const OFFER_MUTABLE_QUOTE_STATUSES =
     "IN_DISCUSSION",
     "OFFER_SENT",
   ]);
+
+/*
+ * Oferta pornită direct dintr-o conversație (fără „Cere ofertă”):
+ * QuoteRequest CUSTOM obișnuit, marcat în requestData.source -
+ * același model ca puntea din „Publică ce cauți” (CUSTOMER_REQUEST).
+ */
+const CONVERSATION_QUOTE_SOURCE =
+  "CONVERSATION";
+
+const CONVERSATION_OFFER_TITLE_MAX =
+  160;
+
+const QUOTE_FOR_OFFER_SELECT = {
+  id: true,
+  userId: true,
+  vendorId: true,
+  productId: true,
+  serviceId: true,
+  quantity: true,
+  status: true,
+  orderId: true,
+  threadId: true,
+  requestData: true,
+  product: {
+    select: {
+      id: true,
+      title: true,
+      images: true,
+      priceCents: true,
+      orderMode: true,
+      category: true,
+      acceptsCustom: true,
+      occasionTags: true,
+      styleTags: true,
+      serviceId: true,
+      service: {
+        select: {
+          id: true,
+          vendorId: true,
+        },
+      },
+    },
+  },
+};
+
+function isConversationQuote(
+  quote
+) {
+  return (
+    !quote?.id ||
+    quote?.requestData?.source ===
+      CONVERSATION_QUOTE_SOURCE
+  );
+}
 
 /* =========================================================
    Helpers
@@ -1097,78 +1155,8 @@ router.post(
               vendor.id,
           },
 
-          select: {
-            id:
-              true,
-
-            userId:
-              true,
-
-            vendorId:
-              true,
-
-            productId:
-              true,
-
-            serviceId:
-              true,
-
-            quantity:
-              true,
-
-            status:
-              true,
-
-            orderId:
-              true,
-
-            threadId:
-              true,
-
-            product: {
-              select: {
-                id:
-                  true,
-
-                title:
-                  true,
-
-                images:
-                  true,
-
-                priceCents:
-                  true,
-
-                orderMode:
-                  true,
-
-                category:
-                  true,
-
-                acceptsCustom:
-                  true,
-
-                occasionTags:
-                  true,
-
-                styleTags:
-                  true,
-
-                serviceId:
-                  true,
-
-                service: {
-                  select: {
-                    id:
-                      true,
-
-                    vendorId:
-                      true,
-                  },
-                },
-              },
-            },
-          },
+          select:
+            QUOTE_FOR_OFFER_SELECT,
         });
 
       if (!quote) {
@@ -1182,6 +1170,207 @@ router.post(
               "Cererea de ofertă nu a fost găsită.",
           });
       }
+
+      return await sendQuoteOffer({
+        req,
+        res,
+        vendor,
+        quote,
+      });
+    } catch (
+      error
+    ) {
+      console.error(
+        "POST /api/vendor/quotes/:id/offers failed:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          error:
+            "vendor_quote_offer_create_failed",
+
+          message:
+            "Oferta nu a putut fi trimisă.",
+        });
+    }
+  }
+);
+
+/* =========================================================
+   POST /api/vendor/quotes/conversations/:threadId/offers
+
+   Ofertă trimisă direct dintr-o conversație cu un client.
+   Clientul, vendorul și magazinul vin din thread (server-side).
+   - thread cu QuoteRequest -> aceeași regulă ca /:id/offers;
+   - thread fără QuoteRequest -> QuoteRequest CUSTOM nou
+     (requestData.source = CONVERSATION), creat atomic cu oferta.
+   Payload: formatul simplu de mai jos + title (descrierea scurtă).
+========================================================= */
+
+router.post(
+  "/conversations/:threadId/offers",
+
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const vendor =
+        await getCurrentVendor(
+          req
+        );
+
+      if (!vendor) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "vendor_not_found",
+
+            message:
+              "Profilul de vânzător nu a fost găsit.",
+          });
+      }
+
+      const threadId =
+        String(
+          req.params.threadId ||
+            ""
+        ).trim();
+
+      const thread =
+        threadId
+          ? await prisma.messageThread.findFirst({
+              where: {
+                id:
+                  threadId,
+                type:
+                  "CUSTOMER",
+                vendorId:
+                  vendor.id,
+                deletedByVendorAt:
+                  null,
+              },
+              select: {
+                id: true,
+                userId: true,
+                serviceId: true,
+                user: {
+                  select: {
+                    id: true,
+                    status: true,
+                    locked: true,
+                  },
+                },
+                quoteRequest: {
+                  select:
+                    QUOTE_FOR_OFFER_SELECT,
+                },
+              },
+            })
+          : null;
+
+      if (!thread) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "thread_not_found",
+
+            message:
+              "Conversația nu a fost găsită.",
+          });
+      }
+
+      const blockReason =
+        getConversationOfferBlockReason({
+          thread,
+          vendorUserId:
+            vendor.userId ||
+            req.user?.sub,
+        });
+
+      if (blockReason) {
+        return res
+          .status(409)
+          .json({
+            error:
+              blockReason,
+
+            message:
+              "În această conversație nu se poate trimite o ofertă (clientul nu are un cont activ).",
+          });
+      }
+
+      const quote =
+        thread.quoteRequest ||
+        {
+          id: null,
+          userId: thread.userId,
+          vendorId: vendor.id,
+          productId: null,
+          serviceId: thread.serviceId || null,
+          quantity: null,
+          status: "SUBMITTED",
+          orderId: null,
+          threadId: thread.id,
+          requestData: {
+            source:
+              CONVERSATION_QUOTE_SOURCE,
+          },
+          product: null,
+        };
+
+      return await sendQuoteOffer({
+        req,
+        res,
+        vendor,
+        quote,
+      });
+    } catch (
+      error
+    ) {
+      console.error(
+        "POST /api/vendor/quotes/conversations/:threadId/offers failed:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          error:
+            "vendor_quote_offer_create_failed",
+
+          message:
+            "Oferta nu a putut fi trimisă.",
+        });
+    }
+  }
+);
+
+/*
+ * Logica unică de trimitere a ofertei (validări, prețuri cu promoție,
+ * SUPERSEDED pentru oferta anterioară, mesaj în thread, notificare).
+ * `quote` fără id = ofertă nouă din conversație: QuoteRequest-ul se
+ * creează în aceeași tranzacție cu oferta.
+ */
+async function sendQuoteOffer({
+  req,
+  res,
+  vendor,
+  quote,
+}) {
+  const creatingConversationQuote =
+    !quote.id;
+
+  {
+    try {
+      const fromConversation =
+        isConversationQuote(
+          quote
+        );
 
       if (
         quote.orderId ||
@@ -1214,6 +1403,64 @@ router.post(
             message:
               "Cererea nu este într-o stare care permite trimiterea unei oferte.",
           });
+      }
+
+      /*
+       * Ofertă din conversație: fără produs, deci vendorul descrie pe
+       * scurt ce oferă (titlul liniei din ofertă / comandă).
+       */
+      let conversationTitle =
+        null;
+
+      if (fromConversation) {
+        const rawTitle =
+          String(
+            req.body?.title ||
+              ""
+          )
+            .replace(/\s+/g, " ")
+            .trim();
+
+        if (rawTitle.length < 3) {
+          return res
+            .status(400)
+            .json({
+              error:
+                "offer_title_required",
+
+              message:
+                "Descrie pe scurt produsul oferit (minimum 3 caractere).",
+            });
+        }
+
+        const moderatedTitle =
+          await moderateOfferNotes(
+            rawTitle.slice(
+              0,
+              CONVERSATION_OFFER_TITLE_MAX
+            )
+          );
+
+        if (
+          !moderatedTitle.allowed
+        ) {
+          return res
+            .status(422)
+            .json({
+              error:
+                "offer_title_blocked",
+
+              reason:
+                moderatedTitle.reason ||
+                "not_allowed",
+
+              message:
+                "Descrierea ofertei nu poate conține sau sugera date de contact, comunicare ori plată în afara platformei.",
+            });
+        }
+
+        conversationTitle =
+          moderatedTitle.notes;
       }
 
       const currency =
@@ -1590,6 +1837,7 @@ router.post(
                 product?.title ||
                 quote.product
                   ?.title ||
+                conversationTitle ||
                 "Produs",
 
               quantity,
@@ -1672,6 +1920,7 @@ router.post(
             title:
               quote.product
                 ?.title ||
+              conversationTitle ||
               "Produs",
 
             quantity,
@@ -1796,6 +2045,57 @@ router.post(
           async (
             tx
           ) => {
+            const offerQuantity =
+              Number(
+                items[0]
+                  ?.quantity
+              ) ||
+              null;
+
+            if (!quote.id) {
+              /*
+               * Prima ofertă din conversație: QuoteRequest CUSTOM legat
+               * de thread (threadId unic -> o a doua cerere concurentă
+               * pentru același thread pică pe P2002, tratat mai jos).
+               */
+              const createdQuote =
+                await tx.quoteRequest.create({
+                  data: {
+                    userId:
+                      quote.userId,
+                    vendorId:
+                      vendor.id,
+                    serviceId:
+                      quote.serviceId ||
+                      null,
+                    productId:
+                      null,
+                    threadId:
+                      quote.threadId,
+                    source:
+                      "CUSTOM",
+                    status:
+                      "OFFER_SENT",
+                    quantity:
+                      offerQuantity,
+                    requestData: {
+                      source:
+                        CONVERSATION_QUOTE_SOURCE,
+                      title:
+                        conversationTitle,
+                    },
+                    quoteSchemaAnswers:
+                      {},
+                  },
+                  select: {
+                    id: true,
+                  },
+                });
+
+              quote.id =
+                createdQuote.id;
+            }
+
             await tx.quoteOffer.updateMany({
               where: {
                 quoteRequestId:
@@ -1858,6 +2158,29 @@ router.post(
               data: {
                 status:
                   "OFFER_SENT",
+
+                /*
+                 * Din conversație cantitatea și descrierea le alege
+                 * vendorul la fiecare ofertă: cardul clientului
+                 * le citește de pe cerere.
+                 */
+                ...(fromConversation
+                  ? {
+                      quantity:
+                        offerQuantity,
+                      requestData: {
+                        ...(quote.requestData &&
+                        typeof quote.requestData ===
+                          "object"
+                          ? quote.requestData
+                          : {}),
+                        source:
+                          CONVERSATION_QUOTE_SOURCE,
+                        title:
+                          conversationTitle,
+                      },
+                    }
+                  : {}),
               },
             });
 
@@ -2030,8 +2353,25 @@ router.post(
     } catch (
       error
     ) {
+      // două prime oferte simultane în aceeași conversație (threadId unic)
+      if (
+        error?.code ===
+          "P2002" &&
+        creatingConversationQuote
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "conversation_offer_conflict",
+
+            message:
+              "Conversația tocmai a primit o ofertă. Reîncarcă și încearcă din nou.",
+          });
+      }
+
       console.error(
-        "POST /api/vendor/quotes/:id/offers failed:",
+        "sendQuoteOffer failed:",
         error
       );
 
@@ -2046,7 +2386,7 @@ router.post(
         });
     }
   }
-);
+}
 
 /* =========================================================
    POST /api/vendor/quotes/:id/offers/:offerId/withdraw

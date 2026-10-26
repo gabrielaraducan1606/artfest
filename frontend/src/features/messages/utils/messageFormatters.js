@@ -12,11 +12,13 @@ export function nowIso() {
 // (UnreadMessagesProvider, messageThreadsCache) nu citesc `detail`, deci
 // nu se schimbă nimic pentru ei. threadMessagesCache îl folosește ca să
 // invalideze DOAR cache-ul threadului afectat, nu pe toate.
-export function dispatchMessagesChanged(threadId) {
+// `reason` (opțional, tot aditiv): "read" = doar s-a marcat citit, mesajele
+// nu s-au schimbat - threadMessagesCache îl ignoră (altfel buclă
+// refetch -> markRead -> dispatch), badge-ul și lista se actualizează.
+export function dispatchMessagesChanged(threadId, reason) {
   if (typeof window !== "undefined") {
-    window.dispatchEvent(
-      new CustomEvent("messages:changed", threadId ? { detail: { threadId } } : undefined)
-    );
+    const detail = threadId || reason ? { threadId, reason } : undefined;
+    window.dispatchEvent(new CustomEvent("messages:changed", detail ? { detail } : undefined));
   }
 }
 

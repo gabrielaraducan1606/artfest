@@ -86,6 +86,7 @@ import {
   describeItem,
   proposeFix,
 } from "../contactInfo/contactInfoFixFlow.js";
+import { PRODUCT_CHANGES_TASK } from "../../../features/productChanges/changeRequestReasons.js";
 
 import VendorProductPicker from "../../../pages/Vendor/CostsProfit/components/VendorProductPicker.jsx";
 import PricingBreakdownCard from "../../../pages/Vendor/CostsProfit/components/PricingBreakdownCard.jsx";
@@ -1120,6 +1121,23 @@ export default function VendorAssistant({
 
     if (pendingTask.task === CONTACT_FIX_TASK) {
       startContactFix(pendingTask);
+    }
+
+    /*
+     * „Întreabă Asistentul Artfest” din pagina „Modificări solicitate”:
+     * mesajul propus conține produsul, motivele și observația; vendorul îl
+     * trimite (sau îl ajustează). Produsul e anunțat ca entitate curentă
+     * de pagină, deci copilotul primește și productId.
+     */
+    if (pendingTask.task === PRODUCT_CHANGES_TASK) {
+      setShowMenu(false);
+      addMessage(
+        createMessage(
+          "assistant",
+          `Te ajut cu modificările pentru „${pendingTask.title || "produs"}”. Am pregătit mai jos întrebarea - trimite-o sau scrie la ce te blochezi.`
+        )
+      );
+      setInputValue(pendingTask.prompt || "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingTask]);
@@ -2884,6 +2902,162 @@ if (resetBatch) {
         result.costItemSuggestion
       );
     }
+
+    showLibraryProposal(
+      result?.libraryProposal
+    );
+  }
+
+  /*
+   * Biblioteca de costuri în calculator: valorile salvate sunt
+   * PROPUSE (backend: buildLibraryProposal), aplicate doar după
+   * alegerea vendorului - nimic în tăcere.
+   */
+  function showLibraryProposal(proposal) {
+    if (!proposal) return;
+
+    const items = Array.isArray(proposal.items)
+      ? proposal.items
+      : [];
+
+    const ambiguous = Array.isArray(proposal.ambiguous)
+      ? proposal.ambiguous
+      : [];
+
+    if (items.length) {
+      addMessage(
+        createMessage(
+          "assistant",
+          proposal.message,
+          {
+            type: "choices",
+            choiceStep: "price-library",
+            preserveLineBreaks: true,
+            choices: [
+              {
+                label: "Folosește valorile",
+                libraryAction: "apply",
+                picks: items.map((item) => ({
+                  material: item.material,
+                  costItemId: item.costItemId,
+                })),
+              },
+              {
+                label: "Modifică",
+                libraryAction: "modify",
+                materials: items.map((item) => item.material),
+              },
+              {
+                label: "Nu folosi biblioteca",
+                libraryAction: "decline",
+                materials: [
+                  ...items.map((item) => item.material),
+                  ...ambiguous.map((entry) => entry.material),
+                ],
+              },
+            ],
+          }
+        )
+      );
+    } else if (proposal.message && !ambiguous.length) {
+      addMessage(createMessage("assistant", proposal.message, { preserveLineBreaks: true }));
+    }
+
+    // mai multe variante asemănătoare -> vendorul alege (câte un material pe rând)
+    const first = ambiguous[0];
+
+    if (first) {
+      addMessage(
+        createMessage(
+          "assistant",
+          !items.length && proposal.missing?.length
+            ? `${first.message}\n\nMai am nevoie de costul pentru ${proposal.missing.join(", ")}.`
+            : first.message,
+          {
+            type: "choices",
+            choiceStep: "price-library",
+            preserveLineBreaks: true,
+            choices: [
+              ...first.options.map((option) => ({
+                label: `${option.label} – ${option.priceText}${
+                  option.stale && option.updatedAgo
+                    ? ` (actualizat ${option.updatedAgo})`
+                    : ""
+                }`,
+                libraryAction: "apply",
+                picks: [
+                  {
+                    material: first.material,
+                    costItemId: option.costItemId,
+                  },
+                ],
+              })),
+              {
+                label: "Nu folosi biblioteca",
+                libraryAction: "decline",
+                materials: [first.material],
+              },
+            ],
+          }
+        )
+      );
+    }
+  }
+
+  async function handleLibraryChoice(choice) {
+    const materials = Array.isArray(choice?.materials)
+      ? choice.materials
+      : [];
+
+    if (choice?.libraryAction === "apply") {
+      setCalculatorBusy(true);
+
+      try {
+        const result = await sendPriceCalculatorTurn({
+          message: "",
+          history: conversationContext.history,
+          costDraft: conversationContext.costDraft,
+          productId: conversationContext.productId,
+          libraryApply: choice.picks || [],
+          libraryDismissed: conversationContext.libraryDismissed || [],
+        });
+
+        applyPriceCalculatorTurnResult(result);
+      } catch (err) {
+        addMessage(
+          createMessage(
+            "assistant",
+            err instanceof Error
+              ? err.message
+              : "Nu am putut folosi valorile din bibliotecă."
+          )
+        );
+      } finally {
+        setCalculatorBusy(false);
+      }
+
+      return;
+    }
+
+    // „Modifică” / „Nu folosi biblioteca”: nu le mai propunem pentru acest calcul
+    setConversationContext((current) => ({
+      ...current,
+      libraryDismissed: Array.from(
+        new Set([
+          ...(current.libraryDismissed || []),
+          ...materials,
+        ])
+      ),
+    }));
+
+    addMessage(
+      createMessage(
+        "assistant",
+        choice?.libraryAction === "modify"
+          ? "Spune-mi valorile pe care vrei să le folosești (ex. „ceara costă 31 lei/kg”). Dacă diferă de bibliotecă, te întreb înainte să o actualizez."
+          : `Bine, nu folosim biblioteca pentru acest calcul. Spune-mi costul pentru: ${materials.join(", ")}.`
+      )
+    );
   }
 
   /*
@@ -2917,6 +3091,8 @@ if (resetBatch) {
       awaitingField: null,
       history: [],
       sourceImageUrl,
+      // propuneri din biblioteca de costuri refuzate în acest calcul
+      libraryDismissed: [],
     });
 
     runPriceCalculatorSeedTurn(
@@ -2967,6 +3143,7 @@ if (resetBatch) {
         history: conversationContext.history,
         costDraft: conversationContext.costDraft,
         productId: conversationContext.productId,
+        libraryDismissed: conversationContext.libraryDismissed || [],
       });
 
       setConversationContext((current) => ({
@@ -6527,6 +6704,14 @@ async function handleAction(
       sourceMessage?.choiceStep === "contact-fix"
     ) {
       await handleContactFixChoice(choice);
+      return;
+    }
+
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep === "price-library"
+    ) {
+      await handleLibraryChoice(choice);
       return;
     }
 

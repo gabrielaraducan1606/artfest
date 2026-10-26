@@ -43,6 +43,10 @@ export async function sendPriceCalculatorTurn({
   history = [],
   costDraft = null,
   productId = null,
+  // alegeri din propunerea bibliotecii de costuri: [{ material, costItemId }]
+  libraryApply = [],
+  // materiale pentru care vendorul a refuzat / modifică valoarea din bibliotecă
+  libraryDismissed = [],
 }) {
   const cleanMessage =
     String(
@@ -90,6 +94,16 @@ export async function sendPriceCalculatorTurn({
                     productId
                   )
                 : null,
+
+            libraryApply:
+              Array.isArray(libraryApply)
+                ? libraryApply
+                : [],
+
+            libraryDismissed:
+              Array.isArray(libraryDismissed)
+                ? libraryDismissed
+                : [],
           }),
       }
     );

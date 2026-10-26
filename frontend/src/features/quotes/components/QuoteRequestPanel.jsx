@@ -14,6 +14,7 @@
  */
 
 import styles from "../../../pages/Vendor/Mesaje/Messages.module.css";
+import { isConversationQuoteRequest, quoteRequestTitle } from "../conversationOffer.js";
 
 export default function QuoteRequestPanel({
   quoteRequest,
@@ -21,15 +22,39 @@ export default function QuoteRequestPanel({
   canSendOffer,
   onOpenOffer,
 }) {
+  // conversație fără cerere de ofertă: doar invitația de a trimite o ofertă
+  if (!quoteRequest) {
+    if (!canSendOffer) return null;
+
+    return (
+      <section className={styles.quotePanel}>
+        <div className={styles.quotePanelInfo}>
+          <div className={styles.quotePanelEyebrow}>Ofertă personalizată</div>
+          <div className={styles.quotePanelMeta}>
+            <span>Trimite-i clientului o ofertă direct din conversație. O poate accepta și plăti din Mesaje.</span>
+          </div>
+        </div>
+        <button type="button" className={styles.quotePrimaryBtn} onClick={onOpenOffer}>
+          Trimite ofertă
+        </button>
+      </section>
+    );
+  }
+
   const quantity =
     Number(
       quoteRequest?.quantity
     ) || 0;
 
   const productTitle =
-    quoteRequest?.product
-      ?.title ||
-    "Produs personalizat";
+    quoteRequestTitle(
+      quoteRequest
+    );
+
+  const fromConversation =
+    isConversationQuoteRequest(
+      quoteRequest
+    );
 
   const productImage =
     Array.isArray(
@@ -78,7 +103,9 @@ export default function QuoteRequestPanel({
               styles.quotePanelEyebrow
             }
           >
-            Cerere de ofertă
+            {fromConversation
+              ? "Ofertă din conversație"
+              : "Cerere de ofertă"}
           </div>
 
           <div

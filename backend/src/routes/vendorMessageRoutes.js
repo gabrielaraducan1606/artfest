@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { authRequired, enforceTokenVersion, requireRole } from "../api/auth.js";
 import { createUserNotification } from "../services/notifications.js";
 import { queueNewMessageEmail } from "../services/messageEmailNotifications.js";
+import { canSendConversationOffer } from "../services/conversationQuoteOffer.js";
 import {
   moderateMarketplaceMessage,
   moderateMarketplaceImage,
@@ -891,6 +892,9 @@ router.get("/threads/:id/messages", async (req, res) => {
     id: true,
     userLastReadAt: true,
     serviceId: true,
+    // eligibilitatea „Trimite ofertă” din conversație
+    userId: true,
+    user: { select: { id: true, status: true, locked: true } },
 
     vendor: {
       select: {
@@ -1075,6 +1079,12 @@ const quoteRequest =
       thread.service?.profile
         ?.logoUrl ||
       null,
+
+    // butonul „Trimite ofertă” (aceeași regulă ca POST /api/vendor/quotes/conversations/:threadId/offers)
+    canSendOffer: canSendConversationOffer({
+      thread: { ...thread, type: "CUSTOMER", quoteRequest },
+      vendorUserId: req.user?.sub,
+    }),
   },
 
   quoteRequest:

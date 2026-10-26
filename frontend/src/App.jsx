@@ -132,6 +132,9 @@ const ProfitabilityPage = lazy(() =>
 const ProductCostingDetailPage = lazy(() =>
   import("./pages/Vendor/CostsProfit/ProductCostingDetailPage.jsx")
 );
+const ProductChangesPage = lazy(() =>
+  import("./pages/Vendor/ProductChanges/ProductChangesPage.jsx")
+);
 const UserInvoicesPage = lazy(() =>
   import("./pages/User/Invoices/UserInvoicesPage")
 );
@@ -1072,6 +1075,16 @@ export default function App() {
               element={
                 <RequireVendor>
                   <ProductCostingDetailPage />
+                </RequireVendor>
+              }
+            />
+
+            {/* „Modificări solicitate” de Artfest pentru un produs */}
+            <Route
+              path="/vendor/products/:id/modificari"
+              element={
+                <RequireVendor>
+                  <ProductChangesPage />
                 </RequireVendor>
               }
             />

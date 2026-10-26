@@ -1081,10 +1081,14 @@ export async function moderateSavedProduct({
       env,
     });
 
+    // solicitarea de modificări a adminului (services/productChangeRequest.js)
+    // nu e un rezultat AI - se păstrează peste o analiză nouă
+    const changeRequest = product.aiModeration?.changeRequest;
+
     return await prisma.product.update({
       where: { id: product.id },
       data: {
-        aiModeration,
+        aiModeration: changeRequest ? { ...aiModeration, changeRequest } : aiModeration,
         ...buildModerationStatusPatch(aiModeration),
       },
     });

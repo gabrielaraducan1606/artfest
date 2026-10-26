@@ -3,16 +3,8 @@
 import express from "express";
 
 import {
-  prisma,
-} from "../db.js";
-
-import {
-  artisanFeatureInclude,
-  ensureCurrentArtisanFeature,
-  ensureCurrentProductFeature,
-  getDayKey,
-  getWeekKey,
-  productFeatureInclude,
+  resolveDisplayArtisanFeature,
+  resolveDisplayProductFeature,
 } from "../services/homepageFeatureScheduler.js";
 
 const router =
@@ -323,64 +315,6 @@ function buildArtisanPayload(
 }
 
 /* =========================================================
-   ÎNCĂRCARE PRODUSUL ZILEI
-========================================================= */
-
-async function findCurrentProductFeature() {
-  const dateKey =
-    getDayKey(
-      new Date()
-    );
-
-  if (!dateKey) {
-    return null;
-  }
-
-  return prisma.homepageFeature.findUnique({
-    where: {
-      type_dateKey: {
-        type:
-          "PRODUCT_OF_DAY",
-
-        dateKey,
-      },
-    },
-
-    include:
-      productFeatureInclude,
-  });
-}
-
-/* =========================================================
-   ÎNCĂRCARE ARTIZANUL SĂPTĂMÂNII
-========================================================= */
-
-async function findCurrentArtisanFeature() {
-  const dateKey =
-    getWeekKey(
-      new Date()
-    );
-
-  if (!dateKey) {
-    return null;
-  }
-
-  return prisma.homepageFeature.findUnique({
-    where: {
-      type_dateKey: {
-        type:
-          "ARTISAN_OF_WEEK",
-
-        dateKey,
-      },
-    },
-
-    include:
-      artisanFeatureInclude,
-  });
-}
-
-/* =========================================================
    GET /api/homepage/product-of-the-day
 ========================================================= */
 
@@ -392,23 +326,17 @@ router.get(
        * Homepage-ul citește mai întâi selecția
        * din calendarul HomepageFeature.
        */
-      let feature =
-        await findCurrentProductFeature();
-
       /*
-       * Fallback de siguranță:
-       * dacă schedulerul nu a generat perioada
-       * curentă, o generează acum prin serviciul
-       * comun, nu printr-o logică duplicată.
+       * Selecția zilei din calendar (generată acum dacă lipsește).
+       * Dacă produsul programat a devenit între timp neeligibil
+       * (inactiv, ascuns, neaprobat, magazin/vendor inactiv), afișăm
+       * un înlocuitor eligibil pentru azi - calendarul și istoricul
+       * rămân neatinse (vezi resolveDisplayProductFeature).
        */
-      if (
-        !feature?.product
-      ) {
-        await ensureCurrentProductFeature();
-
-        feature =
-          await findCurrentProductFeature();
-      }
+      const {
+        feature,
+      } =
+        await resolveDisplayProductFeature();
 
       const payload =
         buildProductPayload(
@@ -457,17 +385,11 @@ router.get(
   "/artisan-of-the-week",
   async (_req, res) => {
     try {
-      let feature =
-        await findCurrentArtisanFeature();
-
-      if (
-        !feature?.service
-      ) {
-        await ensureCurrentArtisanFeature();
-
-        feature =
-          await findCurrentArtisanFeature();
-      }
+      // același tipar ca la Produsul zilei: magazin neeligibil -> înlocuitor doar la afișare
+      const {
+        feature,
+      } =
+        await resolveDisplayArtisanFeature();
 
       const payload =
         buildArtisanPayload(

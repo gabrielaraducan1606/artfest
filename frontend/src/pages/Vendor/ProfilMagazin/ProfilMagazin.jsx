@@ -19,7 +19,6 @@ import StoreModals from "./modals/StoreModals";
 import StoreCampaignCollections from "./components/StoreCampaignCollections";
 import { api } from "../../../lib/api";
 import { buildProductPayload } from "./utils/productPayload";
-import { extractCode, extractHttpStatus } from "./utils/activationErrors";
 
 import { useAnnounceCurrentEntity } from "../../../components/AIAssistant/CurrentEntityContext.jsx";
 import {
@@ -29,6 +28,15 @@ import {
 import { CONTACT_FIX_APPLY_EVENT } from "../../../components/AIAssistant/contactInfo/contactInfoFixFlow.js";
 import { COLLECTIONS_HUB_URL } from "../CatalogProduse/VendorCollections/collectionsHubLinks.js";
 import { showContactInfoFix } from "../../../components/AIAssistant/contactInfo/contactInfoFixToast.jsx";
+import {
+  applyContactFixToProductForm,
+  dispatchProductSaved,
+  fetchVendorProduct,
+  handleProductSaveError,
+  productFormFromApi,
+  showProductSaveReport,
+  updateVendorProduct,
+} from "./utils/productEditing.js";
 
 /*
  * Instrumentare minimă de timing, doar în dev, doar în consolă - ca
@@ -839,100 +847,9 @@ async function handleAcceptGate() {
     if (!id) return;
 
     try {
-      const full = await api(
-        `/api/vendors/products/${encodeURIComponent(id)}`,
-        { method: "GET" }
-      );
+      const full = await fetchVendorProduct(id);
 
-      setProdForm({
-        id: full.id || full._id || "",
-        title: full.title || "",
-        description: full.description || "",
-        price:
-          typeof full.price === "number"
-            ? full.price
-            : Number.isFinite(full.priceCents)
-            ? full.priceCents / 100
-            : 0,
-        images: Array.isArray(full.images) ? full.images : [],
-        videoUrl: full.videoUrl || null,
-        videoMuted: !!full.videoMuted,
-        category: full.category || "",
-        // absent în API => absent în formular (backend-ul păstrează lista)
-        ...(Array.isArray(full.additionalCategories)
-          ? { additionalCategories: full.additionalCategories }
-          : {}),
-        aiSuggestedCategory: "",
-        aiSuggestedAdditionalCategories: [],
-        currency: full.currency || "RON",
-        isActive: full.isActive !== false,
-        availability: (full.availability || "READY").toUpperCase(),
-        leadTimeDays: Number.isFinite(Number(full.leadTimeDays))
-          ? String(Number(full.leadTimeDays))
-          : "",
-        readyQty:
-          full.readyQty === null || full.readyQty === undefined
-            ? ""
-            : Number.isFinite(Number(full.readyQty))
-            ? String(Number(full.readyQty))
-            : "",
-        nextShipDate: full.nextShipDate
-          ? String(full.nextShipDate).slice(0, 10)
-          : "",
-        acceptsCustom: !!full.acceptsCustom,
-        isHidden: !!full.isHidden,
-        color: full.color || "",
-        materialMain: full.materialMain || "",
-        technique: full.technique || "",
-        styleTags: Array.isArray(full.styleTags)
-          ? full.styleTags.join(", ")
-          : full.styleTags || "",
-        occasionTags: Array.isArray(full.occasionTags)
-          ? full.occasionTags.join(", ")
-          : full.occasionTags || "",
-        dimensions: full.dimensions || "",
-        careInstructions: full.careInstructions || "",
-        specialNotes: full.specialNotes || "",
-
-        isOwnManufacturer:
-          full.isOwnManufacturer === true || full.isOwnManufacturer === false
-            ? full.isOwnManufacturer
-            : null,
-        manufacturerName: full.manufacturerName || "",
-        manufacturerAddress: full.manufacturerAddress || "",
-        manufacturerEmail: full.manufacturerEmail || "",
-        manufacturerInEU:
-          full.manufacturerInEU === true || full.manufacturerInEU === false
-            ? full.manufacturerInEU
-            : null,
-        responsiblePersonName: full.responsiblePersonName || "",
-        responsiblePersonAddress: full.responsiblePersonAddress || "",
-        responsiblePersonEmail: full.responsiblePersonEmail || "",
-        safetyWarnings:
-          full.safetyWarnings === null || full.safetyWarnings === undefined
-            ? null
-            : full.safetyWarnings,
-        isForChildren:
-          full.isForChildren === true || full.isForChildren === false
-            ? full.isForChildren
-            : null,
-
-        orderMode: full.orderMode || "READY_TO_BUY",
-
-optionsSchema: Array.isArray(full.optionsSchema)
-  ? full.optionsSchema
-  : [],
-
-customSchema: Array.isArray(full.customSchema)
-  ? full.customSchema
-  : [],
-repeatedGroups: Array.isArray(full.repeatedGroups)
-  ? full.repeatedGroups
-  : [],
-quoteSchema: Array.isArray(full.quoteSchema)
-  ? full.quoteSchema
-  : [],
-      });
+      setProdForm(productFormFromApi(full));
 
       setEditingOverride(full);
       setProductModalStep(options?.step || "images");
@@ -957,19 +874,15 @@ quoteSchema: Array.isArray(full.quoteSchema)
     saveProductLockRef.current = true;
 
     try {
-      const payload = buildProductPayload(prodForm);
-
       let saved;
       const isEdit =
         !!editingOverride && (editingOverride.id || editingOverride._id);
 
       if (isEdit) {
-        const id = editingOverride.id || editingOverride._id;
-
-        saved = await api(`/api/vendors/products/${encodeURIComponent(id)}`, {
-          method: "PUT",
-          body: payload,
-        });
+        saved = await updateVendorProduct(
+          editingOverride.id || editingOverride._id,
+          prodForm
+        );
       } else {
         const sd = sellerData?.slug || sellerData?.profile?.slug || slug;
 
@@ -979,80 +892,18 @@ quoteSchema: Array.isArray(full.quoteSchema)
           `/api/vendors/store/${encodeURIComponent(sd)}/products`,
           {
             method: "POST",
-            body: payload,
+            body: buildProductPayload(prodForm),
           }
         );
       }
 
-      try {
-        window.dispatchEvent(
-          new CustomEvent(
-            isEdit ? "vendor:productUpdated" : "vendor:productCreated",
-            {
-              detail: {
-                product: saved,
-                shopId: currentShopId,
-                storeId: currentShopId,
-                vendorStoreId: currentShopId,
-              },
-            }
-          )
-        );
-      } catch {
-        // noop
-      }
+      dispatchProductSaved(saved, { isEdit, shopId: currentShopId });
 
       closeProductModal();
 
-      /*
-       * Verificarea automată a blocat publicarea (ex. telefon/link/QR
-       * într-o imagine) -> vendorul află imediat ce imagine și ce are de
-       * corectat. Produsul e salvat; după înlocuirea imaginii se
-       * reverifică automat. „Verificare suplimentară" nu declanșează
-       * nicio alertă (apare discret pe cardul produsului).
-       */
-      const report = saved?.moderationReport;
-
-      if (report?.decision === "BLOCK_PUBLICATION") {
-        alert(
-          [
-            report.message,
-            "",
-            ...(report.images || []).map(
-              (image) =>
-                `Imaginea ${image.position}: ${(image.messages || []).join(" ")}`
-            ),
-          ].join("\n")
-        );
-      } else if (report?.action === "COMPLETE_GPSR") {
-        // acționabil, nu alarmant: vendorul poate rezolva imediat, din
-        // butonul „Completează informațiile de siguranță” de pe produs
-        alert(
-          [
-            report.message,
-            "",
-            "Mai lipsesc:",
-            ...(report.missing || []).map((item) => `• ${item}`),
-          ].join("\n")
-        );
-      }
+      showProductSaveReport(saved);
     } catch (er) {
-      // date de contact externe -> nimic salvat; formularul rămâne
-      // deschis, cu mesaj + „Corectează cu ajutorul asistentului”
-      if (showContactInfoFix(er)) return;
-
-      const status = extractHttpStatus(er);
-      const code = extractCode(er);
-
-      if (status === 402 || code === "upgrade_required") {
-        alert(
-          "Ai atins limita de produse pentru abonamentul curent. Upgradează planul ca să adaugi mai multe produse."
-        );
-       navigate("/setari?tab=subscription");
-        return;
-      }
-
-      alert(er?.message || "Nu am putut salva produsul.");
+      handleProductSaveError(er, { navigate });
     } finally {
       saveProductLockRef.current = false;
     }
@@ -1076,13 +927,13 @@ quoteSchema: Array.isArray(full.quoteSchema)
       const detail = event?.detail || {};
       const state = contactFixApplyRef.current || {};
 
-      if (detail.entityType === "PRODUCT" && state.prodModalOpen) {
-        const sameProduct =
-          !detail.entityId || String(detail.entityId) === String(state.editingId);
-
-        if (sameProduct && detail.field) {
-          setProdForm((form) => ({ ...form, [detail.field]: detail.text }));
-        }
+      if (
+        applyContactFixToProductForm(detail, {
+          open: state.prodModalOpen,
+          editingId: state.editingId,
+          setForm: setProdForm,
+        })
+      ) {
         return;
       }
 

@@ -5348,6 +5348,45 @@ export async function submitQuoteMessage({
 
   /*
    * =====================================================
+   * PASUL 0 — FOTOGRAFIE (opțională, quote-from-store)
+   * =====================================================
+   *
+   * Un text trimis în acest pas = „continui fără fotografie”.
+   * Înainte nu exista nicio ramură pt. "photo" și textul era
+   * consumat fără răspuns și fără request. Dacă textul conține
+   * deja cantitatea, mergem direct la PASUL 1 (mai jos).
+   */
+
+  if (
+    quoteDraft
+      ?.step ===
+      "photo" &&
+    !/\d+/.test(
+      String(
+        value || ""
+      )
+    )
+  ) {
+    setQuoteDraft({
+      ...quoteDraft,
+      step:
+        "quantity",
+    });
+
+    addMessage(
+      createMessage(
+        "assistant",
+        uploadedImage?.file
+          ? "Perfect.\n\nDe câte bucăți ai nevoie?"
+          : "Nicio problemă, continuăm fără fotografie.\n\nDe câte bucăți ai nevoie?"
+      )
+    );
+
+    return true;
+  }
+
+  /*
+   * =====================================================
    * PASUL 1 — CANTITATE
    * =====================================================
    */
@@ -5356,6 +5395,9 @@ export async function submitQuoteMessage({
     quoteDraft
       ?.step ===
       "quantity" ||
+    quoteDraft
+      ?.step ===
+      "photo" ||
     !quoteDraft
       ?.step
   ) {

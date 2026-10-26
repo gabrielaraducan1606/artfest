@@ -880,3 +880,487 @@ test("H6. conținut: subiectele cerute, data în ora României, CTA spre produs 
   assert.match(aow.text, /Ne bucurăm să te avem în comunitatea Artfest 🤍/);
   assert.doesNotMatch(pod.html + aow.html, /<script/);
 });
+
+/* =========================================================
+   R. ROTAȚIE ECHILIBRATĂ (audit 2026-10-26): Produsul zilei
+   vendor -> produs, Artizanul săptămânii pe magazin, cooldown
+   adaptiv, fallback gradual, afișare doar dacă e eligibil, listă
+   Admin pe grupe. Selecția e testată pe funcțiile PURE
+   (selectProductOfDay / selectArtisanOfWeek), fără DB.
+========================================================= */
+
+async function loadSchedulerModule(db = {}) {
+  const mocks = [
+    mock.module("../db.js", { namedExports: { prisma: db } }),
+    mock.module("./notifications.js", {
+      namedExports: { notifyVendorOnHomepageFeatureCreated: async () => null },
+    }),
+    mock.module("../lib/mailer.js", {
+      namedExports: { sendHomepageFeatureSelectedEmail: async () => ({ ok: true }) },
+    }),
+  ];
+
+  const mod = await import(`./homepageFeatureScheduler.js?r=${Date.now()}-${Math.random()}`);
+  return { mod, restore: () => mocks.forEach((m) => m.restore()) };
+}
+
+// ziua N din octombrie 2026, 00:00 ora României (EEST până pe 25, apoi EET)
+const roDay = (day) => getZonedDayRange(new Date(Date.UTC(2026, 9, day, 10))).startsAt;
+
+const productsFor = (vendorId, count) =>
+  Array.from({ length: count }, (_, i) => ({ id: `${vendorId}-p${i + 1}`, vendorId }));
+
+// generează `days` zile la rând (ca generateHomepageSchedule) și întoarce selecțiile
+function simulateDays(mod, { products, days, startDay = 1, history = [], artisanVendorId = null, seed = "t" }) {
+  const random = mod.seededRandom(seed);
+  const picks = [];
+
+  for (let i = 0; i < days; i += 1) {
+    const targetDate = roDay(startDay + i);
+    const result = mod.selectProductOfDay({ products, history, targetDate, artisanVendorId, random });
+    picks.push(result);
+    history.push({ productId: result.product.id, vendorId: result.product.vendorId, startsAt: targetDate });
+  }
+
+  return picks;
+}
+
+const countBy = (items) => items.reduce((map, key) => map.set(key, (map.get(key) || 0) + 1), new Map());
+
+test("R1. cooldown adaptiv: vendor min(14, n-1) zile, artizan min(26, n-1) săptămâni", async () => {
+  const { mod, restore } = await loadSchedulerModule();
+  try {
+    assert.deepEqual([1, 2, 5, 15, 40].map(mod.computeVendorCooldownDays), [0, 1, 4, 14, 14]);
+    assert.deepEqual([1, 2, 10, 27, 60].map(mod.computeArtisanCooldownWeeks), [0, 1, 9, 26, 26]);
+  } finally {
+    restore();
+  }
+});
+
+test("R2. 2 vendori -> alternează zi de zi", async () => {
+  const { mod, restore } = await loadSchedulerModule();
+  try {
+    const picks = simulateDays(mod, { products: [...productsFor("A", 30), ...productsFor("B", 30)], days: 20 });
+    const vendors = picks.map((p) => p.product.vendorId);
+
+    for (let i = 1; i < vendors.length; i += 1) assert.notEqual(vendors[i], vendors[i - 1]);
+    assert.deepEqual([...countBy(vendors).values()], [10, 10]);
+    assert.ok(picks.every((p) => p.stage === "normal"));
+  } finally {
+    restore();
+  }
+});
+
+test("R3. vendor cu 50 de produse vs vendori cu 2 -> NU domină (selecția e per vendor)", async () => {
+  const { mod, restore } = await loadSchedulerModule();
+  try {
+    const products = [...productsFor("BIG", 50), ...productsFor("S1", 2), ...productsFor("S2", 2)];
+    const picks = simulateDays(mod, { products, days: 6 });
+    const counts = Object.fromEntries(countBy(picks.map((p) => p.product.vendorId)));
+
+    assert.deepEqual(counts, { BIG: 2, S1: 2, S2: 2 });
+  } finally {
+    restore();
+  }
+});
+
+test("R4. același vendor nu revine în pauza de cooldown cât timp există alternativă (5 vendori, 40 de zile)", async () => {
+  const { mod, restore } = await loadSchedulerModule();
+  try {
+    const products = ["A", "B", "C", "D", "E"].flatMap((v, i) => productsFor(v, 10 + i * 7));
+    const picks = simulateDays(mod, { products, days: 40 });
+    const vendors = picks.map((p) => p.product.vendorId);
+
+    // 5 vendori -> cooldown 4 zile: același vendor revine abia după 5 zile
+    vendors.forEach((vendorId, i) => {
+      assert.ok(!vendors.slice(Math.max(0, i - 4), i).includes(vendorId), `vendor ${vendorId} repetat devreme (ziua ${i})`);
+    });
+    assert.ok([...countBy(vendors).values()].every((n) => n === 8));
+  } finally {
+    restore();
+  }
+});
+
+test("R5. cooldown produs 60 de zile + în interiorul vendorului: nepromovat > cel mai demult promovat", async () => {
+  const { mod, restore } = await loadSchedulerModule();
+  try {
+    const target = roDay(20);
+    const daysBefore = (n) => new Date(target.getTime() - n * 86400000);
+
+    // p1 promovat acum 59 de zile (în cooldown), p2 acum 61 -> p2
+    let result = mod.selectProductOfDay({
+      products: productsFor("A", 2),
+      history: [
+        { productId: "A-p1", vendorId: "A", startsAt: daysBefore(59) },
+        { productId: "A-p2", vendorId: "A", startsAt: daysBefore(61) },
+      ],
+      targetDate: target,
+    });
+    assert.equal(result.product.id, "A-p2");
+    assert.equal(result.stage, "normal");
+
+    // nepromovat are prioritate față de un produs promovat acum 90 de zile
+    result = mod.selectProductOfDay({
+      products: productsFor("A", 3),
+      history: [{ productId: "A-p2", vendorId: "A", startsAt: daysBefore(90) }],
+      targetDate: target,
+      random: () => 0.5,
+    });
+    assert.notEqual(result.product.id, "A-p2");
+
+    // vendor cu 70 de produse, 60 de zile -> niciun produs repetat
+    const picks = simulateDays(mod, { products: productsFor("A", 70), days: 60 });
+    assert.equal(new Set(picks.map((p) => p.product.id)).size, 60);
+  } finally {
+    restore();
+  }
+});
+
+test("R6. fallback gradual: un singur vendor / doar produse în cooldown -> tot există Produsul zilei", async () => {
+  const { mod, restore } = await loadSchedulerModule();
+  try {
+    // un vendor, 2 produse: după epuizare se relaxează DOAR cooldown-ul produsului
+    const picks = simulateDays(mod, { products: productsFor("SOLO", 2), days: 5 });
+    assert.ok(picks.every((p) => p.product.vendorId === "SOLO"));
+    assert.deepEqual(picks.map((p) => p.stage), [
+      "normal",
+      "normal",
+      "relax_product_cooldown",
+      "relax_product_cooldown",
+      "relax_product_cooldown",
+    ]);
+    // la relaxare revine produsul cel mai demult promovat
+    assert.equal(picks[2].product.id, picks[0].product.id);
+    assert.equal(picks[3].product.id, picks[1].product.id);
+
+    // 2 vendori, singurul produs al lui B e în cooldown -> A, deși a fost ieri (relax_vendor_cooldown)
+    const result = mod.selectProductOfDay({
+      products: [...productsFor("A", 3), ...productsFor("B", 1)],
+      history: [
+        { productId: "A-p1", vendorId: "A", startsAt: roDay(9) },
+        { productId: "B-p1", vendorId: "B", startsAt: roDay(8) },
+      ],
+      targetDate: roDay(10),
+    });
+    assert.equal(result.product.vendorId, "A");
+    assert.equal(result.stage, "relax_vendor_cooldown");
+    assert.notEqual(result.product.id, "A-p1");
+
+    assert.equal(mod.selectProductOfDay({ products: [], history: [], targetDate: roDay(10) }), null);
+  } finally {
+    restore();
+  }
+});
+
+test("R7. programările VIITOARE intră în cooldown; vendorul Artizanului e evitat doar dacă există alternativă", async () => {
+  const { mod, restore } = await loadSchedulerModule();
+  try {
+    const products = [...productsFor("A", 5), ...productsFor("B", 5)];
+
+    // A e deja programat MÂINE -> azi B
+    let result = mod.selectProductOfDay({
+      products,
+      history: [{ productId: "A-p1", vendorId: "A", startsAt: roDay(11) }],
+      targetDate: roDay(10),
+    });
+    assert.equal(result.product.vendorId, "B");
+
+    // produs programat peste 30 de zile -> în cooldown și azi
+    result = mod.selectProductOfDay({
+      products: [...productsFor("A", 1), ...productsFor("B", 1)],
+      history: [{ productId: "B-p1", vendorId: "B", startsAt: roDay(40) }],
+      targetDate: roDay(10),
+      random: () => 0.99,
+    });
+    assert.equal(result.product.id, "A-p1");
+
+    result = mod.selectProductOfDay({ products, history: [], targetDate: roDay(10), artisanVendorId: "A" });
+    assert.equal(result.product.vendorId, "B");
+
+    result = mod.selectProductOfDay({ products: productsFor("A", 5), history: [], targetDate: roDay(10), artisanVendorId: "A" });
+    assert.equal(result.product.vendorId, "A");
+    assert.equal(result.stage, "allow_artisan_vendor");
+  } finally {
+    restore();
+  }
+});
+
+test("R8. Artizanul săptămânii: 2 magazine alternează; 4 magazine -> pauză de 3 săptămâni; nepromovat primul", async () => {
+  const { mod, restore } = await loadSchedulerModule();
+  try {
+    function simulateWeeks(services, weeks) {
+      const history = [];
+      const random = mod.seededRandom("w");
+      const picks = [];
+
+      for (let i = 0; i < weeks; i += 1) {
+        const targetDate = getZonedWeekRange(new Date(Date.UTC(2026, 8, 7 + i * 7, 10))).startsAt;
+        const { service } = mod.selectArtisanOfWeek({ services, history, targetDate, random });
+        picks.push(service.id);
+        history.push({ serviceId: service.id, startsAt: targetDate });
+      }
+
+      return picks;
+    }
+
+    const two = simulateWeeks([{ id: "S1" }, { id: "S2" }], 8);
+    for (let i = 1; i < two.length; i += 1) assert.notEqual(two[i], two[i - 1]);
+
+    const four = simulateWeeks([{ id: "S1" }, { id: "S2" }, { id: "S3" }, { id: "S4" }], 12);
+    four.forEach((id, i) => assert.ok(!four.slice(Math.max(0, i - 3), i).includes(id)));
+
+    const fresh = mod.selectArtisanOfWeek({
+      services: [{ id: "OLD" }, { id: "NEW" }],
+      history: [{ serviceId: "OLD", startsAt: roDay(1) }],
+      targetDate: roDay(26),
+    });
+    assert.equal(fresh.service.id, "NEW");
+
+    // un singur magazin -> tot e ales
+    const solo = mod.selectArtisanOfWeek({
+      services: [{ id: "S1" }],
+      history: [{ serviceId: "S1", startsAt: roDay(19) }],
+      targetDate: roDay(26),
+    });
+    assert.equal(solo.service.id, "S1");
+  } finally {
+    restore();
+  }
+});
+
+test("R9. Europe/Bucharest + DST (25 oct 2026): ziua de 25 h, distanța în zile calendaristice rămâne corectă", async () => {
+  const { mod, restore } = await loadSchedulerModule();
+  try {
+    const dstDay = getZonedDayRange(new Date("2026-10-25T10:00:00Z"));
+    assert.equal(dstDay.startsAt.toISOString(), "2026-10-24T21:00:00.000Z"); // 00:00 EEST
+    assert.equal(dstDay.endsAt.toISOString(), "2026-10-25T22:00:00.000Z"); // 00:00 EET (25 h)
+
+    // A pe 25 oct (EEST), țintă 26 oct (EET): 25 h diferență, dar o singură zi -> 2 vendori alternează
+    const result = mod.selectProductOfDay({
+      products: [...productsFor("A", 3), ...productsFor("B", 3)],
+      history: [{ productId: "A-p1", vendorId: "A", startsAt: dstDay.startsAt }],
+      targetDate: dstDay.endsAt,
+    });
+    assert.equal(result.product.vendorId, "B");
+
+    const picks = simulateDays(mod, { products: [...productsFor("A", 3), ...productsFor("B", 3)], days: 4, startDay: 23 });
+    const vendors = picks.map((p) => p.product.vendorId);
+    for (let i = 1; i < vendors.length; i += 1) assert.notEqual(vendors[i], vendors[i - 1]);
+    assert.deepEqual(
+      [24, 25, 26].map((d) => getZonedDayKey(roDay(d))),
+      ["2026-10-24", "2026-10-25", "2026-10-26"]
+    );
+  } finally {
+    restore();
+  }
+});
+
+/* ---------- afișare pe homepage: doar dacă e încă eligibil ---------- */
+
+const liveService = (vendorId) => ({
+  id: `svc-${vendorId}`,
+  vendorId,
+  isActive: true,
+  status: "ACTIVE",
+  profile: { displayName: `Magazin ${vendorId}` },
+  vendor: { id: vendorId, isActive: true },
+});
+
+const liveProduct = (id, vendorId, extra = {}) => ({
+  id,
+  serviceId: `svc-${vendorId}`,
+  title: id,
+  isActive: true,
+  isHidden: false,
+  moderationStatus: "APPROVED",
+  availability: "READY",
+  images: ["https://img/x.jpg"],
+  service: liveService(vendorId),
+  ...extra,
+});
+
+test("R10. isProductFeatureDisplayable: inactiv / ascuns / neaprobat / magazin sau vendor inactiv -> NU se afișează", async () => {
+  const { mod, restore } = await loadSchedulerModule();
+  try {
+    assert.equal(mod.isProductFeatureDisplayable({ product: liveProduct("p", "A") }), true);
+
+    for (const extra of [
+      { isActive: false },
+      { isHidden: true },
+      { moderationStatus: "CHANGES_REQUESTED" },
+      { moderationStatus: "REJECTED" },
+      { availability: "SOLD_OUT" },
+      { images: [] },
+      { service: { ...liveService("A"), isActive: false } },
+      { service: { ...liveService("A"), status: "INACTIVE" } },
+      { service: { ...liveService("A"), vendor: { isActive: false } } },
+    ]) {
+      assert.equal(mod.isProductFeatureDisplayable({ product: liveProduct("p", "A", extra) }), false, JSON.stringify(extra));
+    }
+
+    assert.equal(mod.isProductFeatureDisplayable({ product: null }), false);
+    assert.equal(mod.isArtisanFeatureDisplayable({ service: { ...liveService("A"), products: [{ id: "x" }] } }), true);
+    assert.equal(mod.isArtisanFeatureDisplayable({ service: { ...liveService("A"), products: [] } }), false);
+    assert.equal(
+      mod.isArtisanFeatureDisplayable({ service: { ...liveService("A"), isActive: false, products: [{ id: "x" }] } }),
+      false
+    );
+  } finally {
+    restore();
+  }
+});
+
+test("R11. produs dezactivat după programare -> homepage-ul afișează un înlocuitor eligibil, determinist; calendarul NU e modificat", async () => {
+  const today = getZonedDayRange(new Date());
+  const writes = [];
+  const scheduled = {
+    id: "feat-today",
+    type: "PRODUCT_OF_DAY",
+    dateKey: getZonedDayKey(today.startsAt),
+    startsAt: today.startsAt,
+    endsAt: today.endsAt,
+    productId: "A-off",
+    vendorId: "A",
+    vendorDiscountStatus: "ACCEPTED",
+    vendorDiscountPercent: 10,
+    product: liveProduct("A-off", "A", { isActive: false }),
+  };
+  const catalog = [liveProduct("B-1", "B"), liveProduct("C-1", "C")];
+
+  const db = {
+    homepageFeature: {
+      findUnique: async ({ where }) => (where.type_dateKey?.type === "PRODUCT_OF_DAY" ? scheduled : null),
+      findMany: async () => [{ productId: "A-off", vendorId: "A", startsAt: today.startsAt }],
+      create: async (args) => writes.push(["create", args]),
+      update: async (args) => writes.push(["update", args]),
+    },
+    product: {
+      findMany: async () =>
+        catalog.map((p) => ({ id: p.id, serviceId: p.serviceId, service: { vendorId: p.service.vendorId } })),
+      findUnique: async ({ where }) => catalog.find((p) => p.id === where.id) || null,
+    },
+  };
+
+  const { mod, restore } = await loadSchedulerModule(db);
+  try {
+    const first = await mod.resolveDisplayProductFeature();
+    const second = await mod.resolveDisplayProductFeature();
+
+    assert.equal(first.replaced, true);
+    assert.equal(first.originalFeatureId, "feat-today");
+    assert.ok(["B-1", "C-1"].includes(first.feature.product.id));
+    assert.equal(first.feature.source, "FALLBACK");
+    assert.equal(first.feature.vendorDiscountStatus, "DECLINED", "fără reducerea promovării originale");
+    assert.equal(second.feature.product.id, first.feature.product.id, "același înlocuitor toată ziua");
+    assert.equal(writes.length, 0, "calendarul / istoricul nu se modifică");
+
+    // produsul programat e eligibil -> se afișează el
+    scheduled.product = liveProduct("A-off", "A");
+    const normal = await mod.resolveDisplayProductFeature();
+    assert.equal(normal.replaced, false);
+    assert.equal(normal.feature.id, "feat-today");
+  } finally {
+    restore();
+  }
+});
+
+/* ---------- Admin: active / upcoming / history corect peste 100 de rânduri ---------- */
+
+test("R12. GET /api/admin/homepage-features: grupe separate pe tip, corecte peste 100 de rânduri", async () => {
+  const DAY = 86400000;
+  const rows = [];
+
+  const add = (type, startsAt, length) =>
+    rows.push({
+      id: `${type}-${rows.length}`,
+      type,
+      startsAt: new Date(startsAt),
+      endsAt: new Date(startsAt + length),
+      createdAt: new Date(startsAt),
+      product: type === "PRODUCT_OF_DAY" ? liveProduct(`p${rows.length}`, "A") : null,
+      service: type === "ARTISAN_OF_WEEK" ? { ...liveService("A"), _count: { products: 3 } } : null,
+    });
+
+  const todayStart = getZonedDayRange(new Date()).startsAt.getTime();
+  for (let i = 150; i >= 1; i -= 1) add("PRODUCT_OF_DAY", todayStart - i * DAY, DAY);
+  add("PRODUCT_OF_DAY", todayStart, DAY);
+  for (let i = 1; i <= 14; i += 1) add("PRODUCT_OF_DAY", todayStart + i * DAY, DAY);
+  const weekStart = getZonedWeekRange(new Date()).startsAt.getTime();
+  for (let i = 30; i >= 1; i -= 1) add("ARTISAN_OF_WEEK", weekStart - i * 7 * DAY, 7 * DAY);
+  add("ARTISAN_OF_WEEK", weekStart, 7 * DAY);
+  for (let i = 1; i <= 4; i += 1) add("ARTISAN_OF_WEEK", weekStart + i * 7 * DAY, 7 * DAY);
+  // un Produs al zilei viitor, devenit neeligibil
+  rows.find((r) => r.type === "PRODUCT_OF_DAY" && r.startsAt.getTime() === todayStart + 3 * DAY).product.isHidden = true;
+
+  const cmp = (op, a, b) => (op === "lte" ? a <= b : op === "gt" ? a > b : op === "gte" ? a >= b : a < b);
+  const matches = (row, where) =>
+    row.type === where.type &&
+    ["startsAt", "endsAt"].every((field) =>
+      Object.entries(where[field] || {}).every(([op, value]) => cmp(op, row[field], value))
+    );
+
+  const db = {
+    homepageFeature: {
+      findMany: async ({ where, orderBy, take }) => {
+        const dir = orderBy?.startsAt === "desc" ? -1 : 1;
+        const list = rows.filter((r) => matches(r, where)).sort((a, b) => dir * (a.startsAt - b.startsAt));
+        return take ? list.slice(0, take) : list;
+      },
+    },
+  };
+
+  const mocks = [
+    mock.module("../db.js", { namedExports: { prisma: db } }),
+    mock.module("../api/auth.js", {
+      namedExports: {
+        authRequired: (_req, _res, next) => next(),
+        enforceTokenVersion: (_req, _res, next) => next(),
+        requireRole: () => (_req, _res, next) => next(),
+      },
+    }),
+    mock.module("../lib/openai.js", { namedExports: { openai: {} } }),
+    mock.module("./r2Storage.js", { namedExports: { uploadToR2: async () => null } }),
+    mock.module("./productOfDayTemplate.js", {
+      namedExports: { composeProductOfDayImage: async () => null, buildProductOfDayBackgroundPrompt: () => "" },
+    }),
+    mock.module("./notifications.js", { namedExports: { notifyVendorOnHomepageFeatureCreated: async () => null } }),
+    mock.module("../lib/mailer.js", { namedExports: { sendHomepageFeatureSelectedEmail: async () => ({ ok: true }) } }),
+  ];
+
+  let server;
+  try {
+    const router = (await import(`../routes/adminHomepageFeatureRoutes.js?a=${Math.random()}`)).default;
+    const app = express();
+    app.use(express.json());
+    app.use("/api/admin/homepage-features", router);
+    server = http.createServer(app);
+    await new Promise((resolve) => server.listen(0, resolve));
+
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/admin/homepage-features?historyTake=30`);
+    const body = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(body).slice(0, 300));
+
+    const pod = body.groups.PRODUCT_OF_DAY;
+    const aow = body.groups.ARTISAN_OF_WEEK;
+    const time = (f) => new Date(f.startsAt).getTime();
+
+    assert.equal(rows.length, 200, "peste 100 de rânduri");
+    assert.equal(pod.active.length, 1);
+    assert.equal(time(pod.active[0]), todayStart);
+    assert.equal(pod.upcoming.length, 14, "TOATE programările viitoare");
+    assert.ok(pod.upcoming.every((f, i, all) => i === 0 || time(all[i - 1]) < time(f)), "crescător");
+    assert.equal(pod.history.length, 30);
+    assert.ok(pod.history.every((f, i, all) => i === 0 || time(all[i - 1]) > time(f)), "descrescător");
+    assert.equal(time(pod.history[0]), todayStart - DAY, "cel mai recent trecut primul");
+    assert.equal(pod.upcoming.find((f) => time(f) === todayStart + 3 * DAY).eligibleNow, false);
+    assert.equal(pod.upcoming[0].eligibleNow, true);
+
+    assert.equal(aow.active.length, 1);
+    assert.equal(aow.upcoming.length, 4);
+    assert.equal(aow.history.length, 30);
+    assert.equal(body.features.length, 1 + 14 + 30 + 1 + 4 + 30);
+  } finally {
+    server?.close();
+    mocks.forEach((m) => m.restore());
+  }
+});

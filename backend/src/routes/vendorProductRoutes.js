@@ -29,6 +29,14 @@ import {
   needsGpsrReevaluation,
 } from "../services/productAiModeration.js";
 import {
+  buildChangeRequestHistory,
+  changeRequestNotificationKey,
+  getChangeRequest,
+  isAwaitingVendorChanges,
+  summarizeChangeRequest,
+} from "../services/productChangeRequest.js";
+import { notifyAdminsProductChangesDone } from "../services/notifications.js";
+import {
   GUARDED_FIELDS,
   buildContactInfoErrorBody,
   checkPublicFields,
@@ -892,6 +900,10 @@ async function listVendorProducts(req, res) {
 let promotedItems =
   items;
 
+const itemsById = new Map(
+  items.map((p) => [p.id, p])
+);
+
 try {
   promotedItems =
     await applyPromotionsToProducts(
@@ -915,7 +927,14 @@ return res.json({
       },
       items:
   promotedItems.map(
-    mapProduct
+    (p) => ({
+      ...mapProduct(p),
+      // doar pentru proprietar (ruta publică nu îl are)
+      changeRequest:
+        summarizeChangeRequest(
+          itemsById.get(p.id) || p
+        ),
+    })
   ),
 
 total:
@@ -957,6 +976,7 @@ async function getProduct(req, res) {
 
     return res.json({
       ...mapProduct(p),
+      changeRequest: summarizeChangeRequest(p),
       ownerVendorId: p.service.vendorId,
       vendor: {
         id: p.service.vendor.id,
@@ -2355,14 +2375,28 @@ async function updateProduct(
         MODERATED_CONTENT_FIELDS
       );
 
+    /*
+     * „Modificări solicitate” de admin, încă neconfirmate: vendorul poate
+     * salva de mai multe ori, produsul rămâne CHANGES_REQUESTED (cu
+     * mesajul adminului) până la „Am făcut modificările”, care îl
+     * retrimite la verificare (confirmProductChanges).
+     */
+    const awaitingVendorChanges =
+      product.moderationStatus ===
+        "CHANGES_REQUESTED" &&
+      isAwaitingVendorChanges(product);
+
     const shouldModerate =
       contentFieldsChanged &&
-      !keepExistingApproval;
+      !keepExistingApproval &&
+      !awaitingVendorChanges;
 
     // un produs respins / cu modificări cerute de un ADMIN nu se poate
     // auto-aproba la nicio retrimitere până nu îl aprobă un admin
+    // (inclusiv un produs aprobat, rămas vizibil, cu solicitare deschisă)
     const previouslyRejectedByAdmin =
-      isAdminReviewRequired(product);
+      isAdminReviewRequired(product) ||
+      isAwaitingVendorChanges(product);
 
     if (
       shouldModerate
@@ -2568,6 +2602,213 @@ async function listContactInfoIssues(req, res) {
   }
 }
 
+/* ================= Modificări solicitate (vendor) ================= */
+
+/*
+ * Pagina „Modificări solicitate” + „Am făcut modificările”. Datele vin
+ * din câmpurile existente - vezi services/productChangeRequest.js.
+ * Doar vendorul proprietar (403 pentru oricine altcineva).
+ */
+async function loadOwnedProductForChanges(id, userId) {
+  const product = await prisma.product.findUnique({
+    where: { id: String(id || "") },
+    include: {
+      service: {
+        include: {
+          vendor: true,
+          type: true,
+          profile: true,
+        },
+      },
+    },
+  });
+
+  if (!product) return { status: 404, error: "not_found" };
+
+  if (product.service?.vendor?.userId !== userId) {
+    return { status: 403, error: "forbidden" };
+  }
+
+  if (product.service?.type?.code !== "products") {
+    return { status: 400, error: "not_a_products_store" };
+  }
+
+  return { product };
+}
+
+async function buildChangeRequestPayload(product) {
+  const changeRequest = summarizeChangeRequest(product);
+
+  const history = await buildChangeRequestHistory(prisma, {
+    vendorId: product.service?.vendorId,
+    product,
+  });
+
+  return {
+    product: {
+      id: product.id,
+      title: product.title,
+      image: Array.isArray(product.images) && product.images.length ? product.images[0] : null,
+      moderationStatus: product.moderationStatus,
+      stage: changeRequest?.stage || product.moderationStatus,
+      isHidden: !!product.isHidden,
+      isActive: !!product.isActive,
+      storeSlug: product.service?.profile?.slug || null,
+      storeName: product.service?.profile?.displayName || product.service?.vendor?.displayName || "",
+      // datele magazinului propriu pentru editorul de produs (GPSR), ca în ProfilMagazin
+      vendorPreview: {
+        displayName: product.service?.profile?.displayName || product.service?.vendor?.displayName || "",
+        address: product.service?.profile?.address || "",
+        email: product.service?.profile?.email || product.service?.vendor?.email || "",
+      },
+      // solicitările vechi (fără motive) au doar textul acesta
+      moderationMessage: product.moderationMessage || null,
+      moderationReport: buildVendorModerationReport(
+        product.aiModeration,
+        product.moderationStatus,
+        product.reviewedByUserId,
+        product
+      ),
+    },
+    changeRequest,
+    canConfirm: isAwaitingVendorChanges(product),
+    history,
+  };
+}
+
+async function getProductChangeRequest(req, res) {
+  try {
+    const { product, status, error } = await loadOwnedProductForChanges(req.params.id, req.user.sub);
+    if (error) return res.status(status).json({ error });
+
+    return res.json(await buildChangeRequestPayload(product));
+  } catch (e) {
+    console.error("GET /vendors/products/:id/change-request error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+/*
+ * „Am făcut modificările” - idempotent:
+ *  - CHANGES_REQUESTED -> PENDING (+ aiModeration.adminReviewRequired),
+ *    cu verificarea automată a imaginilor care nu a rulat la salvări;
+ *  - produs rămas vizibil (APPROVED) / deja PENDING -> statusul rămâne;
+ *  - confirmarea e scrisă pe solicitare + pe notificarea ei (istoric);
+ *  - adminii primesc câte o notificare (dedupe per solicitare).
+ * Dacă verificarea automată blochează (ex. telefon într-o imagine),
+ * solicitarea rămâne deschisă și adminul NU e notificat.
+ */
+async function confirmProductChanges(req, res) {
+  try {
+    const { product, status, error } = await loadOwnedProductForChanges(req.params.id, req.user.sub);
+    if (error) return res.status(status).json({ error });
+
+    const changeRequest = getChangeRequest(product);
+
+    if (!changeRequest || changeRequest.resolvedAt) {
+      return res.status(409).json({
+        error: "no_open_change_request",
+        message: "Nu există modificări solicitate deschise pentru acest produs.",
+      });
+    }
+
+    if (changeRequest.confirmedAt) {
+      return res.json({ ok: true, alreadyConfirmed: true, ...(await buildChangeRequestPayload(product)) });
+    }
+
+    const now = new Date();
+    const confirmed = { ...changeRequest, confirmedAt: now.toISOString() };
+    const resubmit = product.moderationStatus === "CHANGES_REQUESTED";
+
+    // updatedAt = blocare optimistă: din două click-uri simultane câștigă unul
+    const result = await prisma.product.updateMany({
+      where: { id: product.id, updatedAt: product.updatedAt },
+      data: {
+        aiModeration: {
+          ...(product.aiModeration && typeof product.aiModeration === "object" ? product.aiModeration : {}),
+          adminReviewRequired: true,
+          changeRequest: confirmed,
+        },
+        ...(resubmit
+          ? {
+              moderationStatus: "PENDING",
+              submittedAt: now,
+              reviewedAt: null,
+              reviewedByUserId: null,
+              approvedAt: null,
+            }
+          : {}),
+      },
+    });
+
+    if (result.count === 0) {
+      const { product: fresh } = await loadOwnedProductForChanges(product.id, req.user.sub);
+
+      return res.json({
+        ok: true,
+        alreadyConfirmed: Boolean(getChangeRequest(fresh)?.confirmedAt),
+        ...(await buildChangeRequestPayload(fresh)),
+      });
+    }
+
+    let current = (await loadOwnedProductForChanges(product.id, req.user.sub)).product;
+
+    if (resubmit) {
+      await moderateSavedProduct({
+        prisma,
+        product: current,
+        previous: product.aiModeration,
+        previouslyRejectedByAdmin: true,
+        client: openai,
+      });
+
+      current = (await loadOwnedProductForChanges(product.id, req.user.sub)).product;
+
+      if (current.moderationStatus === "CHANGES_REQUESTED") {
+        // blocat de verificarea automată -> solicitarea rămâne deschisă
+        await prisma.product.update({
+          where: { id: product.id },
+          data: {
+            aiModeration: {
+              ...current.aiModeration,
+              changeRequest: { ...confirmed, confirmedAt: null },
+            },
+          },
+        });
+
+        current = (await loadOwnedProductForChanges(product.id, req.user.sub)).product;
+
+        return res.json({ ok: false, blocked: true, ...(await buildChangeRequestPayload(current)) });
+      }
+    }
+
+    const notification = await prisma.notification.findUnique({
+      where: { dedupeKey: changeRequestNotificationKey(product.id, changeRequest.id) },
+      select: { id: true, meta: true },
+    });
+
+    if (notification) {
+      await prisma.notification.update({
+        where: { id: notification.id },
+        data: { meta: { ...(notification.meta || {}), confirmedAt: confirmed.confirmedAt } },
+      });
+    }
+
+    await notifyAdminsProductChangesDone({
+      product: current,
+      changeRequest: confirmed,
+      storeName: current.service?.profile?.displayName || current.service?.vendor?.displayName || "",
+    }).catch((e) => {
+      console.error("notify admins product changes done error:", e);
+    });
+
+    return res.json({ ok: true, ...(await buildChangeRequestPayload(current)) });
+  } catch (e) {
+    console.error("POST /vendors/products/:id/changes-done error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
 /* ================= Mount routes ================= */
 
 router.get("/public/store/:slug/products", publicListProducts);
@@ -2582,6 +2823,22 @@ function registerProductRoutes(prefix) {
   );
 
   router.get(`/${prefix}/products/:id`, authRequired, enforceTokenVersion, vendorAccessRequired, getProduct);
+
+  router.get(
+    `/${prefix}/products/:id/change-request`,
+    authRequired,
+    enforceTokenVersion,
+    vendorAccessRequired,
+    getProductChangeRequest
+  );
+
+  router.post(
+    `/${prefix}/products/:id/changes-done`,
+    authRequired,
+    enforceTokenVersion,
+    vendorAccessRequired,
+    confirmProductChanges
+  );
 
   router.get(
     `/${prefix}/contact-info/issues`,

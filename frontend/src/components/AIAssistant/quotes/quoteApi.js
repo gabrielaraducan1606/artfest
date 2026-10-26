@@ -894,13 +894,22 @@ export async function createVendorQuoteOffer(
     productionDays = null,
     validUntil = null,
     notes = null,
-  }
+  },
+  // ofertă din conversație: clientul/vendorul sunt luați server-side din thread
+  {
+    threadId = null,
+    title = null,
+  } = {}
 ) {
-  const id =
-    requireId(
-      quoteId,
-      "ID-ul cererii"
-    );
+  const offersUrl =
+    threadId
+      ? `/api/vendor/quotes/conversations/${encodeURIComponent(
+          requireId(threadId, "ID-ul conversației")
+        )}/offers`
+      : `/api/vendor/quotes/${requireId(
+          quoteId,
+          "ID-ul cererii"
+        )}/offers`;
 
   const normalizedQuantity =
     Number(
@@ -983,12 +992,16 @@ export async function createVendorQuoteOffer(
   }
 
   return apiRequest(
-    `/api/vendor/quotes/${id}/offers`,
+    offersUrl,
     {
       method:
         "POST",
 
       body: {
+        ...(threadId
+          ? { title: String(title || "").trim() }
+          : {}),
+
         quantity:
           normalizedQuantity,
 

@@ -1,5 +1,10 @@
 // backend/src/services/notifications.js
 import { prisma } from "../db.js";
+import {
+  changeRequestNotificationKey,
+  reasonLabels,
+  vendorChangeRequestPath,
+} from "./productChangeRequest.js";
 
 /**
  * Mapare explicită categorie -> cheia din User.preferences.notifications
@@ -871,7 +876,15 @@ export async function notifyVendorOnAwbAssigned(orderId, shipmentId) {
     },
   });
 }
-export async function notifyVendorOnProductModeration(productId, status, message) {
+/*
+ * Moderare produs -> notificare vendor (una per eveniment).
+ * options.changeRequest (services/productChangeRequest.js): solicitarea de
+ * modificări cu motive - cheia e id-ul solicitării (o singură notificare
+ * per solicitare), link spre pagina „Modificări solicitate”, iar meta
+ * păstrează motivele/observațiile pentru istoric.
+ * options.approvedAt: aprobarea de admin (o notificare per aprobare).
+ */
+export async function notifyVendorOnProductModeration(productId, status, message, options = {}) {
   if (!productId) return null;
 
   const product = await prisma.product.findUnique({
@@ -894,6 +907,51 @@ export async function notifyVendorOnProductModeration(productId, status, message
   const statusUc = String(status || "").toUpperCase();
   const isRejected = statusUc === "REJECTED";
   const productTitle = product.title || "produsul tău";
+  const { changeRequest = null, approvedAt = null } = options;
+
+  const baseMeta = {
+    kind: "product_moderation",
+    productId: product.id,
+    vendorId,
+    status: statusUc,
+    storeSlug: product.service?.profile?.slug || null,
+  };
+
+  if (statusUc === "APPROVED") {
+    const at = approvedAt ? new Date(approvedAt) : new Date();
+
+    return createVendorNotification(vendorId, {
+      dedupeKey: `product_moderation:APPROVED:${product.id}:${at.getTime()}`,
+      type: "system",
+      title: "Produsul tău a fost aprobat.",
+      body: `Produsul „${productTitle}” a fost aprobat.`,
+      link: options.link || "/vendor/store",
+      meta: baseMeta,
+    });
+  }
+
+  if (statusUc === "CHANGES_REQUESTED" && changeRequest?.id) {
+    const labels = reasonLabels(changeRequest.reasons);
+
+    return createVendorNotification(vendorId, {
+      dedupeKey: changeRequestNotificationKey(product.id, changeRequest.id),
+      type: "system",
+      title: "Produsul necesită modificări",
+      body: labels.length
+        ? `„${productTitle}”: ${labels.join(", ")}.`
+        : `Produsul „${productTitle}” necesită câteva modificări.`,
+      link: vendorChangeRequestPath(product.id),
+      meta: {
+        ...baseMeta,
+        message,
+        requestId: changeRequest.id,
+        reasons: changeRequest.reasons,
+        note: changeRequest.note || "",
+        hideProduct: changeRequest.hideProduct === true,
+        confirmedAt: null,
+      },
+    });
+  }
 
  return createVendorNotification(vendorId, {
   dedupeKey: `product_moderation:${statusUc}:${product.id}:${Date.now()}`,
@@ -912,6 +970,43 @@ export async function notifyVendorOnProductModeration(productId, status, message
     storeSlug: product.service?.profile?.slug || null,
   },
 });
+}
+
+/*
+ * Vendorul a apăsat „Am făcut modificările” -> câte O notificare per admin
+ * activ, per solicitare (dedupeKey cu id-ul solicitării: un dublu-click nu
+ * dublează). Link spre fereastra de verificare a produsului din Admin.
+ */
+export async function notifyAdminsProductChangesDone({ product, changeRequest, storeName }) {
+  if (!product?.id || !changeRequest?.id) return;
+
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN", status: "ACTIVE" },
+    select: { id: true },
+    take: 50,
+  });
+
+  const productTitle = product.title || "produs";
+
+  await Promise.all(
+    admins.map((admin) =>
+      createUserNotification(admin.id, {
+        dedupeKey: `product_changes_done:${changeRequest.id}:${admin.id}`,
+        type: "system",
+        title: `Vânzătorul a finalizat modificările pentru „${productTitle}”`,
+        body: `${storeName || "Vânzătorul"} a confirmat modificările solicitate. Produsul este de reverificat.`,
+        link: `/admin?tab=products&productId=${encodeURIComponent(product.id)}`,
+        meta: {
+          kind: "product_changes_done",
+          productId: product.id,
+          requestId: changeRequest.id,
+        },
+      }).catch((error) => {
+        console.error("[productChanges] notificare admin:", error?.message || error);
+        return null;
+      })
+    )
+  );
 }
 
 export async function notifyVendorOnProductSoldOut(productId) {

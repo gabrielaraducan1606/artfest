@@ -433,7 +433,7 @@ export default function AdminHomepageFeaturesTab() {
         try {
           const data =
             await api(
-              "/api/admin/homepage-features?take=100"
+              "/api/admin/homepage-features?historyTake=30"
             );
 
           setFeatures(
@@ -565,7 +565,7 @@ console.log(
 
         const data =
           await api(
-            "/api/admin/homepage-features?take=100"
+            "/api/admin/homepage-features?historyTake=30"
           );
 
         if (
@@ -684,28 +684,11 @@ const upcomingFeatures =
             "upcoming"
         );
 
-      /*
-       * Pentru produsele zilei afișăm
-       * următoarele 7 selecții.
-       *
-       * Pentru artizani păstrăm toate
-       * săptămânile generate.
-       */
-      if (
-        activeView ===
-        "products"
-      ) {
-        return upcoming.slice(
-          0,
-          7
-        );
-      }
-
+      // TOATE programările viitoare, în ordine cronologică
       return upcoming;
     },
     [
       visibleFeatures,
-      activeView,
     ]
   );
 
@@ -720,11 +703,8 @@ const upcomingFeatures =
               ) ===
               "past"
           )
-          .reverse()
-          .slice(
-            0,
-            10
-          ),
+          // istoricul vine deja limitat din backend (historyTake)
+          .reverse(),
       [
         visibleFeatures,
       ]
@@ -1873,6 +1853,26 @@ function FeatureCard({
               feature
             )}
           </h4>
+
+          {/* produs/magazin devenit neeligibil după programare - pe
+              homepage se afișează un înlocuitor (backend) */}
+          {feature.eligibleNow === false &&
+            getFeatureStatus(feature) !== "past" && (
+              <div
+                style={{
+                  display: "inline-block",
+                  margin: "0 0 5px",
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  background: "#fef2f2",
+                  color: "#b91c1c",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                Neeligibil acum - pe homepage apare un înlocuitor
+              </div>
+            )}
 
           <div
             className={

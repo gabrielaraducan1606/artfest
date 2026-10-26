@@ -154,6 +154,66 @@ export const FALLBACK_CATEGORIES = Object.keys(
   FALLBACK_CATEGORY_LABELS
 );
 
+/*
+ * Categoriile detaliate pentru editorul de produs (cache local ->
+ * /api/public/categories/detailed -> /api/public/categories -> fallback).
+ * Folosit de useProfilMagazin și de pagina „Modificări solicitate”.
+ */
+export async function fetchDetailedCategories() {
+  const cached = readCache("pm:categories");
+
+  if (cached?.categories?.length) {
+    return cached.categories;
+  }
+
+  const remember = (categories) => {
+    writeCache("pm:categories", { categories });
+    return categories;
+  };
+
+  try {
+    const detailed = await api(
+      "/api/public/categories/detailed"
+    );
+
+    if (
+      Array.isArray(detailed) &&
+      detailed.length &&
+      typeof detailed[0] === "object"
+    ) {
+      return remember(detailed);
+    }
+
+    const list = await api("/api/public/categories");
+
+    if (Array.isArray(list) && list.length) {
+      if (typeof list[0] === "string") {
+        return remember(
+          list.map((key) => {
+            const group = key.split("_")[0] || "alte";
+
+            return {
+              key,
+              label:
+                FALLBACK_CATEGORY_LABELS[key] || key,
+              group,
+              groupLabel:
+                FALLBACK_CATEGORY_GROUP_LABELS[group] ||
+                "Altele",
+            };
+          })
+        );
+      }
+
+      return remember(list);
+    }
+
+    return remember(FALLBACK_CATEGORIES_DETAILED);
+  } catch {
+    return remember(FALLBACK_CATEGORIES_DETAILED);
+  }
+}
+
 /* ================= URL helpers ================= */
 
 const BACKEND_BASE = (
@@ -605,85 +665,8 @@ export default function useProfilMagazin(slug, opts = {}) {
       return;
     }
 
-    const cached = readCache("pm:categories");
-
-    if (cached?.categories?.length) {
-      setCategories(cached.categories);
-      categoriesLoadedRef.current = true;
-      return;
-    }
-
-    try {
-      const detailed = await api(
-        "/api/public/categories/detailed"
-      );
-
-      if (
-        Array.isArray(detailed) &&
-        detailed.length &&
-        typeof detailed[0] === "object"
-      ) {
-        setCategories(detailed);
-
-        writeCache("pm:categories", {
-          categories: detailed,
-        });
-
-        categoriesLoadedRef.current = true;
-        return;
-      }
-
-      const list = await api("/api/public/categories");
-
-      if (Array.isArray(list) && list.length) {
-        if (typeof list[0] === "string") {
-          const detailedFromSimple = list.map((key) => {
-            const group = key.split("_")[0] || "alte";
-
-            return {
-              key,
-              label:
-                FALLBACK_CATEGORY_LABELS[key] || key,
-              group,
-              groupLabel:
-                FALLBACK_CATEGORY_GROUP_LABELS[group] ||
-                "Altele",
-            };
-          });
-
-          setCategories(detailedFromSimple);
-
-          writeCache("pm:categories", {
-            categories: detailedFromSimple,
-          });
-        } else {
-          setCategories(list);
-
-          writeCache("pm:categories", {
-            categories: list,
-          });
-        }
-
-        categoriesLoadedRef.current = true;
-        return;
-      }
-
-      setCategories(FALLBACK_CATEGORIES_DETAILED);
-
-      writeCache("pm:categories", {
-        categories: FALLBACK_CATEGORIES_DETAILED,
-      });
-
-      categoriesLoadedRef.current = true;
-    } catch {
-      setCategories(FALLBACK_CATEGORIES_DETAILED);
-
-      writeCache("pm:categories", {
-        categories: FALLBACK_CATEGORIES_DETAILED,
-      });
-
-      categoriesLoadedRef.current = true;
-    }
+    setCategories(await fetchDetailedCategories());
+    categoriesLoadedRef.current = true;
   }, []);
 
   /* ================= Încărcare magazin ================= */
@@ -1061,6 +1044,11 @@ if (owner) {
             moderationReport:
               privateProduct?.moderationReport ??
               publicProduct.moderationReport ??
+              null,
+
+            // doar ruta privată (proprietar) îl are
+            changeRequest:
+              privateProduct?.changeRequest ??
               null,
 
             isHidden:

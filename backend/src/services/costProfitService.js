@@ -29,7 +29,7 @@
  */
 
 import { prisma } from "../db.js";
-import { findMatchingItems } from "../lib/textMatch.js";
+import { normalizeText } from "../lib/textMatch.js";
 import { getActivePlanForVendor } from "../payments/marketplaceCalc.js";
 import { calculateVendorLineFinancials } from "./vendorCommissionService.js";
 import { guardedProductUpdate } from "./fairProductLock.js";
@@ -158,6 +158,129 @@ export function convertQuantityToUnit(
   return null;
 }
 
+/*
+ * Cost unitar (în cenți, eventual fracționari) exprimat pe `fromUnit`
+ * -> același cost pe `toUnit` (ex. 2800 cenți/kg -> 2,8 cenți/g).
+ * Unitate lipsă sau identică -> neschimbat; unități incompatibile
+ * (ex. buc vs kg) -> null.
+ */
+export function convertUnitCostCents(cents, fromUnit, toUnit) {
+  const value = Number(cents);
+  if (!Number.isFinite(value)) return null;
+
+  const from = normalizeUnitLabel(fromUnit || "");
+  const to = normalizeUnitLabel(toUnit || "");
+
+  if (!from || !to || from === to) return value;
+
+  // ex. kg -> g: prețul pe gram e de 1000 de ori mai mic
+  if (UNIT_CONVERSIONS[from]?.to === to) {
+    return value / UNIT_CONVERSIONS[from].factor;
+  }
+
+  if (UNIT_CONVERSIONS[to]?.to === from) {
+    return value * UNIT_CONVERSIONS[to].factor;
+  }
+
+  return null;
+}
+
+/* ---------------------------------------------------------
+   Potrivire denumire material <-> VendorCostItem.label
+
+   Determinist, fără AI: diacritice/majuscule ignorate, cuvinte de
+   legătură eliminate („ceară de soia” = „ceară soia”), câteva
+   sinonime uzuale („borcan” = „recipient”), apoi potrivire pe cuvinte
+   întregi (nu pe subșiruri: „lac” NU se potrivește cu „placă”) și
+   distanță Levenshtein pentru greșeli de scriere.
+--------------------------------------------------------- */
+
+const COST_NAME_STOPWORDS = new Set([
+  "de", "din", "pentru", "cu", "si", "la", "pe", "al", "ale", "un", "una",
+]);
+
+const COST_NAME_SYNONYMS = [
+  ["recipient", "borcan", "borcane", "borcanel", "pahar", "pahare", "container", "vas", "recipiente"],
+  ["fitil", "fitile"],
+  ["eticheta", "etichete"],
+  ["cutie", "cutii", "cutiuta"],
+];
+
+const COST_NAME_CANONICAL = new Map(
+  COST_NAME_SYNONYMS.flatMap((group) => group.map((word) => [word, group[0]]))
+);
+
+export function normalizeCostName(value) {
+  return normalizeText(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((word) => word && !COST_NAME_STOPWORDS.has(word))
+    .map((word) => COST_NAME_CANONICAL.get(word) || word)
+    .join(" ");
+}
+
+function levenshteinRatio(a, b) {
+  const m = a.length;
+  const n = b.length;
+  if (!m || !n) return 0;
+
+  let previous = Array.from({ length: n + 1 }, (_, index) => index);
+
+  for (let i = 1; i <= m; i += 1) {
+    const current = [i];
+
+    for (let j = 1; j <= n; j += 1) {
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+
+    previous = current;
+  }
+
+  return 1 - previous[n] / Math.max(m, n);
+}
+
+export function costNameSimilarity(a, b) {
+  const left = normalizeCostName(a);
+  const right = normalizeCostName(b);
+
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+
+  const leftWords = left.split(" ");
+  const rightWords = right.split(" ");
+
+  // toate cuvintele unei denumiri apar în cealaltă („fitil” / „fitil bumbac”)
+  if (
+    leftWords.every((word) => rightWords.includes(word)) ||
+    rightWords.every((word) => leftWords.includes(word))
+  ) {
+    return 0.85;
+  }
+
+  return levenshteinRatio(left, right);
+}
+
+export const COST_ITEM_MATCH_THRESHOLD = 0.72;
+
+/**
+ * Item-urile din bibliotecă potrivite cu `name`, descrescător după
+ * scor. Acceptă atât rânduri Prisma (`label`), cât și item-uri
+ * formatate (`name`).
+ */
+export function findCostItemMatches(name, costItems, threshold = COST_ITEM_MATCH_THRESHOLD) {
+  return (Array.isArray(costItems) ? costItems : [])
+    .map((item) => ({
+      item,
+      score: costNameSimilarity(name, item.label ?? item.name),
+    }))
+    .filter(({ score }) => score >= threshold)
+    .sort((a, b) => b.score - a.score);
+}
+
 /* ---------------------------------------------------------
    Formatare bani (lei RO) - folosită de mesajele din
    detectare (secțiunea 1) și din pendingAction (secțiunea 6)
@@ -203,8 +326,30 @@ export function computeUnitCostCentsFromExtraction(
       source.unitCostLei !== undefined &&
       source.unitCostLei !== "")
   ) {
+    const directUnit = normalizeUnitLabel(source.unit) || "";
+
+    /*
+     * Cost spus pe altă unitate decât item-ul din bibliotecă (ex.
+     * 0,028 lei/g față de un item în lei/kg) -> convertit ÎNAINTE de
+     * rotunjire, ca să nu propunem „actualizare” pentru același preț.
+     */
+    if (targetUnit && directUnit && directUnit !== targetUnit) {
+      const converted = convertUnitCostCents(
+        directUnitCostLei * 100,
+        directUnit,
+        targetUnit
+      );
+
+      if (converted !== null) {
+        return {
+          unit: targetUnit,
+          unitCostCents: Math.round(converted),
+        };
+      }
+    }
+
     return {
-      unit: normalizeUnitLabel(source.unit) || "",
+      unit: directUnit,
       unitCostCents: Math.round(directUnitCostLei * 100),
     };
   }
@@ -296,9 +441,9 @@ export async function detectReusableCostItemMention({
     where: { vendorId, isActive: true },
   });
 
-  const matches = findMatchingItems(cleanName, costItems, {
-    nameField: "name",
-  });
+  // VendorCostItem are `label` (coloana fostă `name` a fost redenumită) -
+  // potrivirea pe `name` nu găsea niciodată nimic
+  const matches = findCostItemMatches(cleanName, costItems);
 
   if (
     matches.length > 1 &&
@@ -2129,6 +2274,9 @@ export async function buildUpdateCostItemPendingActionFromMatch(
 
   const unit = newUnit || costItem.unit || "";
 
+  // rândurile Prisma au `label`; item-urile formatate au `name`
+  const costItemName = costItem.label ?? costItem.name ?? "";
+
   const oldCostText =
     oldUnitCostCents != null
       ? `${ronText(oldUnitCostCents)}${
@@ -2141,7 +2289,7 @@ export async function buildUpdateCostItemPendingActionFromMatch(
   }`;
 
   return {
-    message: `Vrei să schimb „${costItem.name}” de la ${oldCostText} la ${newCostText}${
+    message: `Vrei să schimb „${costItemName}” de la ${oldCostText} la ${newCostText}${
       affected.length
         ? ` (afectează ${affected.length} produs${
             affected.length === 1 ? "" : "e"
@@ -2154,9 +2302,9 @@ export async function buildUpdateCostItemPendingActionFromMatch(
     pendingAction: {
       kind: "UPDATE_COST_ITEM",
       costItemId: costItem.id,
-      costItemName: costItem.name,
+      costItemName: costItemName,
 
-      summary: `${costItem.name}: ${oldCostText} → ${newCostText}`,
+      summary: `${costItemName}: ${oldCostText} → ${newCostText}`,
 
       before: {
         unitCostCents: oldUnitCostCents,
@@ -2171,5 +2319,195 @@ export async function buildUpdateCostItemPendingActionFromMatch(
       affectedCount: affected.length,
       affectedProducts: affected.slice(0, 10),
     },
+  };
+}
+
+/* =========================================================
+   ============================================================
+   7. BIBLIOTECA DE COSTURI ÎN CALCULATORUL DE PREȚ
+   ============================================================
+
+   La un calcul nou, materialele spuse FĂRĂ preț (unitCost 0) sunt
+   căutate în biblioteca vendorului (VendorCostItem, aceeași folosită
+   de pagina Bibliotecă) și PROPUSE - nu aplicate în tăcere:
+   - o singură potrivire  -> „Folosește valorile / Modifică / Nu folosi”;
+   - mai multe asemănătoare -> „Pe care vrei să o folosim?”;
+   - fără potrivire        -> „Mai am nevoie de costul pentru …”.
+   Valorile se aplică doar după alegerea vendorului
+   (applyLibraryChoices), iar o modificare de preț trece prin
+   propunerea existentă UPDATE_COST_ITEM (confirmare explicită).
+   Biblioteca e citită DOAR pentru vendorul autentificat (rută).
+========================================================= */
+
+export const STALE_COST_DAYS = 90;
+
+function costAgeText(updatedAt, now = new Date()) {
+  const time = new Date(updatedAt).getTime();
+  if (!Number.isFinite(time)) return null;
+
+  const days = Math.max(0, Math.floor((now.getTime() - time) / 86400000));
+
+  if (days < 1) return "azi";
+  if (days === 1) return "ieri";
+  if (days < 30) return `acum ${days} zile`;
+
+  const months = Math.floor(days / 30);
+  if (months < 12) return months === 1 ? "acum o lună" : `acum ${months} luni`;
+
+  return "acum peste un an";
+}
+
+function libraryOption(item, now) {
+  const time = new Date(item.updatedAt).getTime();
+  const stale = Number.isFinite(time) && now.getTime() - time > STALE_COST_DAYS * 86400000;
+
+  return {
+    costItemId: item.id,
+    label: item.label ?? item.name,
+    unit: item.unit || "",
+    unitCost: centsToRon(item.unitCostCents),
+    priceText: `${ronText(item.unitCostCents)}${item.unit ? `/${item.unit}` : ""}`,
+    updatedAt: item.updatedAt || null,
+    updatedAgo: costAgeText(item.updatedAt, now),
+    stale,
+  };
+}
+
+function joinRo(names) {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} și ${names[names.length - 1]}`;
+}
+
+/**
+ * Propunerea din bibliotecă pentru draftul curent, sau null (nimic de
+ * propus: bibliotecă goală, nicio potrivire, totul are deja preț).
+ * dismissed: materialele pentru care vendorul a ales „Modifică” /
+ * „Nu folosi biblioteca” - nu le mai propunem.
+ */
+export function buildLibraryProposal({ costDraft, costItems = [], dismissed = [], now = new Date() }) {
+  const dismissedNames = new Set((dismissed || []).map(normalizeCostName));
+  const items = [];
+  const ambiguous = [];
+  const missing = [];
+
+  for (const material of costDraft?.materials || []) {
+    if (material.costItemId || Number(material.unitCost) > 0) continue;
+
+    if (dismissedNames.has(normalizeCostName(material.name))) {
+      missing.push(material.name);
+      continue;
+    }
+
+    // doar item-uri pe o unitate compatibilă (kg/g, l/ml, aceeași sau nespecificată)
+    const matches = findCostItemMatches(material.name, costItems).filter(
+      ({ item }) => convertUnitCostCents(item.unitCostCents, item.unit, material.unit || item.unit) !== null
+    );
+
+    if (!matches.length) {
+      missing.push(material.name);
+      continue;
+    }
+
+    const close = matches.filter(({ score }) => matches[0].score - score < 0.1).slice(0, 5);
+
+    if (close.length === 1) {
+      items.push({ material: material.name, ...libraryOption(close[0].item, now) });
+    } else {
+      ambiguous.push({
+        material: material.name,
+        message: `Pentru „${material.name}” am găsit mai multe variante în biblioteca ta. Pe care vrei să o folosim?`,
+        options: close.map(({ item }) => libraryOption(item, now)),
+      });
+    }
+  }
+
+  if (!items.length && !ambiguous.length) return null;
+
+  const lines = [];
+
+  if (items.length) {
+    lines.push("Am găsit în biblioteca ta:");
+
+    for (const item of items) {
+      lines.push(
+        `- ${item.label}: ${item.priceText}` +
+          (item.stale && item.updatedAgo
+            ? ` (Ultima actualizare: ${item.updatedAgo}. Verifică dacă prețul mai este actual.)`
+            : "")
+      );
+    }
+  }
+
+  if (missing.length) {
+    lines.push("", `Mai am nevoie de costul pentru ${joinRo(missing)}.`);
+  }
+
+  if (items.length) {
+    lines.push("", "Vrei să folosim aceste valori?");
+  }
+
+  return {
+    message: lines.join("\n").trim(),
+    items,
+    ambiguous,
+    missing,
+  };
+}
+
+/**
+ * Aplică alegerile confirmate de vendor ({ material, costItemId }).
+ * costItems vine STRICT din biblioteca vendorului autentificat - un id
+ * străin nu se găsește aici și e ignorat.
+ */
+export function applyLibraryChoices(costDraft, choices = [], costItems = []) {
+  const byId = new Map(costItems.map((item) => [item.id, item]));
+  const applied = [];
+
+  const materials = (costDraft?.materials || []).map((material) => {
+    const choice = choices.find(
+      (entry) => normalizeCostName(entry?.material) === normalizeCostName(material.name)
+    );
+    const item = choice ? byId.get(choice.costItemId) : null;
+    if (!item) return material;
+
+    const unit = material.unit || item.unit || "";
+    const cents = convertUnitCostCents(item.unitCostCents, item.unit, unit);
+    if (cents === null) return material;
+
+    applied.push({ material: material.name, label: item.label ?? item.name, priceText: libraryOption(item, new Date()).priceText });
+
+    return {
+      ...material,
+      unit,
+      unitCost: cents / 100,
+      costItemId: item.id,
+    };
+  });
+
+  return { draft: { ...costDraft, materials }, applied };
+}
+
+/*
+ * LLM-ul întoarce lista completă de materiale fără costItemId -
+ * păstrăm legătura cu biblioteca pentru materialele care existau deja
+ * (același nume), ca o schimbare de preț să fie recunoscută ca
+ * actualizare a item-ului din bibliotecă, nu ca un cost nou.
+ */
+export function carryCostItemIds(beforeDraft, afterDraft) {
+  const linked = new Map(
+    (beforeDraft?.materials || [])
+      .filter((material) => material.costItemId)
+      .map((material) => [normalizeCostName(material.name), material.costItemId])
+  );
+
+  if (!linked.size) return afterDraft;
+
+  return {
+    ...afterDraft,
+    materials: (afterDraft?.materials || []).map((material) =>
+      material.costItemId
+        ? material
+        : { ...material, costItemId: linked.get(normalizeCostName(material.name)) || null }
+    ),
   };
 }

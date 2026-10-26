@@ -63,6 +63,7 @@ router.use(
 
 const vendorSelectForFeature = {
   id: true,
+  isActive: true,
   displayName: true,
   logoUrl: true,
   coverUrl: true,
@@ -391,40 +392,120 @@ async function findEligibleService(
    LISTĂ PROMOVĂRI
 ========================================================= */
 
+/*
+ * Listă pe grupe, separat pentru fiecare tip (audit 2026-10-26):
+ *   active   = startsAt <= acum < endsAt;
+ *   upcoming = TOATE programările viitoare, crescător;
+ *   history  = trecute (endsAt <= acum), descrescător, limitate separat.
+ * Înainte: `startsAt asc + take` pe ambele tipuri la un loc -> peste
+ * 100 de rânduri Admin primea doar cele mai VECHI (istoric), iar
+ * activul și programările viitoare erau tăiate.
+ * `features` (toate grupele concatenate) rămâne pentru compatibilitate.
+ */
+const HISTORY_DEFAULT_TAKE = 30;
+const HISTORY_MAX_TAKE = 200;
+const UPCOMING_MAX_TAKE = 400;
+const DISPLAY_AVAILABILITY = ["READY", "MADE_TO_ORDER", "PREORDER"];
+
+function isServiceLive(service) {
+  return Boolean(
+    service &&
+      service.isActive === true &&
+      service.status === "ACTIVE" &&
+      service.vendor?.isActive !== false
+  );
+}
+
+// „neeligibil acum” în Admin: aceleași reguli ca la afișarea pe homepage
+function isFeatureEligibleNow(feature) {
+  if (feature.type === "PRODUCT_OF_DAY") {
+    const product = feature.product;
+
+    return Boolean(
+      product &&
+        product.isActive === true &&
+        product.isHidden !== true &&
+        product.moderationStatus === "APPROVED" &&
+        DISPLAY_AVAILABILITY.includes(product.availability) &&
+        Array.isArray(product.images) &&
+        product.images.length > 0 &&
+        isServiceLive(product.service)
+    );
+  }
+
+  return Boolean(
+    isServiceLive(feature.service) &&
+      Number(feature.service?._count?.products || 0) > 0
+  );
+}
+
+function mapAdminFeature(feature) {
+  return {
+    ...feature,
+    // momentul programat al emailului (3 / 7 zile înainte, 09:00 RO)
+    emailScheduledFor: computeFeatureEmailSendAt(feature),
+    eligibleNow: isFeatureEligibleNow(feature),
+  };
+}
+
+async function loadFeatureGroups(type, now, historyTake) {
+  const [active, upcoming, history] = await Promise.all([
+    prisma.homepageFeature.findMany({
+      where: { type, startsAt: { lte: now }, endsAt: { gt: now } },
+      include: featureInclude,
+      orderBy: { startsAt: "asc" },
+    }),
+    prisma.homepageFeature.findMany({
+      where: { type, startsAt: { gt: now } },
+      include: featureInclude,
+      orderBy: { startsAt: "asc" },
+      take: UPCOMING_MAX_TAKE,
+    }),
+    prisma.homepageFeature.findMany({
+      where: { type, endsAt: { lte: now } },
+      include: featureInclude,
+      orderBy: { startsAt: "desc" },
+      take: historyTake,
+    }),
+  ]);
+
+  return {
+    active: active.map(mapAdminFeature),
+    upcoming: upcoming.map(mapAdminFeature),
+    history: history.map(mapAdminFeature),
+  };
+}
+
 router.get(
   "/",
   async (req, res) => {
     try {
-      const take =
-        clampTake(
-          req.query.take
-        );
+      const historyTake = Math.min(
+        HISTORY_MAX_TAKE,
+        Math.max(1, Math.round(Number(req.query.historyTake) || HISTORY_DEFAULT_TAKE))
+      );
 
-      const features =
-        await prisma.homepageFeature.findMany({
-          include:
-            featureInclude,
+      const now = new Date();
 
-          orderBy: [
-            {
-              startsAt: "asc",
-            },
-            {
-              createdAt: "desc",
-            },
-          ],
+      const [productGroups, artisanGroups] = await Promise.all([
+        loadFeatureGroups("PRODUCT_OF_DAY", now, historyTake),
+        loadFeatureGroups("ARTISAN_OF_WEEK", now, historyTake),
+      ]);
 
-          take,
-        });
+      const groups = {
+        PRODUCT_OF_DAY: productGroups,
+        ARTISAN_OF_WEEK: artisanGroups,
+      };
 
       return res.json({
         ok: true,
-        // momentul programat al emailului (3 / 7 zile înainte, 09:00 RO)
-        features: features.map((feature) => ({
-          ...feature,
-          emailScheduledFor:
-            computeFeatureEmailSendAt(feature),
-        })),
+        now,
+        groups,
+        features: Object.values(groups).flatMap((group) => [
+          ...group.active,
+          ...group.upcoming,
+          ...group.history,
+        ]),
       });
     } catch (error) {
       console.error(

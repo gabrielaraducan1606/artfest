@@ -1,4 +1,5 @@
 import React, { Suspense, lazy } from "react";
+import { uploadProductFile } from "../utils/productEditing.js";
 
 const VendorGateModal = lazy(() => import("./VendorGateModal"));
 const ProductModal = lazy(() => import("./ProductModal"));
@@ -52,18 +53,7 @@ export default function StoreModals({
         setForm={setProdForm}
         categories={categories}
         onSave={(e) => handleSaveProduct(e, prodForm)}
-        uploadFile={async (f) => {
-          const fd = new FormData();
-          fd.append("file", f);
-
-          const res = await fetch("/api/upload", {
-            method: "POST",
-            body: fd,
-          });
-
-          const { url } = await res.json();
-          return url;
-        }}
+        uploadFile={uploadProductFile}
         storeSlug={storeSlug}
         vendorPreview={vendorPreview}
         initialStep={productModalStep}
