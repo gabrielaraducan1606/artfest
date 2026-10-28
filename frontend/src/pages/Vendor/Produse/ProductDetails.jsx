@@ -75,6 +75,11 @@ import {
   MagicIcon,
 } from "../../../components/AIAssistant/Personalization/PersonalizationIcons.jsx";
 import { additionalCategoriesPayload } from "../../../utils/additionalCategories.js";
+// aceeași regulă ca serverul (doar feedback instant; checkout-ul recalculează)
+import {
+  resolveVariantPricing,
+  variantPriceRange,
+} from "../../../../../backend/src/lib/variantPricing.js";
 
 const PRODUCT_CANONICAL_BASE_URL = "https://www.artfest.ro";
 
@@ -566,6 +571,7 @@ useEffect(() => {
     details: false,
     reviews: false,
     comments: false,
+    gpsr: false,
   });
 
   const [activeMobileTab, setActiveMobileTab] = useState("descriere");
@@ -737,6 +743,16 @@ setRepeatedGroupAnswers({});
     img.src = withCache(resolveFileUrl(next), cacheT);
   }, [imageIdx, images, cacheT]);
 
+/*
+ * Intervalul real de preț pentru variantele încă nealese (aceeași regulă
+ * ca serverul, inclusiv prețurile speciale pe combinații - chiar sub
+ * prețul de bază). Afișăm minimul cu „De la” cât timp prețul nu e unic.
+ */
+const variantRange = useMemo(
+  () => (product ? variantPriceRange(product, selectedOptions) : null),
+  [product, selectedOptions]
+);
+
 const priceDisplay = useMemo(() => {
   if (!product) {
     return {
@@ -760,12 +776,12 @@ const priceDisplay = useMemo(() => {
         ? Math.round(Number(product.price) * 100)
         : null;
 
-  const originalPriceCents =
+  let originalPriceCents =
     hasNumericValue(product.originalPriceCents)
       ? Number(product.originalPriceCents)
       : fallbackPriceCents;
 
-  const finalPriceCents =
+  let finalPriceCents =
     hasNumericValue(product.finalPriceCents)
       ? Number(product.finalPriceCents)
       : hasNumericValue(product.discountedPriceCents)
@@ -776,6 +792,42 @@ const priceDisplay = useMemo(() => {
     product.totalDiscountPercent ??
     product.discount?.totalDiscountPercent ??
     0;
+
+  /*
+   * Prețul variantelor alese - același calcul ca serverul: prețul special
+   * al combinației (dacă există) sau bază + diferențe, apoi același procent
+   * de reducere. Cu variante încă nealese: cel mai mic preț real posibil.
+   */
+  const variantPricing =
+    resolveVariantPricing(product, selectedOptions);
+
+  const unitPriceCents =
+    variantRange && !variantRange.complete
+      ? variantRange.minCents
+      : variantPricing.unitPriceCents;
+
+  const variantDeltaCents =
+    unitPriceCents -
+    variantPricing.basePriceCents;
+
+  if (variantDeltaCents !== 0 && originalPriceCents !== null) {
+    const appliedPercent =
+      finalPriceCents !== null &&
+      finalPriceCents < originalPriceCents
+        ? Number(rawDiscountPercent) || 0
+        : 0;
+
+    originalPriceCents = Math.max(0, originalPriceCents + variantDeltaCents);
+    finalPriceCents =
+      appliedPercent > 0
+        ? Math.max(
+            0,
+            Math.round(
+              (originalPriceCents * (100 - appliedPercent)) / 100
+            )
+          )
+        : originalPriceCents;
+  }
 
   const discountPercent = Math.min(
     50,
@@ -813,7 +865,16 @@ const priceDisplay = useMemo(() => {
     discountPercent,
     hasDiscount,
   };
-}, [product]);
+}, [product, selectedOptions, variantRange]);
+
+/*
+ * „De la X”: clientul nu a ales încă toate variantele, iar alegerile
+ * rămase pot schimba prețul (X = cel mai mic preț real, vezi variantRange).
+ */
+const priceFromPrefix =
+  !!variantRange &&
+  !variantRange.complete &&
+  variantRange.minCents < variantRange.maxCents;
 
 const displayPrice =
   priceDisplay.finalPrice;
@@ -4012,58 +4073,6 @@ const uploadCustomizationFile = useCallback(
             </div>
           )}
 
-          {product?.gpsr && (
-            <div
-              style={{
-                margin: "10px 0",
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1px solid rgba(0,0,0,0.08)",
-                background: "rgba(0,0,0,0.02)",
-                fontSize: 13,
-                lineHeight: 1.5,
-              }}
-            >
-              <strong style={{ display: "block", marginBottom: 4 }}>
-                Informații despre produs și siguranță
-              </strong>
-
-              {product.gpsr.manufacturer && (
-                <p style={{ margin: "4px 0" }}>
-                  <strong>Producător:</strong>{" "}
-                  {product.gpsr.manufacturer.name}
-                  {product.gpsr.manufacturer.address
-                    ? `, ${product.gpsr.manufacturer.address}`
-                    : ""}
-                  {product.gpsr.manufacturer.email
-                    ? ` — ${product.gpsr.manufacturer.email}`
-                    : ""}
-                </p>
-              )}
-
-              {product.gpsr.responsiblePerson && (
-                <p style={{ margin: "4px 0" }}>
-                  <strong>Persoană responsabilă în UE:</strong>{" "}
-                  {product.gpsr.responsiblePerson.name},{" "}
-                  {product.gpsr.responsiblePerson.address} —{" "}
-                  {product.gpsr.responsiblePerson.email}
-                </p>
-              )}
-
-              {product.gpsr.safetyWarnings && (
-                <p style={{ margin: "4px 0" }}>
-                  <strong>Avertismente de siguranță:</strong>{" "}
-                  {product.gpsr.safetyWarnings}
-                </p>
-              )}
-
-              {product.gpsr.isForChildren && (
-                <p style={{ margin: "4px 0" }}>
-                  Acest produs este destinat copiilor.
-                </p>
-              )}
-            </div>
-          )}
 
           {priceDisplayMode && (
   <>
@@ -4098,6 +4107,9 @@ const uploadCustomizationFile = useCallback(
         </span>
 
         <div className={styles.price}>
+          {priceFromPrefix && (
+            <span className={styles.priceLabel}>De la </span>
+          )}
           {fmt.format(displayPrice)}
         </div>
 
@@ -4116,6 +4128,9 @@ const uploadCustomizationFile = useCallback(
       </div>
     ) : (
       <div className={styles.price}>
+        {priceFromPrefix && (
+          <span className={styles.priceLabel}>De la </span>
+        )}
         {fmt.format(displayPrice)}
       </div>
     )}
@@ -5597,6 +5612,90 @@ const isUploading =
                 <Suspense fallback={<div>Se încarcă comentariile…</div>}>
                   <CommentsSection {...commentsSectionProps} />
                 </Suspense>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/*
+       * GPSR (Reg. UE 2023/988), art. 19 - „Producător și siguranță”, în zona
+       * informativă de final (după recenzii/întrebări, înaintea produselor
+       * similare), ca să nu întrerupă fluxul de cumpărare. Accordion compact,
+       * închis implicit, pe desktop și mobil. Date DOAR din `product.gpsr`
+       * (GET /api/public/products/:id): producătorul extern de pe produs sau
+       * datele publice centrale ale vendorului-producător.
+       */}
+      {product?.gpsr && (
+        <section className={styles.commentsSection} data-testid="product-gpsr-section">
+          <div className={styles.accordion}>
+            <button
+              type="button"
+              className={styles.accordionHeader}
+              onClick={() => toggleAccordion("gpsr")}
+              aria-expanded={!!openAccordions.gpsr}
+              aria-controls="product-gpsr-panel"
+            >
+              <span className={styles.accordionTitleWrap}>
+                <span className={styles.accordionTitle}>Producător și siguranță</span>
+              </span>
+              <span className={styles.accordionIcon} aria-hidden="true">
+                <FaChevronDown />
+              </span>
+            </button>
+
+            {openAccordions.gpsr && (
+              <div
+                id="product-gpsr-panel"
+                className={styles.accordionBody}
+                style={{ fontSize: 13, lineHeight: 1.5, overflowWrap: "anywhere" }}
+              >
+                {product.gpsr.manufacturer && (
+                  <dl style={{ margin: "4px 0", display: "grid", gap: 6 }}>
+                    <div>
+                      <dt style={{ fontWeight: 600 }}>Producător:</dt>
+                      <dd style={{ margin: 0 }}>{product.gpsr.manufacturer.name}</dd>
+                    </div>
+                    <div>
+                      <dt style={{ fontWeight: 600 }}>Adresă:</dt>
+                      <dd style={{ margin: 0 }}>{product.gpsr.manufacturer.address}</dd>
+                    </div>
+                    <div>
+                      <dt style={{ fontWeight: 600 }}>Email:</dt>
+                      <dd style={{ margin: 0 }}>{product.gpsr.manufacturer.email}</dd>
+                    </div>
+                  </dl>
+                )}
+
+                {product.gpsr.responsiblePerson && (
+                  <dl style={{ margin: "10px 0 4px", display: "grid", gap: 6 }}>
+                    <div>
+                      <dt style={{ fontWeight: 600 }}>Persoană responsabilă în UE:</dt>
+                      <dd style={{ margin: 0 }}>{product.gpsr.responsiblePerson.name}</dd>
+                    </div>
+                    <div>
+                      <dt style={{ fontWeight: 600 }}>Adresă:</dt>
+                      <dd style={{ margin: 0 }}>{product.gpsr.responsiblePerson.address}</dd>
+                    </div>
+                    <div>
+                      <dt style={{ fontWeight: 600 }}>Email:</dt>
+                      <dd style={{ margin: 0 }}>{product.gpsr.responsiblePerson.email}</dd>
+                    </div>
+                  </dl>
+                )}
+
+                {product.gpsr.safetyWarnings && (
+                  <p style={{ margin: "10px 0 4px", whiteSpace: "pre-line" }}>
+                    <strong>Avertismente de siguranță:</strong>{" "}
+                    {product.gpsr.safetyWarnings}
+                  </p>
+                )}
+
+                {product.gpsr.isForChildren && (
+                  <p style={{ margin: "10px 0 0" }}>
+                    Acest produs este destinat copiilor.
+                  </p>
+                )}
               </div>
             )}
           </div>

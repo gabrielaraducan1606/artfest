@@ -18,15 +18,8 @@ export default function StoreModals({
   categories,
   handleSaveProduct,
   storeSlug,
-  sellerData,
   productModalStep = "images",
 }) {
-  const vendorPreview = {
-    displayName: sellerData?.displayName || "",
-    address: sellerData?.address || "",
-    email: sellerData?.publicEmail || sellerData?.email || "",
-  };
-
   return (
     <Suspense fallback={null}>
       <VendorGateModal
@@ -55,7 +48,6 @@ export default function StoreModals({
         onSave={(e) => handleSaveProduct(e, prodForm)}
         uploadFile={uploadProductFile}
         storeSlug={storeSlug}
-        vendorPreview={vendorPreview}
         initialStep={productModalStep}
       />
     </Suspense>

@@ -18,6 +18,8 @@ import {
   validateGpsrConsistency,
   isGpsrComplete,
   getGpsrMissingFields,
+  GPSR_PRODUCT_FIELDS,
+  VENDOR_GPSR_SELECT,
 } from "../lib/gpsrCompliance.js";
 import { openai } from "../lib/openai.js";
 import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
@@ -35,7 +37,20 @@ import {
   isAwaitingVendorChanges,
   summarizeChangeRequest,
 } from "../services/productChangeRequest.js";
-import { notifyAdminsProductChangesDone } from "../services/notifications.js";
+import {
+  notifyAdminsProductChangesDone,
+  notifyAdminsProductReviewRequested,
+} from "../services/notifications.js";
+import {
+  REVIEW_REQUEST_NOTE_MAX,
+  createReviewRequest,
+  getReviewRequest,
+  isReviewRequestOpen,
+  reviewRequestBlocker,
+  summarizeReviewRequest,
+  withReviewRequest,
+} from "../services/productReviewRequest.js";
+import { runPublishAiCheck } from "../services/productPublishAiCheck.js";
 import {
   GUARDED_FIELDS,
   buildContactInfoErrorBody,
@@ -43,6 +58,11 @@ import {
   pickChangedGuardedFields,
 } from "../lib/contactInfoGuard.js";
 import { scanVendorContactIssues } from "../services/contactInfoAudit.js";
+// diferențele de preț pe valorile variantelor
+import {
+  carryCombinationOverrides,
+  normalizeOptionsSchemaPricing,
+} from "../lib/variantPricing.js";
 import {
   guardedProductDelete,
   guardedProductUpdate,
@@ -115,7 +135,11 @@ async function getOwnedProductsServiceBySlug(slug, userSub) {
   return { service: svc, profile };
 }
 
-function mapProduct(p) {
+/*
+ * `vendor` = sursa centrală GPSR (Vendor.gpsrManufacturer*) pentru
+ * produsele cu isOwnManufacturer = true - implicit p.service.vendor.
+ */
+function mapProduct(p, vendor = p?.service?.vendor ?? null) {
   const hasNumericValue = (value) =>
     value !== null &&
     value !== undefined &&
@@ -338,7 +362,8 @@ quoteSchema:
         p.aiModeration,
         p.moderationStatus,
         p.reviewedByUserId,
-        p
+        p,
+        vendor
       ),
 
     submittedAt:
@@ -378,9 +403,27 @@ quoteSchema:
         : p.safetyWarnings,
     isForChildren: p.isForChildren ?? null,
 
-    gpsrComplete: isGpsrComplete(p),
-    gpsrMissingFields: getGpsrMissingFields(p),
+    gpsrComplete: isGpsrComplete(p, vendor),
+    gpsrMissingFields: getGpsrMissingFields(p, vendor),
   };
+}
+
+/*
+ * Lista PUBLICĂ a magazinului: fără câmpurile GPSR (adrese/emailuri) -
+ * secțiunea GPSR apare doar pe pagina produsului (GET /api/public/products/:id).
+ */
+const PUBLIC_LIST_OMITTED_FIELDS = [...GPSR_PRODUCT_FIELDS, "gpsrComplete", "gpsrMissingFields"];
+
+function mapPublicStoreProduct(p) {
+  const mapped = mapProduct(p, null);
+  for (const field of PUBLIC_LIST_OMITTED_FIELDS) delete mapped[field];
+  return mapped;
+}
+
+// sursa centrală GPSR a unui vendor (o singură interogare pentru o listă)
+async function loadVendorGpsr(vendorId) {
+  if (!vendorId) return null;
+  return prisma.vendor.findUnique({ where: { id: vendorId }, select: VENDOR_GPSR_SELECT });
 }
 
 function parseBooleanQuery(value) {
@@ -619,13 +662,38 @@ function normalizeOrderConfiguration({
   if (
     normalizedMode === "OPTIONS"
   ) {
+    // diferență de preț (întreg >= 0) + prețuri pe combinații -> 400 dacă sunt invalide
+    const pricedOptions =
+      normalizeOptionsSchemaPricing(
+        normalizeSchemaArray(
+          optionsSchema
+        ),
+        {
+          repeatedGroups:
+            normalizeSchemaArray(
+              repeatedGroups
+            ),
+        }
+      );
+
+    if (pricedOptions.error) {
+      return {
+        error:
+          pricedOptions.error,
+
+        message:
+          pricedOptions.message,
+
+        errors:
+          pricedOptions.errors,
+      };
+    }
+
     return {
       orderMode: "OPTIONS",
 
       optionsSchema:
-        normalizeSchemaArray(
-          optionsSchema
-        ),
+        pricedOptions.optionsSchema,
 
       customSchema:
         normalizeSchemaArray(
@@ -861,7 +929,7 @@ try {
     return res.json({
      items:
   promotedSlice.map(
-    mapProduct
+    mapPublicStoreProduct
   ),
       nextCursor: hasMore ? slice[slice.length - 1].id : null,
     });
@@ -917,6 +985,8 @@ try {
   );
 }
 
+const vendorGpsr = await loadVendorGpsr(service.vendorId);
+
 return res.json({
       store: {
         id: service.id,
@@ -928,10 +998,14 @@ return res.json({
       items:
   promotedItems.map(
     (p) => ({
-      ...mapProduct(p),
+      ...mapProduct(p, vendorGpsr),
       // doar pentru proprietar (ruta publică nu îl are)
       changeRequest:
         summarizeChangeRequest(
+          itemsById.get(p.id) || p
+        ),
+      reviewRequest:
+        summarizeReviewRequest(
           itemsById.get(p.id) || p
         ),
     })
@@ -977,6 +1051,7 @@ async function getProduct(req, res) {
     return res.json({
       ...mapProduct(p),
       changeRequest: summarizeChangeRequest(p),
+      reviewRequest: summarizeReviewRequest(p),
       ownerVendorId: p.service.vendorId,
       vendor: {
         id: p.service.vendor.id,
@@ -1444,6 +1519,10 @@ async function createProduct(req, res) {
         .json({
           error:
             orderConfig.error,
+
+          ...(orderConfig.message ? { message: orderConfig.message } : {}),
+
+            ...(orderConfig.errors ? { errors: orderConfig.errors } : {}),
         });
     }
 
@@ -1701,10 +1780,12 @@ async function createProduct(req, res) {
      * CHANGES_REQUESTED cu imaginile problematice). Orice eroare AI ->
      * rămâne PENDING, ca înainte.
      */
+    const vendorGpsr = await loadVendorGpsr(service.vendorId);
+
     const moderated =
       await moderateSavedProduct({
         prisma,
-        product: created,
+        product: { ...created, service: { vendor: vendorGpsr } },
         client: openai,
       });
 
@@ -1714,7 +1795,7 @@ async function createProduct(req, res) {
     return res
       .status(201)
       .json({
-        ...mapProduct(moderated),
+        ...mapProduct(moderated, vendorGpsr),
         additionalCategories:
           additionalNorm.value,
       });
@@ -2250,8 +2331,14 @@ async function updateProduct(
 
             optionsSchema:
               req.body
-                .optionsSchema ??
-              product.optionsSchema,
+                .optionsSchema !==
+              undefined
+                ? carryCombinationOverrides(
+                    req.body
+                      .optionsSchema,
+                    product.optionsSchema
+                  )
+                : product.optionsSchema,
 
             customSchema:
               req.body
@@ -2278,6 +2365,10 @@ async function updateProduct(
           .json({
             error:
               orderConfig.error,
+
+            ...(orderConfig.message ? { message: orderConfig.message } : {}),
+
+            ...(orderConfig.errors ? { errors: orderConfig.errors } : {}),
           });
       }
 
@@ -2518,7 +2609,7 @@ async function updateProduct(
     queueFeedTitleRefresh(updated.id);
 
     return res.json({
-      ...mapProduct(moderated),
+      ...mapProduct(moderated, product.service?.vendor ?? null),
       additionalCategories:
         additionalCategoryKeys(updated),
     });
@@ -2655,12 +2746,8 @@ async function buildChangeRequestPayload(product) {
       isActive: !!product.isActive,
       storeSlug: product.service?.profile?.slug || null,
       storeName: product.service?.profile?.displayName || product.service?.vendor?.displayName || "",
-      // datele magazinului propriu pentru editorul de produs (GPSR), ca în ProfilMagazin
-      vendorPreview: {
-        displayName: product.service?.profile?.displayName || product.service?.vendor?.displayName || "",
-        address: product.service?.profile?.address || "",
-        email: product.service?.profile?.email || product.service?.vendor?.email || "",
-      },
+      // GPSR „Eu sunt producătorul”: editorul citește sursa centrală
+      // (GET /api/vendors/me/gpsr-manufacturer), nu datele magazinului
       // solicitările vechi (fără motive) au doar textul acesta
       moderationMessage: product.moderationMessage || null,
       moderationReport: buildVendorModerationReport(
@@ -2809,6 +2896,131 @@ async function confirmProductChanges(req, res) {
   }
 }
 
+/* ================= Verificare solicitată de vendor ================= */
+
+/*
+ * „Trimite la verificare Artfest” - opțional, separat de moderare (nu
+ * schimbă moderationStatus). Vezi services/productReviewRequest.js.
+ */
+function reviewRequestPayload(product) {
+  const blocker = isReviewRequestOpen(product)
+    ? null
+    : reviewRequestBlocker({ awaitingVendorChanges: isAwaitingVendorChanges(product) });
+
+  return {
+    reviewRequest: summarizeReviewRequest(product),
+    canRequest: !isReviewRequestOpen(product) && !blocker,
+    blocker: blocker?.message || null,
+  };
+}
+
+async function getProductReviewRequest(req, res) {
+  try {
+    const { product, status, error } = await loadOwnedProductForChanges(req.params.id, req.user.sub);
+    if (error) return res.status(status).json({ error });
+
+    return res.json({ ok: true, ...reviewRequestPayload(product) });
+  } catch (e) {
+    console.error("GET /vendors/products/:id/review-request error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+/*
+ * Idempotent: cât timp există o solicitare deschisă, un nou click (sau un
+ * dublu-click simultan) o întoarce pe cea existentă - o singură solicitare,
+ * o singură notificare per admin.
+ */
+async function createProductReviewRequest(req, res) {
+  try {
+    const note = String(req.body?.note ?? "").trim();
+
+    if (note.length > REVIEW_REQUEST_NOTE_MAX) {
+      return res.status(400).json({
+        error: "review_note_too_long",
+        message: `Mesajul poate avea cel mult ${REVIEW_REQUEST_NOTE_MAX} de caractere.`,
+      });
+    }
+
+    let { product, status, error } = await loadOwnedProductForChanges(req.params.id, req.user.sub);
+    if (error) return res.status(status).json({ error });
+
+    // o reîncercare dacă produsul a fost salvat între timp (updatedAt diferit)
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (isReviewRequestOpen(product)) {
+        return res.json({ ok: true, alreadyRequested: true, ...reviewRequestPayload(product) });
+      }
+
+      const blocker = reviewRequestBlocker({ awaitingVendorChanges: isAwaitingVendorChanges(product) });
+      if (blocker) return res.status(409).json(blocker);
+
+      const reviewRequest = createReviewRequest({ note, vendorUserId: req.user.sub });
+
+      // updatedAt = blocare optimistă: din două click-uri simultane câștigă unul
+      const result = await prisma.product.updateMany({
+        where: { id: product.id, updatedAt: product.updatedAt },
+        data: { aiModeration: withReviewRequest(product.aiModeration, reviewRequest) },
+      });
+
+      const fresh = (await loadOwnedProductForChanges(product.id, req.user.sub)).product;
+
+      if (result.count === 0) {
+        product = fresh;
+        continue;
+      }
+
+      await notifyAdminsProductReviewRequested({
+        product: fresh,
+        reviewRequest: getReviewRequest(fresh),
+        storeName: fresh.service?.profile?.displayName || fresh.service?.vendor?.displayName || "",
+      }).catch((e) => {
+        console.error("notify admins product review requested error:", e);
+      });
+
+      return res.status(201).json({ ok: true, ...reviewRequestPayload(fresh) });
+    }
+
+    return res.status(409).json({
+      error: "product_busy",
+      message: "Produsul tocmai a fost modificat. Încearcă din nou.",
+    });
+  } catch (e) {
+    console.error("POST /vendors/products/:id/review-request error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+/*
+ * Verificarea AI de dinainte de publicare - DOAR recomandări subiective
+ * (descriere neclară, categorie posibil nepotrivită, contradicții,
+ * informații lipsă). Verificările structurale sunt deterministe, în
+ * editor (frontend/src/utils/productPublishCheck.js). Nu aruncă: AI
+ * indisponibil -> { available: false }, editorul continuă fără ea.
+ */
+async function publishAiCheck(req, res) {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user.sub },
+      select: { id: true },
+    });
+
+    if (!vendor) {
+      return res.status(404).json({ error: "vendor_profile_missing" });
+    }
+
+    const ai = await runPublishAiCheck({
+      vendorId: vendor.id,
+      draft: req.body?.draft,
+      client: openai,
+    });
+
+    return res.json({ ok: true, ai });
+  } catch (e) {
+    console.error("POST /vendors/products/publish-check/ai error:", e);
+    return res.json({ ok: true, ai: { available: false, reason: "error", recommendations: [] } });
+  }
+}
+
 /* ================= Mount routes ================= */
 
 router.get("/public/store/:slug/products", publicListProducts);
@@ -2838,6 +3050,30 @@ function registerProductRoutes(prefix) {
     enforceTokenVersion,
     vendorAccessRequired,
     confirmProductChanges
+  );
+
+  router.get(
+    `/${prefix}/products/:id/review-request`,
+    authRequired,
+    enforceTokenVersion,
+    vendorAccessRequired,
+    getProductReviewRequest
+  );
+
+  router.post(
+    `/${prefix}/products/:id/review-request`,
+    authRequired,
+    enforceTokenVersion,
+    vendorAccessRequired,
+    createProductReviewRequest
+  );
+
+  router.post(
+    `/${prefix}/products/publish-check/ai`,
+    authRequired,
+    enforceTokenVersion,
+    vendorAccessRequired,
+    publishAiCheck
   );
 
   router.get(

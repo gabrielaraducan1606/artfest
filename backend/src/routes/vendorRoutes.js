@@ -20,6 +20,11 @@ import {
   checkPublicFields,
   pickChangedGuardedFields,
 } from "../lib/contactInfoGuard.js";
+import {
+  getVendorGpsrManufacturer,
+  validateGpsrManufacturerContact,
+} from "../lib/gpsrCompliance.js";
+import { reevaluateVendorGpsrBlockedProducts } from "../services/productAiModeration.js";
 
 const router = Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
@@ -1318,6 +1323,117 @@ router.delete("/me/services/:id", authRequired, enforceTokenVersion, vendorAcces
     res.status(500).json({ error: "service_delete_failed" });
   }
 });
+
+/* ===================== GPSR - datele producătorului ===================== */
+
+/*
+ * Sursa centrală pentru produsele cu „Eu sunt producătorul = Da”
+ * (lib/gpsrCompliance.js). Date PUBLICE, completate o singură dată; nu se
+ * preiau niciodată din adresa de retur / facturare / ridicare.
+ * Modificarea lor se reflectă pe toate produsele vendorului-producător.
+ */
+// vendorul utilizatorului autentificat (vendorAccessRequired nu setează
+// mereu req.meVendor) - niciodată din request
+async function findOwnVendorId(req) {
+  if (req.meVendor?.id) return req.meVendor.id;
+  const vendor = await prisma.vendor.findUnique({
+    where: { userId: req.user.sub },
+    select: { id: true },
+  });
+  return vendor?.id || null;
+}
+
+function gpsrManufacturerPayload(vendor) {
+  return {
+    manufacturer: {
+      name: vendor?.gpsrManufacturerName || "",
+      address: vendor?.gpsrManufacturerAddress || "",
+      email: vendor?.gpsrManufacturerEmail || "",
+    },
+    complete: Boolean(getVendorGpsrManufacturer(vendor)),
+    updatedAt: vendor?.gpsrManufacturerUpdatedAt || null,
+  };
+}
+
+router.get(
+  "/me/gpsr-manufacturer",
+  authRequired,
+  enforceTokenVersion,
+  vendorAccessRequired,
+  async (req, res) => {
+    try {
+      const vendorId = await findOwnVendorId(req);
+      if (!vendorId) return error(res, "vendor_profile_missing", 404);
+
+      const vendor = await prisma.vendor.findUnique({
+        where: { id: vendorId },
+        select: {
+          gpsrManufacturerName: true,
+          gpsrManufacturerAddress: true,
+          gpsrManufacturerEmail: true,
+          gpsrManufacturerUpdatedAt: true,
+        },
+      });
+
+      return res.json(gpsrManufacturerPayload(vendor));
+    } catch (e) {
+      console.error("GET /vendors/me/gpsr-manufacturer error:", e);
+      return res.status(500).json({ error: "server_error" });
+    }
+  }
+);
+
+router.put(
+  "/me/gpsr-manufacturer",
+  authRequired,
+  enforceTokenVersion,
+  vendorAccessRequired,
+  async (req, res) => {
+    try {
+      const result = validateGpsrManufacturerContact(req.body || {});
+
+      if (!result.ok) {
+        return res.status(400).json({
+          error: result.error,
+          field: result.field,
+          message: result.message,
+        });
+      }
+
+      const vendorId = await findOwnVendorId(req);
+      if (!vendorId) return error(res, "vendor_profile_missing", 404);
+
+      const vendor = await prisma.vendor.update({
+        where: { id: vendorId },
+        data: {
+          gpsrManufacturerName: result.value.name,
+          gpsrManufacturerAddress: result.value.address,
+          gpsrManufacturerEmail: result.value.email,
+          gpsrManufacturerUpdatedAt: new Date(),
+        },
+      });
+
+      // produsele PENDING oprite EXCLUSIV de GPSR (strict, fără AI) -
+      // nu blochează răspunsul dacă eșuează
+      const reevaluation = await reevaluateVendorGpsrBlockedProducts({
+        prisma,
+        vendorId: vendor.id,
+      }).catch((e) => {
+        console.error("[gpsr] reevaluation failed:", e?.message || e);
+        return { approved: [] };
+      });
+
+      return res.json({
+        ok: true,
+        ...gpsrManufacturerPayload(vendor),
+        autoApprovedProductIds: reevaluation.approved,
+      });
+    } catch (e) {
+      console.error("PUT /vendors/me/gpsr-manufacturer error:", e);
+      return res.status(500).json({ error: "server_error" });
+    }
+  }
+);
 
 /* ===================== ServiceProfile CRUD ===================== */
 

@@ -98,6 +98,84 @@ export function buildRecipient(order) {
   return { recipient, blockers };
 }
 
+export const PICKUP_DETAILS_MISSING_MESSAGE = "Completează adresa și datele de contact pentru ridicarea coletului.";
+
+// persoană juridică pentru Sameday (personType 1): aceleași forme ca la Stripe Connect
+const COMPANY_LEGAL_TYPES = new Set(["SRL", "SA", "SRL-D"]);
+
+/**
+ * Cine predă coletul curierului (Sameday thirdParty), EXCLUSIV din DB:
+ * adresa de ridicare implicită a vendorului (VendorPickupAddress) +
+ * numele magazinului (Vendor) + datele firmei (VendorBilling), doar pentru
+ * persoane juridice.
+ *
+ * @param {{ vendor: Object|null, billing: Object|null, pickup: Object|null }} src
+ * @returns {{ party: Object|null, blockers: Array }}
+ */
+export function buildPickupParty({ vendor = null, billing = null, pickup = null } = {}) {
+  if (!pickup) {
+    return {
+      party: null,
+      blockers: [blocker("pickup_address_missing", PICKUP_DETAILS_MISSING_MESSAGE, "pickupAddress")],
+    };
+  }
+
+  const street = clean(pickup.street);
+  const streetNo = clean(pickup.streetNo);
+  const details = clean(pickup.details);
+  const address = [street, streetNo ? `nr. ${streetNo}` : "", details].filter(Boolean).join(", ");
+
+  const legalType = clean(billing?.legalType).toUpperCase();
+  const company =
+    COMPANY_LEGAL_TYPES.has(legalType) && clean(billing?.companyName)
+      ? { name: clean(billing.companyName), cui: clean(billing.cui) || null, onrc: clean(billing.regCom) || null }
+      : null;
+
+  const party = {
+    addressId: pickup.id,
+    storeName: clean(vendor?.displayName) || null,
+    // persoana care predă coletul (o caută curierul)
+    name: clean(pickup.contactName),
+    phone: digits(pickup.phone),
+    email: clean(pickup.email) || null,
+    county: clean(pickup.county),
+    city: clean(pickup.city),
+    postalCode: clean(pickup.postalCode) || null,
+    address,
+    personType: company ? 1 : 0,
+    company,
+    // valorile salvate, pentru formularul de editare al proprietarului
+    form: {
+      contactName: clean(pickup.contactName),
+      phone: clean(pickup.phone),
+      email: clean(pickup.email),
+      county: clean(pickup.county),
+      city: clean(pickup.city),
+      postalCode: clean(pickup.postalCode),
+      street,
+      streetNo,
+      details,
+    },
+  };
+
+  const blockers = [];
+  const incomplete = !party.name || !party.phone || !party.county || !party.city || !street || !streetNo;
+  if (incomplete) {
+    blockers.push(blocker("pickup_address_incomplete", PICKUP_DETAILS_MISSING_MESSAGE, "pickupAddress"));
+  } else if (!isValidRoPhone(party.phone)) {
+    blockers.push(
+      blocker("pickup_phone_invalid", "Telefonul pentru ridicarea coletului nu este valid. Corectează-l în adresa de ridicare.", "pickupAddress.phone")
+    );
+  }
+  if (party.postalCode && !/^\d{6}$/.test(party.postalCode)) {
+    blockers.push(
+      blocker("pickup_postal_code_invalid", "Codul poștal al adresei de ridicare nu este valid.", "pickupAddress.postalCode")
+    );
+  }
+
+  return { party, blockers };
+}
+
 /**
  * @param {Object|null} pickup - VendorPickupAddress
  */

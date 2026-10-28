@@ -8,6 +8,10 @@ import AdminProductEditForm
   from "./AdminProductEditModal.jsx";
 import ProductChangeRequestModal
   from "./ProductChangeRequestModal.jsx";
+import AdminReviewRequestsPanel
+  from "./AdminReviewRequestsPanel.jsx";
+import { reviewRequestPublicNotice } from "./reviewRequestNotice.js";
+import reviewStyles from "../css/AdminReviewRequestsPanel.module.css";
 
 const PAGE_SIZE = 200;
 
@@ -200,6 +204,16 @@ export default function AdminProductsTab() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [moderationMessage, setModerationMessage] = useState("");
 
+  // cum se deschide fereastra produsului (din zona „Verificare solicitată de vendor”)
+  const [selectedMode, setSelectedMode] = useState({ mode: "details", changes: false });
+  const [reviewRefresh, setReviewRefresh] = useState(0);
+
+  const openProduct = (product, mode = "details", changes = false) => {
+    setSelectedMode({ mode, changes });
+    setSelectedProduct(product);
+    setModerationMessage("");
+  };
+
   const [query, setQuery] = useState("");
   const [availability, setAvailability] = useState("");
   const [activeFilter, setActiveFilter] = useState("");
@@ -380,6 +394,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
       if (data?.product) {
         setProductEverywhere(productId, data.product);
       }
+      setReviewRefresh((n) => n + 1);
     } catch (e) {
       setError(e?.message || "Nu am putut aproba produsul.");
     } finally {
@@ -407,6 +422,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
         setProductEverywhere(productId, data.product);
         setModerationMessage("");
       }
+      setReviewRefresh((n) => n + 1);
 
       return true;
     } catch (e) {
@@ -433,6 +449,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
         setProductEverywhere(productId, data.product);
         setModerationMessage("");
       }
+      setReviewRefresh((n) => n + 1);
     } catch (e) {
       setError(e?.message || "Nu am putut respinge produsul.");
     } finally {
@@ -506,6 +523,15 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
 
   return (
     <div className={styles.wrap}>
+      <AdminReviewRequestsPanel
+        refreshKey={reviewRefresh}
+        workingProductId={workingProductId}
+        onView={(product) => openProduct(product, "details")}
+        onEdit={(product) => openProduct(product, "edit")}
+        onApprove={(product) => approveProduct(product.id)}
+        onRequestChanges={(product) => openProduct(product, "details", true)}
+      />
+
       <div className={styles.toolbar}>
         <input
           type="text"
@@ -670,6 +696,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
 
                 const isApproved = moderationStatus === "APPROVED";
                 const openChangeRequest = p.changeRequest?.open ? p.changeRequest : null;
+                const openReviewRequest = p.reviewRequest?.open ? p.reviewRequest : null;
                 const displayModeration = getDisplayModeration(p);
 
                 return (
@@ -677,8 +704,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
                     key={p.id}
                     className={styles.clickableRow}
                     onClick={() => {
-                      setSelectedProduct(p);
-                      setModerationMessage("");
+                      openProduct(p);
                     }}
                   >
                     <td>
@@ -803,6 +829,12 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
                           </StatusBadge>
                         ) : null}
 
+                        {openReviewRequest ? (
+                          <StatusBadge tone="info">
+                            Verificare solicitată de vendor
+                          </StatusBadge>
+                        ) : null}
+
                         {p.aiModeration?.decision ? (
                           <span className={styles.inlineMeta}>
                             {AI_DECISION_LABELS[p.aiModeration.decision]?.label ||
@@ -866,8 +898,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
                           className={styles.actionBtn}
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelectedProduct(p);
-                            setModerationMessage("");
+                            openProduct(p);
                           }}
                         >
                           Verifică
@@ -876,13 +907,13 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
                         <button
                           type="button"
                           className={styles.approveBtn}
-                          disabled={(isApproved && !openChangeRequest) || workingProductId === p.id}
+                          disabled={(isApproved && !openChangeRequest && !openReviewRequest) || workingProductId === p.id}
                           onClick={(e) => {
                             e.stopPropagation();
                             approveProduct(p.id);
                           }}
                         >
-                          {isApproved && !openChangeRequest
+                          {isApproved && !openChangeRequest && !openReviewRequest
                             ? "Aprobat"
                             : workingProductId === p.id
                             ? "Se procesează..."
@@ -901,6 +932,8 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
       {selectedProduct ? (
        <ProductReviewModal
   product={selectedProduct}
+  initialMode={selectedMode.mode}
+  initialShowChangeRequest={selectedMode.changes}
   working={
     workingProductId ===
     selectedProduct.id
@@ -915,6 +948,8 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
     setSelectedProduct(
       null
     );
+
+    setSelectedMode({ mode: "details", changes: false });
 
     setModerationMessage(
       ""
@@ -955,6 +990,8 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
 
 function ProductReviewModal({
   product,
+  initialMode = "details",
+  initialShowChangeRequest = false,
   working,
   moderationMessage,
   setModerationMessage,
@@ -965,14 +1002,20 @@ function ProductReviewModal({
   onProductSaved,
 }) {
   const [modalMode, setModalMode] =
-    useState("details");
+    useState(initialMode);
 
   const [showChangeRequest, setShowChangeRequest] =
-    useState(false);
+    useState(initialShowChangeRequest);
 
   const openChangeRequest =
     product.changeRequest?.open
       ? product.changeRequest
+      : null;
+
+  // „Verificare solicitată de vendor” (voluntar, separat de moderare)
+  const openReviewRequest =
+    product.reviewRequest?.open
+      ? product.reviewRequest
       : null;
 
   const displayModeration =
@@ -1184,7 +1227,8 @@ function ProductReviewModal({
                 }
                 disabled={
                   (isApproved &&
-                    !openChangeRequest) ||
+                    !openChangeRequest &&
+                    !openReviewRequest) ||
                   working
                 }
                 onClick={
@@ -1192,13 +1236,48 @@ function ProductReviewModal({
                 }
               >
                 {isApproved &&
-                !openChangeRequest
+                !openChangeRequest &&
+                !openReviewRequest
                   ? "Produs aprobat"
                   : working
                   ? "Se procesează..."
                   : "Aprobă produsul"}
               </button>
             </div>
+
+            {openReviewRequest ? (
+              <div
+                className={reviewStyles.requestBox}
+                data-review-request-box
+              >
+                <strong>
+                  Verificare solicitată de vendor
+                  {openReviewRequest.requestedAt
+                    ? ` - ${formatDate(openReviewRequest.requestedAt)}`
+                    : ""}
+                </strong>
+                <span>
+                  {openReviewRequest.note
+                    ? `„${openReviewRequest.note}”`
+                    : "Vânzătorul nu a lăsat un mesaj."}
+                </span>
+                {reviewRequestPublicNotice({
+                  ...product,
+                  reviewRequest: openReviewRequest,
+                }) ? (
+                  <span data-review-public-notice>
+                    {reviewRequestPublicNotice({
+                      ...product,
+                      reviewRequest: openReviewRequest,
+                    })}
+                  </span>
+                ) : null}
+                <span>
+                  „Aprobă” închide solicitarea și îl anunță pe vânzător;
+                  „Cere modificări” continuă în fluxul de modificări solicitate.
+                </span>
+              </div>
+            ) : null}
 
             <AiModerationPanel
               aiModeration={

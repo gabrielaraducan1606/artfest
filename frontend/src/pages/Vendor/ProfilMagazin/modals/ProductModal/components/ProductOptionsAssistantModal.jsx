@@ -6,7 +6,11 @@ import {
 
 import Modal from "../../../ui/Modal";
 import modalStyles from "./ProductOptionsAssistantModal.module.css";
-import { normalizeOptionChoice } from "../../../../../../utils/optionLabels.js";
+import { carryCombinationOverrides } from "../../../../../../../../backend/src/lib/variantPricing.js";
+import {
+  getFieldOptionValues,
+  normalizeOptionChoice,
+} from "../../../../../../utils/optionLabels.js";
 
 /* =====================================================
    OPȚIUNI PREDEFINITE
@@ -118,27 +122,39 @@ function makeKey(label) {
     .replace(/[^a-z0-9_]/g, "");
 }
 
+/*
+ * Cheia de comparație a unei valori: stringul ("S") sau value-ul
+ * obiectului ({ value, label, priceDeltaCents }).
+ */
+function choiceKey(item) {
+  return normalizeText(
+    normalizeOptionChoice(item).value
+  );
+}
+
+/*
+ * Deduplică după value, dar păstrează intrarea ORIGINALĂ - obiectele
+ * { value, label, priceDeltaCents } nu se transformă în string
+ * (String(obiect) dădea "[object Object]" și pierdea diferența de preț).
+ */
 function uniqueValues(values = []) {
   const result = [];
+  const seen = new Set();
 
   for (const rawValue of values) {
-    const value =
-      String(rawValue || "").trim();
+    const item =
+      typeof rawValue === "string"
+        ? rawValue.trim()
+        : rawValue;
 
-    if (!value) {
+    const key = choiceKey(item);
+
+    if (!key || seen.has(key)) {
       continue;
     }
 
-    const exists =
-      result.some(
-        (item) =>
-          normalizeText(item) ===
-          normalizeText(value)
-      );
-
-    if (!exists) {
-      result.push(value);
-    }
+    seen.add(key);
+    result.push(item);
   }
 
   return result;
@@ -248,9 +264,9 @@ export default function ProductOptionsAssistantModal({
 
     for (const field of existingOptions) {
       nextValues[field.key] =
-        Array.isArray(field.options)
-          ? field.options
-          : [];
+        uniqueValues(
+          getFieldOptionValues(field)
+        );
     }
 
     setFieldValues(nextValues);
@@ -287,11 +303,7 @@ export default function ProductOptionsAssistantModal({
         "select",
 
       suggestions:
-        Array.isArray(
-          field.options
-        )
-          ? field.options
-          : [],
+        getFieldOptionValues(field),
     }));
 
 const dynamicCustom =
@@ -624,8 +636,8 @@ setCustomFields([
     const exists =
       currentValues.some(
         (item) =>
-          normalizeText(item) ===
-          normalizeText(value)
+          choiceKey(item) ===
+          choiceKey(value)
       );
 
     setFieldValues(
@@ -635,8 +647,8 @@ setCustomFields([
         [key]: exists
           ? currentValues.filter(
               (item) =>
-                normalizeText(item) !==
-                normalizeText(value)
+                choiceKey(item) !==
+                choiceKey(value)
             )
           : uniqueValues([
               ...currentValues,
@@ -915,6 +927,11 @@ setCustomFields([
      VALIDARE FINALĂ
   ===================================================== */
 
+  /*
+   * O variantă de tip select fără nicio valoare ar apărea la client ca
+   * un dropdown gol („Alege culoare” și nimic altceva) - schema e
+   * invalidă și nu se poate aplica.
+   */
   const invalidOption =
     generatedOptions.find(
       (field) =>
@@ -960,8 +977,12 @@ setCustomFields([
 
       quoteSchema: [],
 
+      // prețurile pe combinații existente nu se pierd (cele invalide sunt semnalate în editor)
       optionsSchema:
-        generatedOptions,
+        carryCombinationOverrides(
+          generatedOptions,
+          current.optionsSchema
+        ),
 
       customSchema:
         generatedCustom,
@@ -1427,10 +1448,10 @@ setCustomFields([
                       const selected =
                         valuesForCurrentField.some(
                           (value) =>
-                            normalizeText(
+                            choiceKey(
                               value
                             ) ===
-                            normalizeText(
+                            choiceKey(
                               choice.value
                             )
                         );
@@ -1571,7 +1592,7 @@ setCustomFields([
                     {valuesForCurrentField.map(
                       (item) => (
                         <span
-                          key={item}
+                          key={choiceKey(item)}
                           style={{
                             display:
                               "inline-flex",
@@ -2134,8 +2155,10 @@ setCustomFields([
                       </strong>
                     </label>
 
+                    {/* activ (doar previzualizare), ca vendorul să poată deschide lista */}
                     <select
-                      disabled
+                      defaultValue=""
+                      aria-label={field.label}
                       style={{
                         width:
                           "100%",
@@ -2153,21 +2176,31 @@ setCustomFields([
                           "var(--color-text)",
                       }}
                     >
-                      <option>
+                      <option value="">
                         Alege{" "}
                         {field.label.toLowerCase()}
                       </option>
 
                       {field.options.map(
-                        (option) => (
-                          <option
-                            key={
+                        (option) => {
+                          const choice =
+                            normalizeOptionChoice(
                               option
-                            }
-                          >
-                            {option}
-                          </option>
-                        )
+                            );
+
+                          return (
+                            <option
+                              key={
+                                choice.value
+                              }
+                              value={
+                                choice.value
+                              }
+                            >
+                              {choice.label}
+                            </option>
+                          );
+                        }
                       )}
                     </select>
                   </div>
@@ -2266,10 +2299,11 @@ setCustomFields([
                     "var(--color-danger)",
                 }}
               >
-                Completează variantele
-                pentru „
+                Varianta «
                 {invalidOption.label}
-                ”.
+                » nu are nicio opțiune.
+                Adaugă cel puțin o
+                valoare.
               </div>
             )}
 

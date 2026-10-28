@@ -45,7 +45,16 @@ export function resolveCourierAutoIntegrationAvailable(env = {}) {
 
 const BUILD_ENV = (typeof import.meta !== "undefined" && import.meta.env) || {};
 
-export const VENDOR_COURIERS_ENABLED = resolveVendorCouriersEnabled(BUILD_ENV);
+/*
+ * Curierat CENTRALIZAT: contractul de curier e al Artfest (backend:
+ * couriers/platformAccount.js). Vendorii NU își conectează conturi de curier
+ * și NU configurează adrese de ridicare -> meniul „Curieri”, secțiunea din
+ * Setări și CTA-ul „Conectează un curier” sunt ascunse, indiferent de VITE_*.
+ */
+export const VENDOR_COURIER_ACCOUNTS_ENABLED = false;
+
+export const VENDOR_COURIERS_ENABLED =
+  VENDOR_COURIER_ACCOUNTS_ENABLED && resolveVendorCouriersEnabled(BUILD_ENV);
 export const COURIER_AUTO_INTEGRATION_AVAILABLE = resolveCourierAutoIntegrationAvailable(BUILD_ENV);
 /*
  * COURIER_ACTIONS_HARD_DISABLED - oprire TEMPORARĂ, fixă în cod, a TUTUROR
@@ -60,6 +69,16 @@ export const COURIER_ACTIONS_HARD_DISABLED = true;
 
 export const COURIER_AUTOMATION_ENABLED =
   !COURIER_ACTIONS_HARD_DISABLED && VENDOR_COURIERS_ENABLED && COURIER_AUTO_INTEGRATION_AVAILABLE;
+
+/*
+ * AWB_GENERATION_ENABLED - excepția de la COURIER_ACTIONS_HARD_DISABLED: DOAR
+ * fluxul „Generează AWB” (secțiunea „Livrare” din comandă: previzualizare +
+ * generare cu contul Artfest). Anularea AWB și programarea ridicării rămân
+ * oprite. Dacă backend-ul nu are cont PLATFORM configurat (sau răspunde 503),
+ * vendorul vede COURIER_SETUP_PENDING_MESSAGE - niciun AWB simulat.
+ */
+export const AWB_GENERATION_ENABLED = true;
+export const COURIER_SETUP_PENDING_MESSAGE = "Integrarea cu serviciul de curierat este în curs de configurare.";
 export const COURIER_AUTOMATION_SOON_MESSAGE = "Integrarea automată cu curierii va fi disponibilă în curând.";
 // text scurt pentru tooltip-ul butoanelor dezactivate
 export const COURIER_SOON_SHORT = "În curând - funcție în curs de activare";

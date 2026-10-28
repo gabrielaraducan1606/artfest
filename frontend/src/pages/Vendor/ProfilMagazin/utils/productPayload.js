@@ -50,18 +50,25 @@ const quoteSchema = Array.isArray(prodForm.quoteSchema)
       ? prodForm.isOwnManufacturer
       : null;
 
-  const manufacturerName = (prodForm.manufacturerName || "").trim() || null;
-  const manufacturerAddress = (prodForm.manufacturerAddress || "").trim() || null;
-  const manufacturerEmail = (prodForm.manufacturerEmail || "").trim() || null;
+  /*
+   * „Eu sunt producătorul = Da”: datele producătorului vin din sursa
+   * centrală a vendorului, nu de pe produs - datele unui producător extern
+   * (rămase de la „Nu”) se golesc explicit la salvare (și serverul o face).
+   */
+  const external = isOwnManufacturer === true ? {} : prodForm;
+
+  const manufacturerName = (external.manufacturerName || "").trim() || null;
+  const manufacturerAddress = (external.manufacturerAddress || "").trim() || null;
+  const manufacturerEmail = (external.manufacturerEmail || "").trim() || null;
 
   const manufacturerInEU =
-    prodForm.manufacturerInEU === true || prodForm.manufacturerInEU === false
-      ? prodForm.manufacturerInEU
+    external.manufacturerInEU === true || external.manufacturerInEU === false
+      ? external.manufacturerInEU
       : null;
 
-  const responsiblePersonName = (prodForm.responsiblePersonName || "").trim() || null;
-  const responsiblePersonAddress = (prodForm.responsiblePersonAddress || "").trim() || null;
-  const responsiblePersonEmail = (prodForm.responsiblePersonEmail || "").trim() || null;
+  const responsiblePersonName = (external.responsiblePersonName || "").trim() || null;
+  const responsiblePersonAddress = (external.responsiblePersonAddress || "").trim() || null;
+  const responsiblePersonEmail = (external.responsiblePersonEmail || "").trim() || null;
 
   /*
    * "" (confirmat: nu se aplică) e distinct de null (necompletat) -

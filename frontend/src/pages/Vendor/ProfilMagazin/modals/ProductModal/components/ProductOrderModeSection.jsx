@@ -7,6 +7,17 @@ import {
 
 import styles from "../../../components/css/ProductModal.module.css";
 import { normalizeOptionChoice } from "../../../../../../utils/optionLabels.js";
+import {
+  MAX_PRICE_DELTA_CENTS,
+  MAX_COMBINATION_PRICE_CENTS,
+  carryCombinationOverrides,
+  checkCombinationOverrides,
+  optionPriceDeltaCents,
+  rawCombinationOverrides,
+  resolveVariantPricing,
+  setCombinationOverrides,
+  variantFields,
+} from "../../../../../../../../backend/src/lib/variantPricing.js";
 import ProductOptionsAssistantModal
   from "./ProductOptionsAssistantModal";
   import OptionsManualChoiceModal
@@ -432,16 +443,32 @@ function OptionTagComboField({
   const wrapRef = useRef(null);
   const inputRef = useRef(null);
 
-  const selectedValues = useMemo(
+  /*
+   * Valorile pot fi text ("S") sau obiecte ({ value, label,
+   * priceDeltaCents, colorHex ... }) - le păstrăm NESCHIMBATE la
+   * adăugare / ștergere (altfel un obiect devenea "[object Object]" și
+   * se pierdeau eticheta / diferența de preț).
+   */
+  const selectedItems = useMemo(
     () =>
       Array.isArray(values)
-        ? values
-            .map((value) =>
-              String(value || "").trim()
-            )
-            .filter(Boolean)
+        ? values.filter((item) =>
+            String(
+              normalizeOptionChoice(item).value || ""
+            ).trim()
+          )
         : [],
     [values]
+  );
+
+  const selectedValues = useMemo(
+    () =>
+      selectedItems.map((item) =>
+        String(
+          normalizeOptionChoice(item).value || ""
+        ).trim()
+      ),
+    [selectedItems]
   );
 
   useEffect(() => {
@@ -542,7 +569,7 @@ function OptionTagComboField({
 
     if (!alreadyExists) {
       onChange([
-        ...selectedValues,
+        ...selectedItems,
         value,
       ]);
     }
@@ -555,9 +582,11 @@ function OptionTagComboField({
     valueToRemove
   ) => {
     onChange(
-      selectedValues.filter(
+      selectedItems.filter(
         (item) =>
-          item !== valueToRemove
+          String(
+            normalizeOptionChoice(item).value || ""
+          ).trim() !== valueToRemove
       )
     );
   };
@@ -633,7 +662,7 @@ function OptionTagComboField({
         }}
       >
         {selectedValues.map(
-          (item) => (
+          (item, index) => (
             <span
               key={item}
               style={{
@@ -649,7 +678,7 @@ function OptionTagComboField({
             >
               {
                 normalizeOptionChoice(
-                  item
+                  selectedItems[index]
                 ).label
               }
 
@@ -786,6 +815,321 @@ function OptionTagComboField({
   );
 }
 
+/*
+ * Diferența de preț (opțională) pe valorile unei variante - salvată în
+ * optionsSchema ca priceDeltaCents pe obiectul valorii. Serverul
+ * (backend/src/lib/variantPricing.js) recalculează mereu prețul final.
+ */
+function formatDeltaLei(cents) {
+  return cents > 0 ? String(cents / 100).replace(".", ",") : "";
+}
+
+// "10" / "2,5" / "2.50" -> bani; "" -> 0; invalid / negativ -> null
+function parseDeltaLei(text) {
+  const raw = String(text || "").trim().replace(/^\+/, "").replace(",", ".");
+  if (!raw) return 0;
+  if (!/^\d+(\.\d{1,2})?$/.test(raw)) return null;
+  const cents = Math.round(Number(raw) * 100);
+  return cents <= MAX_PRICE_DELTA_CENTS ? cents : null;
+}
+
+function withPriceDelta(option, cents) {
+  const choice = normalizeOptionChoice(option);
+  const base =
+    option && typeof option === "object"
+      ? { ...option }
+      : { value: choice.value, label: choice.label };
+  delete base.priceDeltaCents;
+  return cents > 0 ? { ...base, priceDeltaCents: cents } : base;
+}
+
+function PriceDeltaInput({ id, label, cents, onCommit }) {
+  const [text, setText] = useState(() => formatDeltaLei(cents));
+  const [invalid, setInvalid] = useState(false);
+
+  return (
+    <label
+      htmlFor={id}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) auto",
+        alignItems: "center",
+        gap: 8,
+      }}
+    >
+      <span style={{ fontSize: "0.86rem", overflowWrap: "anywhere" }}>{label}</span>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span aria-hidden="true">+</span>
+        <input
+          id={id}
+          className={styles.input}
+          inputMode="decimal"
+          autoComplete="off"
+          placeholder="0"
+          value={text}
+          aria-invalid={invalid}
+          aria-label={`Diferență de preț pentru ${label} (lei)`}
+          style={{ width: 92, height: 40, padding: "6px 10px", boxSizing: "border-box" }}
+          onChange={(event) => {
+            const next = event.target.value;
+            setText(next);
+            const parsed = parseDeltaLei(next);
+            setInvalid(parsed === null);
+            if (parsed !== null) onCommit(parsed);
+          }}
+        />
+        <span>lei</span>
+      </span>
+      {invalid && (
+        <span style={{ gridColumn: "1 / -1", fontSize: "0.75rem", color: "var(--color-danger, #b91c1c)" }}>
+          Scrie o sumă pozitivă, ex. 10 sau 2,50.
+        </span>
+      )}
+    </label>
+  );
+}
+
+function OptionPriceDeltas({ fieldKey, options, onChange }) {
+  const items = (Array.isArray(options) ? options : []).filter((option) =>
+    String(normalizeOptionChoice(option).value || "").trim()
+  );
+  const hasDeltas = items.some((option) => optionPriceDeltaCents(option) > 0);
+  const [open, setOpen] = useState(hasDeltas);
+
+  if (!items.length) return null;
+
+  if (!open && !hasDeltas) {
+    return (
+      <button
+        type="button"
+        className={styles.linkBtn}
+        onClick={() => setOpen(true)}
+        style={{ justifySelf: "start" }}
+      >
+        + diferență de preț (opțional)
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div className={styles.label} style={{ margin: 0 }}>
+        Diferență de preț (opțional)
+      </div>
+      <div style={{ fontSize: "0.75rem", opacity: 0.75, lineHeight: 1.4 }}>
+        Lasă gol dacă această opțiune nu schimbă prețul.
+      </div>
+      {items.map((option) => {
+        const choice = normalizeOptionChoice(option);
+        const value = String(choice.value).trim();
+        return (
+          <PriceDeltaInput
+            key={value}
+            id={`option-delta-${fieldKey}-${value}`}
+            label={choice.label}
+            cents={optionPriceDeltaCents(option)}
+            onCommit={(cents) =>
+              onChange(
+                items.map((item) =>
+                  String(normalizeOptionChoice(item).value).trim() === value
+                    ? withPriceDelta(item, cents)
+                    : item
+                )
+              )
+            }
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+/*
+ * Prețuri speciale pe COMBINAȚII (etapa 2) - ascunse implicit. Vendorul
+ * adaugă doar excepțiile; o combinație fără preț special folosește calculul
+ * normal (bază + diferențe). Prețul special e prețul FINAL pe bucată.
+ * Salvate în optionsSchema (prima variantă) - vezi backend/src/lib/variantPricing.js.
+ */
+function parsePriceLei(text) {
+  const raw = String(text || "").trim().replace(",", ".");
+  if (!raw) return null;
+  if (!/^\d+(\.\d{1,2})?$/.test(raw)) return NaN;
+  const cents = Math.round(Number(raw) * 100);
+  return cents > 0 && cents <= MAX_COMBINATION_PRICE_CENTS ? cents : NaN;
+}
+
+function SpecialPriceInput({ id, cents, onCommit }) {
+  const [text, setText] = useState(() => (cents > 0 ? String(cents / 100).replace(".", ",") : ""));
+  const parsed = parsePriceLei(text);
+
+  return (
+    <label htmlFor={id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <span style={{ fontSize: "0.86rem", fontWeight: 600 }}>Preț special</span>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <input
+          id={id}
+          className={styles.input}
+          inputMode="decimal"
+          autoComplete="off"
+          placeholder="ex. 35"
+          value={text}
+          aria-invalid={Number.isNaN(parsed)}
+          style={{ width: 100, height: 40, padding: "6px 10px", boxSizing: "border-box" }}
+          onChange={(event) => {
+            const next = event.target.value;
+            setText(next);
+            const value = parsePriceLei(next);
+            onCommit(Number.isNaN(value) ? undefined : value ?? undefined);
+          }}
+        />
+        <span>lei</span>
+      </span>
+    </label>
+  );
+}
+
+function CombinationPrices({ form, onChange }) {
+  const product = {
+    priceCents: Math.round(Number(form?.price || 0) * 100),
+    optionsSchema: form?.optionsSchema,
+    repeatedGroups: form?.repeatedGroups,
+  };
+  const fields = variantFields(product).filter((field) => !field.repeated);
+  const rows = rawCombinationOverrides(form?.optionsSchema);
+  const { errors } = checkCombinationOverrides(product);
+  const [open, setOpen] = useState(rows.length > 0);
+
+  if (!rows.length && fields.length < 2) return null;
+
+  const errorsFor = (index) => errors.filter((item) => item.index === index).map((item) => item.message);
+
+  const updateRow = (index, patch) =>
+    onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+
+  // calculul normal (fără prețuri speciale), pentru comparație
+  const normalPrice = (selections) => {
+    const plain = { ...product, optionsSchema: setCombinationOverrides(product.optionsSchema || [], []) };
+    const result = resolveVariantPricing(plain, selections);
+    return result.ok ? result.unitPriceCents : null;
+  };
+
+  if (!open && !rows.length) {
+    return (
+      <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
+        <span style={{ fontSize: "0.82rem", opacity: 0.8 }}>Ai combinații cu prețuri speciale?</span>
+        <button type="button" className={styles.linkBtn} style={{ justifySelf: "start" }} onClick={() => setOpen(true)}>
+          Configurează prețuri pe combinații
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div id="combination-prices" className={styles.orderFieldCard} style={{ display: "grid", gap: 10 }}>
+      <strong>Prețuri pe combinații</strong>
+      <div style={{ fontSize: "0.78rem", opacity: 0.8, lineHeight: 1.45 }}>
+        Folosește această opțiune doar dacă o anumită combinație are un preț diferit de calculul normal al
+        variantelor. Celelalte combinații folosesc calculul normal.
+      </div>
+
+      {rows.map((row, index) => {
+        const selections = row && typeof row.selections === "object" && row.selections ? row.selections : {};
+        const rowErrors = errorsFor(index);
+        const started = Object.values(selections).some(Boolean) || row?.priceCents !== undefined;
+        const normal = normalPrice(selections);
+
+        return (
+          <div
+            // remontăm rândurile când se șterge unul (câmpul de preț are stare locală)
+            key={`${rows.length}-${index}`}
+            data-combination-row={index}
+            style={{
+              display: "grid",
+              gap: 8,
+              padding: 10,
+              borderRadius: 10,
+              border: "1px solid var(--color-border)",
+              background: "var(--surface)",
+            }}
+          >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
+              {fields.map((field, fieldIndex) => {
+                const value = selections[field.key] || "";
+                const missing = value && !field.choices.some((choice) => choice.value === value);
+                return (
+                  <label key={field.key} style={{ display: "grid", gap: 4, flex: "1 1 130px", minWidth: 0 }}>
+                    <span style={{ fontSize: "0.78rem", opacity: 0.8 }}>
+                      {fieldIndex > 0 ? "+ " : ""}
+                      {field.label}
+                    </span>
+                    <select
+                      className={styles.input}
+                      value={value}
+                      aria-label={`${field.label} - combinația ${index + 1}`}
+                      style={{ height: 40, padding: "6px 10px", boxSizing: "border-box" }}
+                      onChange={(event) =>
+                        updateRow(index, {
+                          selections: { ...selections, [field.key]: event.target.value || undefined },
+                        })
+                      }
+                    >
+                      <option value="">Alege…</option>
+                      {field.choices.map((choice) => (
+                        <option key={choice.value} value={choice.value}>
+                          {choice.label}
+                        </option>
+                      ))}
+                      {missing && <option value={value}>{value} (nu mai există)</option>}
+                    </select>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
+              <SpecialPriceInput
+                id={`combination-price-${index}`}
+                cents={Number(row?.priceCents) || 0}
+                onCommit={(cents) => updateRow(index, { priceCents: cents })}
+              />
+              <button
+                type="button"
+                className={styles.linkBtn}
+                onClick={() => onChange(rows.filter((_, i) => i !== index))}
+              >
+                Șterge
+              </button>
+            </div>
+
+            {normal !== null && (
+              <div style={{ fontSize: "0.75rem", opacity: 0.7 }}>
+                Calcul normal: {String(normal / 100).replace(".", ",")} lei
+              </div>
+            )}
+
+            {started && rowErrors.length > 0 && (
+              <div role="alert" style={{ fontSize: "0.78rem", color: "var(--color-danger, #b91c1c)", display: "grid", gap: 2 }}>
+                {rowErrors.map((message) => (
+                  <span key={message}>{message}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <button
+        type="button"
+        className={styles.smallBtn}
+        style={{ justifySelf: "start" }}
+        onClick={() => onChange([...rows, { selections: {} }])}
+      >
+        + Adaugă combinație specială
+      </button>
+    </div>
+  );
+}
+
 function SummaryRow({
   title,
   value,
@@ -860,6 +1204,9 @@ export default function ProductOrderModeSection({
   // Editorul Admin e într-o fereastră cu z-index 9999: promptul „configurează
   // manual” și asistentul de variante trebuie deschise deasupra ei
   nestedModalZIndex,
+
+  // „Rezolvă” din verificarea de publicare: { section, anchors, nonce }
+  focusRequest = null,
 }) {
   const [orderHelpOpen, setOrderHelpOpen] =
   useState(false);
@@ -943,6 +1290,15 @@ const [
 
 const repeatedGroup =
   repeatedGroups[0] || null;
+
+// variantele completate per membru (grup repetat) - fără diferență de preț
+const repeatedOptionKeys = new Set(
+  repeatedGroups.flatMap((group) =>
+    (Array.isArray(group?.fields) ? group.fields : [])
+      .map((item) => item?.key)
+      .filter(Boolean)
+  )
+);
 
 const repeatedEnabled =
   !!repeatedGroup;
@@ -1166,6 +1522,13 @@ const openSection = (
   }, 50);
 };
 
+  // „Rezolvă” din verificarea de publicare: deschide secțiunea cerută
+  // (câmpul exact e focalizat de ProductModalWizard)
+  useEffect(() => {
+    if (focusRequest?.section) openSection(focusRequest.section);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest?.nonce]);
+
  const selectMode = (
   modeValue
 ) => {
@@ -1352,7 +1715,13 @@ const closeManualOptionsPrompt = () => {
           "OPTIONS"
         ),
 
-        optionsSchema: nextFields,
+        optionsSchema: carryCombinationOverrides(
+
+          nextFields,
+
+          current.optionsSchema
+
+        ),
         aiManuallyEdited: true,
       };
     });
@@ -1406,7 +1775,13 @@ const closeManualOptionsPrompt = () => {
             "OPTIONS"
           ),
 
-          optionsSchema: nextFields,
+          optionsSchema: carryCombinationOverrides(
+
+            nextFields,
+
+            current.optionsSchema
+
+          ),
           aiManuallyEdited: true,
         };
       });
@@ -1441,11 +1816,14 @@ const closeManualOptionsPrompt = () => {
     setForm((current) =>
       markManualChange(current, {
         optionsSchema:
-          getSchemaFields(
+          carryCombinationOverrides(
+            getSchemaFields(
+              current.optionsSchema
+            ).filter(
+              (field) =>
+                field.key !== fieldKey
+            ),
             current.optionsSchema
-          ).filter(
-            (field) =>
-              field.key !== fieldKey
           ),
       })
     );
@@ -1755,10 +2133,17 @@ const toggleRepeatedField = (
                 ? field.options
                 : [];
 
+            // valorile pot fi obiecte ({ value, label, priceDeltaCents })
             return fieldValues.length
-              ? `${field.label}: ${fieldValues.join(
-                  ", "
-                )}`
+              ? `${field.label}: ${fieldValues
+                  .map((option) => {
+                    const delta = optionPriceDeltaCents(option);
+                    const label = normalizeOptionChoice(option).label;
+                    return delta > 0
+                      ? `${label} (+${formatDeltaLei(delta)} lei)`
+                      : label;
+                  })
+                  .join(", ")}`
               : field.label;
           })
           .join(" • ")
@@ -2410,6 +2795,17 @@ return (
                                 }
                               />
 
+                              {/* variantele alese „pentru fiecare membru” nu schimbă prețul (etapa 1) */}
+                              {!repeatedOptionKeys.has(field.key) && (
+                                <OptionPriceDeltas
+                                  fieldKey={field.key}
+                                  options={field.options}
+                                  onChange={(options) =>
+                                    updateOptionField(field.key, { options })
+                                  }
+                                />
+                              )}
+
                               <label
                                 className={
                                   styles.checkbox
@@ -2471,6 +2867,21 @@ return (
                         )}
                       </div>
                     )}
+
+                    {/* etapa 2: prețuri speciale pe combinații - ascunse implicit */}
+                    <CombinationPrices
+                      form={form}
+                      onChange={(list) =>
+                        setForm((current) =>
+                          markManualChange(current, {
+                            optionsSchema: setCombinationOverrides(
+                              getSchemaFields(current.optionsSchema),
+                              list
+                            ),
+                          })
+                        )
+                      }
+                    />
                   </div>
                 )}
               </div>

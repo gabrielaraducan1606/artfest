@@ -22,6 +22,120 @@
 // în request (vezi touchesGpsrFields mai jos) - un produs vechi cu
 // null-uri nu e blocat de editări nelegate de GPSR (ex. schimbarea
 // prețului).
+//
+// isOwnManufacturer === true -> datele producătorului NU stau pe produs:
+// vin dintr-o singură sursă, Vendor.gpsrManufacturerName/Address/Email
+// (completate o dată, folosite pentru toate produsele vendorului). Nu se
+// citesc niciodată din Vendor.address/email, ServiceProfile (retur),
+// VendorBilling (facturare) sau VendorPickupAddress (curier).
+
+/** Datele externe (isOwnManufacturer === false), golite la „Nu” -> „Da”. */
+export const GPSR_EXTERNAL_MANUFACTURER_FIELDS = [
+  "manufacturerName",
+  "manufacturerAddress",
+  "manufacturerEmail",
+  "manufacturerInEU",
+  "responsiblePersonName",
+  "responsiblePersonAddress",
+  "responsiblePersonEmail",
+];
+
+/** Sursa centrală pentru isOwnManufacturer === true (model Vendor). */
+export const VENDOR_GPSR_FIELDS = [
+  "gpsrManufacturerName",
+  "gpsrManufacturerAddress",
+  "gpsrManufacturerEmail",
+];
+
+// select Prisma pentru sursa centrală (Vendor)
+export const VENDOR_GPSR_SELECT = Object.freeze(
+  Object.fromEntries(VENDOR_GPSR_FIELDS.map((field) => [field, true]))
+);
+
+// aceleași limite ca în schema.prisma (VarChar)
+export const GPSR_CONTACT_MAX_LENGTH = { name: 200, address: 500, email: 320 };
+
+const GPSR_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+export function isValidGpsrEmail(value) {
+  const email = String(value ?? "").trim();
+  return email.length <= GPSR_CONTACT_MAX_LENGTH.email && GPSR_EMAIL_RE.test(email);
+}
+
+/*
+ * Adresă publică de contact: minimum 10 caractere, cel puțin o literă și
+ * o cifră (stradă + număr / cod poștal) - respinge texte ca „sdvfb”.
+ */
+export function isValidGpsrAddress(value) {
+  const address = String(value ?? "").trim();
+  return (
+    address.length >= 10 &&
+    address.length <= GPSR_CONTACT_MAX_LENGTH.address &&
+    /\p{L}/u.test(address) &&
+    /\d/.test(address)
+  );
+}
+
+export const GPSR_ADDRESS_HINT =
+  "Scrie adresa completă: stradă, număr, localitate (cel puțin 10 caractere, cu litere și cifre).";
+
+/**
+ * Validarea datelor publice ale producătorului - aceeași în editor
+ * (frontend) și pe server (PUT /api/vendors/me/gpsr-manufacturer).
+ *
+ * @param {{name?:string,address?:string,email?:string}} contact
+ * @returns {{ok:true,value:{name:string,address:string,email:string}}|{ok:false,field:string,error:string,message:string}}
+ */
+export function validateGpsrManufacturerContact(contact = {}) {
+  const name = String(contact?.name ?? "").trim();
+  const address = String(contact?.address ?? "").trim();
+  const email = String(contact?.email ?? "").trim();
+
+  if (!name) {
+    return { ok: false, field: "name", error: "gpsr_name_required", message: "Completează numele producătorului." };
+  }
+
+  if (name.length > GPSR_CONTACT_MAX_LENGTH.name) {
+    return { ok: false, field: "name", error: "gpsr_name_too_long", message: "Numele producătorului este prea lung." };
+  }
+
+  if (!address) {
+    return { ok: false, field: "address", error: "gpsr_address_required", message: "Completează adresa publică de contact." };
+  }
+
+  if (!isValidGpsrAddress(address)) {
+    return { ok: false, field: "address", error: "gpsr_address_invalid", message: GPSR_ADDRESS_HINT };
+  }
+
+  if (!email) {
+    return { ok: false, field: "email", error: "gpsr_email_required", message: "Completează emailul public de contact." };
+  }
+
+  if (!isValidGpsrEmail(email)) {
+    return { ok: false, field: "email", error: "gpsr_email_invalid", message: "Emailul public de contact nu este valid." };
+  }
+
+  return { ok: true, value: { name, address, email } };
+}
+
+/**
+ * Datele publice ale producătorului din sursa centrală (Vendor), sau null
+ * dacă nu sunt complete/valide. `vendor` = rândul Vendor (sau un obiect cu
+ * aceleași chei gpsrManufacturer*).
+ */
+export function getVendorGpsrManufacturer(vendor) {
+  if (!vendor) return null;
+
+  const result = validateGpsrManufacturerContact({
+    name: vendor.gpsrManufacturerName,
+    address: vendor.gpsrManufacturerAddress,
+    email: vendor.gpsrManufacturerEmail,
+  });
+
+  return result.ok ? result.value : null;
+}
+
+const vendorOf = (product) => product?.service?.vendor ?? null;
 
 export const GPSR_PRODUCT_FIELDS = [
   "isOwnManufacturer",
@@ -102,8 +216,32 @@ export function pickGpsrPatchFromBody(body = {}) {
     patch.isForChildren = normalizeNullableBoolean(body.isForChildren);
   }
 
+  /*
+   * Salvare cu „Eu sunt producătorul = Da”: datele unui producător extern
+   * (eventual rămase de la „Nu”) nu mai au ce căuta pe produs - le golim
+   * explicit, ca să nu poată fi folosite/afișate din greșeală.
+   */
+  if (patch.isOwnManufacturer === true) {
+    for (const field of GPSR_EXTERNAL_MANUFACTURER_FIELDS) {
+      patch[field] = null;
+    }
+  }
+
   return patch;
 }
+
+/*
+ * Formatul adreselor/emailurilor unui producător extern / persoane
+ * responsabile - verificat DOAR pentru valorile noi sau schimbate. O
+ * valoare veche, retrimisă neschimbată, nu blochează salvarea unui produs
+ * deja publicat (rămâne avertizare în editor).
+ */
+const EXTERNAL_FORMAT_CHECKS = [
+  ["manufacturerAddress", isValidGpsrAddress, "manufacturer_address_invalid", `Adresa producătorului nu este validă. ${GPSR_ADDRESS_HINT}`],
+  ["manufacturerEmail", isValidGpsrEmail, "manufacturer_email_invalid", "Emailul producătorului nu este valid."],
+  ["responsiblePersonAddress", isValidGpsrAddress, "responsible_person_address_invalid", `Adresa persoanei responsabile din UE nu este validă. ${GPSR_ADDRESS_HINT}`],
+  ["responsiblePersonEmail", isValidGpsrEmail, "responsible_person_email_invalid", "Emailul persoanei responsabile din UE nu este valid."],
+];
 
 function touchesGpsrFields(body = {}) {
   return GPSR_PRODUCT_FIELDS.some((field) => body[field] !== undefined);
@@ -191,6 +329,17 @@ export function validateGpsrConsistency(body = {}, currentProduct = null) {
         };
       }
     }
+
+    for (const [field, isValid, error, message] of EXTERNAL_FORMAT_CHECKS) {
+      if (field.startsWith("responsiblePerson") && manufacturerInEU !== false) continue;
+
+      const value = effective(field);
+      const changed = field in patch && (patch[field] ?? null) !== (currentProduct?.[field] ?? null);
+
+      if (value && changed && !isValid(value)) {
+        return { ok: false, error, message };
+      }
+    }
   }
 
   return { ok: true };
@@ -201,11 +350,19 @@ export function validateGpsrConsistency(body = {}, currentProduct = null) {
  * de admin și, dacă e nevoie, de orice alt loc care trebuie să știe
  * dacă un produs are datele GPSR minime confirmate. Un produs vechi,
  * fără nicio informație GPSR (toate null), este mereu incomplet.
+ *
+ * `vendor` = sursa centrală (Vendor.gpsrManufacturer*), implicit
+ * product.service.vendor. Pentru isOwnManufacturer === true, un vendor
+ * necunoscut sau fără date centrale complete înseamnă INCOMPLET.
  */
-export function isGpsrComplete(product) {
+export function isGpsrComplete(product, vendor = vendorOf(product)) {
   if (!product) return false;
 
   if (product.isOwnManufacturer === null || product.isOwnManufacturer === undefined) {
+    return false;
+  }
+
+  if (product.isOwnManufacturer === true && !getVendorGpsrManufacturer(vendor)) {
     return false;
   }
 
@@ -248,13 +405,18 @@ export function isGpsrComplete(product) {
  * Lista, în cuvinte simple, a ce lipsește - folosită de UI (badge/CTA)
  * ca să nu repete logica de mai sus.
  */
-export function getGpsrMissingFields(product) {
+export function getGpsrMissingFields(product, vendor = vendorOf(product)) {
   if (!product) return GPSR_PRODUCT_FIELDS.slice();
 
   const missing = [];
 
   if (product.isOwnManufacturer === null || product.isOwnManufacturer === undefined) {
     missing.push("isOwnManufacturer");
+  }
+
+  // datele publice ale vendorului-producător (sursa centrală)
+  if (product.isOwnManufacturer === true && !getVendorGpsrManufacturer(vendor)) {
+    missing.push("vendorGpsrManufacturer");
   }
 
   if (product.safetyWarnings === null || product.safetyWarnings === undefined) {
@@ -294,6 +456,18 @@ export function buildGpsrIncompleteWhere() {
       { safetyWarnings: null },
       { isForChildren: null },
       {
+        isOwnManufacturer: true,
+        service: {
+          is: {
+            vendor: {
+              is: {
+                OR: VENDOR_GPSR_FIELDS.map((field) => ({ [field]: null })),
+              },
+            },
+          },
+        },
+      },
+      {
         isOwnManufacturer: false,
         OR: [
           { manufacturerName: null },
@@ -315,24 +489,22 @@ export function buildGpsrIncompleteWhere() {
 }
 
 /**
- * Bloc GPSR pentru randare publică (pagina de produs). Rezolvă cazul
- * "isOwnManufacturer === true" din datele publice ale Vendorului
- * (displayName/address/email), NICIODATĂ din VendorBilling (date
- * fiscale/private). Returnează null pentru orice secțiune care nu
- * are date suficiente - pagina publică nu trebuie să afișeze
- * placeholdere sau valori inventate.
+ * Bloc GPSR pentru randare publică (DOAR pagina de produs - listele nu îl
+ * primesc). Cazul "isOwnManufacturer === true" vine EXCLUSIV din sursa
+ * centrală Vendor.gpsrManufacturer* (niciodată Vendor.address/email,
+ * ServiceProfile, VendorBilling sau VendorPickupAddress). Returnează null
+ * pentru orice secțiune care nu are date suficiente - pagina publică nu
+ * trebuie să afișeze placeholdere sau valori inventate.
  */
-export function buildPublicGpsrInfo(product, vendor) {
+export function buildPublicGpsrInfo(product, vendor = vendorOf(product)) {
   if (!product) return null;
 
+  const vendorManufacturer =
+    product.isOwnManufacturer === true ? getVendorGpsrManufacturer(vendor) : null;
+
   const manufacturer =
-    product.isOwnManufacturer === true
-      ? {
-          name: vendor?.displayName || null,
-          address: vendor?.address || null,
-          email: vendor?.email || null,
-          isVendor: true,
-        }
+    vendorManufacturer
+      ? { ...vendorManufacturer, isVendor: true }
       : product.isOwnManufacturer === false &&
         product.manufacturerName &&
         product.manufacturerAddress &&

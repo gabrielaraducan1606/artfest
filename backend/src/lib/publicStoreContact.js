@@ -23,6 +23,12 @@ export const PRIVATE_STORE_CONTACT_KEYS = Object.freeze([
   "publicEmail",
   "website",
   "socials",
+  // datele GPSR ale producătorului (Vendor) apar public DOAR pe pagina
+  // produsului, prin gpsrCompliance.buildPublicGpsrInfo
+  "gpsrManufacturerName",
+  "gpsrManufacturerAddress",
+  "gpsrManufacturerEmail",
+  "gpsrManufacturerUpdatedAt",
 ]);
 
 const PRIVATE_KEYS = new Set(PRIVATE_STORE_CONTACT_KEYS);

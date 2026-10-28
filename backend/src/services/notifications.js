@@ -5,6 +5,7 @@ import {
   reasonLabels,
   vendorChangeRequestPath,
 } from "./productChangeRequest.js";
+import { reviewRequestNotificationKey } from "./productReviewRequest.js";
 
 /**
  * Mapare explicită categorie -> cheia din User.preferences.notifications
@@ -883,6 +884,8 @@ export async function notifyVendorOnAwbAssigned(orderId, shipmentId) {
  * per solicitare), link spre pagina „Modificări solicitate”, iar meta
  * păstrează motivele/observațiile pentru istoric.
  * options.approvedAt: aprobarea de admin (o notificare per aprobare).
+ * options.reviewRequest: aprobarea închide o „verificare solicitată de
+ * vendor” (services/productReviewRequest.js) - textul o spune explicit.
  */
 export async function notifyVendorOnProductModeration(productId, status, message, options = {}) {
   if (!productId) return null;
@@ -907,7 +910,7 @@ export async function notifyVendorOnProductModeration(productId, status, message
   const statusUc = String(status || "").toUpperCase();
   const isRejected = statusUc === "REJECTED";
   const productTitle = product.title || "produsul tău";
-  const { changeRequest = null, approvedAt = null } = options;
+  const { changeRequest = null, approvedAt = null, reviewRequest = null } = options;
 
   const baseMeta = {
     kind: "product_moderation",
@@ -923,10 +926,12 @@ export async function notifyVendorOnProductModeration(productId, status, message
     return createVendorNotification(vendorId, {
       dedupeKey: `product_moderation:APPROVED:${product.id}:${at.getTime()}`,
       type: "system",
-      title: "Produsul tău a fost aprobat.",
-      body: `Produsul „${productTitle}” a fost aprobat.`,
+      title: reviewRequest ? "Artfest a verificat produsul tău" : "Produsul tău a fost aprobat.",
+      body: reviewRequest
+        ? `Am verificat produsul „${productTitle}”, cum ai cerut. Configurarea este în regulă, iar produsul este aprobat.`
+        : `Produsul „${productTitle}” a fost aprobat.`,
       link: options.link || "/vendor/store",
-      meta: baseMeta,
+      meta: reviewRequest ? { ...baseMeta, reviewRequestId: reviewRequest.id } : baseMeta,
     });
   }
 
@@ -1003,6 +1008,49 @@ export async function notifyAdminsProductChangesDone({ product, changeRequest, s
         },
       }).catch((error) => {
         console.error("[productChanges] notificare admin:", error?.message || error);
+        return null;
+      })
+    )
+  );
+}
+
+/*
+ * „Trimite la verificare Artfest” -> câte O notificare per admin activ,
+ * per solicitare (dedupeKey cu id-ul solicitării: un dublu-click sau o
+ * retrimitere nu dublează). Link spre fereastra produsului din Admin.
+ */
+export async function notifyAdminsProductReviewRequested({ product, reviewRequest, storeName }) {
+  if (!product?.id || !reviewRequest?.id) return;
+
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN", status: "ACTIVE" },
+    select: { id: true },
+    take: 50,
+  });
+
+  const productTitle = product.title || "produs";
+  const note = String(reviewRequest.note || "").trim();
+
+  await Promise.all(
+    admins.map((admin) =>
+      createUserNotification(admin.id, {
+        dedupeKey: reviewRequestNotificationKey(reviewRequest.id, admin.id),
+        type: "system",
+        title: `Verificare solicitată pentru „${productTitle}”`,
+        body: `${storeName || "Vânzătorul"} cere ajutorul echipei Artfest pentru configurarea produsului.${
+          note ? `
+
+Mesaj: ${trimPreview(note, 300)}` : ""
+        }`,
+        link: `/admin?tab=products&productId=${encodeURIComponent(product.id)}`,
+        meta: {
+          kind: "product_review_requested",
+          productId: product.id,
+          requestId: reviewRequest.id,
+          note,
+        },
+      }).catch((error) => {
+        console.error("[productReview] notificare admin:", error?.message || error);
         return null;
       })
     )

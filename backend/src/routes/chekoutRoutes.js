@@ -23,6 +23,11 @@ import {
   getPromotionPricingForProducts,
 } from "../services/productPromotionPrice.js";
 import {
+  attachVariantPricing,
+  invalidVariantErrorBody,
+  linePricingFor,
+} from "../services/cartLinePricing.js";
+import {
   resolveVendorCampaignAttributions,
   buildCampaignPromotionsByProductId,
   isProductEligibleForCampaign,
@@ -672,10 +677,14 @@ export function planShipmentCollectionRolesForPromoter({
 
 function mapCartItemForCheckout(
   it,
-  pricing = null
+  productPricing = null
 ) {
   const product =
     it?.product || {};
+
+  // prețul liniei: bază + diferențele variantelor alese, cu aceeași promoție
+  const pricing =
+    linePricingFor(productPricing, it);
 
   const originalPriceCents =
     Number(
@@ -712,7 +721,9 @@ function mapCartItemForCheckout(
       ),
 
     selectedOptions:
-      it.selectedOptions || {},
+      (it.variantPricing?.ok
+        ? it.variantPricing.selectedOptions
+        : it.selectedOptions) || {},
 
     customAnswers:
       it.customAnswers || {},
@@ -1368,6 +1379,8 @@ async function getGuestCart(
         isHidden: true,
         moderationStatus: true,
         orderMode: true,
+        optionsSchema: true,
+        repeatedGroups: true,
 
         service: {
           select: {
@@ -1543,8 +1556,11 @@ router.post(
           product: {
             select: {
               id: true,
+              title: true,
               priceCents: true,
               currency: true,
+              optionsSchema: true,
+              repeatedGroups: true,
               service: { select: { id: true, vendorId: true } },
             },
           },
@@ -1557,6 +1573,9 @@ router.post(
           message: "Coșul este gol.",
         });
       }
+
+      // prețul pe linie (variante) pentru subtotalul eligibil al codului
+      attachVariantPricing(cart);
 
       const currency = cart[0]?.product?.currency || "RON";
 
@@ -1664,6 +1683,9 @@ router.post(
           message: "Coșul este gol.",
         });
       }
+
+      // prețul pe linie (variante) pentru subtotalul eligibil al codului
+      attachVariantPricing(cart);
 
       const currency = cart[0]?.product?.currency || "RON";
 
@@ -1791,6 +1813,10 @@ router.get(
 
                 orderMode: true,
 
+                optionsSchema: true,
+
+                repeatedGroups: true,
+
                 service: {
                   select: {
                     id: true,
@@ -1828,6 +1854,11 @@ router.get(
       const quoteOnlySummaryItem = findQuoteOnlyCartItem(items);
       if (quoteOnlySummaryItem) {
         return res.status(400).json(quoteOnlyErrorBody(quoteOnlySummaryItem));
+      }
+      // variante inexistente / obligatorii lipsă / valori manipulate -> 400 (lib/variantPricing.js)
+      const invalidVariantItem = attachVariantPricing(items);
+      if (invalidVariantItem) {
+        return res.status(400).json(invalidVariantErrorBody(invalidVariantItem));
       }
 
       if (!items.length) {
@@ -1973,9 +2004,12 @@ router.get(
                 : null;
 
             const pricing =
-              pricingByProductId.get(
-                product.id
-              ) || null;
+              linePricingFor(
+                pricingByProductId.get(
+                  product.id
+                ) || null,
+                item
+              );
 
             const finalPriceCents =
               Number(
@@ -2343,6 +2377,11 @@ router.post(
       if (quoteOnlyGuestSummaryItem) {
         return res.status(400).json(quoteOnlyErrorBody(quoteOnlyGuestSummaryItem));
       }
+      // variante inexistente / obligatorii lipsă / valori manipulate -> 400 (lib/variantPricing.js)
+      const invalidVariantItem = attachVariantPricing(cart);
+      if (invalidVariantItem) {
+        return res.status(400).json(invalidVariantErrorBody(invalidVariantItem));
+      }
 
       const products =
         cart
@@ -2443,9 +2482,12 @@ router.post(
               product?.service;
 
             const pricing =
-              pricingByProductId.get(
-                product?.id
-              ) || null;
+              linePricingFor(
+                pricingByProductId.get(
+                  product?.id
+                ) || null,
+                item
+              );
 
             const finalPriceCents =
               Number(
@@ -2948,6 +2990,8 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
 styleTags: true,
 occasionTags: true,
           orderMode: true,
+          optionsSchema: true,
+          repeatedGroups: true,
           service: {
             select: {
               id: true,
@@ -2973,6 +3017,16 @@ occasionTags: true,
   const quoteOnlyQuoteItem = findQuoteOnlyCartItem(cart);
   if (quoteOnlyQuoteItem) {
     return res.status(400).json(quoteOnlyErrorBody(quoteOnlyQuoteItem));
+  }
+
+  // variante inexistente / obligatorii lipsă / valori manipulate -> 400 (lib/variantPricing.js)
+
+  const invalidVariantItem = attachVariantPricing(cart);
+
+  if (invalidVariantItem) {
+
+    return res.status(400).json(invalidVariantErrorBody(invalidVariantItem));
+
   }
 const pricingByProductId =
   await getPromotionPricingForProducts(
@@ -3028,6 +3082,16 @@ router.post("/checkout/guest/quote", async (req, res) => {
     const quoteOnlyGuestQuoteItem = findQuoteOnlyCartItem(cart);
     if (quoteOnlyGuestQuoteItem) {
       return res.status(400).json(quoteOnlyErrorBody(quoteOnlyGuestQuoteItem));
+    }
+
+    // variante inexistente / obligatorii lipsă / valori manipulate -> 400 (lib/variantPricing.js)
+
+    const invalidVariantItem = attachVariantPricing(cart);
+
+    if (invalidVariantItem) {
+
+      return res.status(400).json(invalidVariantErrorBody(invalidVariantItem));
+
     }
 
    const pricingByProductId =
@@ -3214,6 +3278,8 @@ occasionTags: true,
             isHidden: true,
             moderationStatus: true,
             orderMode: true,
+            optionsSchema: true,
+            repeatedGroups: true,
             service: {
               select: {
                 id: true,
@@ -3239,6 +3305,16 @@ occasionTags: true,
     const quoteOnlyCartItem = findQuoteOnlyCartItem(cart);
     if (quoteOnlyCartItem) {
       return res.status(400).json(quoteOnlyErrorBody(quoteOnlyCartItem));
+    }
+
+    // variante inexistente / obligatorii lipsă / valori manipulate -> 400 (lib/variantPricing.js)
+
+    const invalidVariantItem = attachVariantPricing(cart);
+
+    if (invalidVariantItem) {
+
+      return res.status(400).json(invalidVariantErrorBody(invalidVariantItem));
+
     }
 
     const currency = cart[0]?.product?.currency || "RON";
@@ -4455,6 +4531,16 @@ router.post("/checkout/guest/place", async (req, res) => {
     const quoteOnlyCartItem = findQuoteOnlyCartItem(cart);
     if (quoteOnlyCartItem) {
       return res.status(400).json(quoteOnlyErrorBody(quoteOnlyCartItem));
+    }
+
+    // variante inexistente / obligatorii lipsă / valori manipulate -> 400 (lib/variantPricing.js)
+
+    const invalidVariantItem = attachVariantPricing(cart);
+
+    if (invalidVariantItem) {
+
+      return res.status(400).json(invalidVariantErrorBody(invalidVariantItem));
+
     }
 
     const currency = cart[0]?.product?.currency || "RON";

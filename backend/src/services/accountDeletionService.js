@@ -170,6 +170,12 @@ export async function deleteOrAnonymizeAccount({ userId, reason = "SELF_SERVICE"
           city: null,
           citySlug: null,
 
+          // GPSR - datele publice ale producătorului
+          gpsrManufacturerName: null,
+          gpsrManufacturerAddress: null,
+          gpsrManufacturerEmail: null,
+          gpsrManufacturerUpdatedAt: null,
+
           entitySelfDeclaredIp: null,
           entitySelfDeclaredUa: null,
           entitySelfDeclaredMeta: null,

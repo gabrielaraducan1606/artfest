@@ -44,6 +44,8 @@ import {
   trackViewCart,
 } from "../../../services/analytics.js";
 import styles from "./Cart.module.css";
+// prețul liniei = bază + diferențele variantelor alese (aceeași regulă ca serverul)
+import { resolveVariantPricing } from "../../../../backend/src/lib/variantPricing.js";
 
 const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 const isHttp = (u = "") => /^https?:\/\//i.test(u);
@@ -325,7 +327,7 @@ configurationKey:
     Number(value)
   );
 
-const finalPriceCents =
+let finalPriceCents =
   hasNumericValue(
     p?.finalPriceCents
   )
@@ -353,7 +355,7 @@ const finalPriceCents =
             )
           : null;
 
-const originalPriceCents =
+let originalPriceCents =
   hasNumericValue(
     p?.originalPriceCents
   )
@@ -376,6 +378,31 @@ const hasDiscount =
   originalPriceCents !== null &&
   finalPriceCents <
     originalPriceCents;
+
+/*
+ * Coș guest: diferențele de preț ale variantelor alese, peste prețul cu
+ * promoție al produsului (același procent). Checkout-ul recalculează pe server.
+ */
+// prețul special al combinației sau bază + diferențe (aceeași regulă ca serverul)
+const variantPricing =
+  resolveVariantPricing(p, x.selectedOptions);
+const variantDeltaCents =
+  variantPricing.unitPriceCents -
+  variantPricing.basePriceCents;
+
+if (variantDeltaCents !== 0 && finalPriceCents !== null) {
+  const appliedPercent = hasDiscount
+    ? Number(p?.totalDiscountPercent ?? p?.discountPercent ?? 0) || 0
+    : 0;
+  const unitCents =
+    Math.max(0, (hasDiscount ? originalPriceCents : finalPriceCents) + variantDeltaCents);
+
+  originalPriceCents = hasDiscount ? unitCents : originalPriceCents;
+  finalPriceCents =
+    appliedPercent > 0
+      ? Math.max(0, Math.round((unitCents * (100 - appliedPercent)) / 100))
+      : unitCents;
+}
 
 const price =
   finalPriceCents !== null

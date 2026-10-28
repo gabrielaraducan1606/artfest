@@ -504,6 +504,11 @@ router.post("/vendor/settings/account/deactivate/confirm", async (req, res) => {
           delivery: { set: [] },
           city: null,
           citySlug: null,
+          // GPSR - datele publice ale producătorului
+          gpsrManufacturerName: null,
+          gpsrManufacturerAddress: null,
+          gpsrManufacturerEmail: null,
+          gpsrManufacturerUpdatedAt: null,
         },
       });
 

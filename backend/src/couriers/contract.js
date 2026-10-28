@@ -53,17 +53,25 @@ import { CourierValidationError } from "./errors.js";
  *   cancelShipment(ctx, awbNumber) -> { cancelled: true }; refuz definitiv al
  *     curierului -> eroare cu code "awb_not_cancellable" (starea locală NU se schimbă)
  *   trackingUrl(awbNumber) -> string|null (link public, fără apel la curier)
+ *   findShipmentByReference(ctx, clientReference) -> { awbNumber, parcelNumbers, cost } | null
+ *     (recuperare după un răspuns pierdut la creare; null = curierul nu are AWB cu referința)
+ *   resolvePlace(ctx, { county, city }) -> { countyId, cityId } (null-uri dacă nu e sigur)
+ *   describePackage(parcels) -> { type, label } | null (tipul coletului la curier)
  *
  * @typedef {Object} CreateShipmentInput
  * @property {string} clientReference     - referință Artfest trimisă curierului
  * @property {string|number} serviceId
- * @property {string|number} pickupPointId
+ * @property {string|number} pickupPointId - punctul contractual al contului (PLATFORM)
+ * @property {string|number} [contactPersonId]
  * @property {Array<{weightKg:number, lengthCm?:number, widthCm?:number, heightCm?:number}>} parcels
  * @property {number} codAmount           - calculat pe server (couriers/awb/codAmount.js)
  * @property {number} [declaredValue]
  * @property {{name:string, phone:string, email?:string, county:string, city:string,
- *             postalCode?:string, address:string}} recipient
- * @property {string} [lockerId]
+ *             countyId?:any, cityId?:any, postalCode?:string, address:string}} recipient
+ * @property {{name:string, phone:string, email?:string, county:string, city:string,
+ *             countyId?:any, cityId?:any, postalCode?:string, address:string,
+ *             personType:0|1, company?:{name:string, cui?:string, onrc?:string}}} thirdParty
+ *             - de unde ridică curierul coletul (adresa de ridicare a vendorului)
  * @property {string} [observation]
  *
  * Etapele următoare (NU acum): trackShipments (sincronizare status),

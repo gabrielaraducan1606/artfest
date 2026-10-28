@@ -7,16 +7,34 @@ import { openCredentials } from "../credentials/store.js";
 import {
   CourierAuthError,
   CourierError,
+  CourierTimeoutError,
   CourierValidationError,
   isCourierError,
 } from "../errors.js";
 import { computeVendorOrderPaymentState } from "../../services/vendorOrderPaymentState.js";
 import { computeShipmentCodAmount } from "./codAmount.js";
-import { buildRecipient, buildSender } from "./addresses.js";
+import { buildRecipient, buildPickupParty } from "./addresses.js";
 import { resolveParcels } from "./parcels.js";
+import {
+  PLATFORM_SETUP_MESSAGES,
+  findPlatformCourierAccount,
+  platformConfig,
+  platformSetupIssue,
+} from "../platformAccount.js";
 
 /*
  * Generare AWB pentru UN Shipment (sub-comanda unui vendor).
+ *
+ * CURIERAT CENTRALIZAT: contul de curier e al Artfest (CourierAccount
+ * PLATFORM, vezi couriers/platformAccount.js). Vendorul e verificat ca
+ * proprietar al Shipment-ului; credentialele / contractul NU sunt ale lui.
+ * Coletul e ridicat de la adresa de ridicare a vendorului (din DB) -
+ * Sameday thirdPartyPickup = 1. Fără cont PLATFORM configurat (credentiale,
+ * pickupPoint contractual) curierul NU e contactat și generarea e blocată
+ * cu mesajul configurării lipsă - niciodată un AWB simulat.
+ *
+ * Livrare: doar la adresă (serviciul 24H). Lockere / PUDO / Locker2Locker nu
+ * sunt implementate - expedierile LOCKER sunt blocate cu mesaj clar.
  *
  * IDEMPOTENȚĂ (model CourierAwb):
  *  1. rezervare: se creează CourierAwb { status: REQUESTED,
@@ -31,6 +49,13 @@ import { resolveParcels } from "./parcels.js";
  *     blocajul rămâne => nu se poate crea automat al doilea AWB.
  *  Header-ul Idempotency-Key (hash cu vendorId) face ca retrimiterea
  *  aceleiași cereri să întoarcă același rezultat, fără alt apel la curier.
+ *
+ *  clientInternalReference STABIL: ARTFEST-SHIPMENT-<shipmentId> (cu sufix
+ *  -R<n> doar după n AWB-uri anulate - un AWB anulat păstrează referința).
+ *  Timeout / răspuns pierdut la POST /api/awb -> ÎNAINTE de orice altă
+ *  încercare întrebăm Sameday (GET /api/client/awb/{referință}): găsit ->
+ *  CREATED cu numărul real; negăsit -> UNKNOWN, eliberat doar de
+ *  recoverUnknownAwb după RECOVERY_MIN_AGE_MS (tot după o verificare).
  *
  *  REQUESTED mai vechi de STALE_REQUESTED_MS (ex. serverul a repornit în
  *  timpul apelului) devine UNKNOWN - blocajul rămâne, dar adminul îl poate
@@ -163,9 +188,18 @@ function labelPath(shipmentId) {
   return `/api/vendor/shipments/${encodeURIComponent(shipmentId)}/label`;
 }
 
-function clientReferenceFor(order, shipment) {
-  return `ART-${order.orderNumber || order.id}-${String(shipment.id).slice(-8)}`.slice(0, 160);
+/*
+ * Referința trimisă curierului (clientInternalReference): stabilă și unică
+ * per expediere. Un AWB anulat păstrează referința lui la Sameday, deci
+ * după n anulări referința primește sufixul -R<n>.
+ */
+export function clientReferenceFor(shipmentId, cancelledCount = 0) {
+  const base = `ARTFEST-SHIPMENT-${shipmentId}`;
+  return (cancelledCount > 0 ? `${base}-R${cancelledCount}` : base).slice(0, 160);
 }
+
+// un UNKNOWN fără AWB la Sameday se eliberează doar după acest interval
+export const RECOVERY_MIN_AGE_MS = 2 * 60 * 1000;
 
 // cheie de idempotență namespaced pe vendor (hash - încape în VarChar(100))
 export function namespacedIdempotencyKey(vendorId, rawKey) {
@@ -223,62 +257,33 @@ async function loadShipment(db, vendorId, shipmentId) {
   return shipment;
 }
 
-// conturile vendorului care pot genera AWB (provider cu createShipment)
-async function listAwbCapableAccounts(db, vendorId) {
-  const rows = await db.courierAccount.findMany({
-    where: { vendorId, ownerType: "VENDOR", disabledAt: null },
-    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
-  });
-  return rows.filter((a) => {
-    try {
-      return !!getCourierProvider(a.provider).capabilities?.createShipment;
-    } catch {
-      return false;
-    }
-  });
-}
-
-function pickAccount(accounts, requestedId) {
-  if (requestedId) return accounts.find((a) => a.id === String(requestedId)) || null;
-  return accounts.find((a) => a.isDefault && a.status === "ACTIVE") ||
-    accounts.find((a) => a.status === "ACTIVE") ||
-    accounts[0] ||
-    null;
-}
-
-async function resolvePickupAddress(db, vendorId, account) {
-  if (account?.pickupAddressId) {
-    const own = await db.vendorPickupAddress.findFirst({
-      where: { id: account.pickupAddressId, vendorId },
-    });
-    if (own) return own;
-  }
-  return db.vendorPickupAddress.findFirst({
-    where: { vendorId, isDefault: true },
+/*
+ * Contul cu care a fost generat un AWB (etichetă / anulare): contul Artfest
+ * (PLATFORM) sau - pentru AWB-urile vechi - contul propriu al vendorului.
+ * Proprietatea asupra Shipment-ului e verificată înainte de apel.
+ */
+function findAwbAccount(db, row, vendorId) {
+  if (!row?.courierAccountId) return null;
+  return db.courierAccount.findFirst({
+    where: {
+      id: row.courierAccountId,
+      OR: [{ vendorId }, { ownerType: "PLATFORM", vendorId: null }],
+    },
   });
 }
 
-function pickService(services, requestedId, method) {
-  if (requestedId != null && requestedId !== "") {
-    return services.find((s) => String(s.id) === String(requestedId)) || null;
-  }
-  if (method === "LOCKER") {
-    const locker = services.find((s) => String(s.code || "").toUpperCase() === "LN");
-    if (locker) return locker;
-  }
-  return (
-    services.find((s) => s.isDefault) ||
-    services.find((s) => String(s.code || "") === "24") ||
-    services[0] ||
-    null
-  );
-}
+// serviciul 24H (livrare la adresă) - ID 7 în doc v3.6, „Services”
+export const HOME_DELIVERY_SERVICE_ID = "7";
 
-function pickPickupPoint(points, preferredId) {
-  if (preferredId != null && preferredId !== "") {
-    return points.find((p) => String(p.id) === String(preferredId)) || null;
-  }
-  return points.find((p) => p.isDefault) || (points.length === 1 ? points[0] : null);
+/*
+ * Serviciul de livrare la adresă, ales DOAR dintre serviciile active ale
+ * contului (GET /api/client/services): cel configurat (publicConfig.serviceId)
+ * sau, implicit, 24H (ID 7 conform documentației). Fără „primul serviciu” /
+ * „implicitul contului” - ar putea fi locker / retur.
+ */
+function pickHomeDeliveryService(services, configuredId) {
+  const wanted = configuredId || HOME_DELIVERY_SERVICE_ID;
+  return services.find((s) => String(s.id) === String(wanted)) || null;
 }
 
 function describeActiveAwb(active, shipment) {
@@ -300,15 +305,34 @@ function describeActiveAwb(active, shipment) {
   return null;
 }
 
+// datele de ridicare ale vendorului - EXCLUSIV din DB (adresa implicită)
+async function loadPickupParty(db, vendorId) {
+  const [vendor, billing, pickup] = await Promise.all([
+    db.vendor.findUnique({ where: { id: vendorId }, select: { id: true, displayName: true } }),
+    db.vendorBilling.findUnique({
+      where: { vendorId },
+      select: { legalType: true, companyName: true, cui: true, regCom: true },
+    }),
+    db.vendorPickupAddress.findFirst({
+      where: { vendorId },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    }),
+  ]);
+  return buildPickupParty({ vendor, billing, pickup });
+}
+
+function paymentSummary(paymentMethod, codAmount) {
+  return paymentMethod === "COD"
+    ? { type: "COD", label: "Ramburs", codAmount }
+    : { type: "PAID", label: "Achitat online", codAmount: 0 };
+}
+
 /**
  * Construiește previzualizarea + contextul intern pentru creare.
  * NU creează nimic. Apelează curierul doar pentru citiri (servicii,
  * puncte de ridicare).
  */
-export async function buildAwbPlan(
-  { vendorId, shipmentId, input = {}, liveMode = "always" },
-  db = defaultDb
-) {
+export async function buildAwbPlan({ vendorId, shipmentId, input = {}, liveMode = "always" }, db = defaultDb) {
   const shipment = await loadShipment(db, vendorId, shipmentId);
   const order = shipment.order;
   const blockers = [];
@@ -349,9 +373,15 @@ export async function buildAwbPlan(
     blockers.push(blocker("currency_unsupported", "Momentan AWB-ul se poate genera doar pentru comenzi în RON."));
   }
 
+  // doar livrare la adresă în această etapă (fără easybox / PUDO)
   const method = shipment.method === "LOCKER" ? "LOCKER" : "COURIER";
-  if (method === "LOCKER" && !shipment.lockerId) {
-    blockers.push(blocker("locker_missing", "Comanda e cu livrare la locker, dar lockerul nu este specificat."));
+  if (method === "LOCKER") {
+    blockers.push(
+      blocker(
+        "locker_not_supported",
+        "Livrarea la easybox nu este încă disponibilă pentru AWB generat din Artfest. Poți trimite comanda fără integrare."
+      )
+    );
   }
 
   /* ----- COD (server-side) ----- */
@@ -360,107 +390,89 @@ export async function buildAwbPlan(
     blockers.push(blocker("shipment_empty", "Expedierea nu conține produse valide."));
   }
 
-  /* ----- destinatar / colete ----- */
+  /* ----- ridicare (vendor, din DB) / destinatar (comandă) / colete ----- */
+  const { party: pickupParty, blockers: pickupBlockers } = await loadPickupParty(db, vendorId);
+  blockers.push(...pickupBlockers);
+
   const { recipient, blockers: recipientBlockers } = buildRecipient(order);
   blockers.push(...recipientBlockers);
 
   const parcels = resolveParcels(shipment, input);
   blockers.push(...parcels.blockers);
 
-  /* ----- cont de curier ----- */
-  const accounts = await listAwbCapableAccounts(db, vendorId);
-  const account = pickAccount(accounts, input.courierAccountId);
+  /* ----- contul Artfest (PLATFORM) -----
+   * Configurare lipsă (cont / credentiale / pickupPoint contractual) ->
+   * mesaj clar, fără niciun apel la curier. */
+  const account = await findPlatformCourierAccount(db);
+  const config = platformConfig(account);
   let def = null;
   let ctx = null;
 
-  if (!account) {
-    blockers.push(
-      blocker(
-        input.courierAccountId ? "courier_account_not_found" : "no_courier_account",
-        input.courierAccountId
-          ? "Contul de curier selectat nu a fost găsit."
-          : "Conectează un cont de curier în Setări > Livrare și retururi.",
-        "courierAccountId"
-      )
-    );
-  } else if (account.status !== "ACTIVE") {
-    blockers.push(
-      blocker(
-        "courier_account_inactive",
-        "Contul de curier nu este activ. Testează conexiunea sau reintrodu credentialele în Setări.",
-        "courierAccountId"
-      )
-    );
+  const setupIssue = platformSetupIssue(account);
+  if (setupIssue) {
+    blockers.push(setupIssue);
   } else {
-    def = getCourierProvider(account.provider);
     try {
+      def = getCourierProvider(account.provider);
       ctx = {
         accountId: account.id,
         credentials: openCredentials(account),
-        publicConfig: account.publicConfig || {},
+        publicConfig: { ...(account.publicConfig || {}), environment: config.environment },
       };
     } catch (e) {
-      blockers.push(
-        blocker(
-          isCourierError(e) ? e.code : "courier_credentials_unreadable",
-          isCourierError(e) ? e.message : "Datele de conectare ale curierului nu pot fi folosite.",
-          "courierAccountId"
-        )
-      );
+      console.error("[awb] contul PLATFORM nu poate fi folosit:", account.id, isCourierError(e) ? e.code : e?.name || "Error");
+      def = null;
+      ctx = null;
+      blockers.push(blocker("platform_account_missing", PLATFORM_SETUP_MESSAGES.platform_account_missing));
     }
   }
 
-  /* ----- expeditor ----- */
-  const pickupAddress = account ? await resolvePickupAddress(db, vendorId, account) : null;
-  const { sender, blockers: senderBlockers } = buildSender(pickupAddress);
-  if (account) blockers.push(...senderBlockers);
+  const courierReady = !!(def && ctx);
 
-  /* ----- date live de la curier (doar citiri) -----
+  /* ----- date live de la curier (doar citiri, cache-uite în provider) -----
    * liveMode "ifNoBlockers" (la creare): cu blockere locale (adresă,
    * greutate, plată...) curierul NU e contactat deloc. */
-  let services = [];
   let service = null;
-  let pickupPoints = [];
   let pickupPoint = null;
+  let contactPersonId = null;
 
-  const contactCourier = def && ctx && (liveMode === "always" || blockers.length === 0);
+  const contactCourier = courierReady && (liveMode === "always" || blockers.length === 0);
 
   if (contactCourier) {
     try {
-      [services, pickupPoints] = await Promise.all([
-        def.listServices(ctx),
-        def.listPickupPoints(ctx),
-      ]);
+      const [services, pickupPoints] = await Promise.all([def.listServices(ctx), def.listPickupPoints(ctx)]);
 
-      service = pickService(services, input.serviceId, method);
-      if (!services.length) {
-        blockers.push(blocker("service_unavailable", "Contul de curier nu are servicii de livrare disponibile.", "serviceId"));
-      } else if (!service) {
-        blockers.push(blocker("service_invalid", "Serviciul de livrare selectat nu este disponibil.", "serviceId"));
-      }
-
-      const preferredPoint =
-        pickupAddress?.providerRefs?.[account.provider]?.pickupPointId ??
-        account.publicConfig?.pickupPointId ??
-        null;
-      pickupPoint = pickPickupPoint(pickupPoints, preferredPoint);
-      if (!pickupPoint) {
+      service = pickHomeDeliveryService(services, config.serviceId);
+      if (!service) {
         blockers.push(
           blocker(
-            "pickup_point_missing",
-            pickupPoints.length
-              ? "Contul de curier are mai multe puncte de ridicare și niciunul nu e implicit. Setează un punct implicit în contul curierului."
-              : "Contul de curier nu are niciun punct de ridicare configurat."
+            "service_unavailable",
+            "Serviciul Sameday de livrare la adresă nu este activ pe contul Artfest. AWB-ul nu poate fi generat momentan."
           )
         );
       }
+
+      // punctul CONTRACTUAL configurat - verificat în contul Sameday, niciodată ghicit
+      pickupPoint = pickupPoints.find((p) => String(p.id) === String(config.pickupPointId)) || null;
+      if (!pickupPoint) {
+        blockers.push(blocker("platform_pickup_point_invalid", PLATFORM_SETUP_MESSAGES.platform_pickup_point_invalid));
+      } else if (config.contactPersonId) {
+        if ((pickupPoint.contactPersonIds || []).some((id) => String(id) === String(config.contactPersonId))) {
+          contactPersonId = config.contactPersonId;
+        } else {
+          blockers.push(
+            blocker("platform_contact_person_invalid", PLATFORM_SETUP_MESSAGES.platform_contact_person_invalid)
+          );
+        }
+      }
     } catch (e) {
       if (e instanceof CourierAuthError) {
-        blockers.push(blocker("courier_auth_failed", e.message, "courierAccountId"));
+        console.error("[awb] autentificarea contului PLATFORM a eșuat:", account.id);
+        blockers.push(blocker("platform_credentials_invalid", PLATFORM_SETUP_MESSAGES.platform_credentials_invalid));
       } else {
         blockers.push(
           blocker(
-            "courier_unreachable",
+            e instanceof CourierTimeoutError ? "courier_timeout" : "courier_unreachable",
             isCourierError(e) ? e.message : "Nu am putut contacta curierul. Încearcă din nou."
           )
         );
@@ -468,8 +480,11 @@ export async function buildAwbPlan(
     }
   }
 
-  const clientReference = clientReferenceFor(order, shipment);
+  const cancelledCount = await db.courierAwb.count({ where: { shipmentId: shipment.id, status: "CANCELLED" } });
+  const clientReference = clientReferenceFor(shipment.id, cancelledCount);
   const observation = String(order.shippingAddress?.notes || "").replace(/\s+/g, " ").trim().slice(0, 200) || null;
+  const packageInfo = def?.describePackage ? def.describePackage(parcels.list) : null;
+  const setupBlocker = blockers.find((b) => PLATFORM_SETUP_MESSAGES[b.code]) || null;
 
   const preview = {
     shipmentId: shipment.id,
@@ -479,22 +494,37 @@ export async function buildAwbPlan(
     lockerId: shipment.lockerId || null,
     currency,
     paymentMethod: payment.paymentMethod,
-    courier: account
-      ? { accountId: account.id, provider: account.provider, label: account.label, status: account.status }
+    payment: paymentSummary(payment.paymentMethod, cod.codAmount),
+    // contractul Artfest; fără detalii de cont pentru vendor
+    courier: courierReady ? { provider: account.provider } : null,
+    courierSetup: {
+      ready: courierReady && !setupBlocker,
+      message: setupBlocker ? setupBlocker.message : null,
+    },
+    // RIDICARE: de la vendor (thirdPartyPickup), din adresa lui de ridicare
+    pickup: pickupParty
+      ? {
+          storeName: pickupParty.storeName,
+          contactName: pickupParty.name || null,
+          phone: pickupParty.phone || null,
+          email: pickupParty.email,
+          address: pickupParty.address || null,
+          city: pickupParty.city || null,
+          county: pickupParty.county || null,
+          postalCode: pickupParty.postalCode,
+          fullAddress: [pickupParty.address, pickupParty.city, pickupParty.county, pickupParty.postalCode]
+            .filter(Boolean)
+            .join(", "),
+          complete: pickupBlockers.length === 0,
+          addressId: pickupParty.addressId,
+          form: pickupParty.form,
+        }
       : null,
-    accounts: accounts.map((a) => ({
-      id: a.id,
-      provider: a.provider,
-      label: a.label,
-      status: a.status,
-      isDefault: !!a.isDefault,
-    })),
-    sender,
     recipient,
     deliveryAddress: [recipient.address, recipient.city, recipient.county, recipient.postalCode]
       .filter(Boolean)
       .join(", "),
-    services,
+    services: service ? [service] : [],
     serviceId: service?.id ?? null,
     serviceName: service?.name ?? null,
     pickupPoint: pickupPoint ? { id: pickupPoint.id, alias: pickupPoint.alias } : null,
@@ -503,6 +533,7 @@ export async function buildAwbPlan(
     lengthCm: parcels.lengthCm,
     widthCm: parcels.widthCm,
     heightCm: parcels.heightCm,
+    packageType: packageInfo,
     declaredValue: null,
     codAmount: cod.codAmount,
     cod,
@@ -522,6 +553,8 @@ export async function buildAwbPlan(
       ctx,
       service,
       pickupPoint,
+      contactPersonId,
+      pickupParty,
       parcels,
       cod,
       recipient,
@@ -582,14 +615,24 @@ export async function createAwbForShipment(
   }
 
   // 1) validare completă (inclusiv citiri live de la curier)
-  const { preview, internal } = await buildAwbPlan(
-    { vendorId, shipmentId, input, liveMode: "ifNoBlockers" },
-    db
-  );
+  const { preview, internal } = await buildAwbPlan({ vendorId, shipmentId, input, liveMode: "ifNoBlockers" }, db);
   if (preview.blockers.length) throw new AwbBlockedError(preview.blockers, preview);
 
-  const { shipment, account, def, ctx, service, pickupPoint, parcels, cod, recipient, clientReference, observation } =
-    internal;
+  const {
+    shipment,
+    account,
+    def,
+    ctx,
+    service,
+    pickupPoint,
+    contactPersonId,
+    pickupParty,
+    parcels,
+    cod,
+    recipient,
+    clientReference,
+    observation,
+  } = internal;
   const serviceLabel = [service.name, service.code ? `(${service.code})` : ""].filter(Boolean).join(" ").slice(0, 120);
 
   // 2) rezervare atomică: maxim un AWB activ per Shipment
@@ -643,41 +686,103 @@ export async function createAwbForShipment(
     throw e;
   }
 
+  // ID-urile Sameday de județ / localitate (doar potrivire exactă; altfel numele)
+  const [recipientPlace, pickupPlace] = await Promise.all([
+    def.resolvePlace ? def.resolvePlace(ctx, recipient) : null,
+    def.resolvePlace ? def.resolvePlace(ctx, pickupParty) : null,
+  ]);
+
   // 3) apelul către curier - în afara oricărei tranzacții
   let result;
+  let recovered = false;
   try {
     result = await def.createShipment(ctx, {
       clientReference,
       serviceId: service.id,
       pickupPointId: pickupPoint.id,
+      contactPersonId,
       parcels: parcels.list,
       codAmount: cod.codAmount,
       declaredValue: 0,
-      recipient,
-      lockerId: internal.method === "LOCKER" ? shipment.lockerId : null,
+      recipient: { ...recipient, ...(recipientPlace || {}) },
+      thirdParty: { ...pickupParty, ...(pickupPlace || {}) },
       observation,
     });
   } catch (e) {
-    await recordFailure(db, reservation, account, e);
-    throw e;
+    if (isDefiniteFailure(e)) {
+      await recordFailure(db, reservation, account, e);
+      throw e;
+    }
+    // rezultat NECUNOSCUT (timeout / conexiune / 5xx): întâi întrebăm Sameday
+    // dacă AWB-ul există deja pentru referință - niciodată un al doilea POST
+    const lookup = await lookupByReference(def, ctx, clientReference);
+    if (!lookup.result) {
+      await recordFailure(db, reservation, account, e, { recoveryCheck: lookup.status });
+      throw e; // nu se ajunge aici: recordFailure aruncă awb_status_unknown
+    }
+    result = lookup.result;
+    recovered = true;
   }
 
   // 4) succes -> CREATED + Shipment (fără statusuri / nimic financiar)
-  const providerMeta = { parcelNumbers: result.parcelNumbers || [], cost: result.cost ?? null };
-  const trackingUrl = def.trackingUrl?.(result.awbNumber) || null;
+  const awbRow = await saveCreatedAwb(db, {
+    row: reservation,
+    shipmentId: shipment.id,
+    provider: account.provider,
+    def,
+    serviceLabel,
+    parcels,
+    result,
+    audit: recovered ? { action: "recovered_by_reference", actor: "system" } : null,
+  });
+  return { replayed: false, ...(recovered ? { recovered: true } : {}), awb: toPublicAwb(awbRow) };
+}
+
+// eșec SIGUR: Sameday a refuzat cererea (nimic creat) -> se poate reîncerca
+function isDefiniteFailure(e) {
+  return e instanceof CourierAuthError || e instanceof CourierValidationError;
+}
+
+/*
+ * GET /api/client/awb/{clientInternalReference} prin provider.
+ * @returns {Promise<{status:"found"|"not_found"|"error"|"unsupported", result?:Object}>}
+ */
+async function lookupByReference(def, ctx, clientReference) {
+  if (typeof def?.findShipmentByReference !== "function" || !clientReference) return { status: "unsupported" };
+  try {
+    const result = await def.findShipmentByReference(ctx, clientReference);
+    return result ? { status: "found", result } : { status: "not_found" };
+  } catch (e) {
+    console.error("[awb] verificarea după clientInternalReference a eșuat:", isCourierError(e) ? e.code : e?.name || "Error");
+    return { status: "error" };
+  }
+}
+
+/*
+ * AWB confirmat de curier -> CourierAwb CREATED + Shipment (awb, etichetă,
+ * tracking, colete). Dacă salvarea eșuează, AWB-ul EXISTĂ la curier:
+ * rândul rămâne UNKNOWN cu numărul salvat (fără al doilea AWB).
+ */
+async function saveCreatedAwb(db, { row, shipmentId, provider, def, serviceLabel, parcels, result, audit = null }) {
+  const providerMeta = {
+    ...(audit ? withAudit(row.providerMeta, audit) : {}),
+    parcelNumbers: result.parcelNumbers || [],
+    cost: result.cost ?? null,
+  };
+  const trackingUrl = def?.trackingUrl?.(result.awbNumber) || null;
   try {
     const [awbRow] = await db.$transaction([
       db.courierAwb.update({
-        where: { id: reservation.id },
+        where: { id: row.id },
         data: { status: "CREATED", awbNumber: result.awbNumber, providerMeta, errorMessage: null },
       }),
       db.shipment.update({
-        where: { id: shipment.id },
+        where: { id: shipmentId },
         data: {
-          courierProvider: account.provider,
+          courierProvider: provider,
           courierService: serviceLabel,
           awb: result.awbNumber,
-          labelUrl: labelPath(shipment.id),
+          labelUrl: labelPath(shipmentId),
           trackingUrl,
           parcels: parcels.parcels,
           weightKg: parcels.weightKg,
@@ -687,13 +792,12 @@ export async function createAwbForShipment(
         },
       }),
     ]);
-    return { replayed: false, awb: toPublicAwb(awbRow) };
+    return awbRow;
   } catch (e) {
-    // AWB-ul EXISTĂ la curier; blocajul rămâne (UNKNOWN), cu numărul salvat
-    console.error("[awb] AWB creat la curier, dar salvarea a eșuat:", reservation.id, e?.code || e?.name || "Error");
+    console.error("[awb] AWB creat la curier, dar salvarea a eșuat:", row.id, e?.code || e?.name || "Error");
     await db.courierAwb
       .update({
-        where: { id: reservation.id },
+        where: { id: row.id },
         data: {
           status: "UNKNOWN",
           awbNumber: result.awbNumber,
@@ -710,13 +814,14 @@ export async function createAwbForShipment(
   }
 }
 
-async function recordFailure(db, reservation, account, e) {
-  const definite = e instanceof CourierAuthError || e instanceof CourierValidationError;
+async function recordFailure(db, reservation, account, e, { recoveryCheck = null } = {}) {
+  const definite = isDefiniteFailure(e);
   const message = isCourierError(e) ? e.message : "Eroare neașteptată la generarea AWB.";
   const providerMeta = {
     errorCode: isCourierError(e) ? e.code : "unexpected_error",
     ...(e?.providerStatus ? { providerStatus: e.providerStatus } : {}),
     ...(Array.isArray(e?.fields) && e.fields.length ? { fields: e.fields } : {}),
+    ...(recoveryCheck ? { recoveryCheck, recoveryCheckedAt: new Date().toISOString() } : {}),
   };
 
   if (!isCourierError(e)) {
@@ -750,11 +855,105 @@ async function recordFailure(db, reservation, account, e) {
     // rezultat necunoscut: nu lăsăm frontend-ul să reîncerce automat
     const unknown = new CourierError(
       "awb_status_unknown",
-      "Curierul nu a confirmat generarea AWB (timeout sau eroare temporară). Nu genera din nou până nu verificăm.",
+      e instanceof CourierTimeoutError
+        ? "Sameday nu a răspuns la timp, iar AWB-ul nu apare încă la Sameday. Nu genera din nou: verifică din nou peste un minut."
+        : "Curierul nu a confirmat generarea AWB (eroare temporară), iar AWB-ul nu apare încă la Sameday. Nu genera din nou: verifică din nou peste un minut.",
       { httpStatus: 504 }
     );
     throw unknown;
   }
+}
+
+/**
+ * „Verifică din nou la Sameday” (vendor) pentru un AWB UNKNOWN al
+ * expedierii lui: întreabă curierul după clientInternalReference.
+ *   - AWB găsit (sau număr deja primit, dar nesalvat) -> CREATED + Shipment;
+ *   - negăsit și încercarea e mai veche de RECOVERY_MIN_AGE_MS -> FAILED,
+ *     expedierea e eliberată (se poate genera din nou, cu aceeași referință);
+ *   - negăsit, dar prea recent / Sameday indisponibil -> rămâne UNKNOWN.
+ * Nu creează niciodată un AWB.
+ * @returns {Promise<{outcome:"created"|"released", awb:Object}>}
+ */
+export async function recoverUnknownAwb({ vendorId, userId = null, shipmentId }, db = defaultDb) {
+  const shipment = await db.shipment.findFirst({
+    where: { id: String(shipmentId || ""), vendorId },
+    select: { id: true, awb: true },
+  });
+  if (!shipment) throw new AwbNotFoundError();
+
+  const row = await findActiveCourierAwb(db, shipment.id);
+  if (!row || row.status !== "UNKNOWN") {
+    throw new AwbConflictError("awb_not_unknown", "Nu există o generare de AWB care să aștepte verificarea.");
+  }
+
+  const account = await findAwbAccount(db, row, vendorId);
+  let def = null;
+  try {
+    def = getCourierProvider(row.provider);
+  } catch {
+    def = null;
+  }
+  const parcels = {
+    parcels: Array.isArray(row.parcels) ? row.parcels.length : null,
+    weightKg: row.weightKg != null ? Number(row.weightKg) : null,
+    lengthCm: row.parcels?.[0]?.lengthCm ?? null,
+    widthCm: row.parcels?.[0]?.widthCm ?? null,
+    heightCm: row.parcels?.[0]?.heightCm ?? null,
+  };
+  const save = (result, action) =>
+    saveCreatedAwb(db, {
+      row,
+      shipmentId: shipment.id,
+      provider: row.provider,
+      def,
+      serviceLabel: row.courierService || null,
+      parcels,
+      result,
+      audit: { action, actor: "vendor", userId },
+    });
+
+  // numărul a venit deja de la curier (salvare eșuată) - nu mai întrebăm
+  if (row.awbNumber) {
+    const awb = await save({ awbNumber: row.awbNumber, parcelNumbers: row.providerMeta?.parcelNumbers || [], cost: row.providerMeta?.cost ?? null }, "recovered_saved_number");
+    return { outcome: "created", awb: toPublicAwb(awb) };
+  }
+
+  if (!account || account.disabledAt || !def) {
+    throw new CourierError(
+      "courier_account_unavailable",
+      "Contul de curier cu care a fost generat AWB-ul nu mai este disponibil. Contactează suportul Artfest.",
+      { httpStatus: 409 }
+    );
+  }
+
+  const ctx = { accountId: account.id, credentials: openCredentials(account), publicConfig: account.publicConfig || {} };
+  const lookup = await lookupByReference(def, ctx, row.clientReference);
+
+  if (lookup.status === "found") {
+    const awb = await save(lookup.result, "recovered_by_reference");
+    return { outcome: "created", awb: toPublicAwb(awb) };
+  }
+
+  if (lookup.status === "not_found" && Date.now() - new Date(row.createdAt).getTime() >= RECOVERY_MIN_AGE_MS) {
+    const res = await db.courierAwb.updateMany({
+      where: { id: row.id, status: "UNKNOWN" },
+      data: {
+        status: "FAILED",
+        activeShipmentId: null,
+        errorMessage: "Sameday nu are niciun AWB pentru această încercare. Poți genera AWB-ul din nou.",
+        providerMeta: withAudit(row.providerMeta, { action: "recovered_not_found", actor: "vendor", userId }),
+      },
+    });
+    if (!res.count) throw new AwbConflictError("awb_changed", "AWB-ul a fost modificat între timp. Reîncarcă pagina.");
+    return { outcome: "released", awb: toPublicAwb(await db.courierAwb.findUnique({ where: { id: row.id } })) };
+  }
+
+  throw new AwbConflictError(
+    "awb_status_unknown",
+    lookup.status === "not_found"
+      ? "AWB-ul nu apare încă la Sameday. Verifică din nou peste un minut - nu genera alt AWB până atunci."
+      : "Nu am putut verifica la Sameday acum. Încearcă din nou peste câteva minute."
+  );
 }
 
 /* ----- status AWB curent pentru UI ----- */
@@ -825,7 +1024,7 @@ export async function getAwbLabel({ vendorId, shipmentId, format }, db = default
   if (!row || !row.awbNumber) return null;
 
   const account = row.courierAccountId
-    ? await db.courierAccount.findFirst({ where: { id: row.courierAccountId, vendorId } })
+    ? await findAwbAccount(db, row, vendorId)
     : null;
   if (!account || account.disabledAt) {
     throw new CourierError(
@@ -870,7 +1069,7 @@ export async function cancelAwbForShipment({ vendorId, userId = null, shipmentId
   }
 
   const account = row.courierAccountId
-    ? await db.courierAccount.findFirst({ where: { id: row.courierAccountId, vendorId } })
+    ? await findAwbAccount(db, row, vendorId)
     : null;
   if (!account || account.disabledAt) {
     throw new CourierError(

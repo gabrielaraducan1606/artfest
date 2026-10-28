@@ -1,6 +1,11 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { validateProductConfiguration } from "../../../../../utils/productConfigurationValidator.js";
+import { api as apiCall } from "../../../../../lib/api";
+import { checkProductForPublish } from "../../../../../utils/productPublishCheck.js";
+import {
+  useVendorGpsrManufacturer,
+  vendorGpsrForCheck,
+} from "../../utils/vendorGpsrManufacturer.js";
 import { normalizeOptionChoice } from "../../../../../utils/optionLabels.js";
 
 import styles from "../../components/css/ProductModal.module.css";
@@ -11,6 +16,8 @@ import ProductGpsrSection from "./components/ProductGpsrSection";
 import ProductOrderModeSection from "./components/ProductOrderModeSection";
 import ProductWizardNav from "./components/ProductWizardNav";
 import ProductClientPreviewModal from "./components/ProductClientPreviewModal";
+import ProductPublishCheck from "./components/ProductPublishCheck";
+import ArtfestReviewRequest from "./components/ArtfestReviewRequest";
 
 const PRODUCT_STEPS = [
   { key: "images", label: "Poze" },
@@ -18,6 +25,36 @@ const PRODUCT_STEPS = [
   { key: "customization", label: "Comandă" },
   { key: "review", label: "Publicare" },
 ];
+
+// câmpurile trimise verificării AI (doar text / configurare, fără poze)
+function aiDraftOf(form) {
+  return {
+    title: form.title || "",
+    description: form.description || "",
+    category: form.category || "",
+    orderMode: form.orderMode || "",
+    materialMain: form.materialMain || "",
+    technique: form.technique || "",
+    dimensions: form.dimensions || "",
+    leadTimeDays: form.leadTimeDays || "",
+    optionsSchema: form.optionsSchema || [],
+    customSchema: form.customSchema || [],
+    repeatedGroups: form.repeatedGroups || [],
+    quoteSchema: form.quoteSchema || [],
+  };
+}
+
+// recomandările AI țintesc zone, nu câmpuri exacte
+const AI_TARGETS = {
+  title: { step: "details", anchors: ["product-title"] },
+  description: { step: "details", anchors: ["product-description"] },
+  category: { step: "details", anchors: ["category-combobox-input"] },
+  details: { step: "details", anchors: ["product-material", "product-dimensions"] },
+  options: { step: "customization", section: "options", anchors: ["manual-section-options"] },
+  custom: { step: "customization", section: "custom", anchors: ["manual-section-custom"] },
+};
+
+const FOCUSABLE = new Set(["INPUT", "TEXTAREA", "SELECT", "BUTTON"]);
 
 function normalizeOrderMode(value) {
   if (value === "DIRECT") {
@@ -111,17 +148,22 @@ export default function ProductModalWizard({
   setPriceSuggestion,
   setPriceWarningConfirmed,
 
-  vendorPreview,
 }) {
   const [
     clientPreviewOpen,
     setClientPreviewOpen,
   ] = useState(false);
 
+  // „Rezolvă” / „Vezi”: pasul + secțiunea + câmpul exact
   const [
-    configWarningsConfirmed,
-    setConfigWarningsConfirmed,
-  ] = useState(false);
+    focusRequest,
+    setFocusRequest,
+  ] = useState(null);
+
+  // verificarea AI (doar recomandări subiective, opțională)
+  const [aiCheck, setAiCheck] =
+    useState({ status: "idle", key: "", recommendations: [] });
+  const aiRequestRef = useRef(0);
 
   const normalizedOrderMode =
     normalizeOrderMode(
@@ -131,20 +173,6 @@ export default function ProductModalWizard({
   const hasImages =
     Array.isArray(form.images) &&
     form.images.length > 0;
-
-  /*
-   * BUGFIX (audit) - QUOTE_ONLY cere acum preț orientativ > 0, la fel
-   * ca celelalte moduri (nu mai există bypass) - UI-ul îl numește
-   * "preț orientativ", dar validarea e identică.
-   */
-  const hasValidPrice =
-    form.price !== "" &&
-    form.price !== null &&
-    form.price !== undefined &&
-    Number.isFinite(
-      Number(form.price)
-    ) &&
-    Number(form.price) > 0;
 
   const hasValidStock =
     form.readyQty !== "" &&
@@ -164,190 +192,135 @@ export default function ProductModalWizard({
     ) &&
     Number(form.leadTimeDays) > 0;
 
-const hasOrderFields =
-  (
-    Array.isArray(
-      form.optionsSchema
-    ) &&
-    form.optionsSchema.length > 0
-  ) ||
-  (
-    Array.isArray(
-      form.customSchema
-    ) &&
-    form.customSchema.length > 0
-  ) ||
-  (
-    Array.isArray(
-      form.repeatedGroups
-    ) &&
-    form.repeatedGroups.length > 0
+  /*
+   * Verificarea de dinainte de publicare (utils/productPublishCheck.js):
+   * ERORI (blochează) + RECOMANDĂRI, fiecare cu pasul/câmpul exact.
+   * Include validatorul anti-abandon existent (productConfigurationValidator.js),
+   * regulile de preț ale serverului (variantPricing.js) și GPSR.
+   */
+  const knownCategories = useMemo(
+    () => new Set((options || []).map((option) => option.key).filter(Boolean)),
+    [options]
   );
 
-  const hasQuoteFields =
-    Array.isArray(
-      form.quoteSchema
-    ) &&
-    form.quoteSchema.length > 0;
+  // produs deja publicat (salvat ca APPROVED): GPSR incomplet nu blochează
+  // salvarea, rămâne recomandare; pentru produsele noi / nepublicate blochează
+  const existingPublished =
+    !!(editingProduct?.id || editingProduct?._id) &&
+    String(editingProduct?.moderationStatus || "").toUpperCase() === "APPROVED";
 
-  /*
-   * ANTI-ABANDON - mecanism comun cu ProductDetails.jsx/
-   * productPersonalizationFlow.js (productConfigurationValidator.js):
-   * verifică AICI, la editare, ca un vendor să nu poată publica o
-   * schemă pe care un client n-o poate rezolva (câmp obligatoriu fără
-   * opțiuni, valori duplicate, grup fără identificator etc.).
-   */
-  const configurationValidation =
-    validateProductConfiguration({
-      orderMode: normalizedOrderMode,
-      optionsSchema:
-        form.optionsSchema,
-      customSchema:
-        form.customSchema,
-      repeatedGroups:
-        form.repeatedGroups,
-      quoteSchema:
-        form.quoteSchema,
-    });
+  // GPSR „Eu sunt producătorul”: datele publice centrale ale vendorului
+  // (ciorna din editor sau cele salvate) - vezi utils/vendorGpsrManufacturer.js
+  const vendorGpsrState = useVendorGpsrManufacturer();
+  const vendorGpsr = useMemo(() => vendorGpsrForCheck(vendorGpsrState), [vendorGpsrState]);
 
-  const isOrderConfigurationComplete =
-    (() => {
-      if (
-        normalizedOrderMode ===
-        "READY_TO_BUY"
-      ) {
-        return (
-          hasValidPrice &&
-          hasValidStock
-        );
-      }
+  const publishCheck = useMemo(
+    () => checkProductForPublish(form, { knownCategories, existingPublished, vendorGpsr }),
+    [form, knownCategories, existingPublished, vendorGpsr]
+  );
 
-      if (
-        normalizedOrderMode ===
-        "OPTIONS"
-      ) {
-        return (
-          hasValidPrice &&
-          hasValidLeadTime &&
-          hasOrderFields
-        );
-      }
-
-      if (
-        normalizedOrderMode ===
-        "QUOTE_ONLY"
-      ) {
-        return (
-          hasValidPrice &&
-          hasValidLeadTime &&
-          hasQuoteFields
-        );
-      }
-
-      return false;
-    })();
+  const errorsByStep =
+    publishCheck.errorsByStep;
 
   const sectionStatus = {
     images:
-      hasImages,
+      !errorsByStep.images?.length,
 
     details:
-      !!form.title?.trim() &&
-      !!form.description?.trim() &&
-      !!form.category,
+      !errorsByStep.details?.length,
 
     customization:
-      isOrderConfigurationComplete &&
-      configurationValidation.valid,
+      !errorsByStep.customization?.length,
 
     review:
-      hasImages &&
-      !!form.title?.trim() &&
-      !!form.description?.trim() &&
-      !!form.category &&
-      isOrderConfigurationComplete &&
-      configurationValidation.valid,
+      publishCheck.ready,
   };
 
   /*
-   * Ce anume lipsește, în cuvinte simple, pentru
-   * fiecare pas - vendorul trebuie să vadă exact
-   * ce are de completat, nu doar un buton dezactivat.
-   * Reutilizează flag-urile deja calculate mai sus,
-   * nu introduce nicio regulă nouă de validare.
+   * Ce anume lipsește, în cuvinte simple, pentru fiecare pas - aceleași
+   * erori ca verificarea de publicare, cu „Rezolvă” spre câmpul exact.
    */
   const missingItemsByStep = {
-    images: hasImages
-      ? []
-      : [
-          "Adaugă cel puțin o fotografie a produsului.",
-        ],
-
-    details: [
-      !form.title?.trim() &&
-        "Completează titlul produsului.",
-      !form.description?.trim() &&
-        "Completează descrierea produsului.",
-      !form.category &&
-        "Alege o categorie pentru produs.",
-    ].filter(Boolean),
-
-    customization: [
-      ...(() => {
-      if (
-        normalizedOrderMode ===
-        "READY_TO_BUY"
-      ) {
-        return [
-          !hasValidPrice &&
-            "Completează prețul produsului.",
-          !hasValidStock &&
-            "Completează stocul disponibil.",
-        ].filter(Boolean);
-      }
-
-      if (
-        normalizedOrderMode ===
-        "OPTIONS"
-      ) {
-        return [
-          !hasValidPrice &&
-            "Completează prețul produsului.",
-          !hasValidLeadTime &&
-            "Completează timpul estimat de realizare.",
-          !hasOrderFields &&
-            "Adaugă cel puțin o variantă sau un câmp de personalizare.",
-        ].filter(Boolean);
-      }
-
-      if (
-        normalizedOrderMode ===
-        "QUOTE_ONLY"
-      ) {
-        return [
-          !hasValidPrice &&
-            "Completează prețul orientativ al produsului.",
-          !hasValidLeadTime &&
-            "Completează timpul estimat de realizare.",
-          !hasQuoteFields &&
-            "Adaugă cel puțin o întrebare pentru formularul de ofertă.",
-        ].filter(Boolean);
-      }
-
-      return [];
-      })(),
-
-      ...configurationValidation.blockingIssues.map(
-        (issue) => issue.message
-      ),
-    ],
+    images: errorsByStep.images || [],
+    details: errorsByStep.details || [],
+    customization: errorsByStep.customization || [],
   };
 
-  const allMissingItems = [
-    ...missingItemsByStep.images,
-    ...missingItemsByStep.details,
-    ...missingItemsByStep.customization,
-  ];
+  const resolveIssue = (target) => {
+    if (!target?.step) return;
+    setActiveStep(target.step);
+    setFocusRequest({ ...target, nonce: Date.now() });
+  };
+
+  // după schimbarea pasului: secțiunea se deschide (ProductOrderModeSection),
+  // apoi ducem vendorul la câmp
+  useEffect(() => {
+    if (!focusRequest || activeStep !== focusRequest.step) return undefined;
+
+    const timer = window.setTimeout(() => {
+      const element = (focusRequest.anchors || [])
+        .map((id) => document.getElementById(id))
+        .find(Boolean);
+      if (!element) return;
+
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (FOCUSABLE.has(element.tagName)) {
+        element.focus({ preventScroll: true });
+      }
+    }, 160);
+
+    return () => window.clearTimeout(timer);
+  }, [focusRequest, activeStep]);
+
+  /*
+   * Verificarea AI rulează doar pe pasul „Publicare”, o dată per conținut
+   * (serverul are și cache). Eșecul nu blochează nimic: rămân verificările
+   * deterministe.
+   */
+  const aiDraft = useMemo(() => aiDraftOf(form), [form]);
+  const aiKey = useMemo(() => JSON.stringify(aiDraft), [aiDraft]);
+
+  const runAiCheck = (key, draft) => {
+    const requestId = ++aiRequestRef.current;
+    setAiCheck({ status: "loading", key, recommendations: [] });
+
+    apiCall("/api/vendors/products/publish-check/ai", {
+      method: "POST",
+      body: { draft },
+    })
+      .then((data) => {
+        if (requestId !== aiRequestRef.current) return;
+        const ai = data?.ai || {};
+        setAiCheck(
+          ai.available
+            ? { status: "done", key, recommendations: Array.isArray(ai.recommendations) ? ai.recommendations : [] }
+            : { status: "unavailable", key, reason: ai.reason || "", recommendations: [] }
+        );
+      })
+      .catch(() => {
+        if (requestId !== aiRequestRef.current) return;
+        setAiCheck({ status: "unavailable", key, reason: "network", recommendations: [] });
+      });
+  };
+
+  useEffect(() => {
+    if (activeStep !== "review" || aiCheck.key === aiKey) return undefined;
+    if (!aiDraft.title.trim() || !aiDraft.description.trim()) return undefined;
+
+    const timer = window.setTimeout(() => runAiCheck(aiKey, aiDraft), 400);
+    return () => window.clearTimeout(timer);
+  }, [activeStep, aiKey, aiDraft, aiCheck.key]);
+
+  const aiForPanel =
+    aiCheck.key === aiKey
+      ? {
+          ...aiCheck,
+          recommendations: aiCheck.recommendations.map((item) => ({
+            ...item,
+            target: AI_TARGETS[item.target] || AI_TARGETS.description,
+          })),
+        }
+      : { status: "idle", recommendations: [] };
 
   const activeStepIndex =
     PRODUCT_STEPS.findIndex(
@@ -534,6 +507,7 @@ quoteSchema: [],
 
       {activeStep ===
         "images" && (
+        <div id="product-step-images">
         <ProductImagesSection
           form={
             form
@@ -602,6 +576,7 @@ quoteSchema: [],
             discardAiImagePreview
           }
         />
+        </div>
       )}
 
       {activeStep ===
@@ -646,7 +621,6 @@ quoteSchema: [],
         <ProductGpsrSection
           form={form}
           setForm={setForm}
-          vendorPreview={vendorPreview}
         />
         </>
       )}
@@ -692,6 +666,12 @@ quoteSchema: [],
           removeQuoteFieldOption={
             removeQuoteFieldOption
           }
+
+          focusRequest={
+            focusRequest?.step === "customization"
+              ? focusRequest
+              : null
+          }
         />
       )}
 
@@ -722,6 +702,21 @@ quoteSchema: [],
             Verifică informațiile
             înainte de salvare.
           </p>
+
+          <ProductPublishCheck
+            check={publishCheck}
+            ai={aiForPanel}
+            onResolve={resolveIssue}
+            onRetryAi={() => runAiCheck(aiKey, aiDraft)}
+          />
+
+          <ArtfestReviewRequest
+            productId={
+              editingProduct?.id ||
+              editingProduct?._id ||
+              null
+            }
+          />
 
           <div
             className={
@@ -1176,43 +1171,23 @@ quoteSchema: [],
               {missingItemsByStep[
                 activeStep
               ].map((item) => (
-                <li key={item}>
-                  {item}
+                <li key={`${item.code}|${item.message}`}>
+                  {item.message}{" "}
+                  <button
+                    type="button"
+                    className={
+                      styles.linkBtn
+                    }
+                    onClick={() =>
+                      resolveIssue(
+                        item.target
+                      )
+                    }
+                  >
+                    Rezolvă
+                  </button>
                 </li>
               ))}
-            </ul>
-          </div>
-        )}
-
-      {isLastStep &&
-        !sectionStatus.review &&
-        !!allMissingItems.length && (
-          <div
-            className={
-              styles.tip
-            }
-            style={{
-              margin: "0 20px 16px",
-            }}
-          >
-            <strong>
-              Înainte să publici, mai
-              ai de completat:
-            </strong>
-
-            <ul
-              style={{
-                margin: "6px 0 0",
-                paddingLeft: 18,
-              }}
-            >
-              {allMissingItems.map(
-                (item) => (
-                  <li key={item}>
-                    {item}
-                  </li>
-                )
-              )}
             </ul>
           </div>
         )}
@@ -1282,80 +1257,6 @@ quoteSchema: [],
           </div>
         )}
 
-      {isLastStep &&
-        !!configurationValidation
-          .warnings.length &&
-        !configWarningsConfirmed && (
-          <div
-            className={
-              styles.tip
-            }
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              flexWrap: "wrap",
-              gap: 10,
-              margin: "0 20px 16px",
-              padding: "10px 14px",
-              borderRadius: 10,
-              background:
-                "rgba(217, 119, 6, 0.1)",
-              color: "#92400e",
-            }}
-          >
-            <div
-              style={{
-                flex: "1 1 260px",
-              }}
-            >
-              <strong>
-                Sugestii pentru o
-                configurare mai clară:
-              </strong>
-
-              <ul
-                style={{
-                  margin: "6px 0 0",
-                  paddingLeft: 18,
-                }}
-              >
-                {configurationValidation.warnings.map(
-                  (issue) => (
-                    <li
-                      key={`${issue.code}-${issue.path}`}
-                    >
-                      {issue.message}
-                    </li>
-                  )
-                )}
-              </ul>
-
-              <p
-                style={{
-                  margin: "6px 0 0",
-                }}
-              >
-                Poți publica oricum - e
-                doar o informare, nu o
-                blocare.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              className={
-                styles.linkBtn
-              }
-              onClick={() =>
-                setConfigWarningsConfirmed(
-                  true
-                )
-              }
-            >
-              Am înțeles
-            </button>
-          </div>
-        )}
     </form>
 
     <ProductClientPreviewModal

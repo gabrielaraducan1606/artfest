@@ -35,7 +35,11 @@ import {
   isGpsrComplete,
   getGpsrMissingFields,
   GPSR_PRODUCT_FIELDS,
+  VENDOR_GPSR_SELECT,
 } from "../lib/gpsrCompliance.js";
+import { carryReviewRequestOverModeration, getReviewRequest } from "./productReviewRequest.js";
+import { getChangeRequest } from "./productChangeRequest.js";
+
 
 export const MODERATION_VERSION = "product-moderation-v1";
 
@@ -102,6 +106,7 @@ export const VENDOR_GPSR_MESSAGE =
  */
 const GPSR_MISSING_LABELS = [
   ["isOwnManufacturer", "cine este producătorul produsului"],
+  ["vendorGpsrManufacturer", "datele publice ale producătorului (nume, adresă, email), completate o singură dată"],
   ["manufacturerName", "datele producătorului (nume, adresă, email)"],
   ["manufacturerAddress", "datele producătorului (nume, adresă, email)"],
   ["manufacturerEmail", "datele producătorului (nume, adresă, email)"],
@@ -113,8 +118,8 @@ const GPSR_MISSING_LABELS = [
   ["isForChildren", "dacă produsul este destinat copiilor"],
 ];
 
-export function describeMissingGpsr(product) {
-  const missing = new Set(getGpsrMissingFields(product));
+export function describeMissingGpsr(product, vendor = product?.service?.vendor ?? null) {
+  const missing = new Set(getGpsrMissingFields(product, vendor));
   const labels = [];
 
   for (const [field, label] of GPSR_MISSING_LABELS) {
@@ -195,11 +200,43 @@ function stableStringify(value) {
     .join(",")}}`;
 }
 
+/*
+ * Diferența de preț a unei valori de variantă (priceDeltaCents) și
+ * prețurile pe combinații (combinationPriceOverrides) NU sunt
+ * conținut de moderat: o schimbare doar de preț nu cere o nouă verificare
+ * și nu scoate un produs aprobat din publicare. O valoare transformată în
+ * obiect doar pentru preț ({ value, label } identice) contează ca textul ei.
+ */
+function withoutVariantPricing(field, value) {
+  if (field !== "optionsSchema" || !Array.isArray(value)) return value;
+
+  return value.map((rawField) => {
+    if (!rawField || typeof rawField !== "object") return rawField;
+    // prețurile pe combinații (etapa 2) - tot preț, nu conținut
+    const schemaField = { ...rawField };
+    delete schemaField.combinationPriceOverrides;
+    if (!Array.isArray(schemaField.options)) return schemaField;
+
+    return {
+      ...schemaField,
+      options: schemaField.options.map((option) => {
+        if (!option || typeof option !== "object" || Array.isArray(option)) return option;
+        const { priceDeltaCents, ...rest } = option;
+        const keys = Object.keys(rest);
+        if (keys.length === 2 && keys.includes("value") && keys.includes("label") && rest.value === rest.label) {
+          return rest.value;
+        }
+        return priceDeltaCents === undefined ? option : rest;
+      }),
+    };
+  });
+}
+
 export function buildModerationText(product = {}) {
   const parts = {};
 
   for (const field of MODERATION_TEXT_FIELDS) {
-    const value = product?.[field];
+    const value = withoutVariantPricing(field, product?.[field]);
 
     if (
       value === null ||
@@ -238,8 +275,8 @@ export function hasActualContentChange(product = {}, patch = {}, fields = []) {
   return fields.some(
     (field) =>
       Object.prototype.hasOwnProperty.call(patch, field) &&
-      stableStringify(patch[field] ?? null) !==
-        stableStringify(product?.[field] ?? null)
+      stableStringify(withoutVariantPricing(field, patch[field] ?? null)) !==
+        stableStringify(withoutVariantPricing(field, product?.[field] ?? null))
   );
 }
 
@@ -745,6 +782,8 @@ export async function runProductModeration({
   product,
   previous = null,
   previouslyRejectedByAdmin = false,
+  // sursa centrală GPSR (Vendor.gpsrManufacturer*), pentru isOwnManufacturer = true
+  vendor = product?.service?.vendor ?? null,
   client,
   env = process.env,
   now = () => new Date(),
@@ -848,7 +887,7 @@ export async function runProductModeration({
     images,
     classification,
     previouslyRejectedByAdmin,
-    gpsrComplete: isGpsrComplete(product),
+    gpsrComplete: isGpsrComplete(product, vendor),
   });
 
   const reasons = new Set(decisionResult.reasons);
@@ -988,7 +1027,8 @@ export function buildVendorModerationReport(
   aiModeration,
   moderationStatus,
   reviewedByUserId = null,
-  product = null
+  product = null,
+  vendor = product?.service?.vendor ?? null
 ) {
   if (!aiModeration || aiModeration.version !== MODERATION_VERSION) {
     return null;
@@ -1032,7 +1072,7 @@ export function buildVendorModerationReport(
      */
     const missingGpsr =
       product && isBlockedOnlyByGpsr(aiModeration)
-        ? describeMissingGpsr(product)
+        ? describeMissingGpsr(product, vendor)
         : [];
 
     if (missingGpsr.length) {
@@ -1073,22 +1113,48 @@ export async function moderateSavedProduct({
   }
 
   try {
+    // GPSR: produsul salvat nu are relațiile încărcate - sursa centrală
+    // (Vendor.gpsrManufacturer*) e citită aici, o singură dată
+    const vendor =
+      product.service?.vendor ??
+      (await prisma.product
+        .findUnique({
+          where: { id: product.id },
+          select: { service: { select: { vendor: { select: VENDOR_GPSR_SELECT } } } },
+        })
+        .then((row) => row?.service?.vendor ?? null)
+        .catch(() => null));
+
     const aiModeration = await runProductModeration({
       product,
       previous,
       previouslyRejectedByAdmin,
+      vendor,
       client,
       env,
     });
 
     // solicitarea de modificări a adminului (services/productChangeRequest.js)
-    // nu e un rezultat AI - se păstrează peste o analiză nouă
-    const changeRequest = product.aiModeration?.changeRequest;
+    // și verificarea cerută de vendor (services/productReviewRequest.js)
+    // nu sunt rezultate AI - se păstrează peste o analiză nouă. Recitite
+    // acum: o solicitare trimisă în timpul analizei (secunde) nu se pierde.
+    const latest = await prisma.product
+      .findUnique({ where: { id: product.id }, select: { aiModeration: true } })
+      .catch(() => null);
+    const { changeRequest, reviewRequest: savedReviewRequest } =
+      (latest ? latest.aiModeration : product.aiModeration) || {};
+    const reviewRequest = carryReviewRequestOverModeration(savedReviewRequest, {
+      decision: aiModeration.decision,
+    });
 
     return await prisma.product.update({
       where: { id: product.id },
       data: {
-        aiModeration: changeRequest ? { ...aiModeration, changeRequest } : aiModeration,
+        aiModeration: {
+          ...aiModeration,
+          ...(changeRequest ? { changeRequest } : {}),
+          ...(reviewRequest ? { reviewRequest } : {}),
+        },
         ...buildModerationStatusPatch(aiModeration),
       },
     });
@@ -1100,4 +1166,109 @@ export async function moderateSavedProduct({
 
     return product;
   }
+}
+
+/*
+ * GPSR central (Vendor.gpsrManufacturer*) completat/modificat: produsele
+ * PENDING ale vendorului se aprobă automat DOAR dacă se poate demonstra
+ * determinist că singurul motiv al opririi a fost lipsa GPSR. Fără apel AI
+ * (doar rezultatul deja salvat). Orice dubiu -> produsul rămâne PENDING.
+ *
+ * Condiții (toate obligatorii):
+ * - status PENDING, isOwnManufacturer = true (doar acestea depind de vendor);
+ * - aiModeration curent: decizie NEEDS_ADMIN_REVIEW cu motivul UNIC
+ *   GPSR_INCOMPLETE (adică AI-ul ar fi aprobat; nicio altă problemă, nici
+ *   PREVIOUSLY_REJECTED_BY_ADMIN / AI_ANALYSIS_UNAVAILABLE);
+ * - fără review uman: adminReviewRequired, reviewedByUserId, respingere /
+ *   modificări cerute de admin (isAdminReviewRequired);
+ * - fără solicitare de modificări (changeRequest) nerezolvată și fără
+ *   verificare cerută de vendor (reviewRequest) deschisă;
+ * - conținutul nu s-a schimbat de la analiză: același textHash și exact
+ *   aceleași imagini, toate analizate, în aceeași ordine;
+ * - GPSR complet ACUM (cu sursa centrală) și decizia recalculată din
+ *   cache = AUTO_APPROVE.
+ * Actualizarea e condiționată (updateMany pe id + PENDING + updatedAt
+ * citit), ca o modificare concurentă să nu fie suprascrisă.
+ */
+export function canAutoApproveAfterVendorGpsr(product, vendor) {
+  if (!product || product.moderationStatus !== "PENDING") return null;
+  if (product.isOwnManufacturer !== true) return null;
+
+  const ai = product.aiModeration;
+  if (!isBlockedOnlyByGpsr(ai)) return null;
+  if (ai.adminReviewRequired === true || product.reviewedByUserId) return null;
+  if (isAdminReviewRequired(product)) return null;
+
+  const changeRequest = getChangeRequest(product);
+  if (changeRequest && !changeRequest.resolvedAt) return null;
+
+  const reviewRequest = getReviewRequest(product);
+  if (reviewRequest && reviewRequest.status !== "RESOLVED") return null;
+
+  if (ai.textHash !== hashModerationText(product)) return null;
+
+  const urls = normalizeImageList(product.images);
+  const cached = Array.isArray(ai.images) ? ai.images : [];
+  if (
+    !urls.length ||
+    urls.length !== cached.length ||
+    urls.some((url, index) => cached[index]?.url !== url || cached[index]?.analyzed !== true)
+  ) {
+    return null;
+  }
+
+  if (ai.classification?.analyzed !== true || ai.classification.coverUrl !== urls[0]) return null;
+
+  if (!isGpsrComplete(product, vendor)) return null;
+
+  const result = decideProductModeration({
+    images: cached.map((image, index) => ({ ...image, index })),
+    classification: ai.classification,
+    previouslyRejectedByAdmin: false,
+    gpsrComplete: true,
+  });
+
+  if (result.decision !== DECISIONS.AUTO_APPROVE) return null;
+
+  return {
+    ...ai,
+    decision: result.decision,
+    confidence: result.confidence,
+    reasons: result.reasons,
+    images: result.images,
+    gpsrReevaluatedAt: new Date().toISOString(),
+  };
+}
+
+export async function reevaluateVendorGpsrBlockedProducts({ prisma, vendorId, env = process.env }) {
+  if (!vendorId || !isProductAiModerationEnabled(env)) return { approved: [] };
+
+  const vendor = await prisma.vendor.findUnique({
+    where: { id: vendorId },
+    select: VENDOR_GPSR_SELECT,
+  });
+
+  const candidates = await prisma.product.findMany({
+    where: {
+      moderationStatus: "PENDING",
+      isOwnManufacturer: true,
+      service: { is: { vendorId } },
+    },
+  });
+
+  const approved = [];
+
+  for (const product of candidates) {
+    const aiModeration = canAutoApproveAfterVendorGpsr(product, vendor);
+    if (!aiModeration) continue;
+
+    const { count } = await prisma.product.updateMany({
+      where: { id: product.id, moderationStatus: "PENDING", updatedAt: product.updatedAt },
+      data: { aiModeration, ...buildModerationStatusPatch(aiModeration) },
+    });
+
+    if (count === 1) approved.push(product.id);
+  }
+
+  return { approved };
 }

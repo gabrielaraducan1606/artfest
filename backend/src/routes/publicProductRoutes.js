@@ -23,7 +23,20 @@ import {
   resolveOwnCollectionAttributions,
   withOwnCollectionPromotions,
 } from "../services/vendorCollectionPricing.js";
-import { buildPublicGpsrInfo } from "../lib/gpsrCompliance.js";
+import {
+  buildPublicGpsrInfo,
+  GPSR_PRODUCT_FIELDS,
+  VENDOR_GPSR_SELECT,
+} from "../lib/gpsrCompliance.js";
+
+/*
+ * GPSR (Reg. UE 2023/988) - DOAR pe pagina produsului (GET /products/:id).
+ * Listele (homepage, catalog, căutare, carduri, magazin) nu primesc
+ * adrese/emailuri de producător, pentru că nu le afișează.
+ */
+const GPSR_PRODUCT_SELECT = Object.freeze(
+  Object.fromEntries(GPSR_PRODUCT_FIELDS.map((field) => [field, true]))
+);
 import { buildCollectionWhereFromRules } from "../services/collectionProducts.js";
 const router = Router();
 
@@ -204,21 +217,6 @@ styleTags: true,
 occasionTags: true,
   createdAt: true,
 
-  /*
-   * GPSR (Regulamentul UE 2023/988) - vezi src/lib/gpsrCompliance.js.
-   * Necesare pentru secțiunea publică "Informații despre produs și
-   * siguranță" din mapPublicProduct de mai jos.
-   */
-  isOwnManufacturer: true,
-  manufacturerName: true,
-  manufacturerAddress: true,
-  manufacturerEmail: true,
-  manufacturerInEU: true,
-  responsiblePersonName: true,
-  responsiblePersonAddress: true,
-  responsiblePersonEmail: true,
-  safetyWarnings: true,
-  isForChildren: true,
 
   service: {
     select: {
@@ -237,14 +235,6 @@ logoUrl: true,
 userId: true,
 displayName: true,
 logoUrl: true,
-
-    /*
-     * Folosite DOAR pentru secțiunea GPSR de producător (când
-     * isOwnManufacturer === true) - date publice de profil de
-     * magazin, NICIODATĂ VendorBilling (fiscal/privat).
-     */
-    address: true,
-    email: true,
 
     subscriptions: {
       where: {
@@ -691,14 +681,6 @@ discount:
     isPromoted:
       sellerPlan === "premium" ||
       sellerPlan === "pro",
-
-    /*
-     * GPSR (Regulamentul UE 2023/988), art. 19 - informații pentru
-     * oferta publică. `null` dacă nu există date suficiente pentru
-     * nicio secțiune - pagina publică nu trebuie să afișeze
-     * placeholdere sau valori inventate.
-     */
-    gpsr: buildPublicGpsrInfo(p, p?.service?.vendor),
   };
 }
 
@@ -2250,6 +2232,9 @@ router.get(
             createdAt: true,
             updatedAt: true,
 
+            // GPSR - transformate mai jos în `gpsr` (nu se trimit brute)
+            ...GPSR_PRODUCT_SELECT,
+
             ProductRatingStats: {
               select: {
                 avg: true,
@@ -2285,6 +2270,9 @@ router.get(
                     logoUrl: true,
                     city: true,
                     isActive: true,
+
+                    // sursa centrală GPSR („Eu sunt producătorul”)
+                    ...VENDOR_GPSR_SELECT,
 
                     billing: {
                       select: {
@@ -2460,10 +2448,26 @@ const unitPrice =
             : "Produsul nu este disponibil momentan."
           : null;
 
+      /*
+       * GPSR (Reg. UE 2023/988), art. 19: un singur bloc `gpsr`, calculat
+       * din produs (producător extern) sau din sursa centrală a vendorului
+       * (isOwnManufacturer). Câmpurile brute nu se trimit separat.
+       */
+      const gpsr = buildPublicGpsrInfo(p, p?.service?.vendor);
+
       const {
         ProductRatingStats,
-        ...safeProduct
+        ...productWithGpsrFields
       } = p;
+
+      const safeProduct = { ...productWithGpsrFields };
+      for (const field of GPSR_PRODUCT_FIELDS) delete safeProduct[field];
+
+      if (safeProduct.service?.vendor) {
+        const vendorPublic = { ...safeProduct.service.vendor };
+        for (const field of Object.keys(VENDOR_GPSR_SELECT)) delete vendorPublic[field];
+        safeProduct.service = { ...safeProduct.service, vendor: vendorPublic };
+      }
 
       res.set(
         "Cache-Control",
@@ -2485,6 +2489,8 @@ const unitPrice =
 
         storeName,
         storeSlug,
+
+        gpsr,
 
         averageRating,
         avgRating:

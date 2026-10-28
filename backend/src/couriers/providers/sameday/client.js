@@ -10,19 +10,23 @@ import {
 
 /*
  * Client HTTP Sameday, PER CONT (CourierAccount) - fără credentiale
- * globale din env (înlocuiește, pentru conturile vendorilor,
- * services/samedayClient.js, care folosea SAMEDAY_USERNAME/PASSWORD).
+ * globale din env (services/samedayClient.js, vechi, NU e folosit de AWB).
  *
- * Endpoint-uri conform SDK-ului oficial Sameday (sameday-courier/php-sdk):
- *   POST /api/authenticate?remember_me=1   headers X-Auth-Username / X-Auth-Password
- *        -> { token, expire_at }
- *   apoi header X-Auth-Token pe restul apelurilor, ex. GET /api/client/pickup-points
- * DE VALIDAT pe mediul demo Sameday înainte de producție.
+ * Conform documentației „API custom documentation” v3.6 (Sameday):
+ *   POST /api/authenticate?remember_me=1   headers X-AUTH-USERNAME / X-AUTH-PASSWORD
+ *        -> { token, expire_at, expire_at_utc }  (12h; cu remember_me=1, 14 zile)
+ *   apoi header X-AUTH-TOKEN pe restul apelurilor.
+ *   Limită: 12 autentificări / IP / minut.
  *
- * Token cache: Map per accountId (niciodată global/partajat între conturi).
- * Intrarea păstrează doar tokenul + expirarea + un fingerprint (hash) al
- * credentialelor - dacă vendorul înlocuiește credentialele, fingerprint-ul
- * nu mai corespunde și tokenul vechi e ignorat.
+ * Token cache: Map per accountId (niciodată global/partajat între conturi),
+ * în memoria serverului - tokenul nu ajunge niciodată în frontend / DB /
+ * loguri. Intrarea păstrează tokenul + expirarea + un fingerprint (hash) al
+ * credentialelor: credentiale înlocuite -> tokenul vechi e ignorat.
+ *  - reînnoire cu TOKEN_REFRESH_BEFORE_MS înainte de expirare;
+ *  - O SINGURĂ autentificare în zbor per cont: cererile simultane (mai multe
+ *    AWB-uri generate în același timp) așteaptă aceeași promisiune;
+ *  - după un refuz al credentialelor, pauză AUTH_FAILURE_COOLDOWN_MS fără
+ *    alt apel (nu consumăm limita de 12/min cu aceleași date greșite).
  */
 
 export const SAMEDAY_BASE_URLS = Object.freeze({
@@ -31,9 +35,11 @@ export const SAMEDAY_BASE_URLS = Object.freeze({
 });
 
 const REQUEST_TIMEOUT_MS = 10_000;
-// plafon de siguranță: expire_at vine fără fus orar
-const MAX_TOKEN_TTL_MS = 60 * 60 * 1000;
-const TOKEN_SAFETY_MS = 5 * 60 * 1000;
+// remember_me=1 -> 14 zile (doc v3.6); plafon dacă răspunsul n-are expirare validă
+const MAX_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const FALLBACK_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+export const TOKEN_REFRESH_BEFORE_MS = 60 * 60 * 1000;
+export const AUTH_FAILURE_COOLDOWN_MS = 60 * 1000;
 
 /*
  * Sameday a respins utilizatorul/parola la /api/authenticate. Câmpul
@@ -46,9 +52,15 @@ export const SAMEDAY_AUTH_REJECTED_MESSAGE =
 
 /** @type {Map<string, {token:string, expiresAt:number, fingerprint:string}>} */
 const sessions = new Map();
+/** autentificări în curs, per cont: {fingerprint, promise} */
+const inflight = new Map();
+/** ultimul refuz al credentialelor, per cont: {fingerprint, at} */
+const authFailures = new Map();
 
 export function invalidateSamedaySession(accountId) {
-  if (accountId) sessions.delete(accountId);
+  if (!accountId) return;
+  sessions.delete(accountId);
+  authFailures.delete(accountId);
 }
 
 // doar pentru teste
@@ -57,6 +69,8 @@ export function _samedaySessionCount() {
 }
 export function _clearSamedaySessions() {
   sessions.clear();
+  inflight.clear();
+  authFailures.clear();
 }
 
 function fingerprintOf(credentials, baseUrl) {
@@ -107,11 +121,15 @@ async function readJson(res) {
   }
 }
 
-function parseExpiry(expireAt, now) {
-  const parsed = expireAt ? Date.parse(String(expireAt).replace(" ", "T")) : NaN;
-  const cap = now + MAX_TOKEN_TTL_MS;
-  const exp = Number.isFinite(parsed) ? Math.min(parsed, cap) : cap;
-  return exp - TOKEN_SAFETY_MS;
+/*
+ * Momentul expirării tokenului (ms). expire_at_utc e UTC („YYYY-MM-DD HH:mm”);
+ * expire_at e ora locală Sameday, fără fus - folosit doar dacă lipsește
+ * varianta UTC, cu plafonul de 12h (durata minimă documentată).
+ */
+export function parseTokenExpiry(data, now = Date.now()) {
+  const utc = data?.expire_at_utc ? Date.parse(`${String(data.expire_at_utc).trim().replace(" ", "T")}Z`) : NaN;
+  if (Number.isFinite(utc) && utc > now) return Math.min(utc, now + MAX_TOKEN_TTL_MS);
+  return now + FALLBACK_TOKEN_TTL_MS;
 }
 
 async function authenticate(credentials, baseUrl) {
@@ -119,8 +137,8 @@ async function authenticate(credentials, baseUrl) {
     method: "POST",
     headers: {
       Accept: "application/json",
-      "X-Auth-Username": credentials.username,
-      "X-Auth-Password": credentials.password,
+      "X-AUTH-USERNAME": credentials.username,
+      "X-AUTH-PASSWORD": credentials.password,
     },
   });
 
@@ -135,7 +153,7 @@ async function authenticate(credentials, baseUrl) {
     throw new CourierUnavailableError();
   }
 
-  return { token: data.token, expiresAt: parseExpiry(data.expire_at, Date.now()) };
+  return { token: data.token, expiresAt: parseTokenExpiry(data) };
 }
 
 /**
@@ -148,20 +166,62 @@ export async function getSamedaySession(ctx, { forceRefresh = false } = {}) {
   const baseUrl = resolveBaseUrl(ctx.publicConfig);
   const fingerprint = fingerprintOf(ctx.credentials, baseUrl);
 
-  if (ctx.accountId && !forceRefresh) {
-    const cached = sessions.get(ctx.accountId);
-    if (cached && cached.fingerprint === fingerprint && cached.expiresAt > Date.now()) {
+  if (!ctx.accountId) {
+    const { token } = await authenticate(ctx.credentials, baseUrl);
+    return { token, baseUrl };
+  }
+
+  const id = ctx.accountId;
+
+  if (!forceRefresh) {
+    const cached = sessions.get(id);
+    if (cached && cached.fingerprint === fingerprint && cached.expiresAt - TOKEN_REFRESH_BEFORE_MS > Date.now()) {
       return { token: cached.token, baseUrl };
     }
   }
 
-  const { token, expiresAt } = await authenticate(ctx.credentials, baseUrl);
-
-  if (ctx.accountId) {
-    sessions.set(ctx.accountId, { token, expiresAt, fingerprint });
+  // aceleași credentiale refuzate de curând -> fără alt apel la Sameday
+  const failure = authFailures.get(id);
+  if (failure && failure.fingerprint === fingerprint && Date.now() - failure.at < AUTH_FAILURE_COOLDOWN_MS) {
+    throw new CourierAuthError(SAMEDAY_AUTH_REJECTED_MESSAGE);
   }
 
-  return { token, baseUrl };
+  // o singură autentificare în zbor per cont (și per set de credentiale)
+  const running = inflight.get(id);
+  if (running && running.fingerprint === fingerprint) {
+    const { token } = await running.promise;
+    return { token, baseUrl };
+  }
+
+  const promise = authenticate(ctx.credentials, baseUrl)
+    .then((session) => {
+      sessions.set(id, { ...session, fingerprint });
+      authFailures.delete(id);
+      return session;
+    })
+    .catch((e) => {
+      if (e instanceof CourierAuthError) {
+        sessions.delete(id);
+        authFailures.set(id, { fingerprint, at: Date.now() });
+      }
+      throw e;
+    })
+    .finally(() => {
+      if (inflight.get(id)?.promise === promise) inflight.delete(id);
+    });
+
+  inflight.set(id, { fingerprint, promise });
+  try {
+    const { token } = await promise;
+    return { token, baseUrl };
+  } catch (e) {
+    // reînnoire anticipată eșuată temporar: tokenul vechi e încă valid
+    const cached = sessions.get(id);
+    if (!forceRefresh && !(e instanceof CourierAuthError) && cached?.fingerprint === fingerprint && cached.expiresAt > Date.now()) {
+      return { token: cached.token, baseUrl };
+    }
+    throw e;
+  }
 }
 
 /*
@@ -201,7 +261,7 @@ export async function samedayRequest(ctx, { method = "GET", path, form, binary =
   for (let attempt = 0; attempt < 2; attempt++) {
     const headers = {
       Accept: binary ? "application/pdf" : "application/json",
-      "X-Auth-Token": session.token,
+      "X-AUTH-TOKEN": session.token,
     };
     if (form) headers["Content-Type"] = "application/x-www-form-urlencoded";
 

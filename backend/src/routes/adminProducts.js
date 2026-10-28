@@ -22,9 +22,18 @@ import {
   withChangeRequest,
 } from "../services/productChangeRequest.js";
 import {
+  OPEN_REVIEW_REQUEST_WHERE,
+  getReviewRequest,
+  resolveReviewRequestPatch,
+  summarizeReviewRequest,
+} from "../services/productReviewRequest.js";
+import {
   isGpsrComplete,
   getGpsrMissingFields,
   buildGpsrIncompleteWhere,
+  buildPublicGpsrInfo,
+  getVendorGpsrManufacturer,
+  VENDOR_GPSR_SELECT,
 } from "../lib/gpsrCompliance.js";
 import {
   guardedProductDelete,
@@ -127,7 +136,8 @@ async function getProductsServiceBySlugForAdmin(slug) {
   return { service: svc, profile };
 }
 
-function mapProduct(p) {
+// `vendor` = sursa centrală GPSR (Vendor.gpsrManufacturer*), implicit p.service.vendor
+function mapProduct(p, vendor = p?.service?.vendor ?? null) {
   return {
     id: p.id,
     title: p.title,
@@ -186,9 +196,18 @@ function mapProduct(p) {
         : p.safetyWarnings,
     isForChildren: p.isForChildren ?? null,
 
-    gpsrComplete: isGpsrComplete(p),
-    gpsrMissingFields: getGpsrMissingFields(p),
+    gpsrComplete: isGpsrComplete(p, vendor),
+    gpsrMissingFields: getGpsrMissingFields(p, vendor),
   };
+}
+
+// produs proaspăt creat/actualizat (fără relații) + sursa centrală GPSR
+async function mapProductWithVendorGpsr(p) {
+  const row = await prisma.product.findUnique({
+    where: { id: p.id },
+    select: { service: { select: { vendor: { select: VENDOR_GPSR_SELECT } } } },
+  });
+  return mapProduct(p, row?.service?.vendor ?? null);
 }
 
 function mapAdminProduct(p) {
@@ -198,6 +217,19 @@ function mapAdminProduct(p) {
 
   return {
     ...mapProduct(p),
+
+    /*
+     * GPSR - exact ce vede clientul pe pagina produsului (aceeași funcție
+     * ca GET /api/public/products/:id) + sursa centrală a vendorului
+     * pentru „Eu sunt producătorul”. Fără surse legacy (address/profil).
+     */
+    publicGpsr: buildPublicGpsrInfo(p, vendor),
+    gpsrManufacturer: {
+      name: vendor?.gpsrManufacturerName || "",
+      address: vendor?.gpsrManufacturerAddress || "",
+      email: vendor?.gpsrManufacturerEmail || "",
+      complete: Boolean(getVendorGpsrManufacturer(vendor)),
+    },
 
     // categoriile suplimentare (doar când relația e încărcată)
     ...(Array.isArray(p.additionalCategories)
@@ -210,6 +242,9 @@ function mapAdminProduct(p) {
 
     // solicitarea de modificări curentă (stage REREVIEW = „De reverificat”)
     changeRequest: summarizeChangeRequest(p),
+
+    // „Verificare solicitată de vendor” (voluntar, separat de moderare)
+    reviewRequest: summarizeReviewRequest(p),
 
     service: {
       id: service?.id || null,
@@ -849,7 +884,7 @@ async function createProduct(req, res) {
       },
     });
 
-    return res.status(201).json(mapProduct(created));
+    return res.status(201).json(await mapProductWithVendorGpsr(created));
   } catch (e) {
     console.error("POST /vendors/store/:slug/products error:", e);
     return res.status(500).json({ error: "server_error" });
@@ -979,7 +1014,7 @@ async function updateProduct(req, res) {
       })
     );
 
-    return res.json(mapProduct(updated));
+    return res.json(await mapProductWithVendorGpsr(updated));
   } catch (e) {
     if (sendFairLockError(res, e)) return;
     console.error("PUT /vendors/products/:id error:", e);
@@ -1038,6 +1073,7 @@ async function adminListProducts(req, res) {
   serviceStatus = "",
   moderationStatus = "",
   gpsrIncomplete = "",
+  reviewRequested = "",
   sort = "new",
   take = "500",
   skip = "0",
@@ -1056,6 +1092,12 @@ async function adminListProducts(req, res) {
        * căutare" în "GPSR incomplet SAU căutare", ceea ce e greșit.
        */
       where.AND = [...(where.AND || []), buildGpsrIncompleteWhere()];
+    }
+
+    // zona „Verificare solicitată de vendor” (aiModeration.reviewRequest deschis)
+    const reviewRequestedFlag = String(reviewRequested || "").trim().toLowerCase();
+    if (reviewRequestedFlag === "true" || reviewRequestedFlag === "1") {
+      where.AND = [...(where.AND || []), OPEN_REVIEW_REQUEST_WHERE];
     }
 
     if (serviceId) {
@@ -1166,6 +1208,16 @@ async function adminListProducts(req, res) {
   }
 }
 
+/*
+ * Aprobare / respingere: închide solicitarea de modificări deschisă și
+ * verificarea cerută de vendor. undefined = aiModeration rămâne neatins.
+ */
+function closeOpenRequests(product, resolution, adminUserId, now) {
+  const afterChangeRequest = resolveChangeRequestPatch(product, resolution, now);
+  const base = afterChangeRequest || product.aiModeration;
+  return resolveReviewRequestPatch(base, { resolution, adminUserId, now }) || afterChangeRequest;
+}
+
 async function adminApproveProduct(req, res) {
   try {
     const id = String(req.params.id || "").trim();
@@ -1181,7 +1233,10 @@ async function adminApproveProduct(req, res) {
     }
 
     const now = new Date();
-    // solicitarea de modificări deschisă (dacă există) se închide la aprobare
+    // solicitarea de modificări deschisă (dacă există) se închide la aprobare,
+    // la fel și verificarea cerută de vendor
+    const reviewRequest = getReviewRequest(product);
+    const aiModerationPatch = closeOpenRequests(product, "APPROVED", req.user.sub, now);
     const changeRequestPatch = resolveChangeRequestPatch(product, "APPROVED", now);
 
     const updated = await prisma.product.update({
@@ -1194,7 +1249,7 @@ async function adminApproveProduct(req, res) {
         approvedAt: now,
         isActive: true,
         isHidden: false,
-        ...(changeRequestPatch ? { aiModeration: changeRequestPatch } : {}),
+        ...(aiModerationPatch ? { aiModeration: aiModerationPatch } : {}),
       },
       include: { service: { include: { vendor: true, profile: true, type: true } } },
     });
@@ -1202,6 +1257,7 @@ async function adminApproveProduct(req, res) {
     await notifyVendorOnProductModeration(updated.id, "APPROVED", null, {
       approvedAt: now,
       link: changeRequestPatch ? vendorChangeRequestPath(updated.id) : undefined,
+      reviewRequest: reviewRequest?.status === "OPEN" ? reviewRequest : null,
     }).catch((e) => {
       console.error("notify product approved error:", e);
     });
@@ -1301,7 +1357,15 @@ async function adminRequestProductChanges(req, res) {
     const updated = await prisma.product.update({
       where: { id },
       data: {
-        aiModeration: withChangeRequest(product.aiModeration, changeRequest),
+        // verificarea cerută de vendor (dacă e deschisă) continuă în acest workflow
+        aiModeration: withChangeRequest(
+          resolveReviewRequestPatch(product.aiModeration, {
+            resolution: "CHANGES_REQUESTED",
+            adminUserId: req.user.sub,
+            now,
+          }) || product.aiModeration,
+          changeRequest
+        ),
         reviewedAt: now,
         reviewedByUserId: req.user.sub,
         ...(keepVisible
@@ -1356,7 +1420,7 @@ async function adminRejectProduct(req, res) {
     }
 
     const now = new Date();
-    const changeRequestPatch = resolveChangeRequestPatch(product, "REJECTED", now);
+    const aiModerationPatch = closeOpenRequests(product, "REJECTED", req.user.sub, now);
 
     const updated = await prisma.product.update({
       where: { id },
@@ -1368,7 +1432,7 @@ async function adminRejectProduct(req, res) {
         approvedAt: null,
         isActive: false,
         isHidden: true,
-        ...(changeRequestPatch ? { aiModeration: changeRequestPatch } : {}),
+        ...(aiModerationPatch ? { aiModeration: aiModerationPatch } : {}),
       },
       include: { service: { include: { vendor: true, profile: true, type: true } } },
     });

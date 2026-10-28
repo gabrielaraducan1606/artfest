@@ -7,10 +7,55 @@
  * vendorul le poate completa (greutate, colete, dimensiuni, serviciu).
  */
 
-import { hasActiveCourierAccount } from "./courierCta.js";
+// câmpurile pe care vendorul le poate modifica (NIMIC financiar); contul și
+// serviciul de curier sunt ale Artfest (PLATFORM) - vendorul nu le alege
+export const AWB_INPUT_FIELDS = ["parcels", "weightKg", "lengthCm", "widthCm", "heightCm"];
 
-// câmpurile pe care vendorul le poate modifica în modal (NIMIC financiar)
-export const AWB_INPUT_FIELDS = ["courierAccountId", "serviceId", "parcels", "weightKg", "lengthCm", "widthCm", "heightCm"];
+// configurarea contului Artfest (backend: couriers/platformAccount.js) -
+// vendorul nu o poate rezolva; afișăm mesajul primit de la server
+export const COURIER_SETUP_PENDING_CODE = "courier_setup_pending";
+export const PLATFORM_SETUP_CODES = new Set([
+  COURIER_SETUP_PENDING_CODE,
+  "platform_account_missing",
+  "platform_credentials_invalid",
+  "platform_pickup_point_missing",
+  "platform_pickup_point_invalid",
+  "platform_contact_person_invalid",
+]);
+
+export function isPlatformSetupBlocker(b) {
+  return PLATFORM_SETUP_CODES.has(b?.code);
+}
+
+export function isCourierSetupPending(preview) {
+  return (
+    preview?.courierSetup?.ready === false ||
+    (preview?.blockers || []).some(isPlatformSetupBlocker)
+  );
+}
+
+// mesajul concret de configurare (ex. punctul de ridicare Artfest lipsă)
+export function courierSetupMessage(preview, fallback) {
+  return (
+    preview?.courierSetup?.message ||
+    (preview?.blockers || []).find(isPlatformSetupBlocker)?.message ||
+    fallback
+  );
+}
+
+// adresa de ridicare a vendorului lipsă / incompletă -> formularul din panou
+const PICKUP_BLOCKER_CODES = new Set([
+  "pickup_address_missing",
+  "pickup_address_incomplete",
+  "pickup_phone_invalid",
+  "pickup_postal_code_invalid",
+]);
+
+export function isPickupBlocker(b) {
+  return PICKUP_BLOCKER_CODES.has(b?.code);
+}
+
+export const PICKUP_DETAILS_MISSING_MESSAGE = "Completează adresa și datele de contact pentru ridicarea coletului.";
 
 // blockere pe care vendorul le poate rezolva direct în formular
 const INPUT_BLOCKER_CODES = new Set([
@@ -18,7 +63,6 @@ const INPUT_BLOCKER_CODES = new Set([
   "weight_invalid",
   "parcels_invalid",
   "dimension_invalid",
-  "service_invalid",
 ]);
 
 export function isInputBlocker(b) {
@@ -28,32 +72,25 @@ export function isInputBlocker(b) {
 /**
  * Ce afișează secțiunea „Curier / Livrare” (o singură stare, deci un singur
  * set de acțiuni - niciun buton activ pentru o acțiune care nu poate rula):
+ * Curierat centralizat: contul de curier e al Artfest - vendorul NU
+ * conectează curier și NU configurează adresă de ridicare.
  *  - "manual"       : expediată fără integrare (Shipment.manualShipment) ->
  *                     doar datele introduse de vendor; fără AWB retroactiv
- *  - "loading"      : încărcăm conturile / adresele / statusul AWB
- *  - "disabled"     : integrarea e oprită pe server (503) -> acțiunile automate
- *                     vizibile, dar dezactivate; „Trimite fără integrare” activ
+ *  - "loading"      : încărcăm statusul AWB
+ *  - "disabled"     : integrarea e oprită pe server (503) -> „Integrarea cu
+ *                     serviciul de curierat este în curs de configurare.”;
+ *                     „Trimite fără integrare” activ
  *  - "error"        : nu am putut încărca datele -> doar „Reîncearcă”
- *  - "created"      : expedierea are AWB -> număr, status, etichetă, tracking, anulare
+ *  - "created"      : expedierea are AWB -> număr, etichetă, tracking (fără al doilea AWB)
  *  - "requested"    : generare în curs (recentă) -> doar „Reîmprospătează”
  *  - "unknown"      : rezultat neconfirmat de curier -> „Necesită verificare”,
  *                     FĂRĂ generare (rezolvă adminul)
  *  - "hidden"       : comandă anulată, fără AWB
- *  - "connect"      : niciun cont de curier -> „Conectează un curier”
- *  - "reconnect"    : conturi existente, niciunul activ -> „Reconectează contul”
- *  - "setup_pickup" : nicio adresă de ridicare -> „Configurează punctul de ridicare”
- *  - "ready"        : formularul AWB (eventual cu ultima încercare FAILED /
- *                     CANCELLED afișată deasupra) -> „Generează AWB”
+ *  - "ready"        : previzualizarea + „Generează AWB” (eventual cu ultima
+ *                     încercare FAILED / CANCELLED afișată deasupra); dacă
+ *                     contul Artfest nu e configurat, butonul e dezactivat
  */
-export function decideAwbPanelState({
-  shipment,
-  orderStatus,
-  accounts,
-  pickupAddresses,
-  loading,
-  loadError,
-  awbStatus,
-}) {
+export function decideAwbPanelState({ shipment, orderStatus, loading, loadError, awbStatus }) {
   if (shipment?.manualShipment) return "manual";
   if (loadError?.code === "courier_integration_disabled") return "disabled";
   const awb = awbStatus?.shipment?.awb || shipment?.awb;
@@ -62,11 +99,7 @@ export function decideAwbPanelState({
   if (awbStatus?.active === "REQUESTED") return "requested";
   if (orderStatus === "cancelled") return "hidden";
   if (loading) return "loading";
-  if (loadError || !Array.isArray(accounts)) return "error";
-  const connected = accounts.filter((a) => a && !a.disabledAt);
-  if (!connected.length) return "connect";
-  if (!hasActiveCourierAccount(connected)) return "reconnect";
-  if (!Array.isArray(pickupAddresses) || !pickupAddresses.length) return "setup_pickup";
+  if (loadError || !awbStatus) return "error";
   return "ready";
 }
 
@@ -105,24 +138,12 @@ export function awbStatusBadge(status) {
   return AWB_STATUS_BADGE[status] || { label: "Fără AWB", tone: "muted" };
 }
 
-/*
- * Blockerele din previzualizare care se rezolvă în Setări (nu în
- * formular) -> un singur link clar, în locul unui buton inactiv.
- */
-const PICKUP_SETUP_CODES = new Set(["pickup_address_missing", "pickup_address_incomplete", "pickup_point_missing"]);
-const ACCOUNT_SETUP_CODES = new Set([
-  "no_courier_account",
-  "courier_account_not_found",
-  "courier_account_inactive",
-  "courier_auth_failed",
-  "courier_credentials_unreadable",
-]);
-
-export function settingsActionForBlockers(blockers) {
-  const codes = (blockers || []).map((b) => b?.code);
-  if (codes.some((c) => ACCOUNT_SETUP_CODES.has(c))) return { kind: "account", label: "Reconectează contul de curier" };
-  if (codes.some((c) => PICKUP_SETUP_CODES.has(c))) return { kind: "pickup", label: "Configurează punctul de ridicare" };
-  return null;
+// metoda de livrare afișată în previzualizare
+export function deliveryMethodLabel(preview) {
+  if (preview?.method === "LOCKER") {
+    return preview.lockerId ? `Locker / easybox (${preview.lockerId})` : "Locker / easybox";
+  }
+  return "Curier la adresă";
 }
 
 // eticheta generată de Artfest se descarcă prin ruta protejată (PDF de la curier)
@@ -139,8 +160,6 @@ export function canCancelArtfestAwb({ awbStatus, orderStatus }) {
 
 export function initialAwbForm(preview) {
   return {
-    courierAccountId: preview?.courier?.accountId || "",
-    serviceId: preview?.serviceId != null ? String(preview.serviceId) : "",
     parcels: preview?.parcels != null ? String(preview.parcels) : "1",
     weightKg: preview?.weightKg != null ? String(preview.weightKg) : "",
     lengthCm: preview?.lengthCm != null ? String(preview.lengthCm) : "",
@@ -155,13 +174,26 @@ export function initialAwbForm(preview) {
  */
 export function buildAwbRequestBody(form) {
   const body = {};
-  if (form?.courierAccountId) body.courierAccountId = form.courierAccountId;
-  if (form?.serviceId !== "" && form?.serviceId != null) body.serviceId = form.serviceId;
   for (const key of ["parcels", "weightKg", "lengthCm", "widthCm", "heightCm"]) {
     const v = String(form?.[key] ?? "").trim().replace(",", ".");
     if (v !== "") body[key] = Number(v);
   }
   return body;
+}
+
+/*
+ * Tipul coletului Sameday după greutate (doc v3.6) - aceeași regulă ca
+ * backend-ul (providers/sameday/awbMapper.js), pe cel mai greu colet:
+ * 1 -> până la 1 kg; 0 -> 1,01-38 kg; 2 -> peste 38 kg.
+ */
+export function packageTypeLabel(weightKg, parcels = 1) {
+  const total = Number(String(weightKg ?? "").trim().replace(",", "."));
+  const count = Number(parcels) >= 1 ? Number(parcels) : 1;
+  if (!Number.isFinite(total) || total <= 0) return "—";
+  const each = Math.round((total / count) * 100) / 100;
+  if (each <= 1) return "Colet mic (până la 1 kg)";
+  if (each <= 38) return "Colet standard (1-38 kg)";
+  return "Colet supradimensionat (peste 38 kg)";
 }
 
 // validare locală, aceleași limite ca backend-ul (couriers/awb/parcels.js)
@@ -252,26 +284,15 @@ export function canShipManually({ shipment, orderStatus, panelState = null }) {
 
 /**
  * Cât de vizibil e „Trimite fără integrare”:
- *  - "primary"  : niciun curier utilizabil (fără cont / cont inactiv / fără
- *                 adresă / integrare oprită / eroare) -> acțiune clară
- *  - "discreet" : curier conectat, formularul AWB e acțiunea principală
+ *  - "primary"  : AWB-ul nu poate fi generat din Artfest (integrare în curs de
+ *                 configurare / oprită / eroare) -> acțiune clară
+ *  - "discreet" : „Generează AWB” e acțiunea principală
  *  - null       : indisponibil
  */
-export function manualShipVisibility({ shipment, orderStatus, panelState }) {
+export function manualShipVisibility({ shipment, orderStatus, panelState, setupPending = false }) {
   if (!canShipManually({ shipment, orderStatus, panelState })) return null;
   if (panelState === "loading") return null;
-  return panelState === "ready" ? "discreet" : "primary";
-}
-
-/**
- * Dialogul „Nu ai conectat încă un curier” - o singură dată: doar fără
- * niciun cont de curier, doar dacă preferința s-a încărcat și vendorul nu a
- * ales deja „Continuă fără integrare”, și cel mult o dată pe sesiune.
- */
-export function shouldShowCourierPrompt({ panelState, preference, sessionShown, manualAvailable }) {
-  if (panelState !== "connect" || !manualAvailable || sessionShown) return false;
-  if (!preference || typeof preference.courierPromptDismissed !== "boolean") return false;
-  return preference.courierPromptDismissed === false;
+  return panelState === "ready" && !setupPending ? "discreet" : "primary";
 }
 
 export const MANUAL_COURIER_SUGGESTIONS = ["Sameday", "FAN Courier", "Cargus", "DPD", "GLS", "Poșta Română"];

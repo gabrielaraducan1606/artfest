@@ -148,7 +148,6 @@ export default function AdminProductEditForm({
     return <div style={{ padding: 12, color: "#6b7280" }}>Se încarcă produsul...</div>;
   }
 
-  const vendor = loaded?.vendor || product?.vendor || {};
   const publicLink = getAdminPublicProductLink(loaded);
 
   return (
@@ -222,11 +221,10 @@ export default function AdminProductEditForm({
         <ProductGpsrSection
           form={form}
           setForm={setForm}
-          vendorPreview={{
-            displayName: vendor.displayName || "",
-            address: vendor.address || "",
-            email: vendor.email || "",
-          }}
+          // aceleași date publice ca pagina produsului: sursa centrală a vendorului
+          manufacturerProfile={
+            loaded?.gpsrManufacturer || { name: "", address: "", email: "", complete: false }
+          }
         />
       </section>
 

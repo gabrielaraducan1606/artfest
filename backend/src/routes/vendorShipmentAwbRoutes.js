@@ -16,6 +16,7 @@ import {
   getAwbStatus,
   getAwbLabel,
   cancelAwbForShipment,
+  recoverUnknownAwb,
 } from "../couriers/awb/awbService.js";
 
 /*
@@ -24,13 +25,17 @@ import {
  *   POST /shipments/:id/awb/preview  - previzualizare + blockere (nu creează nimic)
  *   POST /shipments/:id/awb          - creare (header Idempotency-Key obligatoriu)
  *   GET  /shipments/:id/awb          - statusul AWB curent
+ *   POST /shipments/:id/awb/recover  - „Verifică din nou la Sameday” pentru un AWB
+ *                                      neconfirmat (după clientInternalReference);
+ *                                      nu creează niciodată un AWB
  *   POST /shipments/:id/awb/cancel   - anulare (doar înainte de predarea coletului;
  *                                      starea se schimbă doar după confirmarea curierului)
  *   GET  /shipments/:id/label        - PDF-ul etichetei (AWB generat de Artfest);
  *                                      altfel lasă cererea să continue spre
  *                                      handlerul existent (labelUrl manual, admin).
  *
- * codAmount NU se acceptă din request - se calculează pe server.
+ * codAmount / adrese / serviciu NU se acceptă din request - se calculează pe
+ * server (adresa de ridicare a vendorului și destinatarul vin din DB).
  */
 
 const router = Router();
@@ -43,9 +48,10 @@ const handle = (fn) => handleCourier(fn, "vendorShipmentAwbRoutes");
 // flag backend (COURIER_INTEGRATION_ENABLED): /awb, /awb/preview, /awb/cancel
 router.use("/shipments/:id/awb", requireCourierIntegration);
 
-// doar câmpurile permise vendorului (fără codAmount / adrese / sume)
+// doar câmpurile permise vendorului (fără codAmount / adrese / sume / serviciu)
 function pickAwbInput(body = {}) {
-  const allowed = ["courierAccountId", "serviceId", "parcels", "weightKg", "lengthCm", "widthCm", "heightCm"];
+  // contul și serviciul de curier sunt ale Artfest (PLATFORM) - vendorul nu le alege
+  const allowed = ["parcels", "weightKg", "lengthCm", "widthCm", "heightCm"];
   const out = {};
   for (const key of allowed) if (body[key] !== undefined) out[key] = body[key];
   return out;
@@ -80,6 +86,22 @@ router.post(
       idempotencyKey: req.get("Idempotency-Key"),
     });
     res.status(result.replayed ? 200 : 201).json(result);
+  })
+);
+
+router.post(
+  "/shipments/:id/awb/recover",
+  authRequired,
+  requireVendorAccount,
+  limiter,
+  handle(async (req, res) => {
+    res.json(
+      await recoverUnknownAwb({
+        vendorId: req.vendorId,
+        userId: req.user?.sub || null,
+        shipmentId: req.params.id,
+      })
+    );
   })
 );
 

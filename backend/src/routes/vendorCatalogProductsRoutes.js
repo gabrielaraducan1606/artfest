@@ -19,6 +19,7 @@ import {
 
 import {
   isGpsrComplete,
+  VENDOR_GPSR_SELECT,
 } from "../lib/gpsrCompliance.js";
 import {
   guardedProductDelete,
@@ -365,7 +366,7 @@ function mapCatalogProduct(
       product.updatedAt,
 
     gpsrComplete:
-      isGpsrComplete(product),
+      isGpsrComplete(product, product.service?.vendor ?? null),
   };
 }
 
@@ -441,6 +442,11 @@ router.get(
                     select: {
                       slug: true,
                     },
+                  },
+
+                  // sursa centrală GPSR („Eu sunt producătorul”)
+                  vendor: {
+                    select: VENDOR_GPSR_SELECT,
                   },
                 },
               },

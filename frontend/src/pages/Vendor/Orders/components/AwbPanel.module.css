@@ -432,6 +432,36 @@
   gap: 8px;
 }
 
+/* confirmarea „Generează AWB”: mai lată, derulabilă */
+.dialogWide {
+  max-width: 560px;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+/* grupuri RIDICARE / DESTINATAR / COLET / LIVRARE / PLATĂ */
+.group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.groupTitle {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
 /* ---------- mobil ---------- */
 @media (max-width: 600px) {
   .section {

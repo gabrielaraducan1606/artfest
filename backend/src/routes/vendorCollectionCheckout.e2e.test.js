@@ -1178,7 +1178,9 @@ function addModeProducts() {
       profile: { displayName: `Magazin ${vendorId}` },
     },
   });
-  t.product.push(make("bopt", "vendor-b", "OPTIONS"), make("qa", "vendor-a", "QUOTE_ONLY", 0), make("qb", "vendor-b", "QUOTE_ONLY", 0));
+  // varianta „culoare” aleasă în teste trebuie să existe în optionsSchema (validare server-side)
+  const bopt = { ...make("bopt", "vendor-b", "OPTIONS"), optionsSchema: [{ key: "culoare", label: "Culoare", type: "select", required: true, options: ["rosu", "albastru"] }] };
+  t.product.push(bopt, make("qa", "vendor-a", "QUOTE_ONLY", 0), make("qb", "vendor-b", "QUOTE_ONLY", 0));
   t.vendorCollectionItem.push(...["bopt", "qa", "qb"].map((productId, i) => ({ collectionId: "vcol-a", productId, position: 10 + i })));
   t.user.push({ id: "user-admin", email: "admin@t.ro", name: "Admin", role: "ADMIN" });
 }

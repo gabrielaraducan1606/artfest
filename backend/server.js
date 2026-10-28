@@ -26,6 +26,7 @@ import subscriptionRoutes from "./src/routes/subscriptionRoutes.js";
 import publicStoreRoutes from "./src/routes/publicStoreRoutes.js";
 import vendorProductRoutes from "./src/routes/vendorProductRoutes.js";
 import publicProductRoutes from "./src/routes/publicProductRoutes.js";
+import { getOptionPresets } from "./src/controllers/productController.js";
 import publicCollectionsRoutes from "./src/routes/publicCollectionsRoutes.js";
 import favoritesRoutes, { mountWishlistCountAlias } from "./src/routes/favoritesRoutes.js";
 import cartRoutes from "./src/routes/cartRoutes.js";
@@ -298,6 +299,10 @@ app.use("/api", apiLimiter);
 
 // căutare vizuală AI a Asistentului: 10 / oră / IP (înainte de app.use("/api/assistant", ...))
 app.use("/api/assistant/products/search-by-image", createAiImageSearchLimiter());
+
+// Preseturi pentru variante (culori / materiale / arome) - liste statice, publice.
+// Înaintea routerelor cu /products/:id (altfel „option-presets” e tratat ca id).
+app.get("/api/products/option-presets", getOptionPresets);
 
 // 2) aplicăm limitere specifice pe endpoint-uri auth (înainte de router)
 app.use("/api/auth/me", authMeLimiter);

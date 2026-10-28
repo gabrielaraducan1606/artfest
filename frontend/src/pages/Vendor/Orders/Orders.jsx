@@ -19,8 +19,7 @@ import {
 } from "lucide-react";
 
 import styles from "./Orders.module.css";
-import { COURIER_AUTOMATION_ENABLED, COURIER_SOON_SHORT } from "../../../config/features.js";
-import CourierConnectCta from "./components/CourierConnectCta.jsx";
+import { AWB_GENERATION_ENABLED, COURIER_SOON_SHORT } from "../../../config/features.js";
 import FairCta from "../Fair/FairCta.jsx";
 import SubscriptionBanner from "../Onboarding/OnBoardingDetails/tabs/SubscriptionBanner/SubscriptionBanner.jsx";
 import { useSmartPrefetchItem } from "../../../hooks/useSmartPrefetch.js";
@@ -68,11 +67,10 @@ function formatDate(d) {
   }
 }
 
-// flux vechi de programare a ridicării (modal "Programează curier"): rămâne indisponibil;
-// AWB-ul automat se generează din secțiunea „Livrare” (AwbPanel), după flag-uri
-const COURIER_ENABLED = false;
-const COURIER_LEGACY_HINT = COURIER_AUTOMATION_ENABLED
-  ? "Generează AWB-ul din secțiunea „Livrare” a comenzii."
+// curierat centralizat: fără programarea ridicării; „Generează AWB” deschide
+// secțiunea „Livrare” (AwbPanel) din detaliul comenzii, cu previzualizarea datelor
+const AWB_HINT = AWB_GENERATION_ENABLED
+  ? "Verifică datele expedierii și generează AWB-ul"
   : COURIER_SOON_SHORT;
 
 async function withLockHandling(promiseFn) {
@@ -512,19 +510,20 @@ const OrderRow = memo(function OrderRow({
         )}
         {(o.status === "preparing" || o.status === "confirmed") && (
           <button
-            className={`${styles.primaryBtn} ${COURIER_ENABLED ? "" : styles.courierUnavailableBtn}`}
-            onClick={(e) => e.stopPropagation()}
-            disabled={!COURIER_ENABLED || o.canProcess === false}
-            aria-disabled={!COURIER_ENABLED || o.canProcess === false}
+            className={`${styles.primaryBtn} ${AWB_GENERATION_ENABLED ? "" : styles.courierUnavailableBtn}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/vendor/orders/${o.id}#awb`);
+            }}
+            disabled={!AWB_GENERATION_ENABLED || o.canProcess === false}
+            aria-disabled={!AWB_GENERATION_ENABLED || o.canProcess === false}
             title={
-              !COURIER_ENABLED
-                ? COURIER_LEGACY_HINT
-                : o.waitingForCardPayment
-                ? "Clientul trebuie să finalizeze plata înainte să programezi curierul."
-                : "Programează curier"
+              o.waitingForCardPayment
+                ? "Clientul trebuie să finalizeze plata înainte să generezi AWB-ul."
+                : AWB_HINT
             }
           >
-            <PackageCheck size={16} /> Programează curier
+            <PackageCheck size={16} /> Generează AWB
           </button>
         )}
 
@@ -957,7 +956,6 @@ const [filtersOpen, setFiltersOpen] = useState(false);
             </div>
           </div>
 
-         {!billingGate && <CourierConnectCta />}
          {!billingGate && <FairCta variant="orders" />}
 
          {billingGate ? (

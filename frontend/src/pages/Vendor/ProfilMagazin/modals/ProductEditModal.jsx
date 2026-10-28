@@ -1637,11 +1637,6 @@ const onFilesPicked = useCallback(async (files) => {
               <ProductGpsrSection
                 form={form}
                 setForm={setForm}
-                vendorPreview={{
-                  displayName: initial?.vendor?.displayName || "",
-                  address: initial?.vendor?.address || "",
-                  email: initial?.vendor?.email || "",
-                }}
               />
             </AccordionSection>
 

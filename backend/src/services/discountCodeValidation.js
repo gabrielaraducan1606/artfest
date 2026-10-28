@@ -20,6 +20,8 @@
 
 import { prisma } from "../db.js";
 import { discountCodeToPromotion } from "./productPromotionPrice.js";
+// prețul pe linie = bază + diferențele variantelor (item.variantPricing, vezi cartLinePricing.js)
+import { lineUnitPriceCents, linePricingFor } from "./cartLinePricing.js";
 
 function round2(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
@@ -376,7 +378,7 @@ export async function validateDiscountCode({
   for (const it of cartItems) {
     const key = lineKeyOf(it);
     if (!key || !eligibleProductIds.has(key)) continue;
-    const priceCents = Number(it.product?.priceCents || 0);
+    const priceCents = lineUnitPriceCents(it);
     const qty = Number(it.qty || 0);
     eligibleSubtotalCents += priceCents * qty;
   }
@@ -394,7 +396,7 @@ export async function validateDiscountCode({
   ) {
     const cartOriginalSubtotalCents = cartItems.reduce(
       (sum, it) =>
-        sum + Number(it.product?.priceCents || 0) * Number(it.qty || 0),
+        sum + lineUnitPriceCents(it) * Number(it.qty || 0),
       0
     );
 
@@ -514,7 +516,7 @@ export function realizeDiscountCodeAmount({
       continue;
     }
 
-    const pricing = pricingByProductId.get(productId);
+    const pricing = linePricingFor(pricingByProductId.get(productId) || null, it);
     const qty = Number(it.qty || 0);
 
     if (pricing?.discount?.source === "DISCOUNT_CODE") {

@@ -3,6 +3,8 @@
 // ==============================
 
 import { buildConfigurationKey, normalizeCartData } from "../lib/configurationKey.js";
+import { resolveVariantPricing } from "../lib/variantPricing.js";
+import { linePricingFor } from "../services/cartLinePricing.js";
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
@@ -280,6 +282,8 @@ async function getCartForUser(
         currency: true,
 
         orderMode: true,
+        optionsSchema: true,
+        repeatedGroups: true,
 serviceId: true,
         acceptsCustom: true,
 
@@ -507,10 +511,24 @@ configurationKey:
             }. Redu cantitatea pentru a continua.`;
         }
 
+        // prețul liniei: bază + diferențele variantelor alese (lib/variantPricing.js)
+        const variantPricing =
+          resolveVariantPricing(
+            product,
+            cartItem.selectedOptions,
+            {
+              repeatedGroupAnswers:
+                cartItem.repeatedGroupAnswers,
+            }
+          );
+
         const pricing =
-  pricingByProductId.get(
-    product.id
-  );
+          linePricingFor(
+            pricingByProductId.get(
+              product.id
+            ) || null,
+            { product, variantPricing }
+          );
         return {
           cartItemId:
             cartItem.id,
@@ -536,6 +554,12 @@ repeatedGroupAnswers:
 configurationKey:
   cartItem.configurationKey ||
   "default",
+
+          // varianta salvată nu mai există (ex. vendorul a schimbat valorile) -> checkout o respinge
+          variantError:
+            variantPricing.ok
+              ? null
+              : variantPricing.message,
 
           product: {
             id:
@@ -784,6 +808,12 @@ router.post(
 
           orderMode: true,
 
+          optionsSchema: true,
+
+          repeatedGroups: true,
+
+          title: true,
+
           availability: true,
 
           readyQty: true,
@@ -879,6 +909,32 @@ router.post(
             "SOLD_OUT"
               ? "Produsul este epuizat."
               : "Produsul nu mai este disponibil.",
+        });
+    }
+
+    // variante inexistente / obligatorii lipsă / valori manipulate -> 400
+    const variantPricing =
+      resolveVariantPricing(
+        prod,
+        safeSelectedOptions,
+        {
+          repeatedGroupAnswers:
+            safeRepeatedGroupAnswers,
+        }
+      );
+
+    if (!variantPricing.ok) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "invalid_variant_selection",
+
+          message:
+            variantPricing.message,
+
+          fields:
+            variantPricing.errors,
         });
     }
 
@@ -1438,6 +1494,12 @@ router.post(
 
           orderMode: true,
 
+          optionsSchema: true,
+
+          repeatedGroups: true,
+
+          title: true,
+
           availability: true,
 
           readyQty: true,
@@ -1572,6 +1634,17 @@ router.post(
           customAnswers,
           repeatedGroupAnswers
         );
+
+      if (
+        !resolveVariantPricing(
+          product,
+          selectedOptions,
+          { repeatedGroupAnswers }
+        ).ok
+      ) {
+        skipped++;
+        continue;
+      }
 
       const existing =
         await prisma.cartItem.findUnique({

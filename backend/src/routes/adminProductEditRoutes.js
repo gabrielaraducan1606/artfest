@@ -23,6 +23,10 @@ import {
   guardedProductUpdate,
   sendFairLockError,
 } from "../services/fairProductLock.js";
+import {
+  carryCombinationOverrides,
+  normalizeOptionsSchemaPricing,
+} from "../lib/variantPricing.js";
 
 const router = Router();
 
@@ -682,10 +686,44 @@ if (
         body.optionsSchema !==
         undefined
       ) {
-        data.optionsSchema =
-          normalizeArray(
-            body.optionsSchema
+        /*
+         * Adminul poate corecta diferențele de preț ale variantelor
+         * (configurarea produsului), NU prețul de bază.
+         */
+        const pricedOptions =
+          normalizeOptionsSchemaPricing(
+            carryCombinationOverrides(
+              normalizeArray(
+                body.optionsSchema
+              ),
+              existing.optionsSchema
+            ),
+            {
+              repeatedGroups:
+                normalizeArray(
+                  body.repeatedGroups ??
+                    existing.repeatedGroups
+                ),
+            }
           );
+
+        if (pricedOptions.error) {
+          return res
+            .status(400)
+            .json({
+              error:
+                pricedOptions.error,
+
+              message:
+                pricedOptions.message,
+
+              errors:
+                pricedOptions.errors,
+            });
+        }
+
+        data.optionsSchema =
+          pricedOptions.optionsSchema;
       }
 
       if (

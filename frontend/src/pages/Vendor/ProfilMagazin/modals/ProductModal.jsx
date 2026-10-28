@@ -24,7 +24,6 @@ export default function ProductModal({
   onSave,
   uploadFile,
   storeSlug,
-  vendorPreview,
   initialStep = "images",
 }) {
   const controller = useProductEditorController({
@@ -292,7 +291,6 @@ removeQuoteFieldOption={
           setPriceWarningConfirmed={
             setPriceWarningConfirmed
           }
-          vendorPreview={vendorPreview}
         />
             </div>
     </Modal>

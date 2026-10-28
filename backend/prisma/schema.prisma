@@ -359,6 +359,18 @@ model Vendor {
    */
   courierPromptDismissedAt DateTime?
 
+  /**
+   * GPSR (Reg. UE 2023/988) - datele PUBLICE de contact ale producătorului,
+   * completate o singură dată și folosite pentru toate produsele cu
+   * isOwnManufacturer = true (vezi src/lib/gpsrCompliance.js). Separate de
+   * address/email (legacy), ServiceProfile (retur), VendorBilling (facturare)
+   * și VendorPickupAddress (curier) - nu se completează automat din ele.
+   */
+  gpsrManufacturerName      String?   @db.VarChar(200)
+  gpsrManufacturerAddress   String?   @db.VarChar(500)
+  gpsrManufacturerEmail     String?   @db.VarChar(320)
+  gpsrManufacturerUpdatedAt DateTime?
+
   anonymizedAt DateTime?
 
   /**

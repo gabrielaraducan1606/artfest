@@ -1,6 +1,5 @@
 // src/pages/Vendor/Orders/components/AwbPanel.jsx
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   Truck,
@@ -10,24 +9,37 @@ import {
   RefreshCcw,
   Ban,
   ExternalLink,
-  Settings2,
   PackageCheck,
+  MapPin,
+  SearchCheck,
   X,
 } from "lucide-react";
 import { api, buildApiUrl } from "../../../../lib/api";
-import { apiErrorMessage, formatDateTime } from "../../Settings/couriers/courierSettingsLogic.js";
 import {
+  apiErrorMessage,
+  formatDateTime,
+  PICKUP_ADDRESS_FIELDS,
+  emptyPickupAddressForm,
+  validatePickupAddressForm,
+  buildPickupAddressPayload,
+} from "../../Settings/couriers/courierSettingsLogic.js";
+import {
+  AWB_GENERATION_ENABLED,
   COURIER_AUTOMATION_ENABLED,
-  COURIER_AUTOMATION_SOON_MESSAGE,
-  COURIER_SOON_SHORT,
+  COURIER_SETUP_PENDING_MESSAGE,
   COURIER_MANUAL_SHIPPING_MESSAGE,
 } from "../../../../config/features.js";
-import { vendorCouriersSettingsUrl } from "../../../../config/vendorNavigation.js";
 import {
   decideAwbPanelState,
   lastAttemptNotice,
   awbStatusBadge,
-  settingsActionForBlockers,
+  AWB_INPUT_FIELDS,
+  isCourierSetupPending,
+  isPlatformSetupBlocker,
+  courierSetupMessage,
+  isPickupBlocker,
+  PICKUP_DETAILS_MISSING_MESSAGE,
+  packageTypeLabel,
   canCancelArtfestAwb,
   initialAwbForm,
   buildAwbRequestBody,
@@ -39,7 +51,6 @@ import {
   formatMoneyRon,
   canShipManually,
   manualShipVisibility,
-  shouldShowCourierPrompt,
   MANUAL_COURIER_SUGGESTIONS,
   initialManualShipForm,
   validateManualShipForm,
@@ -50,26 +61,25 @@ import styles from "./AwbPanel.module.css";
 
 /*
  * Secțiunea „Curier / Livrare” din detaliul comenzii (per Shipment).
- * Starea (utils/awbPanelLogic.js -> decideAwbPanelState) decide UN singur
- * set de acțiuni; niciun buton activ pentru o acțiune care nu poate rula:
- *  - fără cont / cont invalid / fără adresă de ridicare -> link spre Setări;
- *  - pregătit -> formularul AWB (curier, serviciu, punct de ridicare,
- *    colete, greutate, ramburs calculat de server) + „Generează AWB”;
- *  - AWB creat -> număr, status, dată, etichetă, tracking, anulare (dacă
- *    serverul o permite: awbStatus.canCancel);
- *  - UNKNOWN -> „Necesită verificare”, fără generare (rezolvă adminul);
+ * Curierat CENTRALIZAT: AWB-ul se generează cu contul Sameday al Artfest,
+ * iar curierul RIDICĂ coletul de la adresa de ridicare a vendorului
+ * (thirdPartyPickup) - vendorul nu conectează curier. Starea
+ * (utils/awbPanelLogic.js -> decideAwbPanelState) decide UN singur set de acțiuni:
+ *  - pregătit -> ridicare (adresa vendorului, completabilă aici), destinatar,
+ *    plată (ramburs calculat de server), colet (greutate) + „Generează AWB”,
+ *    care deschide confirmarea cu previzualizarea finală de la server;
+ *    configurare Artfest lipsă -> mesajul concret, buton dezactivat;
+ *  - AWB creat -> „AWB generat”, număr, etichetă, tracking (fără al doilea AWB);
+ *  - UNKNOWN -> „Verifică din nou la Sameday” (după referință), fără generare;
  *  - FAILED / CANCELLED -> mesajul ultimei încercări + formularul din nou.
  * COD e calculat EXCLUSIV de backend și afișat read-only.
  *
  * Expediere FĂRĂ integrare („Trimite fără integrare”): disponibilă mereu
- * înainte de predare (și cu integrarea oprită) - vendorul declară opțional
- * curierul, AWB-ul / tracking-ul și data expedierii; fără CourierAwb, fără
- * apel la curier, nimic financiar. Fără niciun cont de curier, dialogul
- * „Nu ai conectat încă un curier” apare o singură dată (preferința
- * „Continuă fără integrare” e salvată pe vendor).
+ * înainte de predare - vendorul declară opțional curierul, AWB-ul /
+ * tracking-ul și data expedierii; fără CourierAwb, fără apel la curier.
  *
- * Flag: COURIER_AUTOMATION_ENABLED (config/features.js: VENDOR_COURIERS_ENABLED && COURIER_AUTO_INTEGRATION_AVAILABLE). Oprit -> fără apeluri
- * de curierat; rămân doar expedierea fără integrare și datele ei.
+ * Flag: AWB_GENERATION_ENABLED (config/features.js). Anularea AWB rămâne sub
+ * COURIER_AUTOMATION_ENABLED (oprit).
  */
 
 async function downloadLabel(shipmentId, awb) {
@@ -124,35 +134,13 @@ function Blockers({ items }) {
   );
 }
 
-/*
- * Link la Setări → curieri cu întoarcere la comanda curentă (?returnTo=) -
- * „Trimite coletul fără integrare” din ajutorul eAWB revine aici.
- */
-function useCouriersSettingsUrl() {
-  const { pathname } = useLocation();
-  return vendorCouriersSettingsUrl({ returnTo: pathname });
-}
-
-function SettingsLink({ label }) {
-  const settingsUrl = useCouriersSettingsUrl();
+// contul Artfest neconfigurat / integrarea oprită: mesaj clar, fără AWB simulat
+function SetupPendingNotice({ message = COURIER_SETUP_PENDING_MESSAGE }) {
   return (
-    <Link className={styles.primaryBtn} to={settingsUrl}>
-      <Settings2 size={16} aria-hidden="true" /> {label}
-    </Link>
-  );
-}
-
-function SetupCta({ title, text, linkLabel }) {
-  return (
-    <>
-      <div className={styles.text}>
-        <strong>{title}</strong>
-        <span className={styles.muted}>{text}</span>
-      </div>
-      <div className={styles.actions}>
-        <SettingsLink label={linkLabel} />
-      </div>
-    </>
+    <div className={`${styles.notice} ${styles.notice_warning}`} role="status" data-awb-setup-pending>
+      <strong>{message}</strong>
+      <span>AWB-ul nu poate fi generat încă din Artfest. {COURIER_MANUAL_SHIPPING_MESSAGE}</span>
+    </div>
   );
 }
 
@@ -169,7 +157,8 @@ function CreatedView({ shipment, awbStatus, orderStatus, onChanged, reload }) {
   const artfestLabel = s.artfestLabel ?? String(shipment?.labelUrl || "").startsWith("/api/vendor/shipments/");
   const provider = s.courierProvider || shipment?.courierProvider;
   const service = s.courierService || shipment?.courierService;
-  const canCancel = canCancelArtfestAwb({ awbStatus, orderStatus });
+  // anularea nu face parte din fluxul activat acum (rămâne sub COURIER_AUTOMATION_ENABLED)
+  const canCancel = COURIER_AUTOMATION_ENABLED && canCancelArtfestAwb({ awbStatus, orderStatus });
 
   const onDownload = async () => {
     if (downloading) return;
@@ -206,6 +195,13 @@ function CreatedView({ shipment, awbStatus, orderStatus, onChanged, reload }) {
 
   return (
     <>
+      <div className={styles.text} data-awb-created>
+        <strong>AWB generat</strong>
+        <span>
+          AWB: <strong>{awb}</strong>
+        </span>
+      </div>
+
       {/* acțiunile principale primele (pe mobil: lățime completă) */}
       <div className={styles.actions}>
         {artfestLabel && (
@@ -265,7 +261,257 @@ function stripEmpty(form) {
   return out;
 }
 
-function AwbForm({ shipmentId, notice, onCreated }) {
+/*
+ * Adresa de ridicare a vendorului (de unde ridică Sameday coletul): se
+ * salvează prin rutele existente /api/vendor/pickup-addresses, apoi
+ * previzualizarea se recalculează pe server (sursa de adevăr).
+ */
+function PickupAddressInlineForm({ address, onSaved, onCancel }) {
+  const idPrefix = useId();
+  const [form, setForm] = useState(() => emptyPickupAddressForm(address));
+  const [errors, setErrors] = useState({});
+  const [formError, setFormError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (busy) return;
+    const local = validatePickupAddressForm(form);
+    setErrors(local);
+    setFormError("");
+    if (Object.keys(local).length) return;
+    setBusy(true);
+    try {
+      const body = buildPickupAddressPayload(form);
+      if (address?.id) {
+        await api(`/api/vendor/pickup-addresses/${encodeURIComponent(address.id)}`, { method: "PATCH", body });
+      } else {
+        await api("/api/vendor/pickup-addresses", { method: "POST", body: { ...body, isDefault: true } });
+      }
+      toast.success("Adresa de ridicare a fost salvată.");
+      onSaved();
+    } catch (err) {
+      setFormError(apiErrorMessage(err, "Nu am putut salva adresa. Încearcă din nou."));
+      const fields = Array.isArray(err?.data?.fields) ? err.data.fields : [];
+      if (fields.length) setErrors((prev) => ({ ...prev, ...Object.fromEntries(fields.map((k) => [k, "Verifică acest câmp."])) }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className={styles.fieldset} onSubmit={submit} noValidate data-pickup-form>
+      <span className={styles.muted}>De aici ridică Sameday coletul. Datele apar pe AWB.</span>
+      <div className={styles.row}>
+        {PICKUP_ADDRESS_FIELDS.map((f) => (
+          <label key={f.key} className={styles.field} htmlFor={`${idPrefix}-${f.key}`}>
+            <span>
+              {f.label}
+              {f.required ? " *" : ""}
+            </span>
+            <input
+              id={`${idPrefix}-${f.key}`}
+              className={styles.input}
+              type={f.type || "text"}
+              inputMode={f.inputMode}
+              autoComplete={f.autoComplete || "off"}
+              maxLength={f.max}
+              value={form[f.key]}
+              onChange={(e) => {
+                const v = e.target.value;
+                setForm((x) => ({ ...x, [f.key]: v }));
+                setErrors((x) => ({ ...x, [f.key]: undefined }));
+              }}
+              aria-invalid={!!errors[f.key]}
+            />
+            {errors[f.key] && <span className={styles.fieldError}>{errors[f.key]}</span>}
+          </label>
+        ))}
+      </div>
+      {formError && (
+        <div className={styles.error} role="alert">
+          {formError}
+        </div>
+      )}
+      <div className={styles.actions}>
+        <button type="submit" className={styles.primaryBtn} disabled={busy}>
+          {busy ? <Loader2 size={16} className={styles.spin} /> : <MapPin size={16} />}
+          {busy ? "Se salvează…" : "Salvează adresa de ridicare"}
+        </button>
+        <button type="button" className={styles.secondaryBtn} onClick={onCancel} disabled={busy}>
+          Renunță
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function PickupSummary({ pickup, blockers, onEdit }) {
+  const problem = (blockers || []).find(isPickupBlocker);
+  return (
+    <div className={styles.group} data-awb-pickup>
+      <div className={styles.groupHead}>
+        <span className={styles.groupTitle}>Ridicare</span>
+        <button type="button" className={styles.linkBtn} onClick={onEdit}>
+          {pickup ? "Modifică" : "Completează"}
+        </button>
+      </div>
+      {problem && (
+        <div className={`${styles.notice} ${styles.notice_warning}`} role="alert">
+          <strong>{problem.code === "pickup_phone_invalid" || problem.code === "pickup_postal_code_invalid" ? problem.message : PICKUP_DETAILS_MISSING_MESSAGE}</strong>
+        </div>
+      )}
+      {pickup && (
+        <dl className={styles.details}>
+          <div className={styles.detail}>
+            <dt>Magazin</dt>
+            <dd>{pickup.storeName || "—"}</dd>
+          </div>
+          <div className={styles.detail}>
+            <dt>Persoană de contact</dt>
+            <dd>{pickup.contactName || "—"}</dd>
+          </div>
+          <div className={styles.detail}>
+            <dt>Telefon</dt>
+            <dd>{pickup.phone || "—"}</dd>
+          </div>
+          <div className={styles.detail}>
+            <dt>Adresa de ridicare</dt>
+            <dd>{pickup.fullAddress || "—"}</dd>
+          </div>
+        </dl>
+      )}
+    </div>
+  );
+}
+
+function ConfirmGroup({ title, rows }) {
+  return (
+    <div className={styles.group}>
+      <span className={styles.groupTitle}>{title}</span>
+      <dl className={styles.details}>
+        {rows.map(([label, value]) => (
+          <div key={label} className={styles.detail}>
+            <dt>{label}</dt>
+            <dd>{value || "—"}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/*
+ * Confirmarea „Generează AWB”: previzualizarea calculată de server pentru
+ * greutatea / coletele introduse (ridicare, destinatar, colet, serviciu,
+ * plată). Butonul final trimite cererea (cheie de idempotență per încercare).
+ */
+function AwbConfirmDialog({ preview, loading, blockers, submitting, submitError, onConfirm, onClose }) {
+  const titleId = useId();
+  const confirmRef = useRef(null);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape" && !submitting) onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose, submitting]);
+
+  useEffect(() => {
+    if (!loading) confirmRef.current?.focus();
+  }, [loading]);
+
+  const pickup = preview?.pickup || {};
+  const recipient = preview?.recipient || {};
+  const ready = !!preview && !loading && blockers.length === 0;
+  const cod = preview?.payment?.type === "COD";
+
+  return (
+    <div className={styles.overlay} role="presentation" onClick={(e) => e.target === e.currentTarget && !submitting && onClose()}>
+      <div className={`${styles.dialog} ${styles.dialogWide}`} role="dialog" aria-modal="true" aria-labelledby={titleId} data-awb-confirm>
+        <h2 id={titleId} className={styles.dialogTitle}>
+          Verifică datele AWB-ului
+        </h2>
+        <button type="button" className={styles.dialogClose} onClick={onClose} disabled={submitting} aria-label="Închide">
+          <X size={18} />
+        </button>
+
+        {loading && (
+          <div className={styles.loading} role="status">
+            <Loader2 size={18} className={styles.spin} /> Verificăm datele expedierii…
+          </div>
+        )}
+
+        {preview && !loading && (
+          <>
+            <Blockers items={blockers} />
+            <ConfirmGroup
+              title="Ridicare"
+              rows={[
+                ["Magazin", pickup.storeName],
+                ["Persoană de contact", pickup.contactName],
+                ["Telefon", pickup.phone],
+                ["Adresa de ridicare", pickup.fullAddress],
+              ]}
+            />
+            <ConfirmGroup
+              title="Destinatar"
+              rows={[
+                ["Nume", recipient.name],
+                ["Telefon", recipient.phone],
+                ["Adresă", recipient.address],
+                ["Localitate / județ", [recipient.city, recipient.county].filter(Boolean).join(", ")],
+              ]}
+            />
+            <ConfirmGroup
+              title="Colet"
+              rows={[
+                ["Număr colete", preview.parcels != null ? String(preview.parcels) : null],
+                ["Greutate", preview.weightKg != null ? `${String(preview.weightKg).replace(".", ",")} kg` : null],
+                ["Tip colet", preview.packageType?.label],
+              ]}
+            />
+            <ConfirmGroup title="Livrare" rows={[["Serviciu Sameday", preview.serviceName ? `${preview.serviceName} - livrare la adresă` : null]]} />
+            <ConfirmGroup
+              title="Plată"
+              rows={[
+                ["Plată", preview.payment?.label],
+                ["Sumă ramburs", cod ? formatMoneyRon(preview.payment.codAmount) : formatMoneyRon(0)],
+              ]}
+            />
+          </>
+        )}
+
+        {submitError && (
+          <div className={styles.error} role="alert">
+            {submitError}
+          </div>
+        )}
+
+        <div className={styles.dialogActions}>
+          <button type="button" className={styles.secondaryBtn} onClick={onClose} disabled={submitting}>
+            Renunță
+          </button>
+          <button
+            ref={confirmRef}
+            type="button"
+            className={styles.primaryBtn}
+            onClick={onConfirm}
+            disabled={!ready || submitting}
+            aria-busy={submitting}
+            data-awb-confirm-submit
+          >
+            {submitting ? <Loader2 size={16} className={styles.spin} /> : <Truck size={16} />}
+            {submitting ? "Se generează…" : "Generează AWB"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
   const idPrefix = useId();
   const [preview, setPreview] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(true);
@@ -275,6 +521,8 @@ function AwbForm({ shipmentId, notice, onCreated }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [serverBlockers, setServerBlockers] = useState(null);
+  const [editingPickup, setEditingPickup] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const keyRef = useRef(newIdempotencyKey());
   const submittingRef = useRef(false);
 
@@ -291,8 +539,10 @@ function AwbForm({ shipmentId, notice, onCreated }) {
         setPreview(res.preview);
         setForm((prev) => (prev ? { ...initialAwbForm(res.preview), ...stripEmpty(prev) } : initialAwbForm(res.preview)));
         setInputsTouched(false);
+        return res.preview;
       } catch (e) {
         setPreviewError(apiErrorMessage(e, "Nu am putut pregăti AWB-ul. Încearcă din nou."));
+        return null;
       } finally {
         setLoadingPreview(false);
       }
@@ -306,22 +556,41 @@ function AwbForm({ shipmentId, notice, onCreated }) {
 
   const formErrors = form ? validateAwbForm(form) : {};
   const allBlockers = serverBlockers || preview?.blockers;
-  const blockers = remainingBlockers(allBlockers, { inputsTouched });
-  const settingsAction = settingsActionForBlockers(blockers);
-  const canSubmit =
+  const setupPending = isCourierSetupPending({ ...preview, blockers: allBlockers });
+  const setupMessage = courierSetupMessage({ ...preview, blockers: allBlockers }, COURIER_SETUP_PENDING_MESSAGE);
+  // configurarea Artfest și adresa de ridicare au secțiunile lor; lista păstrează restul
+  const blockers = remainingBlockers(allBlockers, { inputsTouched }).filter(
+    (b) => !isPlatformSetupBlocker(b) && !isPickupBlocker(b)
+  );
+  const pickupBlocked = (allBlockers || []).some(isPickupBlocker);
+  const canOpenConfirm =
     !!preview &&
     !loadingPreview &&
+    !setupPending &&
+    !pickupBlocked &&
     canSubmitAwb({ blockers: allBlockers, inputsTouched, formErrors, submitting });
+
+  useEffect(() => {
+    if (preview) onSetupPendingChange?.(setupPending);
+  }, [preview, setupPending, onSetupPendingChange]);
 
   const setField = (key, value) => {
     setForm((f) => ({ ...f, [key]: value }));
-    if (["weightKg", "parcels", "lengthCm", "widthCm", "heightCm", "serviceId"].includes(key)) setInputsTouched(true);
+    if (AWB_INPUT_FIELDS.includes(key)) setInputsTouched(true);
     setSubmitError("");
+  };
+
+  // „Generează AWB” -> previzualizarea finală (server) în dialogul de confirmare
+  const openConfirm = async () => {
+    if (!canOpenConfirm) return;
+    setSubmitError("");
+    setConfirmOpen(true);
+    await runPreview(buildAwbRequestBody(form));
   };
 
   const submit = async () => {
     // protecție dublu click (și înainte ca state-ul să se actualizeze)
-    if (submittingRef.current || !canSubmit) return;
+    if (submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
     setSubmitError("");
@@ -332,6 +601,7 @@ function AwbForm({ shipmentId, notice, onCreated }) {
         headers: { "Idempotency-Key": keyRef.current },
       });
       toast.success(`AWB generat: ${res?.awb?.awbNumber}`);
+      setConfirmOpen(false);
       onCreated(res?.awb);
     } catch (e) {
       if (!shouldKeepIdempotencyKey(e)) keyRef.current = newIdempotencyKey();
@@ -341,6 +611,7 @@ function AwbForm({ shipmentId, notice, onCreated }) {
       }
       setSubmitError(apiErrorMessage(e, "Nu am putut genera AWB-ul. Încearcă din nou."));
       if (["awb_status_unknown", "awb_saved_partially", "awb_in_progress", "awb_exists"].includes(errorCode(e))) {
+        setConfirmOpen(false);
         onCreated(null); // reîncarcă: secțiunea arată starea reală (verificare / AWB existent)
       }
     } finally {
@@ -349,9 +620,8 @@ function AwbForm({ shipmentId, notice, onCreated }) {
     }
   };
 
-  const services = preview?.services || [];
-  const accounts = (preview?.accounts || []).filter((a) => a.status === "ACTIVE");
-  const selectedService = services.find((s) => String(s.id) === String(form?.serviceId));
+  const recipient = preview?.recipient || {};
+  const confirmBlockers = serverBlockers || preview?.blockers || [];
 
   return (
     <div className={styles.body}>
@@ -364,7 +634,7 @@ function AwbForm({ shipmentId, notice, onCreated }) {
 
       {loadingPreview && !preview && (
         <div className={styles.loading} role="status">
-          <Loader2 size={18} className={styles.spin} /> Verificăm datele comenzii și contul de curier…
+          <Loader2 size={18} className={styles.spin} /> Verificăm datele expedierii…
         </div>
       )}
 
@@ -379,78 +649,56 @@ function AwbForm({ shipmentId, notice, onCreated }) {
 
       {preview && form && (
         <>
+          {setupPending && <SetupPendingNotice message={setupMessage} />}
+
           <Blockers items={blockers} />
 
-          <dl className={styles.details}>
-            <div className={styles.detail}>
-              <dt>Curier</dt>
-              <dd>{preview.courier?.label || "—"}</dd>
-            </div>
-            <div className={styles.detail}>
-              <dt>Serviciu</dt>
-              <dd>{selectedService?.name || preview.serviceName || "—"}</dd>
-            </div>
-            <div className={styles.detail}>
-              <dt>Punct de ridicare</dt>
-              <dd>{preview.pickupPoint?.alias || (preview.pickupPoint ? `#${preview.pickupPoint.id}` : "—")}</dd>
-            </div>
-            <div className={styles.detail}>
-              <dt>Ramburs</dt>
-              {/* read-only: calculat de server din comandă */}
-              <dd>
-                <output className={styles.cod} aria-label="Sumă ramburs, calculată automat">
-                  {formatMoneyRon(preview.codAmount)}
-                </output>
-                <div className={styles.muted}>
-                  {preview.paymentMethod === "COD" ? "Calculat automat din comandă" : "Comandă plătită online"}
-                </div>
-              </dd>
-            </div>
-          </dl>
+          {editingPickup ? (
+            <PickupAddressInlineForm
+              address={preview.pickup?.addressId ? { id: preview.pickup.addressId, ...(preview.pickup.form || {}) } : null}
+              onCancel={() => setEditingPickup(false)}
+              onSaved={async () => {
+                setEditingPickup(false);
+                await runPreview(buildAwbRequestBody(form));
+              }}
+            />
+          ) : (
+            <PickupSummary pickup={preview.pickup} blockers={allBlockers} onEdit={() => setEditingPickup(true)} />
+          )}
+
+          {/* destinatarul, din comandă (server) - vendorul îl verifică înainte de generare */}
+          <div className={styles.group}>
+            <span className={styles.groupTitle}>Destinatar</span>
+            <dl className={styles.details}>
+              <div className={styles.detail}>
+                <dt>Nume</dt>
+                <dd>{recipient.name || "—"}</dd>
+              </div>
+              <div className={styles.detail}>
+                <dt>Telefon</dt>
+                <dd>{recipient.phone || "—"}</dd>
+              </div>
+              <div className={styles.detail}>
+                <dt>Adresă</dt>
+                <dd>{preview.deliveryAddress || "—"}</dd>
+              </div>
+              <div className={styles.detail}>
+                <dt>Plată</dt>
+                {/* read-only: calculat de server din comandă */}
+                <dd>
+                  <output className={styles.cod} aria-label="Sumă ramburs, calculată automat">
+                    {formatMoneyRon(preview.codAmount)}
+                  </output>
+                  <div className={styles.muted}>
+                    {preview.paymentMethod === "COD" ? "Ramburs - calculat automat din comandă" : "Achitat online - fără ramburs"}
+                  </div>
+                </dd>
+              </div>
+            </dl>
+          </div>
 
           <fieldset className={styles.fieldset} disabled={submitting}>
             <legend>Colet</legend>
-
-            {accounts.length > 1 && (
-              <label className={styles.field} htmlFor={`${idPrefix}-acc`}>
-                <span>Cont de curier</span>
-                <select
-                  id={`${idPrefix}-acc`}
-                  className={styles.input}
-                  value={form.courierAccountId}
-                  onChange={(e) => {
-                    const next = { ...form, courierAccountId: e.target.value, serviceId: "" };
-                    setForm(next);
-                    runPreview(buildAwbRequestBody(next));
-                  }}
-                >
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            {services.length > 1 && (
-              <label className={styles.field} htmlFor={`${idPrefix}-svc`}>
-                <span>Serviciu</span>
-                <select
-                  id={`${idPrefix}-svc`}
-                  className={styles.input}
-                  value={form.serviceId}
-                  onChange={(e) => setField("serviceId", e.target.value)}
-                >
-                  {services.map((s) => (
-                    <option key={s.id} value={String(s.id)}>
-                      {s.name}
-                      {s.code ? ` (${s.code})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
 
             <div className={styles.row}>
               <label className={styles.field} htmlFor={`${idPrefix}-p`}>
@@ -479,6 +727,9 @@ function AwbForm({ shipmentId, notice, onCreated }) {
                 {inputsTouched && formErrors.weightKg && <span className={styles.fieldError}>{formErrors.weightKg}</span>}
               </label>
             </div>
+            <span className={styles.muted} data-awb-package-type>
+              Tip colet: {packageTypeLabel(form.weightKg, form.parcels)}
+            </span>
 
             <details className={styles.dims}>
               <summary>Dimensiuni (opțional)</summary>
@@ -505,30 +756,87 @@ function AwbForm({ shipmentId, notice, onCreated }) {
             </details>
           </fieldset>
 
-          {submitError && (
+          {submitError && !confirmOpen && (
             <div className={styles.error} role="alert">
               {submitError}
             </div>
           )}
 
           <div className={styles.actions}>
-            {settingsAction ? (
-              <SettingsLink label={settingsAction.label} />
-            ) : (
-              <button
-                type="button"
-                className={styles.primaryBtn}
-                onClick={submit}
-                disabled={!canSubmit}
-                aria-busy={submitting}
-              >
-                {submitting ? <Loader2 size={16} className={styles.spin} /> : <Truck size={16} />}
-                {submitting ? "Se generează…" : notice?.retryLabel || "Generează AWB"}
-              </button>
-            )}
+            <button
+              type="button"
+              className={styles.primaryBtn}
+              onClick={openConfirm}
+              disabled={!canOpenConfirm}
+              aria-disabled={!canOpenConfirm}
+              title={setupPending ? setupMessage : pickupBlocked ? PICKUP_DETAILS_MISSING_MESSAGE : undefined}
+            >
+              <Truck size={16} />
+              {notice?.retryLabel || "Generează AWB"}
+            </button>
           </div>
+
+          {confirmOpen && (
+            <AwbConfirmDialog
+              preview={preview}
+              loading={loadingPreview}
+              blockers={confirmBlockers}
+              submitting={submitting}
+              submitError={submitError}
+              onConfirm={submit}
+              onClose={() => setConfirmOpen(false)}
+            />
+          )}
         </>
       )}
+    </div>
+  );
+}
+
+/* ---------- AWB neconfirmat (UNKNOWN) ---------- */
+
+/*
+ * Răspunsul Sameday nu a ajuns (timeout / conexiune): generarea rămâne
+ * blocată (fără AWB dublu). „Verifică din nou la Sameday” caută AWB-ul după
+ * referința expedierii (backend: recoverUnknownAwb) - nu creează niciun AWB.
+ */
+function UnknownAwbNotice({ shipmentId, onChanged }) {
+  const [checking, setChecking] = useState(false);
+  const [message, setMessage] = useState("");
+  const checkingRef = useRef(false);
+
+  const recheck = async () => {
+    if (checkingRef.current) return;
+    checkingRef.current = true;
+    setChecking(true);
+    setMessage("");
+    try {
+      const res = await api(`/api/vendor/shipments/${encodeURIComponent(shipmentId)}/awb/recover`, { method: "POST" });
+      if (res?.outcome === "created") toast.success(`AWB generat: ${res?.awb?.awbNumber}`);
+      else toast.info("Sameday nu are AWB pentru această încercare. Poți genera AWB-ul din nou.");
+      await onChanged();
+    } catch (e) {
+      setMessage(apiErrorMessage(e, "Nu am putut verifica la Sameday. Încearcă din nou."));
+    } finally {
+      checkingRef.current = false;
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className={`${styles.notice} ${styles.notice_warning}`} role="status" data-awb-unknown>
+      <strong>Sameday nu a confirmat încă AWB-ul</strong>
+      <span>
+        Nu știm încă dacă AWB-ul a fost creat. Ca să evităm un AWB dublu, nu se generează altul până nu verificăm la
+        Sameday.
+      </span>
+      {message && <span className={styles.fieldError}>{message}</span>}
+      <div className={styles.actions}>
+        <button type="button" className={styles.secondaryBtn} onClick={recheck} disabled={checking} aria-busy={checking}>
+          {checking ? <Loader2 size={16} className={styles.spin} /> : <SearchCheck size={16} />}
+          {checking ? "Se verifică…" : "Verifică din nou la Sameday"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -757,64 +1065,9 @@ function ManualShipEntry({ visibility, orderId, canProcess, onDone, secondary = 
   );
 }
 
-function CourierPromptDialog({ onContinue, onClose, busy, error }) {
-  const settingsUrl = useCouriersSettingsUrl();
-  const titleId = useId();
-  const descId = useId();
-  const firstRef = useRef(null);
-
-  useEffect(() => {
-    firstRef.current?.focus();
-    const onKey = (e) => {
-      if (e.key === "Escape") onClose();
-    };
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
-
-  return (
-    <div className={styles.overlay} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descId}>
-        <button type="button" className={styles.dialogClose} onClick={onClose} aria-label="Închide">
-          <X size={18} />
-        </button>
-        <h2 id={titleId} className={styles.dialogTitle}>
-          Nu ai conectat încă un curier.
-        </h2>
-        <div id={descId} className={styles.text}>
-          <span>Poți continua și trimite coletul pe cont propriu.</span>
-          <span className={styles.muted}>Poți conecta ulterior un curier din Setări → Livrare și retururi.</span>
-        </div>
-        {error && (
-          <div className={styles.error} role="alert">
-            {error}
-          </div>
-        )}
-        <div className={styles.dialogActions}>
-          <Link ref={firstRef} className={styles.secondaryBtn} to={settingsUrl}>
-            <Settings2 size={16} aria-hidden="true" /> Conectează curier
-          </Link>
-          <button type="button" className={styles.primaryBtn} onClick={onContinue} disabled={busy} aria-busy={busy}>
-            {busy && <Loader2 size={16} className={styles.spin} />}
-            Continuă fără integrare
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// dialogul apare cel mult o dată pe sesiune; persistent doar „Continuă fără integrare”
-let courierPromptShownThisSession = false;
-
 function SectionShell({ title = "Curier / Livrare", badge = null, children }) {
   return (
-    <section className={styles.section} aria-label="Curier și livrare">
+    <section id="awb" className={styles.section} aria-label="Curier și livrare">
       <div className={styles.head}>
         <span className={styles.icon} aria-hidden="true">
           <Truck size={18} />
@@ -841,22 +1094,13 @@ export default function AwbPanel(props) {
     );
   }
 
-  // integrarea automată indisponibilă: niciun apel de curierat; fluxul manual activ,
-  // acțiunile automate vizibile dar dezactivate (greyed out, fără request)
-  if (!COURIER_AUTOMATION_ENABLED) {
+  // generarea AWB oprită din config: niciun apel de curierat; fluxul manual activ
+  if (!AWB_GENERATION_ENABLED) {
     if (!canShipManually({ shipment, orderStatus }) || !orderId) return null;
     return (
       <SectionShell title="Livrare">
-        <div className={styles.text}>
-          <strong>Trimite coletul cu curierul tău</strong>
-          <span className={styles.muted}>
-            Expediezi pe cont propriu și marchezi aici comanda ca expediată, cu AWB-ul și linkul de urmărire, dacă le
-            ai.
-          </span>
-        </div>
+        <SetupPendingNotice />
         <ManualShipEntry visibility="primary" orderId={orderId} canProcess={canProcess} onDone={onChanged} />
-
-        <AutomationUnavailable />
       </SectionShell>
     );
   }
@@ -864,138 +1108,38 @@ export default function AwbPanel(props) {
   return <AwbPanelInner {...props} />;
 }
 
-/*
- * Acțiunile automate (Generează AWB / Conectează curier) vizibile, dar
- * indisponibile: flag-urile frontend oprite sau backend-ul răspunde 503.
- * Greyed out, disabled + aria-disabled, fără niciun request.
- */
-function AutomationUnavailable() {
-  return (
-    <div className={styles.automationUnavailable}>
-      <span className={styles.muted} role="status">
-        {COURIER_AUTOMATION_SOON_MESSAGE} {COURIER_MANUAL_SHIPPING_MESSAGE}
-      </span>
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={`${styles.secondaryBtn} ${styles.unavailableBtn}`}
-          disabled
-          aria-disabled="true"
-          title={COURIER_SOON_SHORT}
-        >
-          <Truck size={16} aria-hidden="true" /> Generează AWB
-        </button>
-        <button
-          type="button"
-          className={`${styles.secondaryBtn} ${styles.unavailableBtn}`}
-          disabled
-          aria-disabled="true"
-          title={COURIER_SOON_SHORT}
-        >
-          <Settings2 size={16} aria-hidden="true" /> Conectează curier
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function AwbPanelInner({ shipment, orderStatus, orderId, canProcess = true, onChanged }) {
-  const settingsUrl = useCouriersSettingsUrl();
-  const [data, setData] = useState({ accounts: null, pickupAddresses: null, awbStatus: null });
+  const [awbStatus, setAwbStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
-  const [preference, setPreference] = useState(null);
-  const [promptOpen, setPromptOpen] = useState(false);
-  const [promptBusy, setPromptBusy] = useState(false);
-  const [promptError, setPromptError] = useState("");
+  const [setupPending, setSetupPending] = useState(false);
 
   const shipmentId = shipment?.id;
 
-  // preferința „Continuă fără integrare” (eșec -> fără dialog, nimic blocat)
-  useEffect(() => {
-    let alive = true;
-    api("/api/vendor/shipping-preferences")
-      .then((res) => alive && setPreference(res || null))
-      .catch(() => alive && setPreference(null));
-    return () => {
-      alive = false;
-    };
-  }, []);
-
+  // contul de curier e al Artfest: doar statusul AWB al expedierii
   const load = useCallback(async () => {
     if (!shipmentId) return;
     setLoading(true);
-    const [acc, addr, status] = await Promise.allSettled([
-      api("/api/vendor/couriers/accounts"),
-      api("/api/vendor/pickup-addresses"),
-      api(`/api/vendor/shipments/${encodeURIComponent(shipmentId)}/awb`),
-    ]);
-    const failures = [acc, addr, status].filter((r) => r.status === "rejected").map((r) => r.reason);
-    const disabled = failures.find((e) => errorCode(e) === "courier_integration_disabled");
-
-    setData({
-      accounts: acc.status === "fulfilled" && Array.isArray(acc.value?.items) ? acc.value.items : null,
-      pickupAddresses: addr.status === "fulfilled" && Array.isArray(addr.value?.items) ? addr.value.items : null,
-      awbStatus: status.status === "fulfilled" ? status.value : null,
-    });
-    setLoadError(
-      disabled
-        ? { code: "courier_integration_disabled" }
-        : acc.status === "rejected" || addr.status === "rejected"
-          ? { code: "load_failed" }
-          : null
-    );
-    setLoading(false);
+    try {
+      setAwbStatus(await api(`/api/vendor/shipments/${encodeURIComponent(shipmentId)}/awb`));
+      setLoadError(null);
+    } catch (e) {
+      setAwbStatus(null);
+      setLoadError({ code: errorCode(e) === "courier_integration_disabled" ? "courier_integration_disabled" : "load_failed" });
+    } finally {
+      setLoading(false);
+    }
   }, [shipmentId]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const state = decideAwbPanelState({
-    shipment,
-    orderStatus,
-    accounts: data.accounts,
-    pickupAddresses: data.pickupAddresses,
-    loading,
-    loadError,
-    awbStatus: data.awbStatus,
-  });
+  const state = decideAwbPanelState({ shipment, orderStatus, loading, loadError, awbStatus });
 
-  const manualVis = orderId ? manualShipVisibility({ shipment, orderStatus, panelState: state }) : null;
-  const showPrompt = shouldShowCourierPrompt({
-    panelState: state,
-    preference,
-    sessionShown: courierPromptShownThisSession,
-    manualAvailable: !!manualVis,
-  });
-
-  // „Nu ai conectat încă un curier” - o singură dată (vezi shouldShowCourierPrompt)
-  useEffect(() => {
-    if (!showPrompt) return;
-    courierPromptShownThisSession = true;
-    setPromptOpen(true);
-  }, [showPrompt]);
-
-  const closePrompt = useCallback(() => {
-    setPromptOpen(false);
-    setPromptError("");
-  }, []);
-
-  const continueWithoutIntegration = async () => {
-    if (promptBusy) return;
-    setPromptBusy(true);
-    setPromptError("");
-    try {
-      const res = await api("/api/vendor/shipping-preferences/courier-prompt/dismiss", { method: "POST" });
-      setPreference(res || { courierPromptDismissed: true });
-      setPromptOpen(false);
-    } catch (e) {
-      setPromptError(apiErrorMessage(e, "Nu am putut salva alegerea. Încearcă din nou."));
-    } finally {
-      setPromptBusy(false);
-    }
-  };
+  const manualVis = orderId
+    ? manualShipVisibility({ shipment, orderStatus, panelState: state, setupPending })
+    : null;
 
   if (!shipmentId || state === "hidden") return null;
 
@@ -1008,64 +1152,23 @@ function AwbPanelInner({ shipment, orderStatus, orderId, canProcess = true, onCh
   };
 
   return (
-    <section className={styles.section} aria-label="Curier și livrare">
-      <div className={styles.head}>
-        <span className={styles.icon} aria-hidden="true">
-          <Truck size={18} />
-        </span>
-        <h3 className={styles.title}>Curier / Livrare</h3>
-        {badgeStatus && <StatusBadge status={badgeStatus} />}
-      </div>
-
+    <SectionShell badge={badgeStatus && <StatusBadge status={badgeStatus} />}>
       {state === "loading" && (
         <div className={styles.loading} role="status">
           <Loader2 size={18} className={styles.spin} /> Se încarcă…
         </div>
       )}
 
-      {/* backend oprit (COURIER_INTEGRATION_ENABLED, 503): acțiunile automate vizibile, dar dezactivate */}
-      {state === "disabled" && <AutomationUnavailable />}
+      {/* backend oprit (COURIER_INTEGRATION_ENABLED, 503): niciun apel la curier */}
+      {state === "disabled" && <SetupPendingNotice />}
 
       {state === "error" && (
         <div className={styles.error} role="alert">
-          Nu am putut încărca datele de curier.{" "}
+          Nu am putut încărca datele de livrare.{" "}
           <button type="button" className={styles.linkBtn} onClick={load}>
             Reîncearcă
           </button>
         </div>
-      )}
-
-      {state === "connect" && (
-        <>
-          <div className={styles.text}>
-            <strong>Niciun curier conectat</strong>
-            <span className={styles.muted}>
-              Poți trimite coletul pe cont propriu și îl marchezi aici ca expediat, sau conectezi contul de curier ca
-              să generezi AWB-uri direct din Artfest.
-            </span>
-          </div>
-          {!manualVis && (
-            <div className={styles.actions}>
-              <SettingsLink label="Conectează un curier" />
-            </div>
-          )}
-        </>
-      )}
-
-      {state === "reconnect" && (
-        <SetupCta
-          title="Contul de curier nu este activ"
-          text="Datele de conectare au fost respinse de curier sau contul e dezactivat. Reintrodu credentialele în Setări."
-          linkLabel="Reconectează contul de curier"
-        />
-      )}
-
-      {state === "setup_pickup" && (
-        <SetupCta
-          title="Lipsește adresa de ridicare"
-          text="Adaugă adresa de unde curierul ridică coletul."
-          linkLabel="Configurează punctul de ridicare"
-        />
       )}
 
       {state === "requested" && (
@@ -1078,24 +1181,12 @@ function AwbPanelInner({ shipment, orderStatus, orderId, canProcess = true, onCh
         </div>
       )}
 
-      {state === "unknown" && (
-        <div className={`${styles.notice} ${styles.notice_warning}`} role="status">
-          <strong>Curierul nu a confirmat AWB-ul</strong>
-          <span>
-            Nu știm încă dacă AWB-ul a fost creat la curier. Ca să evităm un AWB dublu, generarea e blocată până
-            când echipa Artfest verifică la curier. Nu crea AWB-ul manual în contul curierului; dacă durează,
-            contactează suportul Artfest.
-          </span>
-          <button type="button" className={styles.linkBtn} onClick={load}>
-            <RefreshCcw size={14} /> Reîmprospătează
-          </button>
-        </div>
-      )}
+      {state === "unknown" && <UnknownAwbNotice shipmentId={shipmentId} onChanged={afterChange} />}
 
       {state === "created" && (
         <CreatedView
           shipment={shipment}
-          awbStatus={data.awbStatus}
+          awbStatus={awbStatus}
           orderStatus={orderStatus}
           onChanged={onChanged}
           reload={load}
@@ -1104,36 +1195,21 @@ function AwbPanelInner({ shipment, orderStatus, orderId, canProcess = true, onCh
 
       {state === "ready" && (
         <AwbForm
-          key={data.awbStatus?.latest?.id || "new"}
+          key={awbStatus?.latest?.id || "new"}
           shipmentId={shipmentId}
-          notice={lastAttemptNotice(data.awbStatus)}
+          notice={lastAttemptNotice(awbStatus)}
           onCreated={afterChange}
+          onSetupPendingChange={setSetupPending}
         />
       )}
 
-      {/* „Trimite fără integrare”: clar fără curier utilizabil, discret lângă „Generează AWB” */}
+      {/* „Trimite fără integrare”: clar când AWB-ul nu poate fi generat, discret lângă „Generează AWB” */}
       <ManualShipEntry
         visibility={manualVis}
         orderId={orderId}
         canProcess={canProcess}
         onDone={onChanged}
-        secondary={state === "reconnect" || state === "setup_pickup"}
       />
-
-      {state === "connect" && manualVis && (
-        <Link className={styles.linkBtn} to={settingsUrl}>
-          <Settings2 size={14} aria-hidden="true" /> Conectează un curier
-        </Link>
-      )}
-
-      {promptOpen && (
-        <CourierPromptDialog
-          onContinue={continueWithoutIntegration}
-          onClose={closePrompt}
-          busy={promptBusy}
-          error={promptError}
-        />
-      )}
-    </section>
+    </SectionShell>
   );
 }

@@ -409,7 +409,6 @@ export default function ProductChangesPage() {
             onSave={saveEditor}
             uploadFile={uploadProductFile}
             storeSlug={product.storeSlug}
-            vendorPreview={product.vendorPreview || { displayName: product.storeName || "" }}
             initialStep="images"
           />
         </Suspense>

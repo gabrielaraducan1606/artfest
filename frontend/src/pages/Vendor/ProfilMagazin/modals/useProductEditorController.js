@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { uploadFile as uploadFileHelper } from "../../../../lib/uploadFile";
 import { api } from "../../../../lib/api";
+import { saveVendorGpsrDraftIfNeeded } from "../utils/vendorGpsrManufacturer.js";
 
 import {
   useProductFieldOptions,
@@ -1774,6 +1775,20 @@ quoteSchema: [],
           return false;
         }
 
+        /*
+         * GPSR „Eu sunt producătorul”: datele publice centrale completate /
+         * modificate acum se salvează ÎNAINTE de produs (o singură dată,
+         * pentru toate produsele). Dacă eșuează, produsul nu se salvează.
+         */
+        if (form.isOwnManufacturer === true) {
+          try {
+            await saveVendorGpsrDraftIfNeeded();
+          } catch (gpsrError) {
+            alert(gpsrError?.message || "Nu am putut salva datele producătorului.");
+            return false;
+          }
+        }
+
         try {
           await onSave(event);
 
@@ -1860,6 +1875,7 @@ quoteSchema: [],
       [
         uploadingImages,
         form.images,
+        form.isOwnManufacturer,
         onSave,
         editingProduct,
         draftKey,

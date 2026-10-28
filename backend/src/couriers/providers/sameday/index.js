@@ -12,19 +12,51 @@ import {
   CourierUnavailableError,
   CourierValidationError,
 } from "../../errors.js";
-import { buildSamedayAwbForm, parseSamedayAwbResponse, mapSamedayService } from "./awbMapper.js";
+import {
+  buildSamedayAwbForm,
+  parseSamedayAwbResponse,
+  mapSamedayService,
+  samedayPackageType,
+  PACKAGE_TYPE_LABELS,
+} from "./awbMapper.js";
+import { resolveSamedayPlace } from "./geolocation.js";
 
 /*
- * Provider Sameday: conectare/testare cont + creare AWB + etichetă +
- * anulare AWB + link public de urmărire. Sincronizarea statusului
- * (tracking prin API) / pickup / lockers vin în etapele următoare;
- * capabilities le marchează false până sunt implementate.
+ * Provider Sameday (doc „API custom documentation” v3.6): conectare/testare
+ * cont + creare AWB (livrare la adresă, ridicare de la terț) + recuperare
+ * după clientInternalReference + etichetă + link public de urmărire.
+ * Sincronizarea statusului (status-sync) / lockere / PUDO / webhook-uri NU
+ * sunt implementate; capabilities le marchează false.
  */
 
-const LABEL_FORMATS = new Set(["A4", "A6"]);
+// doc v3.6, „URL tracking”: https://sameday.ro/#awb=<AWB>
+const SAMEDAY_TRACKING_BASE = "https://sameday.ro/#awb=";
 
-// pagina publică de urmărire Sameday (DE VALIDAT pe demo, vezi checklist)
-const SAMEDAY_TRACKING_BASE = "https://www.sameday.ro/#awb=";
+/*
+ * Punctele de ridicare și serviciile contului „nu se schimbă” (doc v3.6,
+ * recomandă salvarea lor) -> cache în memorie per cont, ca previzualizarea
+ * să nu le ceară la fiecare deschidere. Cheia include contul și mediul.
+ */
+const ACCOUNT_DATA_TTL_MS = 30 * 60 * 1000;
+const accountData = new Map();
+
+async function cachedAccountData(ctx, kind, load) {
+  if (!ctx?.accountId) return load();
+  const key = `${ctx.accountId}|${ctx.publicConfig?.environment || "production"}|${kind}`;
+  const hit = accountData.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.value;
+  const value = await load();
+  accountData.set(key, { value, expiresAt: Date.now() + ACCOUNT_DATA_TTL_MS });
+  return value;
+}
+
+export function _clearSamedayAccountData() {
+  accountData.clear();
+}
+
+function listOf(data) {
+  return Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+}
 // numerele AWB Sameday sunt alfanumerice; orice altceva -> fără link
 const AWB_NUMBER_RE = /^[A-Za-z0-9]{4,40}$/;
 
@@ -35,13 +67,18 @@ export class AwbNotCancellableError extends CourierError {
   }
 }
 
+// GET /api/client/pickup-points: { id, alias, county, city, address, defaultPickupPoint, pickupPointContactPerson: [...] }
 function mapPickupPoint(p) {
+  const contacts = Array.isArray(p?.pickupPointContactPerson) ? p.pickupPointContactPerson : [];
   return {
     id: p?.id ?? null,
     alias: p?.alias || p?.name || null,
-    isDefault: !!(p?.defaultPickupPoint ?? p?.default),
+    isDefault: p?.defaultPickupPoint === true,
     county: p?.county?.name || null,
     city: p?.city?.name || null,
+    // doar id-urile (fără nume / telefoane ale persoanelor de contact)
+    contactPersonIds: contacts.map((c) => c?.id).filter((id) => id != null),
+    defaultContactPersonId: contacts.find((c) => c?.defaultContactPerson === true)?.id ?? null,
   };
 }
 
@@ -114,26 +151,39 @@ export const samedayProvider = {
     await getSamedaySession(ctx, { forceRefresh: true });
 
     const data = await samedayGet(ctx, "/api/client/pickup-points?page=1&countPerPage=50");
-    const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
 
     return {
       ok: true,
       details: {
-        pickupPoints: list.slice(0, 50).map(mapPickupPoint),
+        pickupPoints: listOf(data).slice(0, 50).map(mapPickupPoint),
       },
     };
   },
 
   async listPickupPoints(ctx) {
-    const data = await samedayGet(ctx, "/api/client/pickup-points?page=1&countPerPage=50");
-    const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
-    return list.map(mapPickupPoint).filter((p) => p.id != null);
+    return cachedAccountData(ctx, "pickupPoints", async () => {
+      const data = await samedayGet(ctx, "/api/client/pickup-points?page=1&countPerPage=50");
+      return listOf(data).map(mapPickupPoint).filter((p) => p.id != null);
+    });
   },
 
+  // serviciile ACTIVE ale contului (doc v3.6: GET /api/client/services)
   async listServices(ctx) {
-    const data = await samedayGet(ctx, "/api/client/services?page=1&countPerPage=50");
-    const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
-    return list.map(mapSamedayService).filter((s) => s.id != null);
+    return cachedAccountData(ctx, "services", async () => {
+      const data = await samedayGet(ctx, "/api/client/services?page=1&countPerPage=500");
+      return listOf(data).map(mapSamedayService).filter((s) => s.id != null);
+    });
+  },
+
+  // ID-urile Sameday de județ / localitate, doar la potrivire exactă (altfel null)
+  resolvePlace(ctx, place) {
+    return resolveSamedayPlace(ctx, place);
+  },
+
+  // tipul coletului (packageType) după greutate - aceeași regulă ca la creare
+  describePackage(parcels) {
+    const type = samedayPackageType(parcels);
+    return type == null ? null : { type, label: PACKAGE_TYPE_LABELS[type] };
   },
 
   /**
@@ -153,12 +203,36 @@ export const samedayProvider = {
     return parsed;
   },
 
-  // PDF-ul poate fi descărcat oricând după numărul AWB (fără stocare la noi)
-  async getLabel(ctx, awbNumber, { format = "A6" } = {}) {
-    const fmt = LABEL_FORMATS.has(format) ? format : "A6";
+  /**
+   * Recuperare după clientInternalReference (doc v3.6: GET
+   * /api/client/awb/{clientInternalReference} - „Returns the same response
+   * as AWB creation”), când răspunsul la POST /api/awb nu a ajuns la noi.
+   * @returns {Promise<{awbNumber, parcelNumbers, cost}|null>} null = Sameday
+   *   răspunde 404 (nu există AWB cu referința). Altă eroare -> excepție
+   *   (rezultat tot necunoscut).
+   */
+  async findShipmentByReference(ctx, clientReference) {
+    let body;
+    try {
+      body = await samedayGet(ctx, `/api/client/awb/${encodeURIComponent(String(clientReference))}`);
+    } catch (e) {
+      if (e?.providerStatus === 404) return null;
+      throw e;
+    }
+    const parsed = parseSamedayAwbResponse(body);
+    if (!parsed) throw new CourierUnavailableError("Răspuns neașteptat de la Sameday.");
+    return parsed;
+  },
+
+  /*
+   * PDF-ul etichetei: calea din „pdfLink” al răspunsului de creare (doc v3.6:
+   * https://api.sameday.ro/api/awb/download/<AWB>), cu X-AUTH-TOKEN.
+   * Formatul (A4/A6) nu e descris în documentație -> nu îl trimitem.
+   */
+  async getLabel(ctx, awbNumber) {
     return samedayRequest(ctx, {
       method: "GET",
-      path: `/api/awb/download/${encodeURIComponent(String(awbNumber))}/${fmt}`,
+      path: `/api/awb/download/${encodeURIComponent(String(awbNumber))}`,
       binary: true,
     });
   },

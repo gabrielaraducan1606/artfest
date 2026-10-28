@@ -25,6 +25,7 @@ import ConnectPayoutsTab from "../Onboarding/OnBoardingDetails/tabs/ConnectPayou
 
 import MarketingPreferences from "../../User/MarketingPreferences/MarketingPreferences.jsx";
 import CourierSettings from "./couriers/CourierSettings.jsx";
+import { VENDOR_COURIER_ACCOUNTS_ENABLED } from "../../../config/features.js";
 
 const VANITY_BASE = "www.artfest.ro";
 const FORGOT_PASSWORD_URL = "/reset-parola";
@@ -1210,9 +1211,9 @@ export default function SettingsPage() {
         {!loading && active === "shipping" && (
           <div className={settingsStyles.grid1}>
             <ShippingSettings />
-            {/* Curieri conectați + adrese de ridicare (componentă separată,
-                nu atinge costurile de transport / datele de retur de mai sus) */}
-            <CourierSettings />
+            {/* Curieri conectați + adrese de ridicare: ascunse - curierat
+                centralizat, contul de curier e al Artfest (config/features.js) */}
+            {VENDOR_COURIER_ACCOUNTS_ENABLED && <CourierSettings />}
           </div>
         )}
 

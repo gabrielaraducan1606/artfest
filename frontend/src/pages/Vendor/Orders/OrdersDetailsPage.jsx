@@ -1,6 +1,6 @@
 // frontend/src/pages/vendor/OrderDetailsPage.jsx
 import { useCallback, useEffect, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "../../../lib/api";
 import {
   ArrowLeft,
@@ -18,14 +18,13 @@ import {
 import styles from "./Orders.module.css";
 import VendorReturnRequestsSection from "./VendorReturnRequestsSection.jsx";
 import AwbPanel from "./components/AwbPanel.jsx";
-import { COURIER_AUTOMATION_ENABLED, COURIER_SOON_SHORT } from "../../../config/features.js";
+import { AWB_GENERATION_ENABLED, COURIER_SOON_SHORT } from "../../../config/features.js";
 import { isArtfestLabel } from "./utils/awbPanelLogic.js";
 
-// flux vechi de programare a ridicării (modal "Programează curier"): rămâne indisponibil;
-// AWB-ul automat se generează din secțiunea „Livrare” (AwbPanel), după flag-uri
-const COURIER_ENABLED = false;
-const COURIER_LEGACY_HINT = COURIER_AUTOMATION_ENABLED
-  ? "Generează AWB-ul din secțiunea „Livrare” a comenzii."
+// curierat centralizat: fără programarea ridicării; „Generează AWB” duce la
+// secțiunea „Livrare” (AwbPanel, #awb) cu previzualizarea datelor expedierii
+const AWB_HINT = AWB_GENERATION_ENABLED
+  ? "Verifică datele expedierii și generează AWB-ul"
   : COURIER_SOON_SHORT;
 const INVOICE_ENABLED = false;
 
@@ -505,6 +504,7 @@ const CANCEL_REASONS = [
 export default function OrderDetailsPage() {
   const { id } = useParams();
   const nav = useNavigate();
+  const { hash } = useLocation();
 
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -515,8 +515,17 @@ export default function OrderDetailsPage() {
   const [billingLoading, setBillingLoading] = useState(true);
   const [billingError, setBillingError] = useState("");
 
+  // „Generează AWB” din listă (/vendor/orders/:id#awb): duce la secțiunea „Livrare”
+  const orderLoaded = !!order;
+  useEffect(() => {
+    if (hash !== "#awb" || !orderLoaded) return undefined;
+    const t = setTimeout(() => {
+      document.getElementById("awb")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+    return () => clearTimeout(t);
+  }, [hash, orderLoaded]);
+
   // 🔹 modale
-  const [courierOrder, setCourierOrder] = useState(null);
   const [invoiceOrder, setInvoiceOrder] = useState(null);
   const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
   const [cancelOrder, setCancelOrder] = useState(null);
@@ -755,25 +764,9 @@ const contactPerson =
 
   /* ===== Handlere acțiuni ===== */
 
-  function openCourierModal() {
-    if (
-      waitingForCardPayment
-    ) {
-      alert(
-        "Clientul nu a finalizat încă plata cu cardul."
-      );
-
-      return;
-    }
-
-    if (!COURIER_ENABLED) {
-      return;
-    }
-
-    setCourierOrder({
-      id: order.id,
-      shipmentId: ship.id,
-    });
+  // „Generează AWB”: secțiunea „Livrare” (previzualizare + confirmare)
+  function openAwbSection() {
+    document.getElementById("awb")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function openInvoiceModal() {
@@ -859,26 +852,23 @@ const contactPerson =
             )}
           </button>
 
-          {/* Curier temporar indisponibil */}
-          {(order.status === "preparing" || order.status === "confirmed") && (
+          {/* AWB cu contul Artfest: fără programarea ridicării */}
+          {(order.status === "preparing" || order.status === "confirmed") && !ship.manualShipment && (
             <button
-              className={`${styles.primaryBtn} ${COURIER_ENABLED ? "" : styles.courierUnavailableBtn}`}
+              className={`${styles.primaryBtn} ${AWB_GENERATION_ENABLED ? "" : styles.courierUnavailableBtn}`}
               type="button"
-              onClick={openCourierModal}
-              disabled={
-                !COURIER_ENABLED ||
-                !canProcess
-              }
-              aria-disabled={!COURIER_ENABLED || !canProcess}
+              onClick={openAwbSection}
+              disabled={!AWB_GENERATION_ENABLED || (!ship.awb && !canProcess)}
+              aria-disabled={!AWB_GENERATION_ENABLED || (!ship.awb && !canProcess)}
               title={
-                !COURIER_ENABLED
-                  ? COURIER_LEGACY_HINT
+                ship.awb
+                  ? `AWB ${ship.awb}`
                   : waitingForCardPayment
-                  ? "Clientul trebuie să finalizeze plata înainte să programezi curierul."
-                  : "Programează curier"
+                  ? "Clientul trebuie să finalizeze plata înainte să generezi AWB-ul."
+                  : AWB_HINT
               }
             >
-              <PackageCheck size={16} /> Curier
+              <PackageCheck size={16} /> {ship.awb ? "AWB generat" : "Generează AWB"}
             </button>
           )}
 
@@ -935,7 +925,7 @@ const contactPerson =
 
           {/* AWB & tracking existente (cu integrarea de curier pornită,
               eticheta Artfest și tracking-ul sunt în secțiunea „Curier / Livrare”) */}
-          {ship.labelUrl && !(COURIER_AUTOMATION_ENABLED && isArtfestLabel(ship)) && (
+          {ship.labelUrl && !(AWB_GENERATION_ENABLED && isArtfestLabel(ship)) && (
             <a
               className={styles.secondaryBtn}
               href={`/api/vendor/shipments/${ship.id}/label`}
@@ -945,7 +935,7 @@ const contactPerson =
               <FileDown size={16} /> Etichetă AWB
             </a>
           )}
-          {ship.trackingUrl && !COURIER_AUTOMATION_ENABLED && !ship.manualShipment && (
+          {ship.trackingUrl && !AWB_GENERATION_ENABLED && !ship.manualShipment && (
             <a
               className={styles.linkBtn}
               href={ship.trackingUrl}
@@ -1462,16 +1452,17 @@ const contactPerson =
             <div>{ship.awb || "—"}</div>
           </div>
 
+          {/* curierat centralizat: fără programarea ridicării - rândul apare doar
+              pentru expedierile vechi care au deja o ridicare programată */}
+          {ship.pickupDate && (
           <div className={styles.kv}>
             <span>Ridicare</span>
             <div>
-              {ship.pickupDate
-                ? new Date(ship.pickupDate).toLocaleDateString("ro-RO", {
-                    weekday: "long",
-                    day: "2-digit",
-                    month: "long",
-                  })
-                : "—"}
+              {new Date(ship.pickupDate).toLocaleDateString("ro-RO", {
+                weekday: "long",
+                day: "2-digit",
+                month: "long",
+              })}
               {ship.pickupSlotStart && ship.pickupSlotEnd && (
                 <>
                   {" "}
@@ -1489,6 +1480,7 @@ const contactPerson =
               )}
             </div>
           </div>
+          )}
 
           <div className={styles.kv}>
             <span>Dimensiuni</span>
@@ -1927,16 +1919,6 @@ const contactPerson =
 
       {/* ===== Modale ===== */}
 
-      {courierOrder && COURIER_ENABLED && (
-        <CourierModal
-          order={courierOrder}
-          onClose={() => setCourierOrder(null)}
-          onDone={async () => {
-            await load();
-          }}
-        />
-      )}
-
       {invoiceOrder && INVOICE_ENABLED && (
         <InvoiceModal
           order={invoiceOrder}
@@ -2048,272 +2030,6 @@ const contactPerson =
         </div>
       )}
     </main>
-  );
-}
-
-/* ====== Modal Confirmare & Curier ===== */
-
-function CourierModal({ order, onClose, onDone }) {
-  const [consents, setConsents] = useState({
-    gdprProcessing: true,
-    properPackaging: false,
-    fragile: false,
-    declaredValue: true,
-    returnPolicyAck: true,
-    canCallDriver: true,
-  });
-  const [pickup, setPickup] = useState({
-    day: "today",
-    slot: "14-18",
-  });
-  const [dimensions, setDimensions] = useState({
-    parcels: 1,
-    weightKg: 1,
-    l: 30,
-    w: 20,
-    h: 10,
-  });
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState("");
-
-  // păstrat pentru reactivarea curierilor; nefolosit cât timp butonul e hard-disabled
-  async function _handleSubmit() {
-    setSaving(true);
-    setErr("");
-    try {
-      await api(`/api/vendor/shipments/${order.shipmentId}/schedule-pickup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          consents,
-          pickup,
-          dimensions,
-        }),
-      });
-      await api(`/api/vendor/orders/${order.id}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: "confirmed",
-        }),
-      });
-      onDone?.();
-      onClose?.();
-    } catch (e) {
-      setErr(e?.message || "Eroare necunoscută");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
-      <div className={styles.modal}>
-        <div className={styles.modalHead}>
-          <h3>Confirmare predare & curier</h3>
-          <button
-            className={styles.iconBtn}
-            onClick={onClose}
-            aria-label="Închide"
-          >
-            ×
-          </button>
-        </div>
-
-        <fieldset className={styles.fieldset}>
-          <legend>Acorduri curier</legend>
-          <Check
-            label="Sunt de acord să transmiteți către curier datele clientului și ale expediției (GDPR)."
-            checked={consents.gdprProcessing}
-            onChange={(v) =>
-              setConsents((s) => ({
-                ...s,
-                gdprProcessing: v,
-              }))
-            }
-          />
-          <Check
-            label="Confirm că marfa este ambalată corespunzător conform ghidului curierului."
-            checked={consents.properPackaging}
-            onChange={(v) =>
-              setConsents((s) => ({
-                ...s,
-                properPackaging: v,
-              }))
-            }
-          />
-          <Check
-            label="Conține obiecte fragile (curierul va nota 'fragil')."
-            checked={consents.fragile}
-            onChange={(v) =>
-              setConsents((s) => ({
-                ...s,
-                fragile: v,
-              }))
-            }
-          />
-          <Check
-            label="Accept valoarea declarată și condițiile de răspundere ale curierului."
-            checked={consents.declaredValue}
-            onChange={(v) =>
-              setConsents((s) => ({
-                ...s,
-                declaredValue: v,
-              }))
-            }
-          />
-          <Check
-            label="Accept politica de retur pentru colete nelivrate/refuzate."
-            checked={consents.returnPolicyAck}
-            onChange={(v) =>
-              setConsents((s) => ({
-                ...s,
-                returnPolicyAck: v,
-              }))
-            }
-          />
-          <Check
-            label="Accept ca șoferul să mă contacteze telefonic la preluare."
-            checked={consents.canCallDriver}
-            onChange={(v) =>
-              setConsents((s) => ({
-                ...s,
-                canCallDriver: v,
-              }))
-            }
-          />
-        </fieldset>
-
-        <fieldset className={styles.fieldset}>
-          <legend>Programare curier</legend>
-          <div className={styles.row}>
-            <label className={styles.radio}>
-              <input
-                type="radio"
-                name="day"
-                value="today"
-                checked={pickup.day === "today"}
-                onChange={(e) =>
-                  setPickup((v) => ({
-                    ...v,
-                    day: e.target.value,
-                  }))
-                }
-              />{" "}
-              Azi
-            </label>
-            <label className={styles.radio}>
-              <input
-                type="radio"
-                name="day"
-                value="tomorrow"
-                checked={pickup.day === "tomorrow"}
-                onChange={(e) =>
-                  setPickup((v) => ({
-                    ...v,
-                    day: e.target.value,
-                  }))
-                }
-              />{" "}
-              Mâine
-            </label>
-          </div>
-          <select
-            className={styles.select}
-            value={pickup.slot}
-            onChange={(e) =>
-              setPickup((v) => ({
-                ...v,
-                slot: e.target.value,
-              }))
-            }
-          >
-            <option value="10-14">10:00–14:00</option>
-            <option value="14-18">14:00–18:00</option>
-            <option value="18-21">18:00–21:00</option>
-          </select>
-        </fieldset>
-
-        <fieldset className={styles.fieldset}>
-          <legend>Detalii colet</legend>
-          <div className={styles.grid3}>
-            <label>
-              Număr colete{" "}
-              <input
-                type="number"
-                min={1}
-                value={dimensions.parcels}
-                onChange={(e) =>
-                  setDimensions((v) => ({
-                    ...v,
-                    parcels: +e.target.value,
-                  }))
-                }
-              />
-            </label>
-            <label>
-              Greutate (kg){" "}
-              <input
-                type="number"
-                step="0.1"
-                min={0.1}
-                value={dimensions.weightKg}
-                onChange={(e) =>
-                  setDimensions((v) => ({
-                    ...v,
-                    weightKg: +e.target.value,
-                  }))
-                }
-              />
-            </label>
-            <label>
-              Dimensiuni (cm){" "}
-              <input
-                type="text"
-                value={`${dimensions.l}x${dimensions.w}x${dimensions.h}`}
-                onChange={(e) => {
-                  const [l, w, h] = e.target.value
-                    .split("x")
-                    .map((n) => Number(n) || 0);
-                  setDimensions((v) => ({
-                    ...v,
-                    l,
-                    w,
-                    h,
-                  }));
-                }}
-              />
-            </label>
-          </div>
-        </fieldset>
-
-        {err && <p className={styles.error}>{err}</p>}
-
-        <div className={styles.modalActions}>
-          <button
-            className={styles.secondaryBtn}
-            onClick={onClose}
-            disabled={saving}
-          >
-            Anulează
-          </button>
-          {/* curieri dezactivați temporar (hard-disabled): fără onClick, fără request */}
-          <button
-            type="button"
-            className={`${styles.primaryBtn} ${styles.courierUnavailableBtn}`}
-            disabled={true}
-            aria-disabled="true"
-            title={COURIER_SOON_SHORT}
-          >
-            <PackageCheck size={16} /> Programează curierul
-          </button>
-        </div>
-        <p className={styles.muted}>
-          După programare, vei vedea AWB-ul și mesajul „Un curier ajunge{" "}
-          {pickup.day === "today" ? "azi" : "mâine"} în intervalul selectat”.
-        </p>
-      </div>
-    </div>
   );
 }
 
@@ -3041,18 +2757,5 @@ function CancelOrderModal({ order, onClose, onCancelled }) {
         </p>
       </div>
     </div>
-  );
-}
-
-function Check({ label, checked, onChange }) {
-  return (
-    <label className={styles.check}>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />{" "}
-      {label}
-    </label>
   );
 }
