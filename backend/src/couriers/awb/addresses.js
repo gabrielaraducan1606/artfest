@@ -78,6 +78,10 @@ export function buildRecipient(order) {
   } else if (!isValidRoPhone(recipient.phone)) {
     blockers.push(blocker("recipient_phone_invalid", "Telefonul destinatarului nu este valid.", "recipient.phone"));
   }
+  // emailul destinatarului e obligatoriu la Sameday (PDF v3.6 + Swagger AwbRecipientType)
+  if (!recipient.email) {
+    blockers.push(blocker("recipient_email_missing", "Lipsește emailul destinatarului (obligatoriu pentru AWB).", "recipient.email"));
+  }
   if (!recipient.county) blockers.push(blocker("recipient_county_missing", "Lipsește județul din adresa de livrare.", "recipient.county"));
   if (!recipient.city) blockers.push(blocker("recipient_city_missing", "Lipsește localitatea din adresa de livrare.", "recipient.city"));
   if (!street) {

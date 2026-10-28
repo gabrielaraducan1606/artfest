@@ -272,18 +272,15 @@ function findAwbAccount(db, row, vendorId) {
   });
 }
 
-// serviciul 24H (livrare la adresă) - ID 7 în doc v3.6, „Services”
-export const HOME_DELIVERY_SERVICE_ID = "7";
-
 /*
- * Serviciul de livrare la adresă, ales DOAR dintre serviciile active ale
- * contului (GET /api/client/services): cel configurat (publicConfig.serviceId)
- * sau, implicit, 24H (ID 7 conform documentației). Fără „primul serviciu” /
- * „implicitul contului” - ar putea fi locker / retur.
+ * Serviciul de livrare la adresă: DOAR cel configurat explicit în contul
+ * PLATFORM (publicConfig.serviceId) și DOAR dacă e activ pe cont
+ * (GET /api/client/services). Fără ID implicit în cod, fără „primul serviciu”
+ * / „serviciul implicit al contului” (ar putea fi 3H / locker / retur).
  */
-function pickHomeDeliveryService(services, configuredId) {
-  const wanted = configuredId || HOME_DELIVERY_SERVICE_ID;
-  return services.find((s) => String(s.id) === String(wanted)) || null;
+function pickConfiguredService(services, configuredId) {
+  if (!configuredId) return null;
+  return services.find((s) => String(s.id) === String(configuredId)) || null;
 }
 
 function describeActiveAwb(active, shipment) {
@@ -442,7 +439,7 @@ export async function buildAwbPlan({ vendorId, shipmentId, input = {}, liveMode 
     try {
       const [services, pickupPoints] = await Promise.all([def.listServices(ctx), def.listPickupPoints(ctx)]);
 
-      service = pickHomeDeliveryService(services, config.serviceId);
+      service = pickConfiguredService(services, config.serviceId);
       if (!service) {
         blockers.push(
           blocker(
@@ -452,8 +449,9 @@ export async function buildAwbPlan({ vendorId, shipmentId, input = {}, liveMode 
         );
       }
 
-      // punctul CONTRACTUAL configurat - verificat în contul Sameday, niciodată ghicit
-      pickupPoint = pickupPoints.find((p) => String(p.id) === String(config.pickupPointId)) || null;
+      // punctul CONTRACTUAL configurat - verificat în contul Sameday (și activ), niciodată ghicit
+      pickupPoint =
+        pickupPoints.find((p) => String(p.id) === String(config.pickupPointId) && p.active !== false) || null;
       if (!pickupPoint) {
         blockers.push(blocker("platform_pickup_point_invalid", PLATFORM_SETUP_MESSAGES.platform_pickup_point_invalid));
       } else if (config.contactPersonId) {
@@ -464,6 +462,10 @@ export async function buildAwbPlan({ vendorId, shipmentId, input = {}, liveMode 
             blocker("platform_contact_person_invalid", PLATFORM_SETUP_MESSAGES.platform_contact_person_invalid)
           );
         }
+      } else {
+        // fără persoană configurată: cea implicită a punctului, dacă există; altfel
+        // câmpul lipsește și Sameday alege (PDF: implicită sau oricare)
+        contactPersonId = pickupPoint.defaultContactPersonId ?? null;
       }
     } catch (e) {
       if (e instanceof CourierAuthError) {
@@ -954,6 +956,42 @@ export async function recoverUnknownAwb({ vendorId, userId = null, shipmentId },
       ? "AWB-ul nu apare încă la Sameday. Verifică din nou peste un minut - nu genera alt AWB până atunci."
       : "Nu am putut verifica la Sameday acum. Încearcă din nou peste câteva minute."
   );
+}
+
+/**
+ * Estimarea costului transportului pentru expediere (POST /api/awb/estimate-cost),
+ * cu aceleași date ca la creare (contul Artfest, ridicare de la vendor).
+ * INTERN: pentru previzualizare / admin - nu e expus vendorului și nu e
+ * folosit în checkout (costul e al contractului Artfest). Nu creează nimic.
+ * @returns {Promise<{amount:number, currency:string|null, time:number|null}>}
+ */
+export async function estimateAwbCost({ vendorId, shipmentId, input = {} }, db = defaultDb) {
+  const { preview, internal } = await buildAwbPlan({ vendorId, shipmentId, input, liveMode: "ifNoBlockers" }, db);
+  // existența unui AWB nu împiedică estimarea; celelalte blockere da
+  const blockers = preview.blockers.filter((b) => !["awb_exists", "awb_in_progress", "awb_status_unknown"].includes(b.code));
+  if (blockers.length) throw new AwbBlockedError(blockers, preview);
+
+  const { def, ctx, service, pickupPoint, contactPersonId, pickupParty, parcels, cod, recipient, observation } = internal;
+  if (typeof def?.estimateCost !== "function") {
+    throw new CourierError("estimate_not_supported", "Estimarea costului nu este disponibilă pentru acest curier.", {
+      httpStatus: 409,
+    });
+  }
+  const [recipientPlace, pickupPlace] = await Promise.all([
+    def.resolvePlace ? def.resolvePlace(ctx, recipient) : null,
+    def.resolvePlace ? def.resolvePlace(ctx, pickupParty) : null,
+  ]);
+  return def.estimateCost(ctx, {
+    serviceId: service.id,
+    pickupPointId: pickupPoint.id,
+    contactPersonId,
+    parcels: parcels.list,
+    codAmount: cod.codAmount,
+    declaredValue: 0,
+    recipient: { ...recipient, ...(recipientPlace || {}) },
+    thirdParty: { ...pickupParty, ...(pickupPlace || {}) },
+    observation,
+  });
 }
 
 /* ----- status AWB curent pentru UI ----- */

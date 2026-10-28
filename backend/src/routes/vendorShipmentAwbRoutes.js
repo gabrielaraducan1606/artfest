@@ -149,12 +149,13 @@ router.get("/shipments/:id/label", optionalAuth, async (req, res, next) => {
       const label = await getAwbLabel({
         vendorId: rq.vendorId,
         shipmentId: rq.params.id,
-        format: String(rq.query.format || "A6").toUpperCase(),
+        // A6 implicit; A4 doar intern (?format=A4)
+        format: String(rq.query.format || "A6").toUpperCase() === "A4" ? "A4" : "A6",
       });
       if (!label) return next(); // fără AWB Artfest -> handlerul existent
 
       rs.setHeader("Content-Type", "application/pdf");
-      rs.setHeader("Content-Disposition", `inline; filename="AWB-${label.awbNumber}.pdf"`);
+      rs.setHeader("Content-Disposition", `attachment; filename="AWB-${label.awbNumber}.pdf"`);
       rs.setHeader("Cache-Control", "private, no-store");
       rs.send(label.buffer);
     })(req, res);

@@ -19,6 +19,7 @@ export const PLATFORM_SETUP_CODES = new Set([
   "platform_account_missing",
   "platform_credentials_invalid",
   "platform_pickup_point_missing",
+  "platform_service_missing",
   "platform_pickup_point_invalid",
   "platform_contact_person_invalid",
 ]);

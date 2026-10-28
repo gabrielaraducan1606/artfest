@@ -12,11 +12,12 @@ import {
  * Client HTTP Sameday, PER CONT (CourierAccount) - fără credentiale
  * globale din env (services/samedayClient.js, vechi, NU e folosit de AWB).
  *
- * Conform documentației „API custom documentation” v3.6 (Sameday):
- *   POST /api/authenticate?remember_me=1   headers X-AUTH-USERNAME / X-AUTH-PASSWORD
- *        -> { token, expire_at, expire_at_utc }  (12h; cu remember_me=1, 14 zile)
+ * Conform „API custom documentation” v3.6 (PDF) + Swagger-ul sandbox actual:
+ *   POST /api/authenticate   headers X-AUTH-USERNAME / X-AUTH-PASSWORD (PDF),
+ *        body x-www-form-urlencoded remember_me=true (Swagger; PDF: „remember_me=1”)
+ *        -> { token, expire_at, expire_at_utc }  (12h; cu remember_me, 14 zile)
  *   apoi header X-AUTH-TOKEN pe restul apelurilor.
- *   Limită: 12 autentificări / IP / minut.
+ *   Limită: 12 autentificări / IP / minut (PDF).
  *
  * Token cache: Map per accountId (niciodată global/partajat între conturi),
  * în memoria serverului - tokenul nu ajunge niciodată în frontend / DB /
@@ -122,27 +123,37 @@ async function readJson(res) {
 }
 
 /*
- * Momentul expirării tokenului (ms). expire_at_utc e UTC („YYYY-MM-DD HH:mm”);
- * expire_at e ora locală Sameday, fără fus - folosit doar dacă lipsește
- * varianta UTC, cu plafonul de 12h (durata minimă documentată).
+ * Momentul expirării tokenului (ms), din expire_at_utc. Două forme documentate:
+ * PDF „YYYY-MM-DD HH:mm” (UTC, fără fus) și Swagger ISO „…T…Z”. expire_at
+ * (ora locală Sameday) nu e folosit; fără expire_at_utc valid -> 12h (durata
+ * minimă documentată).
  */
+function parseUtcTimestamp(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return NaN;
+  if (/[zZ]$|[+-]d{2}:?d{2}$/.test(raw)) return Date.parse(raw);
+  return Date.parse(`${raw.replace(" ", "T")}Z`);
+}
+
 export function parseTokenExpiry(data, now = Date.now()) {
-  const utc = data?.expire_at_utc ? Date.parse(`${String(data.expire_at_utc).trim().replace(" ", "T")}Z`) : NaN;
+  const utc = parseUtcTimestamp(data?.expire_at_utc);
   if (Number.isFinite(utc) && utc > now) return Math.min(utc, now + MAX_TOKEN_TTL_MS);
   return now + FALLBACK_TOKEN_TTL_MS;
 }
 
 async function authenticate(credentials, baseUrl) {
-  const res = await httpRequest(`${baseUrl}/api/authenticate?remember_me=1`, {
+  const res = await httpRequest(`${baseUrl}/api/authenticate`, {
     method: "POST",
     headers: {
       Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
       "X-AUTH-USERNAME": credentials.username,
       "X-AUTH-PASSWORD": credentials.password,
     },
+    body: new URLSearchParams({ remember_me: "true" }).toString(),
   });
 
-  // Sameday răspunde cu 400/401/403 la credentiale greșite
+  // credentiale greșite: Swagger documentează 403; acceptăm și 400/401
   if ([400, 401, 403].includes(res.status)) {
     throw new CourierAuthError(SAMEDAY_AUTH_REJECTED_MESSAGE);
   }

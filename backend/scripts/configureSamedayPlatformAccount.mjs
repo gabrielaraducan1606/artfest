@@ -10,7 +10,8 @@
 //   SAMEDAY_API_ENVIRONMENT   production (implicit) | demo
 //   SAMEDAY_PICKUP_POINT_ID   punctul de ridicare CONTRACTUAL Artfest (obligatoriu la --apply)
 //   SAMEDAY_CONTACT_PERSON_ID opțional (persoana de contact a punctului)
-//   SAMEDAY_SERVICE_ID        opțional (implicit: 24H, ID 7 în documentația v3.6)
+//   SAMEDAY_SERVICE_ID        serviciul de livrare la adresă (obligatoriu la --apply; fără ID implicit în cod;
+//                             PDF v3.6: 24H = 7 - verifică-l în lista de la --check)
 //
 // Implicit: doar afișează ce s-ar scrie (fără apeluri externe, fără scriere).
 //   node --env-file=.env scripts/configureSamedayPlatformAccount.mjs
@@ -79,6 +80,9 @@ try {
     }
     if (!publicConfig.pickupPointId) {
       throw new Error("Lipsește SAMEDAY_PICKUP_POINT_ID (punctul de ridicare contractual). Nimic nu a fost scris.");
+    }
+    if (!publicConfig.serviceId) {
+      throw new Error("Lipsește SAMEDAY_SERVICE_ID (serviciul de livrare la adresă, vezi --check). Nimic nu a fost scris.");
     }
     if (!isEncryptionConfigured()) {
       throw new Error("COURIER_CREDENTIALS_KEY nu este configurată. Nimic nu a fost scris.");

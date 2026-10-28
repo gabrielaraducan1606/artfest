@@ -25,7 +25,6 @@ import {
 } from "../../Settings/couriers/courierSettingsLogic.js";
 import {
   AWB_GENERATION_ENABLED,
-  COURIER_AUTOMATION_ENABLED,
   COURIER_SETUP_PENDING_MESSAGE,
   COURIER_MANUAL_SHIPPING_MESSAGE,
 } from "../../../../config/features.js";
@@ -78,8 +77,8 @@ import styles from "./AwbPanel.module.css";
  * înainte de predare - vendorul declară opțional curierul, AWB-ul /
  * tracking-ul și data expedierii; fără CourierAwb, fără apel la curier.
  *
- * Flag: AWB_GENERATION_ENABLED (config/features.js). Anularea AWB rămâne sub
- * COURIER_AUTOMATION_ENABLED (oprit).
+ * Flag: AWB_GENERATION_ENABLED (config/features.js) - generare, etichetă,
+ * anulare (DELETE la Sameday; starea se schimbă doar la confirmarea lui).
  */
 
 async function downloadLabel(shipmentId, awb) {
@@ -149,6 +148,8 @@ function SetupPendingNotice({ message = COURIER_SETUP_PENDING_MESSAGE }) {
 function CreatedView({ shipment, awbStatus, orderStatus, onChanged, reload }) {
   const [downloading, setDownloading] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  // refuzul Sameday (ex. 405 - coletul preluat) rămâne vizibil în secțiune
+  const [cancelError, setCancelError] = useState("");
 
   const s = awbStatus?.shipment || {};
   const awb = s.awb || shipment?.awb;
@@ -157,8 +158,8 @@ function CreatedView({ shipment, awbStatus, orderStatus, onChanged, reload }) {
   const artfestLabel = s.artfestLabel ?? String(shipment?.labelUrl || "").startsWith("/api/vendor/shipments/");
   const provider = s.courierProvider || shipment?.courierProvider;
   const service = s.courierService || shipment?.courierService;
-  // anularea nu face parte din fluxul activat acum (rămâne sub COURIER_AUTOMATION_ENABLED)
-  const canCancel = COURIER_AUTOMATION_ENABLED && canCancelArtfestAwb({ awbStatus, orderStatus });
+  // anulare la Sameday (DELETE /api/awb): serverul decide dacă e permisă (coletul nepredat)
+  const canCancel = AWB_GENERATION_ENABLED && canCancelArtfestAwb({ awbStatus, orderStatus });
 
   const onDownload = async () => {
     if (downloading) return;
@@ -176,17 +177,20 @@ function CreatedView({ shipment, awbStatus, orderStatus, onChanged, reload }) {
   const onCancel = async () => {
     if (cancelling) return;
     const ok = window.confirm(
-      `Anulezi AWB-ul ${awb}? Anularea se face la curier și nu poate fi refăcută; vei putea genera un AWB nou.`
+      `Anulezi AWB-ul ${awb}? Anularea se face la Sameday și nu poate fi refăcută; vei putea genera un AWB nou.`
     );
     if (!ok) return;
     setCancelling(true);
+    setCancelError("");
     try {
       await api(`/api/vendor/shipments/${encodeURIComponent(shipment.id)}/awb/cancel`, { method: "POST" });
       toast.success("AWB-ul a fost anulat.");
       await reload();
       onChanged?.();
     } catch (e) {
-      toast.error(apiErrorMessage(e, "Nu am putut anula AWB-ul."));
+      const message = apiErrorMessage(e, "Nu am putut anula AWB-ul.");
+      setCancelError(message);
+      toast.error(message);
       await reload();
     } finally {
       setCancelling(false);
@@ -245,6 +249,12 @@ function CreatedView({ shipment, awbStatus, orderStatus, onChanged, reload }) {
           </div>
         )}
       </dl>
+
+      {cancelError && (
+        <div className={styles.error} role="alert" data-awb-cancel-error>
+          {cancelError}
+        </div>
+      )}
 
       {!artfestLabel && (
         <span className={styles.muted}>AWB setat manual de echipa Artfest.</span>

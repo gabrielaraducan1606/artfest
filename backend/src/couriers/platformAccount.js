@@ -15,8 +15,9 @@ import { getCourierProvider } from "./registry.js";
  *                    (obligatoriu la POST /api/awb, chiar și cu thirdPartyPickup);
  *                    NU se deduce și NU e adresa vendorului
  *   contactPersonId  opțional (altfel Sameday folosește persoana implicită)
- *   serviceId        opțional - serviciul de livrare la adresă; dacă lipsește,
- *                    serviciul 24H (ID 7 în doc v3.6) dintre serviciile ACTIVE
+ *   serviceId        serviciul de livrare la adresă - OBLIGATORIU, explicit
+ *                    (fără ID implicit în cod); trebuie să fie activ pe cont
+ *                    (GET /api/client/services). PDF v3.6: 24H = ID 7.
  * Credentialele API (nu cele ale portalului / Swagger) stau criptate în
  * credentialsCipher - vezi scripts/configureSamedayPlatformAccount.js.
  */
@@ -31,8 +32,10 @@ export const PLATFORM_SETUP_MESSAGES = Object.freeze({
     "Autentificarea la Sameday cu contul Artfest a eșuat. Echipa Artfest trebuie să actualizeze datele de acces.",
   platform_pickup_point_missing:
     "Punctul de ridicare contractual Sameday al Artfest nu este configurat. AWB-ul nu poate fi generat momentan.",
+  platform_service_missing:
+    "Serviciul Sameday de livrare la adresă nu este configurat pentru contul Artfest. AWB-ul nu poate fi generat momentan.",
   platform_pickup_point_invalid:
-    "Punctul de ridicare Sameday configurat pentru Artfest nu există în contul Sameday. Echipa Artfest trebuie să îl corecteze.",
+    "Punctul de ridicare Sameday configurat pentru Artfest nu există (sau nu e activ) în contul Sameday. Echipa Artfest trebuie să îl corecteze.",
   platform_contact_person_invalid:
     "Persoana de contact Sameday configurată pentru Artfest nu aparține punctului de ridicare. Echipa Artfest trebuie să o corecteze.",
 });
@@ -66,6 +69,7 @@ export function platformSetupIssue(account) {
   if (account.status === "INVALID_CREDENTIALS") return issue("platform_credentials_invalid");
   if (account.status !== "ACTIVE") return issue("platform_account_missing");
   if (!platformConfig(account).pickupPointId) return issue("platform_pickup_point_missing");
+  if (!platformConfig(account).serviceId) return issue("platform_service_missing");
   return null;
 }
 

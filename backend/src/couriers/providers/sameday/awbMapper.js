@@ -2,10 +2,10 @@
 
 /*
  * Mapare între input-ul GENERIC de AWB (couriers/contract.js) și formatul
- * Sameday, conform „API custom documentation” v3.6 (POST /api/awb):
- * body x-www-form-urlencoded cu notație cu paranteze (awbRecipient[name],
- * parcels[0][weight] ...) - aceleași nume de câmpuri ca exemplele JSON din
- * documentație; sandbox-ul Swagger trimite tot parametri de formular.
+ * Sameday (POST /api/awb și POST /api/awb/estimate-cost), conform PDF v3.6 +
+ * Swagger: body application/x-www-form-urlencoded (Swagger), cu notație cu
+ * paranteze (awbRecipient[name], parcels[0][weight] ...) - aceleași nume de
+ * câmpuri ca schemele AwbType / AwbRecipientType / AwbThirdPartyType.
  *
  * Curierat centralizat: AWB-ul e emis pe contractul Artfest (pickupPoint =
  * punctul contractual al Artfest, awbPayment = 1 -> plătește clientul
@@ -72,7 +72,7 @@ function setPlace(f, prefix, place) {
  * @param {import("../../contract.js").CreateShipmentInput} input
  * @returns {URLSearchParams}
  */
-export function buildSamedayAwbForm(input) {
+export function buildSamedayAwbForm(input, { forEstimate = false } = {}) {
   const f = new URLSearchParams();
   const parcels = input.parcels || [];
   // packageWeight = suma exactă a greutăților trimise pe colete (coerență)
@@ -121,7 +121,8 @@ export function buildSamedayAwbForm(input) {
     if (p.heightCm) f.set(`parcels[${i}][height]`, String(p.heightCm));
   });
 
-  f.set("clientInternalReference", input.clientReference);
+  // estimate-cost (schema AwbType2) nu are clientInternalReference
+  if (!forEstimate) f.set("clientInternalReference", input.clientReference);
   setIf(f, "observation", input.observation);
 
   return f;
@@ -150,12 +151,14 @@ export function parseSamedayAwbResponse(body) {
   };
 }
 
-// GET /api/client/services: { id, name, serviceCode, deliveryType, defaultServices, ... }
+// GET /api/client/services: { id, name, serviceCode, deliveryType, defaultService, ... }
+// (Swagger: defaultService; capturile PDF: defaultServices) - informativ, nu decide serviciul
 export function mapSamedayService(s) {
   return {
     id: s?.id ?? null,
     name: s?.name || null,
     code: s?.serviceCode || null,
-    isDefault: s?.defaultServices === true,
+    deliveryType: s?.deliveryType?.name || null,
+    isDefault: (s?.defaultService ?? s?.defaultServices) === true,
   };
 }
