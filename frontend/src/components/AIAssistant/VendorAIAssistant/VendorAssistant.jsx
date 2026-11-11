@@ -1972,9 +1972,8 @@ const [
      */
     keepInAssistant = false,
   } = {}) {
-    // local (flag activ): crearea simplă trece prin Smart Listing
+    // cu VITE_SMART_LISTING_ENABLED=1: crearea simplă trece prin Smart Listing
     if (
-      import.meta.env.DEV &&
       !keepInAssistant &&
       !draftOverrides &&
       !costingLink &&

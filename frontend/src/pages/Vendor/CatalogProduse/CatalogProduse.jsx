@@ -14,7 +14,10 @@ import styles from "./CatalogProduse.module.css";
 import CatalogImports from "./imports/CatalogImports.jsx";
 import { useAuth } from "../../Auth/Context/context.js";
 import {
+  SMART_LISTING_EDIT_ADVANCED_EVENT,
+  isSmartListingEnabled,
   openSmartListing,
+  openSmartListingEdit,
   smartListingAccessFor,
 } from "../../../features/smartListing/smartListingAccess.js";
 /*
@@ -1220,8 +1223,8 @@ async function duplicateProduct(
     return [];
   }
 async function openNewProduct() {
-  // local (flag activ): crearea trece prin Smart Listing; editarea rămâne neschimbată
-  if (import.meta.env.DEV && smartListingAccessFor(me).canSave) {
+  // cu VITE_SMART_LISTING_ENABLED=1: crearea trece prin Smart Listing (altfel wizardul, ca înainte)
+  if (smartListingAccessFor(me).canSave) {
     openSmartListing(
       defaultStoreSlug ||
         (productStores.length === 1 ? productStores[0]?.slug : "") ||
@@ -1302,10 +1305,29 @@ async function openNewProduct() {
   }
 }
 
-  async function openEditProduct(product) {
+  async function openEditProduct(product, options = {}) {
     const id = product?.id || product?._id;
 
     if (!id) {
+      return;
+    }
+
+    /*
+     * cu VITE_SMART_LISTING_ENABLED=1: editarea în Smart Listing. „Editorul avansat”
+     * de acolo revine aici cu `advanced: true` -> VendorProductWizard (mode="edit"),
+     * neschimbat. Fără flag: wizardul, exact ca înainte.
+     */
+    if (!options.advanced && smartListingAccessFor(me).canSave) {
+      openSmartListingEdit({
+        storeSlug:
+          product?.service?.profile?.slug ||
+          product?.store?.slug ||
+          product?.storeSlug ||
+          defaultStoreSlug ||
+          (productStores.length === 1 ? productStores[0]?.slug : "") ||
+          "",
+        productId: id,
+      });
       return;
     }
 
@@ -1338,6 +1360,19 @@ async function openNewProduct() {
       );
     }
   }
+
+  // „Editorul avansat” din editarea Smart Listing -> editorul existent al Catalogului
+  useEffect(() => {
+    if (!isSmartListingEnabled()) return undefined;
+    const onEditAdvanced = (event) => {
+      const productId = event.detail?.productId;
+      if (!productId) return;
+      event.preventDefault();
+      openEditProduct({ id: productId }, { advanced: true });
+    };
+    window.addEventListener(SMART_LISTING_EDIT_ADVANCED_EVENT, onEditAdvanced);
+    return () => window.removeEventListener(SMART_LISTING_EDIT_ADVANCED_EVENT, onEditAdvanced);
+  });
 
   function closeEditProduct() {
     if (savingProduct) {

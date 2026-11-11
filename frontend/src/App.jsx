@@ -1,5 +1,6 @@
 // src/App.jsx
 
+import { isSmartListingEnabled } from "./features/smartListing/smartListingAccess.js";
 import {
   BrowserRouter,
   Routes,
@@ -100,13 +101,14 @@ const VendorOrdersPlanningPage = lazy(() =>
   import("./pages/Vendor/Orders/VendorOrdersPlaningPage.jsx")
 );
 const VendorFairPage = lazy(() => import("./pages/Vendor/Fair/FairPage.jsx"));
-// Smart Listing (creare produse noi) - ruta există DOAR în `vite dev`;
-// accesul efectiv: features/smartListing/smartListingAccess.js
-// condiția statică elimină complet chunk-ul din build-ul de producție
-const SmartListingRoute = import.meta.env.DEV
+// Smart Listing (adăugare + editare produse): activ DOAR cu VITE_SMART_LISTING_ENABLED=1
+// (Vercel / .env); fără flag nu se montează nimic și nici nu se încarcă codul lui.
+// Accesul efectiv (rol): features/smartListing/smartListingAccess.js
+const SMART_LISTING_ENABLED = isSmartListingEnabled();
+const SmartListingRoute = SMART_LISTING_ENABLED
   ? lazy(() => import("./features/smartListing/SmartListingRoute.jsx"))
   : null;
-const SmartListingModal = import.meta.env.DEV
+const SmartListingModal = SMART_LISTING_ENABLED
   ? lazy(() => import("./features/smartListing/SmartListingModal.jsx"))
   : null;
 const FairRulesDraftPage = lazy(() => import("./pages/Vendor/Fair/FairRulesDraftPage.jsx"));
@@ -1056,8 +1058,8 @@ export default function App() {
               }
             />
 
-            {/* Artfest Smart Listing - doar în dezvoltare locală (import.meta.env.DEV e false la build) */}
-            {import.meta.env.DEV && <Route path="/vendor/produs-nou" element={<SmartListingRoute />} />}
+            {/* Artfest Smart Listing - doar cu VITE_SMART_LISTING_ENABLED=1 */}
+            {SMART_LISTING_ENABLED && <Route path="/vendor/produs-nou" element={<SmartListingRoute />} />}
 
             <Route
               path="/vendor/catalog"
@@ -1462,8 +1464,8 @@ export default function App() {
         </Routes>
         </Suspense>
 
-        {/* Smart Listing: fereastra deschisă de „Adaugă produs” - doar în dezvoltare locală */}
-        {import.meta.env.DEV && (
+        {/* Smart Listing: fereastra deschisă de „Adaugă produs” / „Editează” - doar cu flagul activ */}
+        {SMART_LISTING_ENABLED && (
           <Suspense fallback={null}>
             <SmartListingModal />
           </Suspense>

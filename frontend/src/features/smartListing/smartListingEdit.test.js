@@ -321,5 +321,10 @@ test("editorul salvează prin PUT /api/vendors/products/:id (nu prin creare) și
   assert.ok(page.indexOf("changedSinceLoaded(") < page.indexOf('method: "PUT"'), "verificarea modificărilor simultane e înainte de scriere");
   assert.ok(page.indexOf("saveLockRef.current = true") < page.indexOf('method: "PUT"'), "un singur PUT la dublu-click");
   const profil = readFileSync(new URL("../../pages/Vendor/ProfilMagazin/ProfilMagazin.jsx", import.meta.url), "utf8");
-  assert.match(profil, /import\.meta\.env\.DEV && !options\.advanced && smartListingAccessFor\(me\)\.canSave/, "doar local + flag; producția rămâne pe ProductModal");
+  // doar flagul VITE_SMART_LISTING_ENABLED (prin smartListingAccessFor) decide; „Editorul avansat” = ProductModal
+  assert.match(profil, /!options\.advanced && smartListingAccessFor\(me\)\.canSave/);
+  assert.match(profil, /openEditProduct\(\{ id: event\.detail\.productId \}, \{ advanced: true \}\)/);
+  const catalog = readFileSync(new URL("../../pages/Vendor/CatalogProduse/CatalogProduse.jsx", import.meta.url), "utf8");
+  assert.match(catalog, /!options\.advanced && smartListingAccessFor\(me\)\.canSave/, "Catalog: editare prin Smart Listing doar cu flag");
+  assert.match(catalog, /openEditProduct\(\{ id: productId \}, \{ advanced: true \}\)/, "Catalog: editorul avansat rămâne VendorProductWizard");
 });

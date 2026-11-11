@@ -65,6 +65,7 @@ import { newHelpRequestKey } from "../../utils/gpsrAddressHelp.js";
 import GpsrAddressChoice from "../../components/GpsrAddressChoice.jsx";
 import GpsrInfoPanel from "../../components/GpsrInfoPanel.jsx";
 import GpsrConfirmation from "../../components/GpsrConfirmation.jsx";
+import { useSamedayShipping } from "../../utils/useSamedayShipping.js";
 import {
   GPSR_CHILDREN_HINT,
   GPSR_CHILDREN_QUESTION,
@@ -769,16 +770,23 @@ export default function SmartListingPage({
     [selectedProducer]
   );
 
+  /*
+   * Livrarea Sameday activă la checkout -> greutatea coletului e obligatorie la
+   * produsele NOI (aceeași regulă ca ProductModal și ca serverul). Smart Listing nu
+   * are câmpul: blocajul trimite spre Editorul avansat, cu ce s-a completat aici.
+   */
+  const samedayShipping = useSamedayShipping();
   const check = useMemo(
     () =>
       checkProductForPublish(draft.form, {
         knownCategories: CATEGORIES_DETAILED.map((item) => item.key),
         vendorGpsr,
         isNewProduct: true,
-        samedayShipping: false,
+        samedayShipping,
       }),
-    [draft.form, vendorGpsr]
+    [draft.form, vendorGpsr, samedayShipping]
   );
+  const needsShippingWeight = check.errors.some((item) => item.code === "SHIPPING_WEIGHT_REQUIRED");
 
   const pendingConfirmations = useMemo(
     () =>
@@ -841,6 +849,8 @@ export default function SmartListingPage({
   }, [gate.blockers]);
 
   const resolveBlocker = (blocker) => {
+    // greutatea coletului se completează în Editorul avansat (ciorna se transferă)
+    if (blocker.code === "SHIPPING_WEIGHT_REQUIRED") return openAdvancedEditor();
     if (blocker.code === "AI_UNCONFIRMED" || blocker.code === "AI_CONFLICT") return goTo("details");
     if (blocker.code === "PRODUCER_PROFILE" && selectedProducer) {
       return setProducerEditor({ profile: selectedProducer, isNew: false });
@@ -951,6 +961,11 @@ export default function SmartListingPage({
     // Editorul avansat salvează datele centrale odată cu produsul (regula lui existentă)
     if (gpsrWillChange && !gpsrConfirmed) {
       setAdvancedGpsrNotice(true);
+      // fără mesaj, butonul ar părea că nu face nimic
+      setSaveError({
+        code: "gpsr_central_confirm",
+        message: "Bifează confirmarea GPSR (datele tale de producător se actualizează), apoi continuă în Editorul avansat.",
+      });
       return;
     }
     goToAdvancedEditor();
@@ -1391,13 +1406,26 @@ export default function SmartListingPage({
             canSave={access.canSave && !declaration.blocked}
             saveError={saveError}
             beforePublish={
-              // „Adaugă în colecții” (opțional): card propriu, chiar înaintea butonului de publicare
-              <SmartListingCollections
-                api={api}
-                enabled={!isPreview && access.canSave && Boolean(storeSlug)}
-                selectedIds={collectionIds}
-                onChange={setCollectionIds}
-              />
+              <>
+                {needsShippingWeight && (
+                  <div className={styles.notice} role="status" data-testid="sl-shipping-weight-advanced">
+                    <p className={styles.noticeP}>
+                      Livrarea prin Sameday cere greutatea coletului (produsul ambalat). O completezi în Editorul avansat; ce ai
+                      completat aici se transferă acolo.
+                    </p>
+                    <button type="button" className={styles.secondaryBtn} onClick={openAdvancedEditor} disabled={advancedDisabled}>
+                      Completează greutatea în Editorul avansat
+                    </button>
+                  </div>
+                )}
+                {/* „Adaugă în colecții” (opțional): card propriu, chiar înaintea butonului de publicare */}
+                <SmartListingCollections
+                  api={api}
+                  enabled={!isPreview && access.canSave && Boolean(storeSlug)}
+                  selectedIds={collectionIds}
+                  onChange={setCollectionIds}
+                />
+              </>
             }
           >
             <ProducerSection

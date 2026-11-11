@@ -27,12 +27,13 @@ import {
 } from "../../../components/AIAssistant/quotes/quoteRequestIntentEvent.js";
 import { CONTACT_FIX_APPLY_EVENT } from "../../../components/AIAssistant/contactInfo/contactInfoFixFlow.js";
 import { COLLECTIONS_HUB_URL } from "../CatalogProduse/VendorCollections/collectionsHubLinks.js";
-// Smart Listing: doar `vite dev` + flag (smartListingAccess.js); altfel nimic nu se schimbă
+// Smart Listing: doar cu VITE_SMART_LISTING_ENABLED=1 (smartListingAccess.js); altfel nimic nu se schimbă
 import {
   SMART_LISTING_ADVANCED_EVENT,
   SMART_LISTING_EDIT_ADVANCED_EVENT,
   openSmartListing,
   openSmartListingEdit,
+  isSmartListingEnabled,
   smartListingAccessFor,
 } from "../../../features/smartListing/smartListingAccess.js";
 import { showContactInfoFix } from "../../../components/AIAssistant/contactInfo/contactInfoFixToast.jsx";
@@ -767,8 +768,8 @@ const [gateState, setGateState] = useState({
       openNewProduct();
       return;
     }
-    // `import.meta.env.DEV` e false la build -> ramura dispare din producție
-    if (import.meta.env.DEV && smartListingAccessFor(me).canSave && storeSlug) {
+    // doar cu VITE_SMART_LISTING_ENABLED=1 (altfel ProductModal, ca înainte)
+    if (smartListingAccessFor(me).canSave && storeSlug) {
       openSmartListing(storeSlug);
       return;
     }
@@ -787,7 +788,7 @@ const [gateState, setGateState] = useState({
 
   useEffect(() => {
     // doar local (Smart Listing e doar în `vite dev`) - în producție nimic nu se schimbă
-    if (!import.meta.env.DEV) return;
+    if (!isSmartListingEnabled()) return;
     if (searchParams.get("editorAvansat") !== "1" || !isOwner || !storeSlug) return;
     if (advancedEditorOpenedRef.current) return;
     advancedEditorOpenedRef.current = true;
@@ -802,7 +803,7 @@ const [gateState, setGateState] = useState({
 
   // „Continuă în Editorul avansat” din modal, chiar pe pagina acestui magazin: fără navigare
   useEffect(() => {
-    if (!import.meta.env.DEV) return undefined;
+    if (!isSmartListingEnabled()) return undefined;
     const onAdvanced = (event) => {
       if (event.detail?.storeSlug !== storeSlug || !isOwner) return;
       event.preventDefault();
@@ -815,7 +816,7 @@ const [gateState, setGateState] = useState({
 
   // editare în Smart Listing -> „Editorul avansat”: ProductModal-ul existent, pentru același produs
   useEffect(() => {
-    if (!import.meta.env.DEV) return undefined;
+    if (!isSmartListingEnabled()) return undefined;
     const onEditAdvanced = (event) => {
       if (event.detail?.storeSlug !== storeSlug || !isOwner || !event.detail?.productId) return;
       event.preventDefault();
@@ -924,8 +925,8 @@ async function handleAcceptGate() {
     if (!id) return;
 
     // local (`vite dev` + flag): editarea în Smart Listing; „Editorul avansat” revine aici
-    // cu `advanced: true`. `import.meta.env.DEV` e false la build -> în producție, ProductModal.
-    if (import.meta.env.DEV && !options.advanced && smartListingAccessFor(me).canSave && storeSlug) {
+    // cu `advanced: true`. Fără VITE_SMART_LISTING_ENABLED=1 -> ProductModal, ca înainte.
+    if (!options.advanced && smartListingAccessFor(me).canSave && storeSlug) {
       openSmartListingEdit({ storeSlug, productId: id });
       return;
     }
