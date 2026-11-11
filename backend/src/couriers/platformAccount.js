@@ -1,6 +1,7 @@
 // backend/src/couriers/platformAccount.js
 
 import { getCourierProvider } from "./registry.js";
+import { activeSamedayEnvironment, explicitEnvironment, samedayEnvironmentIssue } from "./samedayEnvironment.js";
 
 /*
  * Curierat CENTRALIZAT: contractul de curier aparține Artfest -
@@ -10,7 +11,9 @@ import { getCourierProvider } from "./registry.js";
  * adresa lui de ridicare (Sameday: thirdPartyPickup = 1).
  *
  * Configurația contului (publicConfig, nimic secret):
- *   environment      "production" | "demo"
+ *   environment      "production" | "demo" - OBLIGATORIU, explicit, NESCHIMBAT după
+ *                    creare; contul e folosit doar când e egal cu
+ *                    SAMEDAY_ACTIVE_ENVIRONMENT (un cont separat per mediu)
  *   pickupPointId    punctul de ridicare CONTRACTUAL Sameday al Artfest
  *                    (obligatoriu la POST /api/awb, chiar și cu thirdPartyPickup);
  *                    NU se deduce și NU e adresa vendorului
@@ -28,6 +31,8 @@ export const COURIER_SETUP_PENDING_MESSAGE =
 export const PLATFORM_SETUP_MESSAGES = Object.freeze({
   platform_account_missing:
     "Contul Sameday al Artfest nu este configurat încă (lipsesc datele de acces API). AWB-ul nu poate fi generat momentan.",
+  platform_environment_missing:
+    "Mediul Sameday (demo / production) al contului Artfest nu este configurat sau nu este permis pe acest server. AWB-ul nu poate fi generat momentan.",
   platform_credentials_invalid:
     "Autentificarea la Sameday cu contul Artfest a eșuat. Echipa Artfest trebuie să actualizeze datele de acces.",
   platform_pickup_point_missing:
@@ -52,7 +57,8 @@ function configValue(publicConfig, key) {
 export function platformConfig(account) {
   const cfg = account?.publicConfig || {};
   return {
-    environment: configValue(cfg, "environment") || "production",
+    // EXPLICIT sau null - niciodată „production” implicit (couriers/samedayEnvironment.js)
+    environment: explicitEnvironment(configValue(cfg, "environment")),
     pickupPointId: configValue(cfg, "pickupPointId"),
     contactPersonId: configValue(cfg, "contactPersonId"),
     serviceId: configValue(cfg, "serviceId"),
@@ -63,9 +69,14 @@ export function platformConfig(account) {
  * Problema de configurare a contului Artfest, înainte de orice apel extern.
  * @returns {{code:string, message:string}|null}
  */
-export function platformSetupIssue(account) {
+export function platformSetupIssue(account, env = process.env) {
   const issue = (code) => ({ code, message: PLATFORM_SETUP_MESSAGES[code] });
+  // mediul activ lipsă: niciun cont nu poate fi folosit (nicio cerere la Sameday)
+  if (!activeSamedayEnvironment(env)) return issue("platform_environment_missing");
   if (!account) return issue("platform_account_missing");
+  if (account.provider === "SAMEDAY" && samedayEnvironmentIssue(platformConfig(account).environment, env)) {
+    return issue("platform_environment_missing");
+  }
   if (account.status === "INVALID_CREDENTIALS") return issue("platform_credentials_invalid");
   if (account.status !== "ACTIVE") return issue("platform_account_missing");
   if (!platformConfig(account).pickupPointId) return issue("platform_pickup_point_missing");
@@ -78,7 +89,9 @@ export function platformSetupIssue(account) {
  * provider care poate crea AWB-uri. Preferă contul implicit ACTIVE.
  * @returns {Promise<Object|null>}
  */
-export async function findPlatformCourierAccount(db) {
+export async function findPlatformCourierAccount(db, env = process.env) {
+  // fără SAMEDAY_ACTIVE_ENVIRONMENT: niciun cont (fail closed, fără citire din DB)
+  if (!activeSamedayEnvironment(env)) return null;
   const rows = await db.courierAccount.findMany({
     where: { ownerType: "PLATFORM", vendorId: null, disabledAt: null },
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
@@ -86,10 +99,13 @@ export async function findPlatformCourierAccount(db) {
 
   const capable = rows.filter((a) => {
     try {
-      return !!getCourierProvider(a.provider).capabilities?.createShipment;
+      if (!getCourierProvider(a.provider).capabilities?.createShipment) return false;
     } catch {
       return false;
     }
+    // Sameday: DOAR contul cu mediul explicit = mediul activ și permis pe acest server
+    // (contul DEMO și cel production sunt complet separate; „isDefault” contează în mediul lui)
+    return a.provider !== "SAMEDAY" || !samedayEnvironmentIssue(platformConfig(a).environment, env);
   });
 
   return (

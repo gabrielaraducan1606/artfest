@@ -7,8 +7,64 @@ import {
 } from "./depositGuards.js";
 import {
   assertOrderCardPaymentAllowed,
+  CardPaymentUnavailableError,
   isVendorStripeReady,
 } from "./vendorStripeStatus.js";
+import {
+  CARD_PAYMENT_RETRY_CUTOFF_MS,
+  cardPaymentDeadline,
+  closeOrderPaymentSessions,
+  sessionExpiresAt,
+} from "../services/cardPaymentExpiry.js";
+import { getOrderPaymentBlockReason } from "../services/orderPaymentGuards.js";
+
+// refuzuri de plată noi: același tip de eroare pe care îl tratează deja toți apelanții
+function paymentRefused(code, message) {
+  const error = new CardPaymentUnavailableError(code, message);
+  error.status = 409;
+  return error;
+}
+
+/*
+ * Regula de expirare CARD (services/cardPaymentExpiry.js), doar când e
+ * activă pentru comandă: după termen - și în ultimele
+ * CARD_PAYMENT_RETRY_CUTOFF_MS dinaintea lui, când orice sesiune nouă ar
+ * trăi (minimul Stripe de 30 min) după termen - nu se mai creează sesiuni;
+ * înainte de o sesiune nouă se închid toate sesiunile anterioare ale
+ * comenzii, fără să atingem o plată reușită sau în curs.
+ * @returns termenul comenzii (Date) sau null dacă regula nu se aplică
+ */
+async function prepareCardPaymentWindow(order, now) {
+  const deadline = cardPaymentDeadline(order);
+  if (!deadline) return null;
+
+  if (now >= deadline) {
+    throw paymentRefused(
+      "card_payment_expired",
+      "Termenul de plată pentru această comandă a expirat. Te rugăm să plasezi o comandă nouă."
+    );
+  }
+
+  if (deadline.getTime() - now.getTime() < CARD_PAYMENT_RETRY_CUTOFF_MS) {
+    throw paymentRefused(
+      "card_payment_window_closing",
+      "Comanda expiră în mai puțin de 30 de minute, așa că nu mai putem deschide o plată nouă. Te rugăm să plasezi o comandă nouă."
+    );
+  }
+
+  const previous = await closeOrderPaymentSessions({ order, stripe });
+  if (previous.state === "paid") {
+    throw paymentRefused("order_already_paid", "Această comandă este deja plătită.");
+  }
+  if (previous.state !== "closed") {
+    throw paymentRefused(
+      "card_payment_in_progress",
+      "O plată pentru această comandă este încă în curs de procesare. Te rugăm să verifici comanda peste câteva minute."
+    );
+  }
+
+  return deadline;
+}
 
 function getAppUrl() {
   return (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
@@ -121,6 +177,25 @@ export async function createPaymentForOrder(
         )
       : "token";
 
+  /*
+   * O comandă cu o livrare deja anulată nu mai poate fi plătită valid
+   * (webhook-ul ar rambursa plata - getOrderPaymentBlockReason): nu mai
+   * deschidem o plată.
+   */
+  const shipmentStates = await prisma.shipment.findMany({
+    where: { orderId: order.id },
+    select: { status: true, direction: true },
+  });
+  if (getOrderPaymentBlockReason({ order: { status: order.status, shipments: shipmentStates } })) {
+    throw paymentRefused(
+      "order_not_payable",
+      "Această comandă nu mai poate fi achitată în starea actuală."
+    );
+  }
+
+  const now = new Date();
+  const deadline = await prepareCardPaymentWindow(order, now);
+
   let successUrl;
   let cancelUrl;
 
@@ -222,6 +297,14 @@ if (isGuestOrder)  {
       cancel_url:
         cancelUrl,
 
+      // regula de expirare activă: sesiunea nu trăiește necontrolat după termenul comenzii
+      ...(deadline
+        ? {
+            expires_at:
+              sessionExpiresAt(deadline, now),
+          }
+        : {}),
+
       metadata: {
         kind:
           "order_payment",
@@ -270,10 +353,19 @@ if (isGuestOrder)  {
       },
     });
 
-  await prisma.order.update({
+  /*
+   * Salvare CONDIȚIONATĂ: doar dacă comanda e încă neplătită și activă.
+   * Dacă între timp a fost anulată / expirată / plătită, sesiunea abia
+   * creată se expiră imediat și plata e refuzată.
+   */
+  const saved = await prisma.order.updateMany({
     where: {
       id:
         order.id,
+      status:
+        "PENDING",
+      paidAt:
+        null,
     },
 
     data: {
@@ -281,6 +373,22 @@ if (isGuestOrder)  {
         session.id,
     },
   });
+
+  if (saved.count !== 1) {
+    try {
+      await stripe.checkout.sessions.expire(session.id);
+    } catch (error) {
+      console.warn(
+        "[payments] expire session after order change failed:",
+        session.id,
+        error?.message || error
+      );
+    }
+    throw paymentRefused(
+      "order_not_payable",
+      "Această comandă nu mai poate fi achitată în starea actuală."
+    );
+  }
 
   return {
     provider:

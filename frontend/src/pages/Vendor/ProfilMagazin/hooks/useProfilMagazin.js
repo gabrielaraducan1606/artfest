@@ -10,7 +10,7 @@ import {
 
 import { api } from "../../../../lib/api.js";
 import { additionalCategoriesPayload } from "../../../../utils/additionalCategories.js";
-import { mergeOwnerContactFields } from "../utils/ownerStoreContact.js";
+import { changedOwnerContactFields, mergeOwnerContactFields } from "../utils/ownerStoreContact.js";
 
 /* ================= Fallback categorii ================= */
 
@@ -576,6 +576,11 @@ export default function useProfilMagazin(slug, opts = {}) {
         return;
       }
 
+      // nimic schimbat -> fără request
+      if (!patch || !Object.keys(patch).length) {
+        return;
+      }
+
       setSavingInfo(true);
       setInfoErr("");
 
@@ -649,11 +654,9 @@ export default function useProfilMagazin(slug, opts = {}) {
 
   const debouncedAutoSave = useDebouncedCallback(
     (draft) => {
-      saveProfilePart({
-        address: draft.address,
-        phone: draft.phone,
-        email: draft.email,
-      });
+      // doar câmpurile schimbate - nu ștergem adresa de retur dacă nu a
+      // fost încărcată (vezi changedOwnerContactFields)
+      saveProfilePart(changedOwnerContactFields(draft, sellerData));
     },
     600
   );
@@ -1281,14 +1284,10 @@ if (owner) {
   const saveInfoNow = useCallback(async () => {
     const currentDraft = infoDraft;
 
-    await saveProfilePart({
-      address: currentDraft.address,
-      phone: currentDraft.phone,
-      email: currentDraft.email,
-    });
+    await saveProfilePart(changedOwnerContactFields(currentDraft, sellerData));
 
     setEditInfo(false);
-  }, [infoDraft, saveProfilePart]);
+  }, [infoDraft, saveProfilePart, sellerData]);
 
   const openNewProduct = () => {
     if (!isOwner) {

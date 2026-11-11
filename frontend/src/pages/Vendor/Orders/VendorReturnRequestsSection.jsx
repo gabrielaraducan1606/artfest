@@ -8,13 +8,21 @@
  * sunt EXCLUSIV cele din allowedActions - nicio regulă nouă în frontend.
  * Conversația cu clientul rămâne cea a comenzii (Mesaje). Nicio acțiune de
  * aici nu face refund - rambursarea se procesează separat (admin / COD).
+ *
+ * Transport retur (ReturnLogisticsPanel, doar afișare): metoda, progresul,
+ * AWB-ul și urmărirea. AWB-ul de retur e al Artfest (generat / recuperat /
+ * anulat DOAR din Admin) - vânzătorul nu are acțiuni asupra lui. Cu AWB activ
+ * serverul scoate „Respinge” din allowedActions (transportul nu se anulează implicit).
  */
 
+import EasyboxLogisticsNote from "../../../components/Courier/EasyboxLogisticsNote.jsx";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "../../../lib/api";
 import { ReturnBadge, ReturnItems, ReturnPhotos } from "../../../components/Returns/ReturnParts.jsx";
+import ReturnLogisticsPanel from "../../../components/Returns/ReturnLogisticsPanel.jsx";
+import { COST_BEARER_LABELS } from "../../../components/Returns/returnLogistics.js";
 import {
   REASON_KIND_LABELS,
   formatReturnDate,
@@ -112,9 +120,17 @@ function ReturnCard({ orderId, rr, onChanged }) {
           <span className={styles.factLabel}>Status</span>
           {rr.statusLabel}
         </div>
+        {rr.costBearer && (
+          <div className={styles.fact}>
+            <span className={styles.factLabel}>Transportul retur îl suportă</span>
+            {COST_BEARER_LABELS[rr.costBearer] || rr.costBearer}
+          </div>
+        )}
       </div>
 
       <ReturnItems items={rr.items} />
+
+      <ReturnLogisticsPanel rr={rr} audience="vendor" />
 
       {rr.notesUser && (
         <div className={`${styles.message} ${styles.messageClient}`}>
@@ -210,6 +226,8 @@ export default function VendorReturnRequestsSection({ order, onChanged }) {
         <h3 className={styles.sectionTitle}>Cereri de retur</h3>
         <span className={styles.count}>{list.length}</span>
       </div>
+
+      <EasyboxLogisticsNote />
 
       {list.map((rr) => (
         <ReturnCard key={rr.id} orderId={order.id} rr={rr} onChanged={onChanged} />

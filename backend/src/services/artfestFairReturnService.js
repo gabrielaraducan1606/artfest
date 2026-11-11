@@ -734,7 +734,7 @@ async function restoreOnline(tx, item, qty, { actorUserId, now, returnId }) {
     const res = product
       ? await tx.product.updateMany({
           // aceeași regulă ca stockRestore: doar produse încă urmărite pe stoc
-          where: { id: product.id, readyQty: { not: null }, availability: { in: ["READY", "SOLD_OUT"] } },
+          where: { id: product.id, readyQty: { not: null }, availability: { in: ["READY", "SOLD_OUT"] }, stockScope: { not: "VARIANT" } },
           data: { readyQty: { increment: qty }, availability: "READY" },
         })
       : { count: 0 };
@@ -766,7 +766,7 @@ async function restoreOnline(tx, item, qty, { actorUserId, now, returnId }) {
     // sigur doar dacă produsul e încă exact în starea impusă de Artfest
     const res = product
       ? await tx.product.updateMany({
-          where: { id: product.id, availability: "SOLD_OUT", readyQty: forcedReadyQty },
+          where: { id: product.id, availability: "SOLD_OUT", readyQty: forcedReadyQty, stockScope: { not: "VARIANT" } },
           data: { availability: nextAvailability, readyQty: nextReadyQty },
         })
       : { count: 0 };

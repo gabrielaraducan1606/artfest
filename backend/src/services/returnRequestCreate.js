@@ -25,6 +25,11 @@ import {
   returnReasonLabel,
   vendorNewReturnNotificationBody,
 } from "./returnRequestRules.js";
+import {
+  ReturnFlowError as ReturnShipmentFlowError,
+  prepareReturnMethodForCreate,
+  returnAddressCatalog,
+} from "./returnShipmentService.js";
 
 export const RETURN_WINDOW_DAYS = 14;
 
@@ -56,6 +61,11 @@ export const ReturnPayload = z.object({
   resolutionWanted: z.enum(["REFUND", "EXCHANGE", "VOUCHER"]).nullish(),
   notesUser: z.string().trim().max(2000).nullish(),
   photos: z.array(z.string().trim().url().max(2000)).max(6).default([]),
+  // Retur Sameday: metoda aleasă de client (opțională; modificabilă până la AWB).
+  // EASYBOX e refuzat explicit de serviciu (neimplementat încă).
+  returnMethod: z.enum(["HOME_PICKUP", "EASYBOX", "CUSTOMER_SELF"]).nullish(),
+  // adresa de ridicare pentru HOME_PICKUP - validată în nomenclatorul Sameday pe server
+  pickupAddress: z.object({}).passthrough().nullish(),
   policyAck: z
     .object({
       accepted: z.literal(true),
@@ -209,7 +219,15 @@ async function sendClientConfirmation({ db, order, userId, items, link }) {
  * clientLink: unde își urmărește clientul cererea (pagina comenzii sau
  *             pagina guest securizată).
  */
-export async function createReturnRequest({ db = defaultPrisma, order, userId = null, input, clientLink = null }) {
+export async function createReturnRequest({
+  db = defaultPrisma,
+  order,
+  userId = null,
+  input,
+  clientLink = null,
+  // nomenclatorul pentru adresa de ridicare (testele îl injectează); implicit cel din checkout
+  loadReturnCatalog = () => returnAddressCatalog(db),
+}) {
   const reason = RETURN_REASONS[input.reasonCode];
 
   if (reason.textRequired && !String(input.reasonText || "").trim()) {
@@ -335,8 +353,17 @@ export async function createReturnRequest({ db = defaultPrisma, order, userId = 
     }
   }
 
+  // metoda + adresa confirmată (validată în nomenclator) - DUPĂ celelalte reguli
+  const method = await prepareReturnMethodForCreate({
+    returnMethod: input.returnMethod ?? null,
+    pickupAddress: input.pickupAddress ?? null,
+    catalog: input.returnMethod === "HOME_PICKUP" ? await loadReturnCatalog() : null,
+  });
+
   const created = await db.returnRequest.create({
     data: {
+      ...(method.returnMethod ? { returnMethod: method.returnMethod } : {}),
+      ...(method.pickupAddress ? { pickupAddress: method.pickupAddress } : {}),
       userId,
       orderId: order.id,
       originalShipmentId: shipment.id,
@@ -361,7 +388,7 @@ export async function createReturnRequest({ db = defaultPrisma, order, userId = 
         }),
       },
     },
-    select: { id: true, status: true, createdAt: true },
+    select: { id: true, status: true, createdAt: true, returnMethod: true },
   });
 
   const emailItems = [...requestedByItem].map(([itemId, qty]) => ({
@@ -421,6 +448,7 @@ export async function createReturnRequest({ db = defaultPrisma, order, userId = 
     status: created.status,
     createdAt: created.createdAt,
     reasonKind: reason.kind,
+    returnMethod: created.returnMethod || null,
     ...(personalizationReview ? { review: PERSONALIZATION.UNCLEAR } : {}),
   };
 }
@@ -433,6 +461,15 @@ export function clientReturnLink({ orderId, guest = false }) {
 export function sendCreateError(res, error, where) {
   if (error instanceof ReturnCreateError) {
     return res.status(error.status).json({ ok: false, error: error.code, message: error.message, ...error.extra });
+  }
+  // metoda / adresa de ridicare invalidă (returnShipmentService) - cod + mesaj fix
+  if (error instanceof ReturnShipmentFlowError) {
+    return res.status(error.status || 400).json({
+      ok: false,
+      error: error.code,
+      message: error.message,
+      ...(error.extra?.fields ? { fields: error.extra.fields } : {}),
+    });
   }
 
   console.error(`${where} FAILED:`, error);

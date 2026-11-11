@@ -56,7 +56,8 @@ function makeFakeDb() {
       orders.set(order.id, order);
     },
     __seedShipment(shipment) {
-      shipments.set(shipment.id, shipment);
+      // valoarea implicită din schema Prisma (Shipment.direction @default(OUTBOUND))
+      shipments.set(shipment.id, { direction: "OUTBOUND", ...shipment });
     },
     __seedVendor(vendor) {
       vendors.set(vendor.id, vendor);
@@ -91,6 +92,9 @@ function makeFakeDb() {
         return { ...order };
       },
     },
+
+    // AWB-uri active prin integrare (activeAwbGuard): niciunul în aceste scenarii
+    courierAwb: { findFirst: async () => null },
 
     shipment: {
       findUnique: async ({ where: { id }, select }) => {

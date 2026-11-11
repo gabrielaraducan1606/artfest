@@ -1,0 +1,356 @@
+/* Transport retur (client / guest / vânzător / Admin) - doar tokenurile
+   globale din styles/variables.css (dark mode automat), ca Returns.module.css. */
+
+.panel {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  background: var(--surface);
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.panelTitle {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.methodTag {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+/* ---------- pași ---------- */
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.step {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.step + .step::before {
+  content: "";
+  position: absolute;
+  top: 11px;
+  right: calc(50% + 14px);
+  width: calc(100% - 28px);
+  height: 2px;
+  background: var(--color-border);
+}
+
+.step_done + .step::before {
+  background: var(--color-success);
+}
+
+.stepDot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  border: 2px solid var(--color-border);
+  background: var(--surface);
+  color: #fff;
+}
+
+.step_done .stepDot {
+  background: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.step_current .stepDot {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.step_current {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.stepLabel {
+  line-height: 1.3;
+}
+
+/* ---------- AWB ---------- */
+
+.awbBox {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.awbRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.awbNumber {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+  color: var(--color-text);
+  word-break: break-all;
+}
+
+.awbTable {
+  display: grid;
+  gap: 6px;
+}
+
+.awbLine {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+}
+
+.awbState {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--color-muted);
+}
+
+.awbState_CREATED {
+  color: var(--color-success);
+  background: var(--success-bg-soft);
+}
+
+.awbState_UNKNOWN,
+.awbState_REQUESTED {
+  color: var(--color-warning);
+  background: var(--warning-bg-soft);
+}
+
+.awbState_FAILED {
+  color: var(--color-danger);
+  background: var(--danger-bg-soft);
+}
+
+/* ---------- formular metodă + adresă ---------- */
+
+.pickupForm {
+  display: grid;
+  gap: 12px;
+}
+
+.methods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.method {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.method input {
+  margin-top: 3px;
+  accent-color: var(--color-primary);
+}
+
+.method > span {
+  display: grid;
+  gap: 3px;
+}
+
+.methodActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--surface));
+}
+
+.methodDisabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.methodHint {
+  font-size: 12px;
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+.addressGrid {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.legend {
+  grid-column: 1 / -1;
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--color-muted);
+  min-width: 0;
+}
+
+.full {
+  grid-column: 1 / -1;
+}
+
+.field input,
+.field select,
+.adminInput,
+.adminSelect {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 42px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.field input:focus,
+.field select:focus,
+.adminInput:focus,
+.adminSelect:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.field input[aria-invalid="true"],
+.field select[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+.fieldError {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+/* ---------- Admin ---------- */
+
+.adminGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.adminRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.adminRow .field {
+  flex: 1 1 120px;
+}
+
+.blockers {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--color-danger);
+}
+
+.ok {
+  font-size: 13px;
+  color: var(--color-success);
+  font-weight: 600;
+}
+
+.toggle {
+  justify-self: start;
+}
+
+@media (max-width: 640px) {
+  .addressGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* pașii pe verticală pe telefon (etichetele nu se mai înghesuie) */
+  .steps {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    gap: 8px;
+  }
+
+  .step {
+    grid-template-columns: 24px 1fr;
+    justify-items: start;
+    align-items: center;
+    text-align: left;
+    gap: 10px;
+  }
+
+  .step + .step::before {
+    display: none;
+  }
+
+  .panel {
+    padding: 12px;
+  }
+}

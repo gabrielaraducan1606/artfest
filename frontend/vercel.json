@@ -305,6 +305,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/vendor/design-magazin",
+      "destination": "/index.html"
+    },
+    {
       "source": "/vendor/invoices",
       "destination": "/index.html"
     },
@@ -322,6 +326,10 @@
     },
     {
       "source": "/vendor/orders/planning",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/vendor/products/:id/modificari",
       "destination": "/index.html"
     },
     {

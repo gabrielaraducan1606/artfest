@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import styles from "./AdminSupportPage.module.css";
+import { HELP_REQUEST_LABELS, parseHelpTicketBody } from "../../../../../backend/src/lib/supportHelpRequests.js";
 
 /* ==== Helpers ==== */
 
@@ -68,6 +69,54 @@ function groupByDate(items = []) {
     out.push({ type: "msg", item: m });
   }
   return out;
+}
+
+/* ==== Cererile de ajutor ale vânzătorilor (GPSR / adăugare produs) ==== */
+
+const HELP_TYPE_FILTERS = [
+  { value: "all", label: "Toate" },
+  { value: "help", label: "Cereri de ajutor" },
+  { value: "gpsr_help", label: HELP_REQUEST_LABELS.gpsr_help },
+  { value: "product_help", label: HELP_REQUEST_LABELS.product_help },
+];
+
+function HelpTicketTags({ ticket }) {
+  return (
+    <>
+      {ticket.helpType ? (
+        <span className={styles.helpTag} data-help-type={ticket.helpType}>
+          {HELP_REQUEST_LABELS[ticket.helpType] || ticket.helpType}
+        </span>
+      ) : null}
+      {ticket.unread ? (
+        <span className={styles.unreadDot} title="Necitit" aria-label="Necitit" data-unread />
+      ) : null}
+    </>
+  );
+}
+
+/** Detaliile cererii, din primul mesaj (completate de server): tip, dată, vânzător, produs / ciornă. */
+function HelpRequestMeta({ ticket, messages }) {
+  if (!ticket?.helpType) return null;
+  const first = messages.find((m) => !String(m.id).startsWith("local_")) || null;
+  const { context } = parseHelpTicketBody(first?.body);
+  return (
+    <div className={styles.metaRow} style={{ display: "block", lineHeight: 1.5, overflowWrap: "anywhere" }} data-help-meta>
+      <span className={styles.muted}>Cerere:</span> <b>{HELP_REQUEST_LABELS[ticket.helpType]}</b>
+      {ticket.createdAt ? <span className={styles.muted}> · trimisă {new Date(ticket.createdAt).toLocaleString("ro-RO")}</span> : null}
+      {ticket.vendorId ? <span className={styles.muted}> · ID vânzător {ticket.vendorId}</span> : null}
+      {context.productId ? (
+        <>
+          {" · "}
+          <a href={`/admin?tab=products&productId=${encodeURIComponent(context.productId)}`}>Deschide produsul</a>
+        </>
+      ) : context.draftId ? (
+        <span className={styles.muted}> · ciornă {context.draftId} (pe dispozitivul vânzătorului)</span>
+      ) : (
+        <span className={styles.muted}> · fără produs salvat</span>
+      )}
+    </div>
+  );
 }
 
 /* ==== UI mici: status & priority ==== */
@@ -209,7 +258,7 @@ function MessageBubble({ m, onEdit, onDelete, isMobile }) {
 
         {!isEditing ? (
           <>
-            <div>{m.body}</div>
+            <div className={styles.bubbleBody}>{m.body}</div>
             {m.attachments?.length ? (
               <ul
                 style={{
@@ -482,6 +531,8 @@ function TicketDetailPanel({
           </div>
         ) : null}
 
+        <HelpRequestMeta ticket={ticket} messages={messages} />
+
         {ticket.vendor && (
           <div className={styles.metaRow}>
             <StoreIcon size={14} />{" "}
@@ -556,9 +607,16 @@ export default function AdminSupportBase({ supportBase = "/api/admin/support" })
   const [roleFilter, setRoleFilter] = useState("all"); // all | user | vendor | admin
 
   const [priorityFilter, setPriorityFilter] = useState("all"); // all | low | medium | high
-  const [search, setSearch] = useState("");
+  // link din „Ajutor configurare”: ?ticket=<id>&q=<subiect>
+  const linkParams = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  // filtrul cererilor de ajutor (?helpType=gpsr_help | product_help | help)
+  const [helpTypeFilter, setHelpTypeFilter] = useState(() => {
+    const value = linkParams.get("helpType");
+    return HELP_TYPE_FILTERS.some((option) => option.value === value) ? value : "all";
+  });
+  const [search, setSearch] = useState(() => linkParams.get("q") || "");
 
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(() => linkParams.get("ticket"));
 
   const [messages, setMessages] = useState([]);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
@@ -592,6 +650,7 @@ export default function AdminSupportBase({ supportBase = "/api/admin/support" })
 
       // 👇 trimitem și filtrul de rol către backend
       params.set("role", roleFilter);
+      params.set("helpType", helpTypeFilter);
 
       if (search.trim()) params.set("q", search.trim());
 
@@ -610,7 +669,7 @@ export default function AdminSupportBase({ supportBase = "/api/admin/support" })
   useEffect(() => {
     loadTickets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, audienceFilter, priorityFilter, roleFilter]);
+  }, [statusFilter, audienceFilter, priorityFilter, roleFilter, helpTypeFilter]);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -626,11 +685,10 @@ export default function AdminSupportBase({ supportBase = "/api/admin/support" })
       setMessages([]);
       return;
     }
-    if (!selectedId) {
-      setSelectedId(tickets[0].id);
-    } else if (!tickets.some((t) => t.id === selectedId)) {
-      setSelectedId(tickets[0].id);
-    }
+    // pe telefon lista rămâne vizibilă: tichetul se deschide doar la alegere
+    // (sau din link, ?ticket=<id>); pe desktop se selectează primul, ca înainte
+    if (selectedId && tickets.some((t) => t.id === selectedId)) return;
+    setSelectedId(isMobile ? null : tickets[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickets]);
 
@@ -655,7 +713,9 @@ export default function AdminSupportBase({ supportBase = "/api/admin/support" })
 
       api(`${supportBase}/tickets/${ticketId}/read`, {
         method: "PATCH",
-      }).catch(() => {});
+      })
+        .then(() => setTickets((prev) => prev.map((t) => (t.id === ticketId ? { ...t, unread: false } : t))))
+        .catch(() => {});
     } catch (e) {
       console.error("admin load messages error", e);
       setErrorMsgs("Nu am putut încărca mesajele.");
@@ -880,6 +940,23 @@ export default function AdminSupportBase({ supportBase = "/api/admin/support" })
             </div>
           </div>
 
+          {/* Filtru: cererile de ajutor ale vânzătorilor (rând separat, lizibil și pe telefon) */}
+          <label className={styles.helpFilterRow}>
+            <span className={styles.muted}>Tip solicitare</span>
+            <select
+              className={styles.input}
+              aria-label="Tip solicitare"
+              value={helpTypeFilter}
+              onChange={(e) => setHelpTypeFilter(e.target.value)}
+            >
+              {HELP_TYPE_FILTERS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
           {/* ✅ status tabs cu "Șterse de utilizator" + "Șterse (admin)" */}
           <div className={styles.statusTabs}>
             {[
@@ -976,6 +1053,7 @@ export default function AdminSupportBase({ supportBase = "/api/admin/support" })
                       deletedAt={t.deletedAt}
                     />
                     <span className={styles.muted}>{audienceLabel}</span>
+                    <HelpTicketTags ticket={t} />
                     <ChevronRight size={16} />
                   </div>
                 </button>
@@ -1055,6 +1133,7 @@ export default function AdminSupportBase({ supportBase = "/api/admin/support" })
                         deletedAt={t.deletedAt}
                       />
                       <span className={styles.muted}>{audienceLabel}</span>
+                    <HelpTicketTags ticket={t} />
                       <ChevronRight size={16} />
                     </div>
                   </button>

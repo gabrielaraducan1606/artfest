@@ -50,6 +50,8 @@ export const ADMIN_NAV_SECTIONS = [
     items: [
       { label: "Abonamente", to: "/admin/vendor-plans", icon: "CreditCard" },
       { label: "Colete", to: "/admin/pickups", icon: "Package" },
+      // starea integrărilor de curierat (Sameday + ulterior alți curieri)
+      { label: "Curieri", to: "/admin/couriers", icon: "Truck" },
       { label: "Facturare", to: "/admin/billing", icon: "Receipt" },
     ],
   },

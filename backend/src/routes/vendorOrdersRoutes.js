@@ -42,6 +42,11 @@ import {
   restoreStockFromItems,
 } from "../services/stockRestore.js";
 import {
+  guardUnpaidCardCancellation,
+  isUnpaidCardOrder,
+  releaseOrderDiscountCodes,
+} from "../services/cardPaymentExpiry.js";
+import {
   evaluateVendorDocument,
 } from "../services/reacceptanceService.js";
 import {
@@ -57,6 +62,14 @@ import {
 } from "../services/returnRequestService.js";
 // mutat neschimbat în services/ (refolosit și de generarea AWB)
 import { computeVendorOrderPaymentState } from "../services/vendorOrderPaymentState.js";
+import { ensureShipmentSaleLedgers } from "../services/shipmentSaleLedger.js";
+import { findOrderCancelAwbBlock } from "../couriers/awb/activeAwbGuard.js";
+import {
+  isFinalOutboundShipment,
+  SHIPMENT_FINAL_STATUSES,
+  SHIPMENT_STATUS_FINAL_ERROR,
+  shipmentStatusFinalBody,
+} from "../services/shipmentStatusGuard.js";
 import {
   ManualShipmentError,
   parseManualShipmentInput,
@@ -758,6 +771,8 @@ export async function isReturnShipment(shipmentId, db = prisma) {
 export async function ensureSaleLedgerEntry({
   vendorId,
   shipmentId,
+  // doar eticheta de audit a unui SALE NOU (ex. reconciliere); fără efect asupra sumelor
+  metaSource = "shipment_status_fulfilled",
 }) {
   if (await isReturnShipment(shipmentId)) return null;
 
@@ -801,7 +816,7 @@ export async function ensureSaleLedgerEntry({
 
       meta: {
         source:
-          "shipment_status_fulfilled",
+          metaSource,
 
         vatStatus:
           earning.vatStatus,
@@ -4418,8 +4433,11 @@ async function restoreShipmentStockAfterStatusChange(
 
         items: {
           select: {
+            id: true,
+            shipmentId: true,
             productId: true,
             qty: true,
+            variantIdSnapshot: true,
           },
         },
       },
@@ -4570,6 +4588,23 @@ router.patch(
         });
     }
 
+    /*
+     * Status FINAL (livrat / returnat / refuzat) pentru coletul de vânzare:
+     * nicio acțiune generică nu-l mai mută (fără regresie, fără SALE pentru
+     * o expediere anulată). Anularea are deja propriile reguli (mai jos).
+     * Corecțiile: doar printr-un flux Admin auditat.
+     */
+    if (
+      nextUi !== "cancelled" &&
+      isFinalOutboundShipment(s)
+    ) {
+      return res
+        .status(409)
+        .json(
+          shipmentStatusFinalBody(s)
+        );
+    }
+
 const paymentState =
   computeVendorOrderPaymentState(
     s.order
@@ -4714,6 +4749,22 @@ if (
     }
 
     /*
+     * AWB activ prin integrare (CREATED, generare sau anulare neconfirmată):
+     * anularea livrării l-ar ascunde (după REFUSED curierul ar putea veni
+     * după un colet anulat) - întâi se anulează / rezolvă AWB-ul.
+     */
+    if (nextUi === "cancelled") {
+      const awbBlock = await findOrderCancelAwbBlock(prisma, [s], { audience: "vendor" });
+      if (awbBlock) {
+        return res.status(awbBlock.status).json({
+          error: awbBlock.error,
+          message: awbBlock.message,
+          awbNumber: awbBlock.awbNumber,
+        });
+      }
+    }
+
+    /*
      * =====================================================
      * ANULARE CARD DEJA PLĂTIT - blocată pentru vendor
      * =====================================================
@@ -4752,6 +4803,32 @@ if (
             paymentState
               .paymentStatus,
         });
+    }
+
+    /*
+     * Anulare CARD încă neplătit: înainte de a elibera stocul, plata nu mai
+     * trebuie să poată fi finalizată - toate sesiunile Stripe ale comenzii
+     * se închid (plata acoperă toată comanda, iar o livrare anulată o face
+     * oricum neplătibilă); o plată reușită sau în curs oprește anularea.
+     */
+    const unpaidCardCancel =
+      nextUi === "cancelled" &&
+      isUnpaidCardOrder(s.order);
+
+    if (unpaidCardCancel) {
+      const blocked =
+        await guardUnpaidCardCancellation({
+          order: s.order,
+        });
+
+      if (blocked) {
+        return res
+          .status(blocked.status)
+          .json({
+            error: blocked.error,
+            message: blocked.message,
+          });
+      }
     }
 
     let updatedShipment;
@@ -4830,18 +4907,78 @@ if (
                       : null,
                 }
               );
-            } else {
-              await tx.shipment.update({
-                where: {
-                  id:
-                    s.id,
-                },
+            } else if (
+              next ===
+              "IN_TRANSIT"
+            ) {
+              /*
+               * Fără regresie: un colet livrat / returnat nu
+               * mai poate redeveni „în tranzit”, iar o livrare
+               * anulată (REFUSED, stoc deja restaurat) nu se
+               * redeschide - altfel ar apărea un SALE pentru
+               * o expediere anulată (condiționat, sigur și la
+               * actualizări simultane, ex. status-sync).
+               */
+              const transitUpdate =
+                await tx.shipment.updateMany({
+                  where: {
+                    id:
+                      s.id,
+                    status: {
+                      notIn: [
+                        "DELIVERED",
+                        "RETURNED",
+                        "REFUSED",
+                      ],
+                    },
+                  },
 
-                data: {
-                  status:
-                    next,
-                },
-              });
+                  data: {
+                    status:
+                      next,
+                  },
+                });
+
+              if (
+                transitUpdate.count !==
+                1
+              ) {
+                throw new Error(
+                  "shipment_status_regression"
+                );
+              }
+            } else {
+              /*
+               * Condiționat: o expediere ajunsă între timp
+               * într-un status final (livrat / returnat /
+               * refuzat) nu mai e mutată de o acțiune generică.
+               */
+              const genericUpdate =
+                await tx.shipment.updateMany({
+                  where: {
+                    id:
+                      s.id,
+                    status: {
+                      notIn: [
+                        ...SHIPMENT_FINAL_STATUSES,
+                      ],
+                    },
+                  },
+
+                  data: {
+                    status:
+                      next,
+                  },
+                });
+
+              if (
+                genericUpdate.count !==
+                1
+              ) {
+                throw new Error(
+                  SHIPMENT_STATUS_FINAL_ERROR
+                );
+              }
             }
 
             const updated =
@@ -4900,17 +5037,49 @@ if (
               if (
                 allCancelled
               ) {
-                await tx.order.update({
-                  where: {
-                    id:
-                      updated.orderId,
-                  },
+                if (unpaidCardCancel) {
+                  // comandă neplătită anulată complet: codul de reducere se eliberează (idempotent)
+                  await releaseOrderDiscountCodes(
+                    tx,
+                    updated.orderId
+                  );
 
-                  data: {
-                    status:
-                      "CANCELLED",
-                  },
-                });
+                  // CONDIȚIONAT: o plată confirmată între timp anulează tranzacția
+                  const cancelled =
+                    await tx.order.updateMany({
+                      where: {
+                        id:
+                          updated.orderId,
+                        status:
+                          s.order.status,
+                        paidAt:
+                          null,
+                      },
+
+                      data: {
+                        status:
+                          "CANCELLED",
+                      },
+                    });
+
+                  if (cancelled.count !== 1) {
+                    throw new Error(
+                      "order_already_changed"
+                    );
+                  }
+                } else {
+                  await tx.order.update({
+                    where: {
+                      id:
+                        updated.orderId,
+                    },
+
+                    data: {
+                      status:
+                        "CANCELLED",
+                    },
+                  });
+                }
               }
             }
 
@@ -4927,6 +5096,20 @@ if (
 
       if (
         error?.message ===
+        "order_already_changed"
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "order_already_changed",
+            message:
+              "Comanda a fost modificată între timp (de exemplu, plata a fost confirmată). Reîncarcă pagina.",
+          });
+      }
+
+      if (
+        error?.message ===
         "shipment_already_cancelled_or_locked"
       ) {
         return res
@@ -4940,6 +5123,30 @@ if (
           });
       }
 
+      if (
+        error?.message ===
+        SHIPMENT_STATUS_FINAL_ERROR
+      ) {
+        return res
+          .status(409)
+          .json(
+            shipmentStatusFinalBody(null)
+          );
+      }
+
+      if (
+        error?.message ===
+        "shipment_status_regression"
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "shipment_status_regression",
+            message:
+              "Coletul a fost deja livrat, returnat sau anulat. Statusul nu mai poate reveni la „în tranzit”.",
+          });
+      }
       if (
         error instanceof ManualShipmentError
       ) {
@@ -5042,36 +5249,25 @@ if (
         updatedShipment.status ===
           "IN_TRANSIT"
       ) {
-        await ensureSaleLedgerEntry({
-          vendorId,
-
-          shipmentId:
-            updatedShipment.id,
-        });
-
         /*
-         * Rulează DUPĂ ensureSaleLedgerEntry - are nevoie de
-         * vendorEarningEntry deja creat, ca sursă a comisionului
-         * Artfest real. Fail-open dacă shipment-ul nu are
-         * influencer atribuit (return null, fără efect).
+         * Logica financiară comună (services/shipmentSaleLedger.js):
+         * SALE vendor (COD / CARD offline; CARD online doar din
+         * webhook), apoi influencer și referral vendor - aceleași
+         * helper-e ca înainte, idempotente pe shipmentId.
          */
-        await ensureInfluencerSaleLedgerEntry({
-          shipmentId:
-            updatedShipment.id,
-        });
+        const ledger =
+          await ensureShipmentSaleLedgers({
+            shipmentId:
+              updatedShipment.id,
+          });
 
-        /*
-         * Idem pentru referral vendor - single-promoter-per-shipment
-         * e deja garantat la checkout (shipment.influencerId și
-         * shipment.referrerVendorId nu sunt niciodată populate
-         * simultan, vezi buildShipmentAttributionFields din
-         * chekoutRoutes.js), deci apelarea ambelor aici e sigură:
-         * cel mult UNA dintre ele creează efectiv o intrare.
-         */
-        await ensureVendorReferralSaleLedgerEntry({
-          shipmentId:
+        if (!ledger.ok) {
+          console.error(
+            "Ledger SALE incomplet (de reconciliat):",
             updatedShipment.id,
-        });
+            ledger.reason
+          );
+        }
       }
 
       if (
@@ -5353,6 +5549,12 @@ router.patch("/orders/:id/notes", requireVendor, async (req, res) => {
 /* ----------------------------------------------------
    POST /api/vendor/shipments/:id/schedule-pickup
 ----------------------------------------------------- */
+// colet RETURN pe rutele vânzătorului care schimbă statusul / ridicarea
+const RETURN_SHIPMENT_NOT_VENDOR_MANAGED = Object.freeze({
+  error: "return_shipment_not_vendor_managed",
+  message: "Coletul de retur este gestionat de echipa Artfest. Statusul lui nu se modifică din contul magazinului.",
+});
+
 router.post("/shipments/:id/schedule-pickup", requireVendor, async (req, res) => {
   const vendorId = req.user.vendorId;
   const id = String(req.params.id);
@@ -5378,6 +5580,17 @@ if (!s) {
       error:
         "not_found",
     });
+}
+
+// coletul de RETUR e gestionat de Artfest (AWB Sameday pe contractul Artfest):
+// vânzătorul nu îl programează / nu îi schimbă statusul
+if (s.direction !== "OUTBOUND") {
+  return res.status(409).json(RETURN_SHIPMENT_NOT_VENDOR_MANAGED);
+}
+
+// status final (coletul de vânzare): programarea curierului l-ar redeschide
+if (isFinalOutboundShipment(s)) {
+  return res.status(409).json(shipmentStatusFinalBody(s));
 }
 
 /*
@@ -5457,8 +5670,9 @@ const policy =
   const slotEnd = new Date(pickupDate);
   slotEnd.setHours(endH || 18, 0, 0, 0);
 
-  const updated = await prisma.shipment.update({
-    where: { id },
+  // condiționat: un colet de vânzare ajuns între timp în status final nu e redeschis (RETURN: flux separat)
+  const scheduled = await prisma.shipment.updateMany({
+    where: s.direction === "RETURN" ? { id } : { id, status: { notIn: [...SHIPMENT_FINAL_STATUSES] } },
     data: {
       status: "PICKUP_SCHEDULED",
       consents,
@@ -5472,8 +5686,9 @@ const policy =
       pickupSlotEnd: slotEnd,
       pickupScheduledAt: now,
     },
-    include: { order: true },
   });
+  if (scheduled.count !== 1) return res.status(409).json(shipmentStatusFinalBody(null));
+  const updated = await prisma.shipment.findUnique({ where: { id }, include: { order: true } });
 
   sseBroadcastToVendor(vendorId, "pickup_scheduled", {
     orderId: updated.orderId,
@@ -6034,19 +6249,41 @@ router.post("/shipments/:id/mark-picked-up", requireVendor, async (req, res) => 
 
   if (!s) return res.status(404).json({ error: "not_found" });
 
+  // coletul de RETUR: predarea la curier o confirmă Sameday / Artfest, nu vânzătorul
+  if (s.direction !== "OUTBOUND") {
+    return res.status(409).json(RETURN_SHIPMENT_NOT_VENDOR_MANAGED);
+  }
+
   if (s.status === "IN_TRANSIT") {
     return res.json({ ok: true, shipment: s, already: true });
+  }
+
+  if (isFinalOutboundShipment(s)) {
+    return res.status(409).json(shipmentStatusFinalBody(s));
   }
 
   if (!["PICKUP_SCHEDULED", "READY_FOR_PICKUP"].includes(s.status)) {
     return res.status(409).json({ error: "bad_status" });
   }
 
-  const updated = await prisma.shipment.update({
-    where: { id },
+  // condiționat: o actualizare simultană (ex. status-sync) nu e suprascrisă
+  const transit = await prisma.shipment.updateMany({
+    where: { id, vendorId, status: { in: ["PICKUP_SCHEDULED", "READY_FOR_PICKUP"] } },
     data: { status: "IN_TRANSIT" },
-    include: { order: true },
   });
+  const updated = await prisma.shipment.findUnique({ where: { id }, include: { order: true } });
+  if (transit.count !== 1) {
+    if (updated?.status === "IN_TRANSIT") return res.json({ ok: true, shipment: updated, already: true });
+    return res.status(409).json({ error: "bad_status" });
+  }
+
+  // aceeași logică financiară ca la „shipped” (înainte: fără ledger pe această cale)
+  try {
+    const ledger = await ensureShipmentSaleLedgers({ shipmentId: id });
+    if (!ledger.ok) console.error("Ledger SALE incomplet (de reconciliat):", id, ledger.reason);
+  } catch (e) {
+    console.error("Ledger update failed (mark-picked-up):", id, e);
+  }
 
   try {
     const o = updated.order;

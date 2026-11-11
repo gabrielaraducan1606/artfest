@@ -6,6 +6,8 @@ import {
   resolveDisplayArtisanFeature,
   resolveDisplayProductFeature,
 } from "../services/homepageFeatureScheduler.js";
+// răspunsuri publice: doar câmpuri permise explicit (vezi lib/publicVendorData.js)
+import { toPublicProduct, toPublicVendorService } from "../lib/publicVendorData.js";
 
 const router =
   express.Router();
@@ -266,7 +268,8 @@ function buildProductPayload(
 
     product:
       applyFeatureDiscountToProduct(
-        feature.product,
+        // allowlist: fără rândurile Prisma complete (Vendor / ServiceProfile)
+        toPublicProduct(feature.product),
         feature
       ),
   };
@@ -308,7 +311,8 @@ function buildArtisanPayload(
 
     artisan:
       applyFeatureDiscountToArtisan(
-        feature.service,
+        // allowlist: fără rândurile Prisma complete (Vendor / ServiceProfile)
+        toPublicVendorService(feature.service),
         feature
       ),
   };

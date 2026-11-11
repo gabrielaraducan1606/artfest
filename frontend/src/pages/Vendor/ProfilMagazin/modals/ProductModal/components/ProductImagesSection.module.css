@@ -258,6 +258,78 @@
   background: #0891b2;
 }
 
+/* =========================================================
+   EDITARE FOTO AI - TEMPORAR INDISPONIBILĂ
+   (AI_IMAGE_EDITING_ENABLED=false în config/features.js)
+   Gri neutru, fără hover / animații, cursor not-allowed.
+========================================================= */
+
+.aiCardUnavailable {
+  border-color: var(--color-border);
+  background: var(--surface-muted, #f2f2f3);
+}
+
+.aiCardUnavailable .aiCardTitle,
+.aiCardUnavailable .aiCardDescription,
+.aiCardUnavailable .aiCardIcon {
+  color: var(--color-muted);
+}
+
+.aiCardUnavailable .aiCardIcon {
+  filter: grayscale(1);
+  opacity: 0.7;
+}
+
+.aiCardButton.aiCardButtonUnavailable,
+.aiCardButton.aiCardButtonUnavailable:hover,
+.aiCardButton.aiCardButtonUnavailable:active,
+.aiCardButton.aiCardButtonUnavailable:disabled {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+
+  background: var(--surface-muted, #f2f2f3);
+  color: var(--text-disabled, #9ca3af);
+  border: 1px solid var(--color-border);
+  box-shadow: none;
+
+  opacity: 1;
+  transform: none;
+  transition: none;
+  cursor: not-allowed;
+}
+
+.aiCardButtonUnavailable span {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+.aiUnavailableNote {
+  margin: 2px 0 0;
+
+  font-size: 11.5px;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--color-muted);
+}
+
+.thumbControlBtn.aiEditUnavailable,
+.thumbControlBtn.aiEditUnavailable:hover,
+.thumbControlBtn.aiEditUnavailable:active,
+.thumbControlBtn.aiEditUnavailable:disabled {
+  background: var(--surface-muted, #f2f2f3);
+  border-color: var(--color-border);
+  color: var(--text-disabled, #9ca3af);
+
+  filter: grayscale(1);
+  opacity: 0.6;
+  transform: none;
+  transition: none;
+  cursor: not-allowed;
+}
+
 .aiReassurance {
   margin-top: 10px;
 

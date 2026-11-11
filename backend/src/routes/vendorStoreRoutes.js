@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { isHeldPrivate, requestsVisibility } from "../services/productReviewRequest.js";
 import { authRequired, enforceTokenVersion } from "../api/auth.js";
 import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 import {
@@ -1183,8 +1184,10 @@ router.put("/products/:id", async (req, res) => {
         : null;
   }
 
-  if (isActive !== undefined) data.isActive = !!isActive;
-  if (isHidden !== undefined) data.isHidden = !!isHidden;
+  // produs privat pentru ajutorul Artfest: nu devine vizibil prin această rută
+  const visibilityHeld = isHeldPrivate(prod) && requestsVisibility({ isActive, isHidden });
+  if (isActive !== undefined && !visibilityHeld) data.isActive = !!isActive;
+  if (isHidden !== undefined && !visibilityHeld) data.isHidden = !!isHidden;
 
   if (category !== undefined) {
     data.category = category ? String(category).trim().slice(0, 64) : null;

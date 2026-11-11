@@ -6,6 +6,11 @@
 //   POST /:id/returns?token=                       cerere nouă (aceleași reguli)
 //   POST /:id/returns/:returnId/reply?token=|returnToken=
 //                                                  răspuns la mesajele vânzătorului
+//   PATCH /:id/returns/:returnId/method?token=|orderToken=
+//                                                  metoda de retur + adresa de ridicare
+//                                                  (DOAR acces complet; returnToken NU)
+//   GET  /:id/returns/:returnId/label?token=|orderToken=|returnToken=
+//                                                  eticheta AWB-ului de retur (PDF)
 //
 // Acces (fără câmpuri Prisma noi):
 //  - token       = tokenul ORIGINAL al comenzii (guestAccessTokenHash +
@@ -39,6 +44,14 @@ import {
   clientReturnTrackingLink,
 } from "../services/returnRequestService.js";
 import { classifyPersonalization } from "../services/returnRequestRules.js";
+import {
+  ReturnFlowError as ReturnShipmentFlowError,
+  returnAddressCatalog,
+  sendReturnFlowError,
+  setReturnMethod,
+} from "../services/returnShipmentService.js";
+import { getReturnAwbLabelForClient } from "../couriers/awb/awbService.js";
+import { handleCourier, requireCourierIntegration, sendAwbLabelPdf } from "../couriers/http.js";
 
 const router = Router();
 
@@ -307,10 +320,21 @@ router.post("/:id/returns/photos", async (req, res) => {
           file: req.file,
           folder: "returns",
           userId: `guest-order-${access.orderId}`,
+          // doar imagini verificate după conținut (MIME-ul de mai sus e declarat de browser)
+          policy: "image",
+          maxPixels: 60_000_000,
         });
 
         return res.json({ ok: true, url: uploaded.url });
       } catch (uploadError) {
+        if (uploadError?.code === "upload_content_mismatch" || uploadError?.code === "image_too_many_pixels") {
+          return res.status(415).json({
+            ok: false,
+            error: "invalid_file",
+            message: "Fișierul nu este o imagine validă PNG / JPG / WebP.",
+          });
+        }
+
         console.error("POST /api/guest/orders/:id/returns/photos upload failed:", uploadError);
         return res.status(500).json({ ok: false, error: "upload_failed", message: "Upload eșuat. Încearcă din nou." });
       }
@@ -320,6 +344,54 @@ router.post("/:id/returns/photos", async (req, res) => {
     return res.status(500).json({ ok: false, error: "server_error" });
   }
 });
+
+/*
+ * Metoda de retur (guest): doar cu acces COMPLET (tokenul original al comenzii
+ * sau orderToken) - aceleași drepturi ca la crearea cererii. returnToken
+ * (doar urmărire + răspuns) NU primește dreptul de modificare. Cererea trebuie
+ * să fie a ACESTEI comenzi guest (verificat în serviciu: orderId + userId null).
+ */
+router.patch("/:id/returns/:returnId/method", async (req, res) => {
+  try {
+    const access = await resolveGuestAccess(req);
+    if (!access || !access.full) return accessDenied(res);
+
+    const returnMethod = String(req.body?.returnMethod || "");
+    const result = await setReturnMethod({
+      db: prisma,
+      returnRequestId: String(req.params.returnId),
+      scope: { guestOrderId: access.orderId },
+      returnMethod,
+      pickupAddress: req.body?.pickupAddress,
+      catalog: returnMethod === "HOME_PICKUP" ? await returnAddressCatalog(prisma) : null,
+    });
+    return res.json({ ok: true, returnRequest: result });
+  } catch (error) {
+    if (error instanceof ReturnShipmentFlowError) return sendReturnFlowError(res, error);
+    console.error("PATCH /api/guest/orders/:id/returns/:returnId/method FAILED:", error?.code || error?.name || "Error");
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
+
+/*
+ * Eticheta AWB-ului de retur (guest): orice acces valid la comanda guest
+ * (inclusiv returnToken - urmărirea returului), DOAR pentru cererile acestei
+ * comenzi; fără AWB confirmat -> 404. Comutatorul COURIER_INTEGRATION_ENABLED.
+ */
+router.get(
+  "/:id/returns/:returnId/label",
+  requireCourierIntegration,
+  handleCourier(async (req, res) => {
+    const access = await resolveGuestAccess(req);
+    if (!access) return accessDenied(res);
+    const label = await getReturnAwbLabelForClient({
+      guestOrderId: access.orderId,
+      returnRequestId: String(req.params.returnId),
+      format: String(req.query.format || "A6").toUpperCase() === "A4" ? "A4" : "A6",
+    });
+    return sendAwbLabelPdf(res, label);
+  }, "guestReturnsRoutes")
+);
 
 router.post("/:id/returns/:returnId/reply", async (req, res) => {
   try {

@@ -4,6 +4,7 @@
 //   GET    /                 liniile vendorului + stările de rezervare / etichetă
 //   GET    /products         produsele eligibile (cu opțiunile de variantă)
 //   POST   /                 linie nouă (DRAFT)
+//   POST   /manual           produs manual, fără produs în catalog (DRAFT, idempotent pe clientRequestId)
 //   PATCH  /:id              editare linie DRAFT
 //   DELETE /:id              eliminare linie DRAFT (rămâne în istoric ca CANCELLED)
 //   POST   /:id/sync-price   preia prețul curent din Artfest (înainte de termen)
@@ -18,6 +19,7 @@ import { Router } from "express";
 import { authRequired } from "../api/auth.js";
 import {
   addInventoryItem,
+  addManualInventoryItem,
   getVendorInventoryContext,
   listEligibleProducts,
   listInventory,
@@ -53,6 +55,20 @@ router.post(
   handle(async (req, res) => {
     const item = await addInventoryItem({ vendorId: req.vendorId, userId: req.user.sub, body: req.body || {} });
     res.status(201).json({ ok: true, item });
+  })
+);
+
+// produs manual (fără produs în catalog): denumire, cantitate, preț, fotografie opțională.
+// Idempotent pe clientRequestId: o salvare repetată întoarce aceeași linie (200, duplicate).
+router.post(
+  "/manual",
+  handle(async (req, res) => {
+    const { item, duplicate } = await addManualInventoryItem({
+      vendorId: req.vendorId,
+      userId: req.user.sub,
+      body: req.body || {},
+    });
+    res.status(duplicate ? 200 : 201).json({ ok: true, item, duplicate });
   })
 );
 

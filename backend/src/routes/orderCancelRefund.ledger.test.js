@@ -122,6 +122,9 @@ function makeFakeDb() {
       },
     },
 
+    // AWB-uri active prin integrare (activeAwbGuard): niciunul în aceste scenarii
+    courierAwb: { findFirst: async () => null },
+
     shipment: {
       findUnique: async ({ where: { id }, select }) => {
         const s = shipments.get(id);
@@ -218,7 +221,19 @@ before(async () => {
   const actualOrchestrator = await import("../payments/orchestrator.js");
   const actualStock = await import("../services/stockRestore.js");
 
-  reg("../lib/mailer.js", { ...actualMailer, sendOrderCancelledByUserEmail: async () => {} });
+  // mailer simulat complet: toate funcțiile send* sunt no-op, iar makeTransport e blocat -
+  // niciun email (Resend / SMTP) nu poate pleca din test, indiferent de .env
+  const mailerStub = Object.fromEntries(
+    Object.entries(actualMailer).map(([name, value]) => [
+      name,
+      name === "makeTransport"
+        ? () => { throw new Error("mailer transport blocat în test"); }
+        : typeof value === "function" && name.startsWith("send")
+          ? async () => {}
+          : value,
+    ])
+  );
+  reg("../lib/mailer.js", { ...mailerStub, sendOrderCancelledByUserEmail: async () => {} });
   reg("../services/orderMessaging.js", {
     ...actualMessaging,
     sendOrderCancelledByUserNotifications: async () => {},
@@ -275,6 +290,7 @@ function seedPaidCardOrder({ vendors = ["vA"], shipmentStatus = "PENDING", order
       orderId: "o1",
       vendorId: v,
       status: shipmentStatus,
+      direction: "OUTBOUND", // implicitul din schema Prisma
       depositStatus: "NOT_REQUESTED",
       cancelReason: null,
     });
@@ -486,6 +502,7 @@ test("Asociere ambiguă (vendor cu 2 livrări în comandă): NU se ghicește, se
     orderId: "o1",
     vendorId: "vA",
     status: "PENDING",
+    direction: "OUTBOUND", // implicitul din schema Prisma
     depositStatus: "NOT_REQUESTED",
     cancelReason: null,
   });

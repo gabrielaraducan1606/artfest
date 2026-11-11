@@ -173,6 +173,8 @@ router.post(
           file: req.file,
           folder: "influencer-resources",
           userId: req.user?.sub || "admin",
+          // limită de pixeli înainte de decodare (doar imaginile se decodează)
+          maxPixels: mediaType === "IMAGE" ? 60_000_000 : null,
         });
 
         return res.json({
@@ -187,6 +189,14 @@ router.post(
             error: "invalid_media_type",
             message:
               "Conținutul fișierului nu corespunde formatului declarat. Încearcă alt fișier.",
+          });
+        }
+
+        if (uploadError?.code === "image_too_many_pixels") {
+          return res.status(422).json({
+            ok: false,
+            error: "image_too_many_pixels",
+            message: "Imaginea are o rezoluție prea mare. Micșoreaz-o și încearcă din nou.",
           });
         }
 

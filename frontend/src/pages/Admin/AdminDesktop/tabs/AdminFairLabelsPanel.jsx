@@ -297,6 +297,7 @@ export default function AdminFairLabelsPanel() {
                 <div className={styles.info}>
                   <strong className={styles.title}>{item.title}</strong>
                   {item.variantLabel && <span className={styles.muted}>{item.variantLabel}</span>}
+                  {item.isManual && <span className={styles.muted}>Adăugat manual</span>}
                   <span className={styles.muted}>
                     {item.vendor?.name || "—"}
                     {item.storeName && item.storeName !== item.vendor?.name ? ` · ${item.storeName}` : ""}

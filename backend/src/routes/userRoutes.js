@@ -1,6 +1,7 @@
 // backend/src/routes/userRoutes.js
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { publicProductWhere } from "../services/collectionProducts.js";
 import { authRequired, enforceTokenVersion, requireRole } from "../api/auth.js";
 
 const router = Router();
@@ -229,7 +230,8 @@ router.get("/desktop", async (req, res) => {
     let wishlist = [];
     try {
       const favorites = await prisma.favorite.findMany({
-        where: { userId },
+        // doar produse publice, ca în lista de favorite
+        where: { userId, product: publicProductWhere() },
         orderBy: { createdAt: "desc" },
         take: 6,
         select: {

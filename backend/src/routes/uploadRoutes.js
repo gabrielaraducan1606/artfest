@@ -6,8 +6,38 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
-import { authRequired, enforceTokenVersion, requireRole } from "../api/auth.js";
+import {
+  authRequired,
+  enforceTokenVersion,
+  optionalAuth,
+  requireRole,
+} from "../api/auth.js";
+import { prisma } from "../db.js";
 import { stripVideoAudio } from "../lib/videoAudio.js";
+import {
+  CUSTOMIZATION_MAX_BYTES,
+  CustomizationImageError,
+  newGuestUploaderId,
+  uploadCustomizationImage,
+} from "../services/customizationImage.js";
+import {
+  createCustomizationUploadLimiters,
+  createInflightGuard,
+} from "../middleware/customizationUploadRateLimit.js";
+import {
+  UPLOAD_TMP_DIR,
+  UploadBusyError,
+  claimTempFiles,
+  createByteBudget,
+  createFreeSpaceProbe,
+  createProcessingLimiter,
+  envInteger,
+  envMegabytes,
+  removeTempFiles,
+  sendUploadBusy,
+  tempDiskStorage,
+  withBufferedFile,
+} from "../middleware/uploadLoadGuards.js";
 import {
   r2Client,
   buildPublicUrl,
@@ -119,14 +149,19 @@ const uploadImage = multer({
   fileFilter: imageFileFilter,
 });
 
+/*
+ * /products și /support: fișierele merg pe disc (nu în RAM) și sunt citite
+ * câte unul, abia când le vine rândul la procesare - vezi
+ * middleware/uploadLoadGuards.js. Limitele per fișier rămân aceleași.
+ */
 const uploadProductImages = multer({
-  storage: multer.memoryStorage(),
+  storage: tempDiskStorage(),
   limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: imageFileFilter,
 });
 
 const uploadSupport = multer({
-  storage: multer.memoryStorage(),
+  storage: tempDiskStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: supportFileFilter,
 });
@@ -154,11 +189,66 @@ const uploadVideo = multer({
   fileFilter: videoFileFilter,
 });
 
+/*
+ * Limite de pixeli verificate din header înainte de decodare (protecție
+ * la imagini-bombă). Formatele decodate integral primesc automat mai
+ * puțin - vezi pixelLimitForHeader în r2Storage.js.
+ */
+const IMAGE_MAX_PIXELS = 60_000_000;
+const PRODUCT_IMAGE_MAX_PIXELS = 100_000_000;
+
+const MB = 1024 * 1024;
+const PRODUCT_MAX_REQUEST_BYTES = 12 * 100 * MB + MB; // 12 fișiere x 100 MB + câmpuri
+const SUPPORT_MAX_REQUEST_BYTES = 10 * 20 * MB + MB; // 10 fișiere x 20 MB + câmpuri
+
+/*
+ * Câte cereri /products + /support se procesează simultan pe instanță
+ * (citire de pe disc + decodare). Frontendul trimite o fotografie pe
+ * cerere, deci încărcarea multiplă doar așteaptă la rând câteva secunde.
+ */
+const heavyUploadProcessing = createProcessingLimiter({
+  concurrency: envInteger("UPLOAD_PROCESSING_CONCURRENCY", 1, 1),
+  maxQueue: envInteger("UPLOAD_PROCESSING_MAX_QUEUE", 10, 0),
+  // peste termen procesarea e anulată (inclusiv apelul R2) -> 503
+  holdTimeoutMs: envInteger("UPLOAD_PROCESSING_HOLD_TIMEOUT_MS", 2 * 60 * 1000, 1),
+});
+
+/*
+ * Spațiu pe disc pentru fișierele temporare aflate în lucru: plafonul fix
+ * (UPLOAD_DISK_BUDGET_MB) dar niciodată mai mult decât spațiul liber real
+ * minus o rezervă (UPLOAD_DISK_FREE_MARGIN_MB) - nu presupunem cât disc are
+ * instanța (Render: sistem de fișiere efemer, mărime nedocumentată aici).
+ */
+const uploadDiskBudget = createByteBudget({
+  name: "disk",
+  budgetBytes: envMegabytes("UPLOAD_DISK_BUDGET_MB", 1536),
+  freeBytes: createFreeSpaceProbe({ dir: UPLOAD_TMP_DIR }),
+  freeMarginBytes: envMegabytes("UPLOAD_DISK_FREE_MARGIN_MB", 512),
+});
+
+/* starea protecțiilor (diagnostic / teste) */
+export function uploadLoadStats() {
+  return {
+    processing: heavyUploadProcessing.stats(),
+    diskReservedBytes: uploadDiskBudget.reserved(),
+  };
+}
+
 function getUserId(req) {
   return req.user?.sub || req.user?.id;
 }
 
 function handleUploadError(err, res, context = "upload") {
+  if (err instanceof UploadBusyError) {
+    return sendUploadBusy(res, err.retryAfterSeconds);
+  }
+
+  // disc plin în timpul scrierii fișierului temporar - temporar, nu eroare de server
+  if (err?.code === "ENOSPC") {
+    console.error(`[UPLOAD] ${context}: disc plin (ENOSPC)`);
+    return sendUploadBusy(res);
+  }
+
   if (err?.code === "LIMIT_FILE_SIZE") {
     return res.status(413).json({
       error: "file_too_large",
@@ -201,6 +291,17 @@ function handleUploadError(err, res, context = "upload") {
       error: "upload_content_mismatch",
       message:
         "Fișierul nu corespunde tipului declarat (extensie/format). Încearcă alt fișier.",
+    });
+  }
+
+  if (err?.code === "image_too_many_pixels") {
+    const mp = err.maxPixels ? Math.round(err.maxPixels / 1_000_000) : null;
+
+    return res.status(422).json({
+      error: "image_too_many_pixels",
+      message: mp
+        ? `Imaginea are o rezoluție prea mare (maxim ${mp} MP pentru acest format). Micșorează-o și încearcă din nou.`
+        : "Imaginea are o rezoluție prea mare. Micșorează-o și încearcă din nou.",
     });
   }
 
@@ -322,6 +423,8 @@ router.post("/", authRequired, (req, res) => {
         file: req.file,
         folder: "avatars",
         userId,
+        policy: "image",
+        maxPixels: IMAGE_MAX_PIXELS,
       });
 
       return res.json({
@@ -345,12 +448,23 @@ router.post("/", authRequired, (req, res) => {
  * - file=<binary> sau
  * - files=<binary[]>
  */
-router.post("/products", authRequired, (req, res) => {
+router.post(
+  "/products",
+  authRequired,
+  enforceTokenVersion,
+  requireRole("VENDOR", "ADMIN"),
+  uploadDiskBudget.guard({ maxRequestBytes: PRODUCT_MAX_REQUEST_BYTES }),
+  (req, res) => {
   uploadProductImages.fields([
     { name: "file", maxCount: 1 },
     { name: "files", maxCount: 12 },
   ])(req, res, async (err) => {
-    if (err) return handleUploadError(err, res, "products");
+    claimTempFiles(req); // de aici fișierele sunt ale rutei (șterse în finally)
+
+    if (err) {
+      await removeTempFiles(req.files);
+      return handleUploadError(err, res, "products");
+    }
 
     try {
       const userId = getUserId(req);
@@ -376,18 +490,30 @@ router.post("/products", authRequired, (req, res) => {
         });
       }
 
-      const uploaded = [];
+      // un singur loc de procesare pentru toată cererea: fișierele sunt
+      // citite de pe disc pe rând, deci în memorie e cel mult unul
+      const uploaded = await heavyUploadProcessing(async (signal) => {
+        const items = [];
 
-      for (let i = 0; i < files.length; i += 1) {
-        const item = await uploadToR2({
-          file: files[i],
-          folder: "products",
-          userId,
-          index: i,
-        });
+        for (let i = 0; i < files.length; i += 1) {
+          signal.throwIfAborted(); // anulat peste termen -> nu mai citim fișierul următor
+          items.push(
+            await withBufferedFile(files[i], (file) =>
+              uploadToR2({
+                file,
+                folder: "products",
+                userId,
+                index: i,
+                policy: "image",
+                maxPixels: PRODUCT_IMAGE_MAX_PIXELS,
+                abortSignal: signal,
+              })
+            )
+          );
+        }
 
-        uploaded.push(item);
-      }
+        return items;
+      });
 
       return res.json({
         ok: true,
@@ -403,9 +529,12 @@ router.post("/products", authRequired, (req, res) => {
       });
     } catch (err) {
       return handleUploadError(err, res, "products");
+    } finally {
+      await removeTempFiles(req.files);
     }
   });
-});
+  }
+);
 
 /**
  * POST /api/upload/products/video
@@ -614,9 +743,18 @@ router.post(
  * Pentru atașamente support
  * FormData: files=<binary[]>
  */
-router.post("/support", authRequired, (req, res) => {
+router.post(
+  "/support",
+  authRequired,
+  uploadDiskBudget.guard({ maxRequestBytes: SUPPORT_MAX_REQUEST_BYTES }),
+  (req, res) => {
   uploadSupport.array("files", 10)(req, res, async (err) => {
-    if (err) return handleUploadError(err, res, "support");
+    claimTempFiles(req); // de aici fișierele sunt ale rutei (șterse în finally)
+
+    if (err) {
+      await removeTempFiles(req.files);
+      return handleUploadError(err, res, "support");
+    }
 
     try {
       const userId = getUserId(req);
@@ -637,18 +775,28 @@ router.post("/support", authRequired, (req, res) => {
         });
       }
 
-      const uploaded = [];
+      const uploaded = await heavyUploadProcessing(async (signal) => {
+        const items = [];
 
-      for (let i = 0; i < files.length; i += 1) {
-        const item = await uploadToR2({
-          file: files[i],
-          folder: "support",
-          userId,
-          index: i,
-        });
+        for (let i = 0; i < files.length; i += 1) {
+          signal.throwIfAborted(); // anulat peste termen -> nu mai citim fișierul următor
+          items.push(
+            await withBufferedFile(files[i], (file) =>
+              uploadToR2({
+                file,
+                folder: "support",
+                userId,
+                index: i,
+                policy: "document",
+                maxPixels: IMAGE_MAX_PIXELS,
+                abortSignal: signal,
+              })
+            )
+          );
+        }
 
-        uploaded.push(item);
-      }
+        return items;
+      });
 
       return res.json({
         ok: true,
@@ -656,9 +804,12 @@ router.post("/support", authRequired, (req, res) => {
       });
     } catch (err) {
       return handleUploadError(err, res, "support");
+    } finally {
+      await removeTempFiles(req.files);
     }
   });
-});
+  }
+);
 
 /**
  * POST /api/upload/customization
@@ -668,75 +819,125 @@ router.post("/support", authRequired, (req, res) => {
  * Merge atât pentru utilizatori autentificați,
  * cât și pentru guest.
  *
+ * Acceptă EXCLUSIV imagini decodabile (JPG, PNG, WEBP, AVIF), verificate
+ * după conținut - vezi services/customizationImage.js. Fără fallback la
+ * fișierul brut. Limitare: middleware/customizationUploadRateLimit.js.
+ *
  * FormData:
  * file=<binary>
  */
+const uploadCustomization = multer({
+  storage: multer.memoryStorage(),
+  // fără fileFilter: MIME-ul / extensia declarate nu decid nimic,
+  // conținutul e verificat în processCustomizationImage
+  limits: {
+    fileSize: CUSTOMIZATION_MAX_BYTES,
+    files: 1,
+    fields: 10,
+    parts: 12,
+  },
+});
+
+/*
+ * Identifică utilizatorul autentificat (dacă există). Un token invalid,
+ * expirat sau revocat (tokenVersion schimbat) NU blochează upload-ul -
+ * requestul continuă ca guest, la fel ca un vizitator fără cont.
+ */
+async function identifyCustomizationUploader(req, _res, next) {
+  req.uploader = { userId: null };
+
+  const userId = getUserId(req);
+
+  if (!userId) return next();
+
+  if (typeof req.user?.tv === "undefined") {
+    req.uploader.userId = String(userId);
+    return next();
+  }
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: String(userId) },
+      select: { tokenVersion: true },
+    });
+
+    if (user && user.tokenVersion === req.user.tv) {
+      req.uploader.userId = String(userId);
+    }
+  } catch (err) {
+    console.warn("[UPLOAD] customization: token check failed, continuing as guest:", err?.message || err);
+  }
+
+  return next();
+}
+
+function sendCustomizationError(res, err) {
+  if (err instanceof CustomizationImageError) {
+    if (err.retryAfterSeconds) res.setHeader("Retry-After", String(err.retryAfterSeconds));
+    return res.status(err.status).json({ error: err.code, message: err.message });
+  }
+
+  if (err?.code === "LIMIT_FILE_SIZE") {
+    return res.status(413).json({
+      error: "file_too_large",
+      message: "Fișierul este prea mare (max 10MB).",
+    });
+  }
+
+  if (
+    err?.code === "LIMIT_FILE_COUNT" ||
+    err?.code === "LIMIT_UNEXPECTED_FILE" ||
+    err?.code === "LIMIT_PART_COUNT" ||
+    err?.code === "LIMIT_FIELD_COUNT"
+  ) {
+    return res.status(400).json({
+      error: "invalid_upload",
+      message: "Trimite o singură fotografie.",
+    });
+  }
+
+  return handleUploadError(err, res, "customization");
+}
+
 router.post(
   "/customization",
+  optionalAuth,
+  identifyCustomizationUploader,
+  ...createCustomizationUploadLimiters(),
+  createInflightGuard(),
   (req, res) => {
-    uploadImage.single("file")(
-      req,
-      res,
-      async (err) => {
-        if (err) {
-          return handleUploadError(
-            err,
-            res,
-            "customization"
-          );
-        }
+    uploadCustomization.single("file")(req, res, async (err) => {
+      if (err) return sendCustomizationError(res, err);
 
-        try {
-          if (!req.file) {
-            return res
-              .status(400)
-              .json({
-                error: "no_file",
-                message:
-                  "Nu ai trimis nicio imagine.",
-              });
-          }
-
-          const authenticatedUserId =
-            getUserId(req);
-
-          const guestId =
-            `guest-${Date.now()}-${Math.random()
-              .toString(36)
-              .slice(2, 10)}`;
-
-          const userId =
-            authenticatedUserId ||
-            guestId;
-
-          const uploaded =
-            await uploadToR2({
-              file: req.file,
-              folder:
-                "customizations",
-              userId,
-            });
-
-          return res.json({
-            ok: true,
-            url: uploaded.url,
-            key: uploaded.key,
-            name: uploaded.name,
-            size: uploaded.size,
-            mimeType:
-              uploaded.mimeType,
-            guest:
-              !authenticatedUserId,
+      try {
+        if (!req.file) {
+          return res.status(400).json({
+            error: "no_file",
+            message: "Nu ai trimis nicio imagine.",
           });
-        } catch (err) {
-          return handleUploadError(
-            err,
-            res,
-            "customization"
-          );
         }
+
+        const authenticatedUserId = req.uploader?.userId || null;
+
+        const uploaded = await uploadCustomizationImage({
+          buffer: req.file.buffer,
+          originalname: req.file.originalname,
+          ownerId: authenticatedUserId || newGuestUploaderId(),
+        });
+
+        return res.json({
+          ok: true,
+          url: uploaded.url,
+          key: uploaded.key,
+          name: uploaded.name,
+          size: uploaded.size,
+          mimeType: uploaded.mimeType,
+          guest: !authenticatedUserId,
+        });
+      } catch (err) {
+        return sendCustomizationError(res, err);
       }
-    );
+    });
   }
 );
 

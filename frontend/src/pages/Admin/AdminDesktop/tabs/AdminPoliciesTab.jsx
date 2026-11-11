@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import styles from "../AdminDesktop.module.css";
 import LegalDocumentsPanel from "./legal/LegalDocumentsPanel.jsx";
+import { AdminGpsrNoticeVersions } from "./gpsr/AdminGpsrPanels.jsx";
 
 function formatDate(dateString) {
   if (!dateString) return "—";
@@ -985,7 +986,13 @@ if (userFilters.hasMarketing === "YES") {
         </section>
       )}
 
-      {activeTab === TABS.DOCUMENTS && <LegalDocumentsPanel />}
+      {activeTab === TABS.DOCUMENTS && (
+        <>
+          <LegalDocumentsPanel />
+          {/* informarea GPSR: versionată în cod, doar consultare */}
+          <AdminGpsrNoticeVersions />
+        </>
+      )}
     </>
   );
 }

@@ -32,6 +32,15 @@ import {
 } from "../config/artfestFair.js";
 import { FairError, ensureFair } from "./artfestFairService.js";
 import { lockProductForFair } from "./fairProductLock.js";
+import {
+  MANUAL_TITLE_MAX,
+  cleanManualTitle,
+  isAllowedManualImageUrl,
+  isManualFairItem,
+  isValidClientRequestId,
+  manualVariantKey,
+  parsePriceRonToCents,
+} from "../lib/artfestFairManualItem.js";
 
 const TEXT_LIMIT = 2000;
 
@@ -202,6 +211,7 @@ const PRODUCT_SELECT = {
   orderMode: true,
   availability: true,
   readyQty: true,
+  stockScope: true,
   optionsSchema: true,
   limitedEditionOf: true,
   limitedEditionNumber: true,
@@ -215,7 +225,9 @@ function isEligibleProduct(product, services) {
       product.isHidden !== true &&
       product.moderationStatus === "APPROVED" &&
       Number(product.priceCents) > 0 &&
-      product.orderMode !== "QUOTE_ONLY"
+      product.orderMode !== "QUOTE_ONLY" &&
+      // stocul pe variante: Târgul nu poate încă identifica varianta de stoc
+      product.stockScope !== "VARIANT"
   );
 }
 
@@ -224,6 +236,13 @@ async function loadOwnedProduct(db, vendorId, productId) {
   const product = await db.product.findUnique({ where: { id: String(productId || "") }, select: PRODUCT_SELECT });
   if (!product || !services.has(product.serviceId)) {
     throw new FairError(404, "product_not_found", "Produsul nu a fost găsit.");
+  }
+  if (product.stockScope === "VARIANT") {
+    throw new FairError(
+      400,
+      "variant_stock_not_supported",
+      "Produsele cu stoc pe variante nu pot fi încă trimise la Târg."
+    );
   }
   if (!isEligibleProduct(product, services)) {
     throw new FairError(
@@ -325,10 +344,18 @@ function serializeItem(item, product, ctx, movements = [], returnInfo = null) {
   const reservedOnline = Math.max(0, (item.onlineReservedQty || 0) - (item.onlineReleasedQty || 0));
   const tracked = product && product.readyQty !== null && product.readyQty !== undefined;
   const openReturnQty = returnInfo?.openQty || 0;
+  // cantitatea inițială = cea recepționată după recepție, altfel cea declarată
+  const afterReception = ["RECEIVED", "REJECTED", "CLOSED"].includes(item.status);
+  const initialQty = afterReception ? item.receivedQty || 0 : item.declaredQty;
+  const availableQty = afterReception ? item.availableQty || 0 : item.declaredQty;
 
   return {
     id: item.id,
     productId: item.productId,
+    isManual: isManualFairItem(item),
+    initialQty,
+    availableQty,
+    totalValueCents: item.priceSnapshotCents * initialQty,
     variantKey: item.variantKey,
     variantLabel: item.variantLabel || null,
     title: item.titleSnapshot,
@@ -501,6 +528,8 @@ export async function listEligibleProducts({ vendorId, db = prisma }) {
       moderationStatus: "APPROVED",
       priceCents: { gt: 0 },
       orderMode: { not: "QUOTE_ONLY" },
+      // stocul pe variante: Târgul nu poate încă identifica varianta de stoc
+      stockScope: { not: "VARIANT" },
     },
     orderBy: { title: "asc" },
     select: PRODUCT_SELECT,
@@ -746,9 +775,131 @@ export async function addInventoryItem({ vendorId, userId, body = {}, db = prism
   throw new FairError(500, "barcode_generation_failed", "Nu am putut genera un cod unic. Încearcă din nou.");
 }
 
+/* ===================== Produs manual (fără produs în catalog) ===================== */
+
+/*
+ * Câmpurile proprii unui produs manual: denumire, preț unitar (lei), fotografie.
+ * partial => doar câmpurile prezente în body (editare).
+ * imageUrl: string = fotografie nouă (doar upload-ul propriu), null/"" = ștearsă.
+ */
+function pickManualFields(body = {}, { partial = false, userId, env } = {}) {
+  const out = {};
+  const fields = {};
+
+  if (!partial || body.title !== undefined) {
+    const title = cleanManualTitle(body.title);
+    if (!title) fields.title = `Scrie denumirea produsului (maximum ${MANUAL_TITLE_MAX} de caractere).`;
+    else out.titleSnapshot = title;
+  }
+
+  if (!partial || body.priceRon !== undefined) {
+    const cents = parsePriceRonToCents(body.priceRon);
+    if (cents === null) fields.priceRon = "Introdu un preț mai mare decât zero (ex. 45 sau 45,50).";
+    else out.priceSnapshotCents = cents;
+  }
+
+  if (body.imageUrl !== undefined) {
+    if (body.imageUrl === null || body.imageUrl === "") {
+      out.imageUrlSnapshot = null;
+    } else if (isAllowedManualImageUrl(body.imageUrl, userId, env)) {
+      out.imageUrlSnapshot = body.imageUrl;
+    } else {
+      fields.imageUrl = "Fotografia nu este validă. Încarc-o din nou.";
+    }
+  }
+
+  return { out, fields };
+}
+
+function vendorStoreName(services, vendor) {
+  for (const service of services.values()) {
+    const name = service?.profile?.displayName || service?.title;
+    if (name) return String(name).slice(0, 160);
+  }
+  return vendor?.displayName ? String(vendor.displayName).slice(0, 160) : null;
+}
+
+/*
+ * Adaugă un produs manual (DRAFT) în inventarul vendorului. Nu creează și
+ * nu modifică niciun Product. Idempotent pe clientRequestId: același formular
+ * trimis de două ori întoarce aceeași linie (duplicate: true).
+ */
+export async function addManualInventoryItem({ vendorId, userId, body = {}, db = prisma, now = new Date(), randomInt, env }) {
+  const ctx = await loadContext(db, vendorId, now);
+  requireEditable(ctx);
+
+  if (!isValidClientRequestId(body.clientRequestId)) {
+    throw new FairError(400, "invalid_client_request_id", "Reîncarcă formularul și încearcă din nou.");
+  }
+
+  const manual = pickManualFields(body, { userId, env });
+  let vendorFields = null;
+  try {
+    vendorFields = pickVendorFields(body);
+  } catch (error) {
+    if (error?.code !== "invalid_inventory_item") throw error;
+    Object.assign(manual.fields, error.fields || {});
+  }
+  if (Object.keys(manual.fields).length) {
+    throw new FairError(400, "invalid_inventory_item", "Verifică datele produsului.", { fields: manual.fields });
+  }
+
+  const next = { isFragile: false, isUnique: false, isLimitedEdition: false, canBeRemade: false, ...vendorFields };
+  assertUniqueRules(next);
+
+  const registrationId = ctx.registration.id;
+  const variantKey = manualVariantKey(registrationId, body.clientRequestId);
+  const services = await vendorServiceMap(db, vendorId);
+  const vendor = await db.vendor.findUnique({ where: { id: vendorId }, select: { id: true, displayName: true } });
+
+  const result = await db.$transaction(async (tx) => {
+    // productId NULL nu intră în indexul unic => serializăm noi aceeași cheie
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`artfest-fair-manual:${variantKey}`}))`;
+
+    const existing = await tx.artfestFairInventoryItem.findFirst({
+      where: { registrationId, vendorId, productId: null, variantKey },
+    });
+    if (existing) return { item: existing, duplicate: true };
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const barcode = generateFairBarcode(randomInt);
+      const clash = await tx.artfestFairInventoryItem.findUnique({ where: { barcode }, select: { id: true } });
+      if (clash) continue;
+      const created = await tx.artfestFairInventoryItem.create({
+        data: {
+          fairId: ctx.fair.id,
+          registrationId,
+          vendorId,
+          productId: null,
+          barcode,
+          status: "DRAFT",
+          variantKey,
+          variantLabel: null,
+          variantSnapshot: null,
+          titleSnapshot: manual.out.titleSnapshot,
+          storeNameSnapshot: vendorStoreName(services, vendor),
+          imageUrlSnapshot: manual.out.imageUrlSnapshot ?? null,
+          priceSnapshotCents: manual.out.priceSnapshotCents,
+          currency: "RON",
+          priceSyncedAt: now,
+          ...next,
+        },
+      });
+      await writeEvent(tx, created, "CREATED", {
+        after: { declaredQty: created.declaredQty, barcode, manual: true, priceSnapshotCents: created.priceSnapshotCents },
+        actorUserId: userId,
+      });
+      return { item: created, duplicate: false };
+    }
+    throw new FairError(500, "barcode_generation_failed", "Nu am putut genera un cod unic. Încearcă din nou.");
+  }, FAIR_TX_OPTIONS);
+
+  return { item: serializeItem(result.item, null, ctx), duplicate: result.duplicate };
+}
+
 /* ===================== Editare / eliminare (DRAFT) ===================== */
 
-export async function updateInventoryItem({ vendorId, userId, id, body = {}, db = prisma, now = new Date() }) {
+export async function updateInventoryItem({ vendorId, userId, id, body = {}, db = prisma, now = new Date(), env }) {
   const ctx = await loadContext(db, vendorId, now);
   requireEditable(ctx);
 
@@ -757,7 +908,24 @@ export async function updateInventoryItem({ vendorId, userId, id, body = {}, db 
     throw new FairError(409, "inventory_item_not_editable", "Doar liniile încă netrimise pot fi modificate.");
   }
 
-  const fields = pickVendorFields(body, { partial: true });
+  const manualItem = isManualFairItem(item);
+  let fields;
+  if (manualItem) {
+    // produs manual: denumirea, prețul și fotografia sunt ale liniei (nu există produs în catalog)
+    const manual = pickManualFields(body, { partial: true, userId, env });
+    try {
+      fields = { ...pickVendorFields(body, { partial: true }), ...manual.out };
+    } catch (error) {
+      if (error?.code !== "invalid_inventory_item") throw error;
+      Object.assign(manual.fields, error.fields || {});
+    }
+    if (Object.keys(manual.fields).length) {
+      throw new FairError(400, "invalid_inventory_item", "Verifică datele produsului.", { fields: manual.fields });
+    }
+    if (fields.priceSnapshotCents !== undefined) fields.priceSyncedAt = now;
+  } else {
+    fields = pickVendorFields(body, { partial: true });
+  }
   const next = {
     declaredQty: item.declaredQty,
     isFragile: item.isFragile,
@@ -767,13 +935,16 @@ export async function updateInventoryItem({ vendorId, userId, id, body = {}, db 
     ...fields,
   };
   assertUniqueRules(next);
-  if (next.isUnique !== item.isUnique) {
+  // linia manuală nu are produs comun cu alte linii => fără conflict de unicat
+  if (!manualItem && next.isUnique !== item.isUnique) {
     await assertNoUniqueConflict(db, item.registrationId, item.productId, next.isUnique, item.id);
   }
 
   const updated = await db.artfestFairInventoryItem.update({ where: { id: item.id }, data: fields });
-  const before = Object.fromEntries(Object.keys(fields).map((k) => [k, item[k] ?? null]));
-  await writeEvent(db, updated, "UPDATED", { before, after: fields, actorUserId: userId });
+  // jurnalul păstrează valorile vechi/noi (fără data sincronizării prețului)
+  const { priceSyncedAt: _syncedAt, ...logged } = fields;
+  const before = Object.fromEntries(Object.keys(logged).map((k) => [k, item[k] ?? null]));
+  await writeEvent(db, updated, "UPDATED", { before, after: logged, actorUserId: userId });
 
   const products = await itemsWithProducts(db, [updated]);
   return serializeItem(updated, products.get(updated.productId), ctx);
@@ -867,15 +1038,32 @@ export async function submitInventory({ vendorId, userId, db = prisma, now = new
       throw new FairError(409, "nothing_to_submit", "Nu ai linii noi de trimis în inventar.");
     }
 
-    const productIds = [...new Set(lines.map((l) => l.productId).filter(Boolean))].sort();
+    // produsele manuale nu au produs în catalog: fără blocare / rezervare online
+    const manualLines = lines.filter(isManualFairItem);
+    const catalogLines = lines.filter((l) => !isManualFairItem(l));
+
+    const productIds = [...new Set(catalogLines.map((l) => l.productId).filter(Boolean))].sort();
     for (const productId of productIds) await lockProductForFair(tx, productId);
 
-    const products = await tx.product.findMany({ where: { id: { in: productIds } }, select: PRODUCT_SELECT });
+    const products = productIds.length
+      ? await tx.product.findMany({ where: { id: { in: productIds } }, select: PRODUCT_SELECT })
+      : [];
     const productById = new Map(products.map((p) => [p.id, p]));
 
     // validare completă înainte de orice scriere
     const problems = [];
-    for (const line of lines) {
+    for (const line of manualLines) {
+      if (!cleanManualTitle(line.titleSnapshot) || !(line.priceSnapshotCents > 0)) {
+        problems.push({ id: line.id, title: line.titleSnapshot, reason: "manual_invalid" });
+        continue;
+      }
+      try {
+        assertUniqueRules(line);
+      } catch {
+        problems.push({ id: line.id, title: line.titleSnapshot, reason: "unique_rules" });
+      }
+    }
+    for (const line of catalogLines) {
       const product = productById.get(line.productId);
       if (!isEligibleProduct(product, services)) {
         problems.push({ id: line.id, title: line.titleSnapshot, reason: "product_not_eligible" });
@@ -938,7 +1126,7 @@ export async function submitInventory({ vendorId, userId, db = prisma, now = new
         const prevAvailability = product.availability;
         const prevReadyQty = product.readyQty;
         const res = await tx.product.updateMany({
-          where: { id: productId, availability: prevAvailability, readyQty: prevReadyQty },
+          where: { id: productId, availability: prevAvailability, readyQty: prevReadyQty, stockScope: { not: "VARIANT" } },
           data: { availability: "SOLD_OUT", readyQty: prevReadyQty === null ? null : 0 },
         });
         if (res.count !== 1) {
@@ -966,7 +1154,7 @@ export async function submitInventory({ vendorId, userId, db = prisma, now = new
         const total = productLines.reduce((sum, l) => sum + l.declaredQty, 0);
         const nextQty = product.readyQty - total;
         const res = await tx.product.updateMany({
-          where: { id: productId, availability: "READY", readyQty: { gte: total } },
+          where: { id: productId, availability: "READY", readyQty: { gte: total }, stockScope: { not: "VARIANT" } },
           data: { readyQty: { decrement: total }, availability: nextQty <= 0 ? "SOLD_OUT" : "READY" },
         });
         if (res.count !== 1) {
@@ -994,6 +1182,15 @@ export async function submitInventory({ vendorId, userId, db = prisma, now = new
       for (const line of productLines) {
         await writeEvent(tx, line, "SUBMITTED", { before: { status: "DRAFT" }, after: { status: "SUBMITTED" }, actorUserId: userId });
       }
+    }
+
+    // produse manuale: prețul e al liniei, stocul online nu există (onlineReservationMode rămâne NONE)
+    for (const line of manualLines) {
+      await writeEvent(tx, line, "SUBMITTED", {
+        before: { status: "DRAFT" },
+        after: { status: "SUBMITTED", manual: true },
+        actorUserId: userId,
+      });
     }
 
     return lineIds;

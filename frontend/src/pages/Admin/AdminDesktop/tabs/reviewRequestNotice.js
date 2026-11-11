@@ -20,6 +20,8 @@ export function formatReviewDate(value) {
 export function reviewRequestPublicNotice(product) {
   const request = product?.reviewRequest;
   if (!request?.open || String(product?.moderationStatus || "").toUpperCase() !== "APPROVED") return null;
+  // aprobat de moderare, dar privat: nu spunem că e public
+  if (product?.isActive === false || product?.isHidden === true) return null;
 
   const approvedBy = request.aiApprovedAt
     ? `Aprobat automat de AI pe ${formatReviewDate(request.aiApprovedAt)}, după solicitare.`

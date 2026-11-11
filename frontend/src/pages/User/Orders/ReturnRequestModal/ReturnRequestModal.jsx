@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./ReturnRequestModal.module.css";
 import { api } from "../../../../lib/api.js";
+import { ReturnPickupFields } from "../../../../components/Returns/ReturnPickupForm.jsx";
+import {
+  EMPTY_PICKUP_FORM,
+  formFromPickup,
+  pickupPayloadFromForm,
+  validatePickupForm,
+} from "../../../../components/Returns/returnLogistics.js";
 /*
  * Motivele și clasificarea produselor personalizate vin din aceeași sursă
  * ca validarea backend (OUG 34/2014: art. 9 - retragere fără motiv; art. 16
@@ -122,6 +129,11 @@ export default function ReturnRequestModal({
   const [notesUser, setNotesUser] = useState("");
   const [acceptPolicy, setAcceptPolicy] = useState(false);
 
+  // metoda de retur (Sameday STANDARD): aleasă la solicitare, modificabilă până la AWB
+  const [returnMethod, setReturnMethod] = useState("");
+  const [pickupForm, setPickupForm] = useState(EMPTY_PICKUP_FORM);
+  const [pickupErrors, setPickupErrors] = useState({});
+
   // photos
   const [photoUrls, setPhotoUrls] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -176,6 +188,10 @@ export default function ReturnRequestModal({
         setNotesUser("");
         setPhotoUrls([]);
         setAcceptPolicy(false);
+        setReturnMethod("");
+        setPickupErrors({});
+        // precompletare din datele de livrare ale comenzii (localitatea se alege din listă)
+        setPickupForm(formFromPickup(null, d?.shippingAddress || null));
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "Nu am putut încărca datele comenzii.");
@@ -299,8 +315,12 @@ export default function ReturnRequestModal({
     // retragere fără motiv: nu pentru produse personalizate (art. 16 lit. c)
     if (isPersonalized && isWithdrawalReason(reasonCode)) return false;
 
+    // metoda de retur aleasă (adresa se validează la trimitere)
+    if (!returnMethod) return false;
+
     return true;
   }, [
+    returnMethod,
     uiStatus,
     selectedShipmentId,
     selectedCount,
@@ -367,6 +387,15 @@ export default function ReturnRequestModal({
     setErr("");
     if (!canSubmit) return;
 
+    if (returnMethod === "HOME_PICKUP") {
+      const local = validatePickupForm(pickupForm);
+      setPickupErrors(local);
+      if (Object.keys(local).length) {
+        setErr("Verifică adresa de ridicare a coletului.");
+        return;
+      }
+    }
+
     try {
       setLoading(true);
 
@@ -385,6 +414,8 @@ export default function ReturnRequestModal({
         resolutionWanted,
         notesUser: notesUser.trim() || null,
         photos: photoUrls,
+        returnMethod,
+        pickupAddress: returnMethod === "HOME_PICKUP" ? pickupPayloadFromForm(pickupForm) : null,
 
         // audit: politica ACTIVĂ confirmată de client (versiunea nu e afișată)
         policyAck: {
@@ -404,6 +435,7 @@ export default function ReturnRequestModal({
       setSubmitted(true);
       onSubmitted?.(res);
     } catch (e) {
+      if (e?.data?.fields) setPickupErrors(e.data.fields);
       setErr(e?.data?.message || e?.message || "Nu am putut trimite cererea de retur.");
     } finally {
       setLoading(false);
@@ -785,6 +817,28 @@ export default function ReturnRequestModal({
                 )}
               </section>
 
+              {/* Metoda de retur */}
+              <section className={styles.section}>
+                <div className={styles.sectionHead}>
+                  <h3 className={styles.sectionTitle}>Cum returnezi produsul</h3>
+                </div>
+                <ReturnPickupFields
+                  method={returnMethod}
+                  form={pickupForm}
+                  onMethod={(m) => {
+                    setReturnMethod(m);
+                    setPickupErrors({});
+                  }}
+                  onForm={setPickupForm}
+                  errors={pickupErrors}
+                  disabled={loading}
+                />
+                <div className={styles.hint}>
+                  Nu expedia și nu preda nimic până când returul nu este acceptat. Metoda și adresa se pot modifica până la
+                  generarea AWB-ului.
+                </div>
+              </section>
+
               {/* Politica de retur (documentul legal activ) */}
               <label className={styles.policy}>
                 <input
@@ -824,7 +878,9 @@ export default function ReturnRequestModal({
                   !canSubmit
                     ? needsEvidence && photoUrls.length === 0
                       ? "Adaugă cel puțin o fotografie și acceptă Politica de retur"
-                      : "Selectează produsele și acceptă Politica de retur"
+                      : !returnMethod
+                        ? "Alege cum returnezi produsul"
+                        : "Selectează produsele și acceptă Politica de retur"
                     : undefined
                 }
               >

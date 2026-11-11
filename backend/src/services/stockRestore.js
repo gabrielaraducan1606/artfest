@@ -1,146 +1,25 @@
 // src/services/stockRestore.js
 //
-// Sursă canonică UNICĂ pentru restaurarea stocului la anulare
-// (vendor/admin/user cancel), reutilizată identic în toate cele 3
-// flow-uri - nu mai există 3 implementări separate.
+// Restaurarea stocului la anulare (vendor / admin / client) - aceleași
+// exporturi ca înainte, implementate în services/inventory/inventoryService.js
+// (sursa unică pentru stocul comenzilor: rezervare, istoric, restaurare).
 //
-// Regulă (audit 2026-09-14, fără snapshot istoric la checkout):
-// checkout-ul decrementează readyQty DOAR când, la acel moment,
-// availability === "READY" && readyQty !== null. Nu există niciun
-// câmp/tabel care să înregistreze starea produsului la momentul
-// exact al checkout-ului (ShipmentItem nu are un asemenea snapshot,
-// nu există un model de stock-movement/inventory-log în schema).
-//
-// Din acest motiv, restaurarea se bazează pe STAREA CURENTĂ a
-// produsului (singura informație certă disponibilă), cu o regulă
-// deliberat conservatoare: restaurăm DOAR dacă produsul e ÎN
-// CONTINUARE stock-tracked (readyQty !== null) și în starea în care
-// checkout-ul l-ar fi putut decrementa sau epuiza (READY sau
-// SOLD_OUT). Pentru MADE_TO_ORDER/PREORDER NU atingem nici readyQty,
-// nici availability.
-//
-// LIMITĂ RĂMASĂ (raportată explicit, nu ascunsă): dacă vendorul
-// schimbă manual produsul READY -> MADE_TO_ORDER/PREORDER ÎNTRE
-// checkout și anulare, restaurarea NU se mai face (produsul nu mai e
-// eligibil după regula de mai sus) - decizie deliberată: preferăm să
-// NU restaurăm automat decât să supraevaluăm stocul pe baza unei
-// presupuneri despre starea istorică pe care nu o putem verifica.
+// restoreStockFromItems: liniile cu istoric ORDER_PLACED se restaurează
+// exact și o singură dată; comenzile de dinainte de istoric urmează regula
+// veche (restoreProductStock), neschimbată.
+
+import {
+  aggregateQtyByProductId,
+  restoreOrderItemsStock,
+  restoreProductStock,
+} from "./inventory/inventoryService.js";
+
+export { aggregateQtyByProductId, restoreProductStock };
 
 /**
- * Agregă qty pe productId dintr-o listă de ShipmentItem (a unui
- * singur shipment, sau flatMap peste mai multe shipment-uri ale
- * aceleiași comenzi).
+ * Restaurează stocul pentru liniile anulate.
+ * @param items [{ id?, shipmentId?, productId, qty, variantIdSnapshot? }]
  */
-export function aggregateQtyByProductId(items) {
-  const qtyByProductId = new Map();
-
-  for (const item of items || []) {
-    if (!item.productId) {
-      continue;
-    }
-
-    const qty = Number(item.qty || 0);
-
-    if (!Number.isInteger(qty) || qty <= 0) {
-      continue;
-    }
-
-    qtyByProductId.set(
-      item.productId,
-      (qtyByProductId.get(item.productId) || 0) + qty
-    );
-  }
-
-  return qtyByProductId;
-}
-
-/**
- * Restaurează stocul pentru fiecare productId din harta agregată,
- * folosind EXACT regula descrisă mai sus. Rulează în tranzacția `tx`
- * primită de la apelant (vendor/admin/user cancel), pentru
- * consistență cu restul modificărilor din același cancel.
- */
-export async function restoreProductStock(tx, qtyByProductId) {
-  const fairHeld = await fairForcedUnavailableLines(tx, [...qtyByProductId.keys()]);
-
-  for (const [productId, qty] of qtyByProductId) {
-    /*
-     * Târgul Artfest: un unicat aflat la târg (FORCED_UNAVAILABLE) NU
-     * redevine cumpărabil online la anularea unei comenzi vechi. Cantitatea
-     * se amână pe linia de inventar (onlineDeferredRestoreQty) și se aplică
-     * abia la restaurarea stării anterioare a produsului.
-     */
-    const fairLine = fairHeld.get(productId);
-    if (fairLine) {
-      await tx.artfestFairInventoryItem.update({
-        where: { id: fairLine.id },
-        data: { onlineDeferredRestoreQty: { increment: qty } },
-      });
-      await tx.artfestFairInventoryEvent.create({
-        data: {
-          inventoryItemId: fairLine.id,
-          fairId: fairLine.fairId,
-          vendorId: fairLine.vendorId,
-          type: "ONLINE_RESTORE_DEFERRED",
-          after: { deferredQty: qty },
-          note: "order_cancelled_while_reserved_for_fair",
-        },
-      });
-      continue;
-    }
-
-    await tx.product.updateMany({
-      where: {
-        id: productId,
-
-        // doar produse ÎN CONTINUARE stock-tracked
-        readyQty: { not: null },
-
-        // doar stări în care checkout-ul le-ar fi putut decrementa
-        // (READY) sau epuiza (SOLD_OUT) - NICIODATĂ MADE_TO_ORDER/
-        // PREORDER
-        availability: { in: ["READY", "SOLD_OUT"] },
-      },
-
-      data: {
-        readyQty: { increment: qty },
-
-        // qty > 0 mereu (filtrat mai sus) => readyQty rezultat > 0
-        // mereu pentru rândurile care se potrivesc where-ul de mai
-        // sus => READY e corect atât pentru cazul "era deja READY"
-        // cât și pentru "era SOLD_OUT, acum are stoc din nou".
-        availability: "READY",
-      },
-    });
-  }
-}
-
-// productId -> linia de târg care ține produsul indisponibil online (unicat la târg)
-async function fairForcedUnavailableLines(tx, productIds) {
-  const held = new Map();
-  if (!productIds.length) return held;
-
-  const lines = await tx.artfestFairInventoryItem.findMany({
-    where: {
-      productId: { in: productIds },
-      status: { in: ["SUBMITTED", "RECEIVED"] },
-      onlineReservationMode: "FORCED_UNAVAILABLE",
-      onlineReleasedAt: null,
-      onlineRestoredAt: null,
-    },
-    select: { id: true, productId: true, fairId: true, vendorId: true },
-    orderBy: { createdAt: "asc" },
-  });
-
-  for (const line of lines) if (!held.has(line.productId)) held.set(line.productId, line);
-  return held;
-}
-
-/**
- * Comoditate: agregă + restaurează direct dintr-o listă de items.
- */
-export async function restoreStockFromItems(tx, items) {
-  const qtyByProductId = aggregateQtyByProductId(items);
-  await restoreProductStock(tx, qtyByProductId);
-  return qtyByProductId;
+export async function restoreStockFromItems(tx, items, options) {
+  return restoreOrderItemsStock(tx, items, options);
 }

@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../../lib/api";
+import ProductContactBadge from "../../../features/messages/components/ProductContactBadge.jsx";
 import {
   MessageSquare,
   Send,
@@ -1110,6 +1111,15 @@ const lastMsg = t.lastMsg || "Fără mesaje recente";
                       </span>
                     </div>
 
+                    {!isUserGroup && (t.product || t.contactReason) ? (
+                      <ProductContactBadge
+                        compact
+                        product={t.product}
+                        contactReason={t.contactReason}
+                        contactReasonLabel={t.contactReasonLabel}
+                      />
+                    ) : null}
+
                     <div className={styles.threadRowBottom}>
                       <span className={styles.threadLastMsg}>
                         {lastMsg}
@@ -1266,6 +1276,15 @@ await api(archiveUrl, {
       </span>
     )}
 </div>
+                    {(threadMeta?.product || threadMeta?.contactReason) ? (
+                      <div className={styles.peerSub}>
+                        <ProductContactBadge
+                          product={threadMeta.product}
+                          contactReason={threadMeta.contactReason}
+                          contactReasonLabel={threadMeta.contactReasonLabel}
+                        />
+                      </div>
+                    ) : null}
                     {current.phone && (
                       <div className={styles.peerSub}>
                         {current.phone}

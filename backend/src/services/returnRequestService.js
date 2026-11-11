@@ -26,6 +26,7 @@ import * as orderMessaging from "./orderMessaging.js";
 import * as notifications from "./notifications.js";
 import * as mailer from "../lib/mailer.js";
 import { createGuestReturnAccessToken } from "../lib/guestReturnAccessToken.js";
+import { awbCancelStateOf } from "../couriers/awb/activeAwbGuard.js";
 
 const ensureUserVendorThread = (args) => orderMessaging.ensureUserVendorThread(args);
 const createUserNotification = (userId, data) => notifications.createUserNotification(userId, data);
@@ -136,9 +137,17 @@ export async function buildVendorActionMessage({ db, rr, action, text }) {
     return `${header}: vânzătorul a primit produsul înapoi.${text ? `\n\n${text}` : ""}\n\nRambursarea se procesează separat; vei fi informat când este efectuată.`;
   }
 
-  // setate doar din Admin (colet prin curier / redeschidere)
+  // setate doar din Admin (colet prin curier / redeschidere). AWB generat != colet
+  // preluat: anunțăm doar că ridicarea a fost comandată.
   if (action === "pickup") {
-    return `${header}: returul a fost acceptat, iar coletul de retur este preluat prin curier. Vei fi contactat pentru ridicare.${
+    return `${header}: ridicarea prin curier a fost comandată (AWB de retur generat). Pregătește coletul și eticheta de retur; curierul te va contacta pentru ridicare.${
+      text ? `\n\n${text}` : ""
+    }`;
+  }
+
+  // AWB de retur anulat (confirmat de Sameday): eticheta veche nu mai e valabilă
+  if (action === "pickup_cancelled") {
+    return `${header}: ridicarea prin curier a fost anulată. Nu preda coletul cu eticheta de retur primită anterior - nu mai este valabilă. Te anunțăm când ridicarea este comandată din nou.${
       text ? `\n\n${text}` : ""
     }`;
   }
@@ -298,6 +307,79 @@ async function lastVendorMessages(db, returnIds) {
  * audience: "USER" (doar cererile clientului) sau "VENDOR" (doar ale
  * vânzătorului). Filtrarea de ownership e ÎN query, nu în client.
  */
+// AWB de retur „activ”: în curs (REQUESTED), confirmat (CREATED) sau neconfirmat (UNKNOWN)
+const ACTIVE_RETURN_AWB_STATUSES = ["REQUESTED", "CREATED", "UNKNOWN"];
+
+/*
+ * PICKUP_REQUESTED fără AWB confirmat (retur vechi, creat de ruta Admin de
+ * dinainte, sau AWB în verificare): fără textul „ridicare comandată”.
+ */
+function pickupLabelFor(rr, audience) {
+  if (rr.status !== "PICKUP_REQUESTED") return null;
+  const ship = publicReturnShipment(rr.returnShipments?.[0]);
+  if (ship?.awbState === "CONFIRMED") return null;
+  if (ship?.awbState === "VERIFYING") {
+    return audience === "VENDOR"
+      ? "Anularea ridicării prin curier este în verificare la Artfest"
+      : "Anularea ridicării prin curier este în verificare. Nu preda încă coletul; te anunțăm când situația este clarificată.";
+  }
+  return audience === "VENDOR"
+    ? "Acceptată - ridicarea prin curier este în pregătire la Artfest"
+    : "Returul a fost acceptat. Ridicarea prin curier este în pregătire la echipa Artfest; vei primi eticheta după comandarea ridicării.";
+}
+
+function hasActiveReturnAwb(shipments = []) {
+  return (shipments || []).some((s) => (s.courierAwbs || []).some((a) => ACTIVE_RETURN_AWB_STATUSES.includes(a.status)));
+}
+
+/*
+ * Coletul de retur, așa cum îl văd clientul / guest / vânzătorul: fără costuri,
+ * fără date interne ale AWB-ului. awbState: NONE | PENDING (în curs /
+ * neconfirmat - fără etichetă) | CONFIRMED (eticheta se poate descărca).
+ */
+function publicReturnShipment(s) {
+  if (!s) return null;
+  const awbs = s.courierAwbs || [];
+  const active = awbs.find((a) => ACTIVE_RETURN_AWB_STATUSES.includes(a.status)) || null;
+  // anulare în curs / neconfirmată: eticheta NU se poate folosi (serverul o refuză)
+  const cancelState = active?.status === "CREATED" ? awbCancelStateOf(active) : null;
+  const awbState = !active
+    ? "NONE"
+    : active.status !== "CREATED"
+      ? "PENDING"
+      : cancelState
+        ? "VERIFYING"
+        : "CONFIRMED";
+  const usable = awbState === "CONFIRMED";
+  return {
+    status: s.status,
+    awbNumber: usable ? s.awb || active.awbNumber || null : awbState === "VERIFYING" ? active.awbNumber || null : null,
+    awbState,
+    labelAvailable: usable,
+    trackingUrl: usable ? s.trackingUrl || null : null,
+    parcels: s.parcels ?? null,
+    weightKg: s.weightKg != null ? Number(s.weightKg) : null,
+    handedOverAt: s.handedOverAt || null,
+    deliveredAt: s.deliveredAt || null,
+    // istoric: AWB-uri anulate - afișate ca anulate, niciodată ca utilizabile
+    cancelledAwbs: awbs
+      .filter((a) => a.status === "CANCELLED" && a.awbNumber)
+      .map((a) => ({ awbNumber: a.awbNumber, cancelledAt: a.updatedAt || null })),
+  };
+}
+
+/*
+ * „Am primit produsul” cu un AWB de retur Artfest activ: doar după ce curierul
+ * a confirmat livrarea la vânzător (deliveredAt). Existența AWB-ului nu
+ * dovedește primirea. Retururile fără AWB activ (trimise de client, AWB anulat)
+ * rămân neschimbate. Excepția = Admin, explicit și auditat.
+ */
+export function returnDeliveryUnconfirmed(shipments = []) {
+  return (shipments || []).some(
+    (s) => !s.deliveredAt && (s.courierAwbs || []).some((a) => ACTIVE_RETURN_AWB_STATUSES.includes(a.status))
+  );
+}
+
 export async function listReturnRequestsForOrder({
   orderId,
   userId = null,
@@ -315,7 +397,34 @@ export async function listReturnRequestsForOrder({
   const rows = await db.returnRequest.findMany({
     where,
     orderBy: { createdAt: "desc" },
-    select: RETURN_SELECT,
+    select: {
+      ...RETURN_SELECT,
+      // retur Sameday (aditiv): metoda, adresa confirmată, decizia de cost, AWB-ul de retur
+      returnMethod: true,
+      pickupAddress: true,
+      costBearer: true,
+      returnShipments: {
+        where: { direction: "RETURN" },
+        select: {
+          id: true,
+          status: true,
+          awb: true,
+          trackingUrl: true,
+          parcels: true,
+          weightKg: true,
+          handedOverAt: true,
+          deliveredAt: true,
+          // AWB activ (în curs / confirmat / neconfirmat) - fără date interne
+          // activ + istoric (anulate), fără date interne în răspuns
+          courierAwbs: {
+            where: { status: { in: [...ACTIVE_RETURN_AWB_STATUSES, "CANCELLED"] } },
+            orderBy: { createdAt: "desc" },
+            take: 5,
+            select: { status: true, awbNumber: true, providerMeta: true, updatedAt: true },
+          },
+        },
+      },
+    },
   });
 
   const lastMessages = await lastVendorMessages(db, rows.map((r) => r.id));
@@ -330,7 +439,7 @@ export async function listReturnRequestsForOrder({
       shortId: shortId(rr.id),
       shipmentId: rr.originalShipmentId,
       status: rr.status,
-      statusLabel: audience === "VENDOR" ? info.vendor : info.client,
+      statusLabel: pickupLabelFor(rr, audience) || (audience === "VENDOR" ? info.vendor : info.client),
       reasonCode: rr.reasonCode,
       reasonLabel: returnReasonLabel(rr.reasonCode),
       // WITHDRAWAL = retragere fără motiv; CONFORMITY = defect / neconformitate
@@ -345,7 +454,23 @@ export async function listReturnRequestsForOrder({
       lastVendorMessage: last ? { body: last.body, createdAt: last.createdAt } : null,
       threadId: conversation.all[0]?.threadId || null,
       guest: !rr.userId,
-      ...(audience === "VENDOR" ? { allowedActions: allowedVendorActions(rr.status) } : {}),
+      returnMethod: rr.returnMethod || null,
+      // adresa de ridicare: doar clientului care a confirmat-o (vendorul o vede pe AWB)
+      ...(audience === "USER" || audience === "GUEST" ? { pickupAddress: rr.pickupAddress || null } : {}),
+      ...(audience === "VENDOR" ? { costBearer: rr.costBearer || null } : {}),
+      returnShipment: publicReturnShipment(rr.returnShipments?.[0]),
+      ...(audience === "VENDOR"
+        ? {
+            // cu AWB de retur activ vânzătorul nu poate respinge (transportul nu se anulează implicit)
+            allowedActions: allowedVendorActions(rr.status).filter(
+              (a) =>
+                !(a === "reject" && hasActiveReturnAwb(rr.returnShipments)) &&
+                !(a === "received" && returnDeliveryUnconfirmed(rr.returnShipments))
+            ),
+            // explicația pentru butonul lipsă (UI)
+            receivedNeedsDelivery: allowedVendorActions(rr.status).includes("received") && returnDeliveryUnconfirmed(rr.returnShipments),
+          }
+        : {}),
       // guest-ul nu are inbox: îi arătăm conversația de retur în pagina securizată
       ...(audience === "GUEST"
         ? {
@@ -386,6 +511,26 @@ export async function applyVendorReturnAction({
 
   if (!plan.ok) {
     throw new ReturnFlowError(plan.code === "invalid_transition" ? 409 : 400, plan.code, plan.message);
+  }
+
+  // „Am primit produsul” cu AWB de retur activ, fără livrare confirmată de curier:
+  // refuzat (AWB-ul nu dovedește primirea); excepția e doar din Admin (auditată)
+  if (action === "received" && (await returnRequestDeliveryUnconfirmed(db, rr.id))) {
+    throw new ReturnFlowError(
+      409,
+      "return_delivery_unconfirmed",
+      "Curierul nu a confirmat încă livrarea coletului de retur. Dacă ai primit deja coletul, contactează suportul Artfest pentru confirmare."
+    );
+  }
+
+  // respingere cu AWB de retur activ (contractul Artfest): refuzată - transportul
+  // NU se anulează implicit; anularea AWB-ului se face explicit din Admin
+  if (action === "reject" && (await returnRequestHasActiveAwb(db, rr.id))) {
+    throw new ReturnFlowError(
+      409,
+      "return_awb_active",
+      "Ridicarea prin curier este deja comandată pentru acest retur. Cererea nu poate fi respinsă până când echipa Artfest nu anulează AWB-ul. Contactează suportul Artfest."
+    );
   }
 
   // concurență: actualizăm doar dacă statusul nu s-a schimbat între timp
@@ -539,7 +684,7 @@ function appUrl() {
  *  - guest: pagina securizată /retur-guest cu token semnat (fără DB).
  */
 export function clientReturnTrackingLink({ rr }) {
-  if (rr.userId) return `${appUrl()}/comanda/${rr.orderId}`;
+  if (rr.userId) return `${appUrl()}/comanda/${rr.orderId}#retur`;
 
   try {
     const token = createGuestReturnAccessToken({ orderId: rr.orderId });
@@ -628,4 +773,62 @@ export async function postGuestReturnReply({ db = defaultPrisma, returnRequestId
   }
 
   return { ok: true, threadId: thread.id };
+}
+
+/** Cererea are un AWB de retur activ (REQUESTED / CREATED / UNKNOWN)? */
+export async function returnRequestHasActiveAwb(db, returnRequestId) {
+  const n = await db.courierAwb.count({
+    where: {
+      status: { in: ACTIVE_RETURN_AWB_STATUSES },
+      shipment: { returnRequestId: String(returnRequestId || ""), direction: "RETURN" },
+    },
+  });
+  return n > 0;
+}
+
+/*
+ * Emailul unei notificări persistente de retur (services/returnNotices.js):
+ * destinatarul (cont SAU guest), linkul securizat de urmărire și textul.
+ *   confirmed -> „ridicare comandată” (NU „colet preluat”)
+ *   cancelled -> „ridicare anulată” (eticheta anterioară nu mai e valabilă)
+ * Doar construiește datele - trimiterea și starea sunt în returnNotices.js.
+ */
+export async function returnNoticeEmailParts({ db = defaultPrisma, returnRequestId, kind }) {
+  const rr = await db.returnRequest.findUnique({ where: { id: String(returnRequestId || "") }, select: RETURN_SELECT });
+  if (!rr) return null;
+  const order = await db.order.findUnique({ where: { id: rr.orderId }, select: ORDER_CONTACT_SELECT });
+  const user = rr.userId
+    ? await db.user.findUnique({ where: { id: rr.userId }, select: { email: true, firstName: true } })
+    : null;
+  const to = user?.email || order?.customerEmail || order?.shippingAddress?.email || null;
+  const status = kind === "cancelled" ? "PICKUP_CANCELLED" : "PICKUP_REQUESTED";
+  const messageBody = await buildVendorActionMessage({
+    db,
+    rr: { ...rr, status: "PICKUP_REQUESTED" },
+    action: kind === "cancelled" ? "pickup_cancelled" : "pickup",
+    text: "",
+  });
+  return {
+    to,
+    clientName: user?.firstName || order?.customerName || order?.shippingAddress?.name || "",
+    orderNumber: order?.orderNumber || rr.orderId,
+    status,
+    messageBody,
+    link: clientReturnTrackingLink({ rr }),
+    orderId: rr.orderId,
+    userId: rr.userId || null,
+  };
+}
+
+/** Cererea are un AWB de retur activ, fără livrare confirmată la vânzător? */
+export async function returnRequestDeliveryUnconfirmed(db, returnRequestId) {
+  const n = await db.shipment.count({
+    where: {
+      returnRequestId: String(returnRequestId || ""),
+      direction: "RETURN",
+      deliveredAt: null,
+      courierAwbs: { some: { status: { in: ACTIVE_RETURN_AWB_STATUSES } } },
+    },
+  });
+  return n > 0;
 }

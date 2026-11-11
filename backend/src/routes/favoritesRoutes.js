@@ -5,10 +5,25 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { z } from "zod";
+import { publicProductWhere } from "../services/collectionProducts.js";
 
 const router = Router();
 
 const PAGE_SIZE_MAX = 50;
+
+/*
+ * Doar produsele publice: asocierea rămâne în baza de date și reapare singură când
+ * produsul redevine public. Listele și numărătorile folosesc același filtru.
+ */
+const visibleFavoriteWhere = (userId) => ({ userId, product: publicProductWhere() });
+
+const isPublicProduct = async (productId) =>
+  Boolean(
+    await prisma.product.findFirst({
+      where: { id: productId, ...publicProductWhere() },
+      select: { id: true },
+    })
+  );
 
 const ListQuery = z.object({
   limit: z.coerce.number().int().positive().max(PAGE_SIZE_MAX).default(24),
@@ -50,7 +65,7 @@ const encodeCursor = (o) =>
   ).toString("base64");
 
 function buildFavoritesQuery({ userId, sort, cursorObj }) {
-  const where = { userId };
+  const where = visibleFavoriteWhere(userId);
 
   if (cursorObj?.createdAt && cursorObj?.productId) {
     if (sort === "newest") {
@@ -178,6 +193,7 @@ router.get("/", authRequired, async (req, res) => {
     const products = await prisma.product.findMany({
       where: {
         id: { in: ids },
+        ...publicProductWhere(),
       },
       select: {
         id: true,
@@ -305,6 +321,11 @@ router.post("/toggle", authRequired, async (req, res) => {
       return res.json({ ok: true, favorited: false });
     }
 
+    // același răspuns ca pentru un ID inexistent: nu confirmăm existența produsului
+    if (!(await isPublicProduct(productId))) {
+      return res.status(404).json({ error: "product_not_found" });
+    }
+
     await prisma.favorite.create({
       data: { userId: req.user.sub, productId },
     });
@@ -342,6 +363,10 @@ router.post("/", authRequired, async (req, res) => {
     const ownerUserId = prod?.service?.vendor?.userId;
     if (ownerUserId && ownerUserId === req.user.sub) {
       return res.status(403).json({ error: "cannot_favorite_own_product" });
+    }
+
+    if (!(await isPublicProduct(productId))) {
+      return res.status(404).json({ error: "product_not_found" });
     }
 
     await prisma.favorite.upsert({
@@ -391,7 +416,7 @@ router.post("/bulk", authRequired, async (req, res) => {
 
     if (addDistinct.length) {
       const products = await prisma.product.findMany({
-        where: { id: { in: addDistinct } },
+        where: { id: { in: addDistinct }, ...publicProductWhere() },
         select: {
           id: true,
           service: {
@@ -439,7 +464,7 @@ router.post("/bulk", authRequired, async (req, res) => {
 router.get("/count", authRequired, async (req, res) => {
   try {
     const c = await prisma.favorite.count({
-      where: { userId: req.user.sub },
+      where: visibleFavoriteWhere(req.user.sub),
     });
     res.json({ count: c });
   } catch (err) {
@@ -471,7 +496,7 @@ export const mountWishlistCountAlias = (app) => {
   app.get("/api/wishlist/count", authRequired, async (req, res) => {
     try {
       const c = await prisma.favorite.count({
-        where: { userId: req.user.sub },
+        where: visibleFavoriteWhere(req.user.sub),
       });
       res.json({ count: c });
     } catch (err) {

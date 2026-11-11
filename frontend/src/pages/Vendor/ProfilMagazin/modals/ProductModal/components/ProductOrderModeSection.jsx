@@ -6,6 +6,7 @@ import {
 } from "react";
 
 import styles from "../../../components/css/ProductModal.module.css";
+import ProductShippingSection from "./ProductShippingSection";
 import { normalizeOptionChoice } from "../../../../../../utils/optionLabels.js";
 import {
   MAX_PRICE_DELTA_CENTS,
@@ -1207,6 +1208,9 @@ export default function ProductOrderModeSection({
 
   // „Rezolvă” din verificarea de publicare: { section, anchors, nonce }
   focusRequest = null,
+
+  // greutatea coletului: "required" | "recommended" | "none" (Livrare și colet)
+  shippingRequirement = "none",
 }) {
   const [orderHelpOpen, setOrderHelpOpen] =
   useState(false);
@@ -2543,6 +2547,14 @@ return (
             )}
           </div>
 
+          <ProductShippingSection
+            form={form}
+            setForm={setForm}
+            requirement={shippingRequirement}
+            hasOptions={value === "OPTIONS"}
+            isQuoteOnly={value === "QUOTE_ONLY"}
+          />
+
           {value === "OPTIONS" && (
             <div
               className={
@@ -3144,7 +3156,7 @@ return (
                                 </option>
 
                                 <option value="file">
-                                  Fișier / poză
+                                  Fotografie
                                 </option>
                               </select>
 

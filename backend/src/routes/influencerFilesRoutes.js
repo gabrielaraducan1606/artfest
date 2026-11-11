@@ -349,6 +349,9 @@ router.post(
           file: req.file,
           folder: "influencer-files",
           userId: influencer.id,
+          // imagini re-encodate, documente ca descărcare; limită de pixeli înainte de decodare
+          policy: "document",
+          maxPixels: 60_000_000,
         });
 
         const created = await prisma.influencerFile.create({
@@ -373,6 +376,14 @@ router.post(
             error: "invalid_file_type",
             message:
               "Conținutul fișierului nu corespunde formatului declarat. Încearcă alt fișier.",
+          });
+        }
+
+        if (error?.code === "image_too_many_pixels") {
+          return res.status(422).json({
+            ok: false,
+            error: "image_too_many_pixels",
+            message: "Imaginea are o rezoluție prea mare. Micșoreaz-o și încearcă din nou.",
           });
         }
 

@@ -245,7 +245,7 @@ function getStatusLabel(status) {
       return "Cerere închisă";
 
     case "EXPIRED":
-      return "Cerere expirată";
+      return "Expirată";
 
     case "CANCELLED":
       return "Cerere ștearsă";
@@ -1932,9 +1932,12 @@ async function handleContinueWithOffer(
                   ============================= */
 
                   <>
-                    <p>
-                      Această cerere poate primi oferte de la creatorii Artfest.
-                    </p>
+                    {request.status ===
+                      "OPEN" && (
+                      <p>
+                        Această cerere poate primi oferte de la creatorii Artfest.
+                      </p>
+                    )}
 
                     {!isVendor &&
                       request.status ===
@@ -1955,7 +1958,10 @@ async function handleContinueWithOffer(
                           styles.closedHint
                         }
                       >
-                        Cererea nu mai primește oferte noi.
+                        {request.status ===
+                        "EXPIRED"
+                          ? "Această cerere a expirat și nu mai primește oferte."
+                          : "Cererea nu mai primește oferte noi."}
                       </div>
                     )}
                   </>

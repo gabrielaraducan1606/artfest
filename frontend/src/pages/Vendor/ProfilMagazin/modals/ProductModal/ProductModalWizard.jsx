@@ -7,6 +7,8 @@ import {
   vendorGpsrForCheck,
 } from "../../utils/vendorGpsrManufacturer.js";
 import { normalizeOptionChoice } from "../../../../../utils/optionLabels.js";
+import { useSamedayShipping } from "../../../../../utils/useSamedayShipping.js";
+import { shippingWeightRequirement } from "../../../../../../../backend/src/lib/productShipping.js";
 
 import styles from "../../components/css/ProductModal.module.css";
 
@@ -17,6 +19,8 @@ import ProductOrderModeSection from "./components/ProductOrderModeSection";
 import ProductWizardNav from "./components/ProductWizardNav";
 import ProductClientPreviewModal from "./components/ProductClientPreviewModal";
 import ProductPublishCheck from "./components/ProductPublishCheck";
+import GpsrConfirmation from "../../../../../components/GpsrConfirmation.jsx";
+import { gpsrConfirmationRule } from "../../../../../utils/gpsrConfirmationRule.js";
 import ArtfestReviewRequest from "./components/ArtfestReviewRequest";
 
 const PRODUCT_STEPS = [
@@ -214,9 +218,22 @@ export default function ProductModalWizard({
   const vendorGpsrState = useVendorGpsrManufacturer();
   const vendorGpsr = useMemo(() => vendorGpsrForCheck(vendorGpsrState), [vendorGpsrState]);
 
+  // declarația GPSR: doar la publicare / reconfirmare (aceeași regulă ca serverul)
+  const gpsrRule = gpsrConfirmationRule({ form, editingProduct, vendorGpsrState });
+
+  // greutatea coletului: obligatorie la produsele NOI cu checkout Sameday
+  // (nu la QUOTE_ONLY); la cele existente doar avertisment
+  const samedayShipping = useSamedayShipping();
+  const isNewProduct = !(editingProduct?.id || editingProduct?._id);
+  const shippingRequirement = shippingWeightRequirement({
+    orderMode: form?.orderMode,
+    isNew: isNewProduct,
+    samedayEnabled: samedayShipping,
+  });
+
   const publishCheck = useMemo(
-    () => checkProductForPublish(form, { knownCategories, existingPublished, vendorGpsr }),
-    [form, knownCategories, existingPublished, vendorGpsr]
+    () => checkProductForPublish(form, { knownCategories, existingPublished, vendorGpsr, isNewProduct, samedayShipping }),
+    [form, knownCategories, existingPublished, vendorGpsr, isNewProduct, samedayShipping]
   );
 
   const errorsByStep =
@@ -621,6 +638,7 @@ quoteSchema: [],
         <ProductGpsrSection
           form={form}
           setForm={setForm}
+          productId={editingProduct?.id || editingProduct?._id || null}
         />
         </>
       )}
@@ -628,6 +646,7 @@ quoteSchema: [],
       {activeStep ===
         "customization" && (
         <ProductOrderModeSection
+          shippingRequirement={shippingRequirement}
           form={
             form
           }
@@ -710,12 +729,28 @@ quoteSchema: [],
             onRetryAi={() => runAiCheck(aiKey, aiDraft)}
           />
 
+          {gpsrRule.required && (
+            <GpsrConfirmation
+              checked={form.gpsrConfirmed === true}
+              onChange={(value) =>
+                setForm((current) => ({
+                  ...current,
+                  gpsrConfirmed: value,
+                  gpsrConfirmationSource: "product_modal",
+                }))
+              }
+              reason={gpsrRule.reason}
+              showError
+            />
+          )}
+
           <ArtfestReviewRequest
             productId={
               editingProduct?.id ||
               editingProduct?._id ||
               null
             }
+            form={form}
           />
 
           <div
@@ -1133,7 +1168,9 @@ quoteSchema: [],
               saving ||
               uploadingImages >
                 0 ||
-              !sectionStatus.review
+              !sectionStatus.review ||
+              (gpsrRule.required &&
+                form.gpsrConfirmed !== true)
             }
           >
             {uploadingImages >

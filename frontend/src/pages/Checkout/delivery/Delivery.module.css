@@ -1,0 +1,597 @@
+/* Livrare per magazin: metoda, locația easybox / Sameday Point, harta. */
+
+.picker {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 6px;
+}
+
+.options {
+  display: grid;
+  gap: 8px;
+}
+
+.option {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.option:hover {
+  border-color: color-mix(in oklab, var(--color-primary) 45%, var(--color-border));
+}
+
+.optionActive {
+  border-color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 7%, var(--surface));
+}
+
+.radio {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--color-primary);
+}
+
+.optionText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.optionTitle {
+  font-weight: 600;
+}
+
+.optionHint {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.optionPrice {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chosen {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: calc(var(--radius) - 2px);
+  background: color-mix(in oklab, #16a34a 6%, var(--surface));
+  border: 1px solid color-mix(in oklab, #16a34a 30%, var(--color-border));
+}
+
+.chosen > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chosenLabel {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.chosenName {
+  overflow-wrap: anywhere;
+}
+
+.chosenAddress {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.linkButton {
+  flex: none;
+  min-height: 40px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.secondary {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--color-primary);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--surface);
+  color: var(--color-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.9rem;
+}
+
+/* ultimul punct folosit nu mai e disponibil (informativ, nu eroare) */
+.notice {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--warning-bg-soft, #fffbeb);
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+/* ---------- câmpul localitate ---------- */
+
+.cityField {
+  position: relative;
+}
+
+.cityField input {
+  width: 100%;
+  /* la focus pe mobil câmpul urcă sus, dar rămâne sub bara fixă a site-ului */
+  scroll-margin-top: 96px;
+}
+
+.citySuggestions {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.citySuggestion {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-height: 44px; /* ușor de atins pe mobil */
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.cityName {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.cityMeta {
+  font-size: 0.82rem;
+  color: var(--color-muted);
+}
+
+.citySuggestion:hover,
+.citySuggestionActive {
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--surface));
+}
+
+.cityEmpty {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+/* cod poștal sugerat de nomenclator (nu se completează singur) */
+.postalHint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.postalHint button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-primary);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--color-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fallbackNote {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  background: var(--warning-bg-soft, #fffbeb);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+@media (max-width: 760px) {
+  .citySuggestions {
+    max-height: min(260px, 40vh);
+  }
+}
+
+/* ---------- fereastra de alegere a locației ---------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.dialog {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: min(1080px, 100%);
+  height: min(720px, calc(100dvh - 48px));
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+  overflow: hidden;
+}
+
+.dialogHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px 8px;
+}
+
+.dialogTitle {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: 1.2rem;
+}
+
+.dialogSub {
+  margin: 2px 0 0;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.iconButton {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--surface) 90%, var(--color-border));
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 0 18px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.search {
+  flex: 1 1 260px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 2px);
+  font-size: 16px; /* fără zoom automat pe iOS */
+}
+
+.chips,
+.viewTabs {
+  display: flex;
+  gap: 6px;
+}
+
+.chip,
+.viewTab {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chipActive,
+.viewTabActive {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.viewTabs {
+  display: none;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(300px, 400px) 1fr;
+  min-height: 0;
+}
+
+.listPane {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  border-right: 1px solid var(--color-border);
+  overscroll-behavior: contain;
+}
+
+.mapPane {
+  position: relative;
+  min-height: 0;
+}
+
+.map,
+.mapFallback {
+  position: absolute;
+  inset: 0;
+}
+
+.mapFallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  text-align: center;
+  color: var(--color-muted);
+  background: color-mix(in oklab, var(--surface) 92%, var(--color-border));
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.locItem {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.locItemActive {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-primary) 35%, transparent);
+  background: color-mix(in oklab, var(--color-primary) 6%, var(--surface));
+}
+
+.badge {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.badgeLocker {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badgePudo {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.locName {
+  overflow-wrap: anywhere;
+}
+
+.locAddress,
+.locHours {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+/* zile cu program special (specialSchedule) în perioada următoare */
+.locSpecial {
+  font-size: 0.85rem;
+  color: var(--color-text);
+  background: var(--warning-bg-soft, #fffbeb);
+  border-radius: 4px;
+  padding: 2px 6px;
+  overflow-wrap: anywhere;
+}
+
+.state,
+.stateError {
+  margin: 8px 4px;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.stateError {
+  color: var(--color-danger);
+}
+
+.dialogFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+.footSummary {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.footSummary span,
+.footHint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.primary {
+  flex: none;
+  min-height: 48px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- mobil / tabletă: ecran complet, taburi Listă / Hartă ---------- */
+
+@media (max-width: 760px) {
+  .overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .dialog {
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  .dialogHead {
+    padding: 12px 14px 6px;
+  }
+
+  .toolbar {
+    padding: 0 14px 10px;
+  }
+
+  .search {
+    flex-basis: 100%;
+  }
+
+  .viewTabs {
+    display: flex;
+    margin-left: auto;
+  }
+
+  .body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .listPane {
+    border-right: 0;
+  }
+
+  .body[data-view="list"] .mapPane,
+  .body[data-view="map"] .listPane {
+    display: none;
+  }
+
+  .dialogFoot {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .primary {
+    width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  .chip,
+  .viewTab {
+    padding: 0 10px;
+  }
+
+  .option {
+    grid-template-columns: auto 1fr;
+  }
+
+  .optionPrice {
+    grid-column: 2;
+  }
+}
+
+/* ---------- sumar: transport pe magazine ---------- */
+
+.transportBreakdown {
+  display: grid;
+  gap: 4px;
+  margin: -2px 0 8px;
+  padding: 0 0 0 10px;
+  list-style: none;
+  border-left: 2px solid var(--color-border);
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.transportBreakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.transportBreakdown li span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.transportBreakdown em {
+  font-style: normal;
+}

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "../../../../../../lib/api";
+import { openSavedProductHelpTicket, requestArtfestHelp } from "../../../../../../utils/productHelpRequest.js";
+import { newHelpRequestKey, storeSlugFromPath } from "../../../../../../utils/gpsrAddressHelp.js";
 import styles from "./ProductPublishCheck.module.css";
 
 /*
@@ -22,7 +24,106 @@ function formatDate(value) {
   }
 }
 
-export default function ArtfestReviewRequest({ productId }) {
+/*
+ * Produs NOU (încă nesalvat): vânzătorul care nu reușește să-l adauge singur trimite
+ * un mesaj prin suportul existent („Ajutor adăugare produs”), fără să salveze produsul
+ * și fără să completeze nimic obligatoriu. Succes doar după confirmarea serverului;
+ * la eroare textul rămâne; o cheie per mesaj = un singur tichet la dublu-click / reîncercare.
+ */
+function NewProductHelp({ form, api: apiFn = api }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [status, setStatus] = useState("idle"); // idle | sending | sent
+  const [error, setError] = useState("");
+  const lockRef = useRef(false);
+  const keyRef = useRef(null);
+  const ready = note.trim().length >= 3;
+
+  const send = async () => {
+    if (lockRef.current || !ready) return;
+    lockRef.current = true;
+    if (!keyRef.current) keyRef.current = newHelpRequestKey();
+    setStatus("sending");
+    setError("");
+    try {
+      await requestArtfestHelp({
+        api: apiFn,
+        note,
+        form: form || {},
+        photos: Array.isArray(form?.images) ? form.images : [],
+        storeSlug: storeSlugFromPath(typeof window !== "undefined" ? window.location.pathname : ""),
+        source: "product_modal",
+        requestKey: keyRef.current,
+      });
+      keyRef.current = null;
+      setStatus("sent");
+    } catch (e) {
+      setStatus("idle");
+      setError(e?.data?.message || "Nu am putut trimite solicitarea. Mesajul tău a rămas aici, încearcă din nou.");
+    } finally {
+      lockRef.current = false;
+    }
+  };
+
+  return (
+    <section className={styles.review} data-review-request data-new-product-help>
+      <h4 className={styles.reviewTitle}>Nu reușești să adaugi produsul?</h4>
+      {status === "sent" ? (
+        <p className={styles.reviewText} role="status">
+          Solicitarea a fost trimisă. Echipa Artfest îți răspunde în secțiunea Suport. Produsul nu a fost salvat: ce ai completat
+          rămâne în formular.
+        </p>
+      ) : !open ? (
+        <>
+          <p className={styles.reviewText}>
+            Scrie-ne cu ce ai nevoie de ajutor. Nu trebuie să salvezi produsul sau să completezi toate câmpurile.
+          </p>
+          <div className={styles.reviewActions}>
+            <button type="button" className={styles.reviewBtn} onClick={() => setOpen(true)}>
+              Cere ajutor Artfest
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <label className={styles.reviewLabel} htmlFor="artfest-new-product-help">
+            Cu ce ai nevoie de ajutor?
+          </label>
+          <textarea
+            id="artfest-new-product-help"
+            className={styles.reviewTextarea}
+            value={note}
+            maxLength={NOTE_MAX}
+            onChange={(event) => {
+              keyRef.current = null; // text nou = cerere nouă
+              setNote(event.target.value);
+            }}
+            placeholder="Ex: Nu știu cum să configurez mărimile și prețurile diferite."
+          />
+          <p className={styles.reviewText}>
+            {note.length}/{NOTE_MAX} caractere. Mesajul ajunge integral la echipa Artfest, împreună cu ce ai completat deja (titlu,
+            categorie, preț, fotografii încărcate).
+          </p>
+          <div className={styles.reviewActions}>
+            <button type="button" className={styles.reviewBtnPrimary} onClick={send} disabled={status === "sending" || !ready}>
+              {status === "sending" ? "Se trimite…" : "Trimite solicitarea"}
+            </button>
+            <button type="button" className={styles.reviewBtn} onClick={() => setOpen(false)} disabled={status === "sending"}>
+              Renunță
+            </button>
+          </div>
+        </>
+      )}
+      {error ? (
+        <p className={styles.reviewError} role="alert">
+          {error}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+export default function ArtfestReviewRequest({ productId, form = null }) {
   const [state, setState] = useState({ loading: !!productId, data: null });
   const [formOpen, setFormOpen] = useState(false);
   const [note, setNote] = useState("");
@@ -44,17 +145,7 @@ export default function ArtfestReviewRequest({ productId }) {
     };
   }, [productId]);
 
-  if (!productId) {
-    return (
-      <section className={styles.review} data-review-request>
-        <h4 className={styles.reviewTitle}>Nu ești sigur(ă) de configurare?</h4>
-        <p className={styles.reviewText}>
-          După ce salvezi produsul, poți cere ajutorul echipei Artfest din editarea lui („Trimite la verificare
-          Artfest”).
-        </p>
-      </section>
-    );
-  }
+  if (!productId) return <NewProductHelp form={form} />;
 
   if (state.loading) return null;
 
@@ -75,6 +166,18 @@ export default function ArtfestReviewRequest({ productId }) {
       setState({ loading: false, data });
       setFormOpen(false);
       setJustSent(true);
+      // aceeași cerere și ca tichet în Admin → Suport, ca adminul să poată răspunde;
+      // solicitarea e deja salvată pe produs, deci un eșec aici nu o pierde
+      if (!data?.alreadyRequested) {
+        openSavedProductHelpTicket({
+          api,
+          note,
+          productId,
+          title: form?.title || "",
+          storeSlug: storeSlugFromPath(typeof window !== "undefined" ? window.location.pathname : ""),
+          reviewRequestId: data?.reviewRequest?.id || null,
+        }).catch(() => {});
+      }
     } catch (e) {
       setError(e?.message || "Nu am putut trimite solicitarea. Încearcă din nou.");
     } finally {

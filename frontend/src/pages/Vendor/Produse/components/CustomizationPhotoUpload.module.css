@@ -1,0 +1,392 @@
+/* src/pages/Vendor/Produse/components/CustomizationPhotoUpload.module.css
+   Doar pentru CustomizationPhotoUpload.jsx (CSS module, clase izolate).
+   Culorile vin din tokenii globali (styles/variables.css), deci urmează
+   și tema întunecată. */
+
+.root {
+  --cpu-accent: var(--color-primary, #8b5cf6);
+  --cpu-border: var(--color-border, #e5e5e5);
+  --cpu-surface: var(--surface, #fff);
+  --cpu-text: var(--color-text, #2d2d2d);
+  --cpu-muted: var(--color-muted, #6b7280);
+  --cpu-danger: var(--color-danger, #dc2626);
+  --cpu-success: var(--color-success, #16a34a);
+  --cpu-accent-soft: rgba(139, 92, 246, 0.08);
+  --cpu-accent-ring: rgba(139, 92, 246, 0.22);
+
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: var(--cpu-text);
+}
+
+@supports (color: color-mix(in srgb, red 10%, transparent)) {
+  .root {
+    --cpu-accent-soft: color-mix(in srgb, var(--cpu-accent) 8%, transparent);
+    --cpu-accent-ring: color-mix(in srgb, var(--cpu-accent) 24%, transparent);
+  }
+}
+
+.nativeInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+
+/* ---------- zona „Adaugă fotografie” ---------- */
+
+.zone {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 72px;
+  margin: 0;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1.5px dashed var(--cpu-border);
+  border-radius: 14px;
+  background: var(--cpu-surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.zone:hover:not(:disabled),
+.zoneDragOver {
+  border-color: var(--cpu-accent);
+  background: var(--cpu-accent-soft);
+}
+
+.zone:focus-visible {
+  outline: none;
+  border-color: var(--cpu-accent);
+  box-shadow: 0 0 0 3px var(--cpu-accent-ring);
+}
+
+.zone:active:not(:disabled) {
+  background: var(--cpu-accent-soft);
+}
+
+.zone:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.zoneError {
+  border-color: rgba(220, 38, 38, 0.6);
+  border-style: solid;
+}
+
+.zoneIcon {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--cpu-accent-soft);
+  color: var(--cpu-accent);
+}
+
+.zoneText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.zoneTitle {
+  font-size: 0.92rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.zoneSub {
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--cpu-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- card cu fotografia (încărcare / succes / eroare) ---------- */
+
+.card {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--cpu-border);
+  border-radius: 14px;
+  background: var(--cpu-surface);
+}
+
+.cardSuccess {
+  padding-right: 52px;
+}
+
+.cardError {
+  border-color: rgba(220, 38, 38, 0.45);
+  background: rgba(220, 38, 38, 0.03);
+}
+
+.thumb {
+  flex: 0 0 auto;
+  width: 76px;
+  height: 76px;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--cpu-border);
+  background: var(--surface-muted, #f2f2f3);
+}
+
+.thumbImg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.thumbFallback {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--cpu-muted);
+}
+
+.cardBody {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  align-content: center;
+  min-height: 76px;
+}
+
+.cardTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.86rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.cardTitleSuccess {
+  color: var(--cpu-text);
+}
+
+.cardTitleError {
+  color: var(--cpu-danger);
+}
+
+.successDot {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--cpu-success);
+  color: #fff;
+}
+
+.cardMeta {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--cpu-muted);
+  overflow-wrap: anywhere;
+}
+
+.cardError .cardMeta {
+  color: var(--cpu-text);
+}
+
+.progress {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--cpu-accent-soft);
+}
+
+.progressBar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--cpu-accent);
+  transition: width 0.2s ease;
+}
+
+.progressIndeterminate {
+  width: 35%;
+  animation: cpuIndeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes cpuIndeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progressIndeterminate {
+    animation: none;
+    width: 100%;
+    opacity: 0.45;
+  }
+
+  .progressBar,
+  .zone {
+    transition: none;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.actionBtn {
+  box-sizing: border-box;
+  min-height: 36px;
+  margin: 0;
+  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cpu-border);
+  border-radius: 999px;
+  background: var(--cpu-surface);
+  color: var(--cpu-text);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.actionBtn:hover:not(:disabled) {
+  border-color: var(--cpu-accent);
+  color: var(--cpu-accent);
+}
+
+.actionBtn:focus-visible,
+.removeBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--cpu-accent-ring);
+}
+
+.actionBtn:disabled,
+.removeBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.actionPrimary {
+  border-color: var(--cpu-accent);
+  background: var(--cpu-accent);
+  color: #fff;
+}
+
+.actionPrimary:hover:not(:disabled) {
+  background: var(--color-hover, #7c3aed);
+  border-color: var(--color-hover, #7c3aed);
+  color: #fff;
+}
+
+.removeBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--cpu-border);
+  border-radius: 999px;
+  background: var(--cpu-surface);
+  color: var(--cpu-muted);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.removeBtn:hover:not(:disabled) {
+  color: var(--cpu-danger);
+  border-color: rgba(220, 38, 38, 0.45);
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--cpu-muted);
+}
+
+@media (max-width: 420px) {
+  .zone {
+    min-height: 68px;
+    padding: 12px 14px;
+  }
+
+  .thumb {
+    width: 64px;
+    height: 64px;
+  }
+
+  .cardBody {
+    min-height: 64px;
+  }
+
+  .actionBtn {
+    min-height: 40px;
+  }
+
+  .removeBtn {
+    width: 40px;
+    height: 40px;
+    top: 6px;
+    right: 6px;
+  }
+}

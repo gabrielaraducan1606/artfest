@@ -1,5 +1,7 @@
-import { dateOnlyToISO } from "./dateHelpers";
+import { dateOnlyToISO } from "./dateHelpers.js";
 import { additionalCategoriesPayload } from "../../../../utils/additionalCategories.js";
+import { shippingPayloadFromForm } from "../../../../utils/productShippingForm.js";
+import { GPSR_NOTICE_VERSION } from "../../../../utils/gpsrNotice.js";
 
 export function buildProductPayload(prodForm) {
   const title = (prodForm.title || "").trim();
@@ -138,6 +140,9 @@ repeatedGroups:
   careInstructions,
   specialNotes,
 
+  // profil logistic (produsul ambalat); validat pe server
+  ...shippingPayloadFromForm(prodForm),
+
   isOwnManufacturer,
   manufacturerName,
   manufacturerAddress,
@@ -180,6 +185,16 @@ repeatedGroups:
 
   if (av === "SOLD_OUT") {
     payload.readyQty = 0;
+  }
+
+  // Declarația GPSR: DOAR acordul + versiunea afișată. Cine, când și pentru ce
+  // produs stabilește serverul (lib/gpsrDeclaration.js). Fără bifă -> lipsește.
+  if (prodForm.gpsrConfirmed === true) {
+    payload.gpsrConfirmation = {
+      accepted: true,
+      noticeVersion: GPSR_NOTICE_VERSION,
+      source: prodForm.gpsrConfirmationSource || "product_modal",
+    };
   }
 
   return payload;

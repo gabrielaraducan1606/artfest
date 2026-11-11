@@ -35,14 +35,38 @@ TOP AMBASADORI
 =================================
 */
 
+/*
+ * Răspuns PUBLIC explicit (allowlist): fără id-uri interne (id, vendorId),
+ * fără referralCode (codul creditează înregistrările unui ambasador - public
+ * ar permite umflarea artificială a clasamentului) și fără date interne.
+ * Doar magazinele active apar public. Sistemul de referral / beneficiile
+ * ambasadorilor rămân neschimbate (citesc tabela direct, nu acest răspuns).
+ */
+export function toPublicLeaderboardEntry(profile, index) {
+  return {
+    rank: index + 1,
+    displayName: profile?.vendor?.displayName || "Creator Artfest",
+    logoUrl: profile?.vendor?.logoUrl || null,
+    invitedCount: Number(profile?.invitedCount) || 0,
+    level: profile?.level || null,
+    city: profile?.city || null,
+  };
+}
+
 router.get("/leaderboard", async (_req, res, next) => {
   try {
     const items = await prisma.ambassadorProfile.findMany({
       take: 20,
+      where: {
+        vendor: { isActive: true },
+      },
       orderBy: {
         invitedCount: "desc",
       },
-      include: {
+      select: {
+        invitedCount: true,
+        level: true,
+        city: true,
         vendor: {
           select: {
             displayName: true,
@@ -52,7 +76,7 @@ router.get("/leaderboard", async (_req, res, next) => {
       },
     });
 
-    res.json(items);
+    res.json(items.map(toPublicLeaderboardEntry));
   } catch (err) {
     next(err);
   }

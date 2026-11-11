@@ -21,6 +21,14 @@ import {
   GPSR_PRODUCT_FIELDS,
   VENDOR_GPSR_SELECT,
 } from "../lib/gpsrCompliance.js";
+import {
+  hasShippingWeight,
+  hasShippingDimensions,
+  shippingWeightRequirement,
+  validateShippingProfile,
+  SHIPPING_MESSAGES,
+} from "../lib/productShipping.js";
+import { isSamedayCheckoutActive } from "../services/shipping/checkoutMode.js";
 import { openai } from "../lib/openai.js";
 import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
 import {
@@ -29,6 +37,7 @@ import {
   hasActualContentChange,
   isAdminReviewRequired,
   needsGpsrReevaluation,
+  isBlockedOnlyByGpsrDeclaration,
 } from "../services/productAiModeration.js";
 import {
   buildChangeRequestHistory,
@@ -45,7 +54,11 @@ import {
   REVIEW_REQUEST_NOTE_MAX,
   createReviewRequest,
   getReviewRequest,
+  HELD_PRIVATE_ERROR,
+  isHeldPrivate,
+  isProductFullyPrivate,
   isReviewRequestOpen,
+  requestsVisibility,
   reviewRequestBlocker,
   summarizeReviewRequest,
   withReviewRequest,
@@ -58,6 +71,16 @@ import {
   pickChangedGuardedFields,
 } from "../lib/contactInfoGuard.js";
 import { scanVendorContactIssues } from "../services/contactInfoAudit.js";
+import {
+  evaluateGpsrDeclaration,
+  gpsrConfirmationErrorBody,
+  gpsrFingerprints,
+  isGpsrDeclarationRequired,
+  hasCurrentGpsrDeclaration,
+  parseGpsrConfirmation,
+  recordGpsrDeclaration,
+} from "../lib/gpsrDeclaration.js";
+import { CURRENT_GPSR_NOTICE_VERSION } from "../lib/gpsrNoticeVersions.js";
 // diferențele de preț pe valorile variantelor
 import {
   carryCombinationOverrides,
@@ -405,6 +428,14 @@ quoteSchema:
 
     gpsrComplete: isGpsrComplete(p, vendor),
     gpsrMissingFields: getGpsrMissingFields(p, vendor),
+
+    // profil logistic (produsul ambalat) - doar pentru proprietar / editor
+    shippingWeightGrams: p.shippingWeightGrams ?? null,
+    shippingLengthCm: p.shippingLengthCm ?? null,
+    shippingWidthCm: p.shippingWidthCm ?? null,
+    shippingHeightCm: p.shippingHeightCm ?? null,
+    shippingWeightMissing: !hasShippingWeight(p),
+    shippingDimensionsComplete: hasShippingDimensions(p),
   };
 }
 
@@ -412,7 +443,18 @@ quoteSchema:
  * Lista PUBLICĂ a magazinului: fără câmpurile GPSR (adrese/emailuri) -
  * secțiunea GPSR apare doar pe pagina produsului (GET /api/public/products/:id).
  */
-const PUBLIC_LIST_OMITTED_FIELDS = [...GPSR_PRODUCT_FIELDS, "gpsrComplete", "gpsrMissingFields"];
+const PUBLIC_LIST_OMITTED_FIELDS = [
+  ...GPSR_PRODUCT_FIELDS,
+  "gpsrComplete",
+  "gpsrMissingFields",
+  // datele logistice nu sunt informații pentru client
+  "shippingWeightGrams",
+  "shippingLengthCm",
+  "shippingWidthCm",
+  "shippingHeightCm",
+  "shippingWeightMissing",
+  "shippingDimensionsComplete",
+];
 
 function mapPublicStoreProduct(p) {
   const mapped = mapProduct(p, null);
@@ -1048,8 +1090,28 @@ async function getProduct(req, res) {
       return res.status(400).json({ error: "not_a_products_store" });
     }
 
+    /*
+     * Starea declarației GPSR (doar citire), ca editorul să ceară bifa exact când
+     * serverul are nevoie de ea: `required` = produs creat după
+     * GPSR_DECLARATION_REQUIRED_FROM; `status` MISSING / RECONFIRM = declarație
+     * lipsă sau depășită. Produsele vechi (UNRECORDED) nu primesc nicio cerere nouă.
+     * Eroare de citire -> null (necunoscut); la salvare serverul rămâne autoritatea.
+     */
+    let gpsrDeclaration = null;
+    try {
+      const declarations = await prisma.productGpsrDeclaration.findMany({
+        where: { productId: p.id },
+        select: { noticeVersion: true, manufacturerHash: true, safetyHash: true, createdAt: true },
+      });
+      const evaluation = evaluateGpsrDeclaration({ product: p, vendor: p.service.vendor, declarations });
+      gpsrDeclaration = { required: evaluation.required, status: evaluation.status };
+    } catch (e) {
+      console.warn("GET /vendors/products/:id gpsr declaration unavailable:", e?.code || e?.name || "Error");
+    }
+
     return res.json({
       ...mapProduct(p),
+      gpsrDeclaration,
       changeRequest: summarizeChangeRequest(p),
       reviewRequest: summarizeReviewRequest(p),
       ownerVendorId: p.service.vendorId,
@@ -1586,6 +1648,32 @@ async function createProduct(req, res) {
     const gpsrPatch =
       pickGpsrPatchFromBody(req.body || {});
 
+    // profilul logistic (produsul ambalat): format validat; greutatea e
+    // obligatorie la produsele NOI cu checkout Sameday (nu la QUOTE_ONLY)
+    const shippingValidation = validateShippingProfile(req.body || {});
+    if (!shippingValidation.ok) {
+      return res.status(400).json({
+        error: shippingValidation.error,
+        field: shippingValidation.field,
+        message: shippingValidation.message,
+      });
+    }
+    const shippingPatch = shippingValidation.data;
+    if (
+      shippingWeightRequirement({
+        orderMode: orderConfig.orderMode,
+        isNew: true,
+        samedayEnabled: await isSamedayCheckoutActive(),
+      }) === "required" &&
+      !hasShippingWeight(shippingPatch)
+    ) {
+      return res.status(400).json({
+        error: "shipping_weight_required",
+        field: "shippingWeightGrams",
+        message: SHIPPING_MESSAGES.weightRequired,
+      });
+    }
+
     console.info(
       "[PRODUCT CREATE]",
       {
@@ -1625,8 +1713,22 @@ async function createProduct(req, res) {
         );
     }
 
-    const created =
-      await prisma.product.create({
+    /*
+     * Declarația GPSR per produs: obligatorie când produsul e trimis spre
+     * publicare (nu la salvarea privată). Se înregistrează în ACEEAȘI
+     * tranzacție cu produsul; vânzătorul, utilizatorul, versiunea și ora
+     * vin de pe server (lib/gpsrDeclaration.js).
+     */
+    const wantsPublic = req.body?.isActive !== false && !req.body?.isHidden;
+    const gpsrConfirmation = parseGpsrConfirmation(req.body);
+    if (gpsrConfirmation.staleVersion || (wantsPublic && !gpsrConfirmation.provided)) {
+      return res.status(409).json(gpsrConfirmationErrorBody(gpsrConfirmation));
+    }
+    const vendorGpsr = await loadVendorGpsr(service.vendorId);
+
+    const created = await prisma.$transaction(async (tx) => {
+    const product =
+      await tx.product.create({
         data: {
           serviceId:
             service.id,
@@ -1771,16 +1873,27 @@ async function createProduct(req, res) {
               : null,
 
           ...gpsrPatch,
+          ...shippingPatch,
         },
       });
+
+      if (gpsrConfirmation.provided) {
+        await recordGpsrDeclaration(tx, {
+          product,
+          vendor: { ...(vendorGpsr || {}), id: service.vendorId },
+          userId: req.user.sub,
+          source: gpsrConfirmation.source,
+        });
+      }
+      return product;
+    });
 
     /*
      * Moderare AI automată: produsul e deja salvat (PENDING, nepublic);
      * aici primește verdictul (APPROVED / rămâne PENDING pentru admin /
      * CHANGES_REQUESTED cu imaginile problematice). Orice eroare AI ->
-     * rămâne PENDING, ca înainte.
+     * rămâne PENDING, ca înainte. Fără declarație GPSR validă, nu se aprobă.
      */
-    const vendorGpsr = await loadVendorGpsr(service.vendorId);
 
     const moderated =
       await moderateSavedProduct({
@@ -1866,6 +1979,27 @@ async function updateProduct(
           error:
             "not_a_products_store",
         });
+    }
+
+    /*
+     * Produs salvat privat pentru ajutorul echipei Artfest: nu poate deveni vizibil
+     * cât timp solicitarea e deschisă. Editarea conținutului continuă: o salvare din
+     * editor nu pierde datele, doar cererea de vizibilitate e ignorată.
+     */
+    let visibilityHeld = false;
+
+    if (isHeldPrivate(product) && requestsVisibility(req.body)) {
+      const otherFields = Object.keys(req.body || {}).filter(
+        (key) => key !== "isActive" && key !== "isHidden"
+      );
+
+      if (!otherFields.length) {
+        return res.status(409).json(HELD_PRIVATE_ERROR);
+      }
+
+      delete req.body.isActive;
+      delete req.body.isHidden;
+      visibilityHeld = true;
     }
 
     const patch = {};
@@ -2270,6 +2404,18 @@ async function updateProduct(
       pickGpsrPatchFromBody(req.body || {})
     );
 
+    // profilul logistic: doar formatul; lipsa greutății nu blochează un
+    // produs existent (checkout-ul folosește tariful de rezervă)
+    const shippingValidation = validateShippingProfile(req.body || {}, product);
+    if (!shippingValidation.ok) {
+      return res.status(400).json({
+        error: shippingValidation.error,
+        field: shippingValidation.field,
+        message: shippingValidation.message,
+      });
+    }
+    Object.assign(patch, shippingValidation.data);
+
     const availNorm =
       normalizeAvailabilityPayload(
         req.body,
@@ -2558,10 +2704,58 @@ async function updateProduct(
         );
     }
 
+    /*
+     * Declarația GPSR per produs: cerută DOAR dacă produsul rămâne / devine
+     * vizibil și (a) se schimbă datele producătorului sau de siguranță, ori
+     * (b) devine vizibil acum, fără o declarație pentru datele curente
+     * (produsele vechi, create înainte de regulă, nu sunt blocate la (b)).
+     * Editările minore (preț, stoc, text etc.) nu cer nimic.
+     * O confirmare trimisă se înregistrează în aceeași tranzacție cu salvarea.
+     */
+    const gpsrVendor = product.service?.vendor ?? null;
+    const gpsrAfter = { ...product, ...patch };
+    const fpBefore = gpsrFingerprints(product, gpsrVendor);
+    const fpAfter = gpsrFingerprints(gpsrAfter, gpsrVendor);
+    const gpsrDataChanged =
+      fpBefore.manufacturerHash !== fpAfter.manufacturerHash || fpBefore.safetyHash !== fpAfter.safetyHash;
+    const visibleBefore = product.isActive !== false && !product.isHidden;
+    const visibleAfter = gpsrAfter.isActive !== false && !gpsrAfter.isHidden;
+    const gpsrConfirmation = parseGpsrConfirmation(req.body);
+
+    if (gpsrConfirmation.staleVersion) {
+      return res.status(409).json(gpsrConfirmationErrorBody(gpsrConfirmation));
+    }
+
+    if (
+      visibleAfter &&
+      !gpsrConfirmation.provided &&
+      (gpsrDataChanged || (!visibleBefore && isGpsrDeclarationRequired(product)))
+    ) {
+      const declarations = await prisma.productGpsrDeclaration.findMany({
+        where: { productId: id, noticeVersion: CURRENT_GPSR_NOTICE_VERSION },
+        select: { noticeVersion: true, manufacturerHash: true, safetyHash: true },
+      });
+      if (!hasCurrentGpsrDeclaration({ product: gpsrAfter, vendor: gpsrVendor, declarations })) {
+        return res.status(409).json(
+          gpsrConfirmationErrorBody(gpsrConfirmation, { reason: gpsrDataChanged ? "gpsr_data_changed" : "publication" })
+        );
+      }
+    }
+
+    let gpsrDeclarationRecorded = false;
+
     // Târg Artfest: preț blocat după termen / unicat rezervat la târg
     const updated =
-      await guardedProductUpdate(id, patch, (db) =>
-        db.product.update(
+      await guardedProductUpdate(id, patch, async (outerDb) => {
+        // salvarea + declarația GPSR: atomic (tranzacție proprie dacă nu suntem deja într-una)
+        if (gpsrConfirmation.provided && typeof outerDb.$transaction === "function") {
+          return outerDb.$transaction((tx) => writeWithDeclaration(tx));
+        }
+        return writeWithDeclaration(outerDb);
+      });
+
+    async function writeWithDeclaration(db) {
+        const saved = await db.product.update(
           {
             where: { id },
             data: patch,
@@ -2569,8 +2763,18 @@ async function updateProduct(
               additionalCategories: true,
             },
           }
-        )
-      );
+        );
+        if (gpsrConfirmation.provided && gpsrVendor?.id) {
+          const result = await recordGpsrDeclaration(db, {
+            product: saved,
+            vendor: gpsrVendor,
+            userId: req.user.sub,
+            source: gpsrConfirmation.source,
+          });
+          gpsrDeclarationRecorded = result.created || Boolean(result.declaration);
+        }
+        return saved;
+    }
 
     /*
      * Moderare AI doar dacă s-a schimbat conținut relevant. Imaginile
@@ -2591,9 +2795,16 @@ async function updateProduct(
         )
       );
 
+    // produs PENDING oprit doar de lipsa declarației: după confirmare se reevaluează (cache AI)
+    const declarationReevaluation =
+      !shouldModerate &&
+      gpsrDeclarationRecorded &&
+      isBlockedOnlyByGpsrDeclaration(product.aiModeration);
+
     const moderated =
       shouldModerate ||
-      gpsrReevaluation
+      gpsrReevaluation ||
+      declarationReevaluation
         ? await moderateSavedProduct({
             prisma,
             product: updated,
@@ -2612,6 +2823,7 @@ async function updateProduct(
       ...mapProduct(moderated, product.service?.vendor ?? null),
       additionalCategories:
         additionalCategoryKeys(updated),
+      ...(visibilityHeld ? { visibilityHeld: true } : {}),
     });
   } catch (e) {
     if (sendFairLockError(res, e)) return;
@@ -2954,7 +3166,12 @@ async function createProductReviewRequest(req, res) {
       const blocker = reviewRequestBlocker({ awaitingVendorChanges: isAwaitingVendorChanges(product) });
       if (blocker) return res.status(409).json(blocker);
 
-      const reviewRequest = createReviewRequest({ note, vendorUserId: req.user.sub });
+      const reviewRequest = createReviewRequest({
+        note,
+        vendorUserId: req.user.sub,
+        // doar pentru cererea explicită din Smart Listing și doar dacă produsul e deja privat
+        holdPrivate: req.body?.holdPrivate === true && isProductFullyPrivate(product),
+      });
 
       // updatedAt = blocare optimistă: din două click-uri simultane câștigă unul
       const result = await prisma.product.updateMany({

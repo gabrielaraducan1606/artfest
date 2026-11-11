@@ -32,6 +32,7 @@ import {
 
 import WithdrawalButton from "../../../components/Withdrawal/WithdrawalButton.jsx";
 import { humanizeOptionValue } from "../../../utils/optionLabels.js";
+import { CARD_PAYMENT_EXPIRED_LABEL, CARD_PAYMENT_EXPIRED_MESSAGE, isCardPaymentExpired } from "../../../lib/cardPaymentExpired.js";
 
 /* =========================================================
    Helpers
@@ -1671,9 +1672,11 @@ const canRetryPayment =
                   "#57433a",
               }}
             >
-              {getStatusLabel(
-                order.status
-              )}
+              {isCardPaymentExpired(order)
+                ? CARD_PAYMENT_EXPIRED_LABEL
+                : getStatusLabel(
+                    order.status
+                  )}
             </div>
           </div>
 
@@ -1688,6 +1691,20 @@ const canRetryPayment =
             >
               Se actualizează informațiile…
             </div>
+          )}
+
+          {isCardPaymentExpired(order) && (
+            <p
+              role="status"
+              style={{
+                ...subtleStyle,
+
+                marginTop:
+                  10,
+              }}
+            >
+              {CARD_PAYMENT_EXPIRED_MESSAGE}
+            </p>
           )}
 
           <div

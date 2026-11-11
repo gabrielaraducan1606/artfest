@@ -135,8 +135,14 @@ export function buildPickupParty({ vendor = null, billing = null, pickup = null 
       ? { name: clean(billing.companyName), cui: clean(billing.cui) || null, onrc: clean(billing.regCom) || null }
       : null;
 
+  // ID-urile Sameday salvate (providerRefs.SAMEDAY) - doar propuse resolverului,
+  // care le verifică în nomenclator; mapperul AWB primește numai ID-urile confirmate
+  const refs = pickup.providerRefs && typeof pickup.providerRefs === "object" ? pickup.providerRefs.SAMEDAY || null : null;
+
   const party = {
     addressId: pickup.id,
+    samedayCountyId: refs?.countyId ?? null,
+    samedayCityId: refs?.cityId ?? null,
     storeName: clean(vendor?.displayName) || null,
     // persoana care predă coletul (o caută curierul)
     name: clean(pickup.contactName),

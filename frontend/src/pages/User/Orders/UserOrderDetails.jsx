@@ -20,6 +20,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import styles from "./Orders.module.css";
+import { orderStatusDisplay } from "../../../lib/cardPaymentExpired.js";
 
 const ORDER_STATUS_LABEL = {
   PENDING: "În așteptare",
@@ -1422,17 +1423,22 @@ export default function MyOrderDetailsPage() {
     return null;
   }
 
-  const mainStatusLabel =
-    ORDER_STATUS_LABEL[
-      order.status
-    ] ||
-    order.status;
-
-  const mainStatusHelp =
-    ORDER_STATUS_HELP[
-      order.status
-    ] ||
-    "Vezi mai jos detaliile pe pachete și informațiile de livrare.";
+  // comenzile expirate din cauza plății CARD nefinalizate au mesaj dedicat
+  const {
+    label: mainStatusLabel,
+    help: mainStatusHelp,
+  } = orderStatusDisplay(order, {
+    label:
+      ORDER_STATUS_LABEL[
+        order.status
+      ] ||
+      order.status,
+    help:
+      ORDER_STATUS_HELP[
+        order.status
+      ] ||
+      "Vezi mai jos detaliile pe pachete și informațiile de livrare.",
+  });
 
   const isCompany =
     order.customerType ===
@@ -1673,7 +1679,12 @@ export default function MyOrderDetailsPage() {
       )}
 
       {/* Cererile de retur ale clientului - status + răspunsul vânzătorului */}
-      <UserReturnRequestsSection order={order} className={styles.card} />
+      <UserReturnRequestsSection
+        order={order}
+        className={styles.card}
+        // reîncărcare discretă după schimbarea metodei de retur (fără ecran de încărcare)
+        onChanged={async () => setOrder(await api(`/api/user/orders/${encodeURIComponent(id)}`))}
+      />
 
       {paymentResult ===
         "cancelled" &&

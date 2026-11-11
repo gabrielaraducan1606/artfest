@@ -19,6 +19,8 @@ import {
   pickGpsrPatchFromBody,
   validateGpsrConsistency,
 } from "../lib/gpsrCompliance.js";
+import { validateShippingProfile } from "../lib/productShipping.js";
+import { isHeldPrivate, requestsVisibility } from "../services/productReviewRequest.js";
 import {
   guardedProductUpdate,
   sendFairLockError,
@@ -227,6 +229,18 @@ router.patch(
             message:
               "Produsul nu a fost găsit.",
           });
+      }
+
+      /*
+       * Ajutorul Artfest: editorul nu publică. Publicarea rămâne acțiunea
+       * „Aprobă”, iar solicitarea se poate închide cu „Marchează ajutorul finalizat”.
+       */
+      if (isHeldPrivate(existing) && requestsVisibility(req.body)) {
+        return res.status(409).json({
+          error: "help_request_open",
+          message:
+            "Produsul rămâne privat cât timp solicitarea de ajutor e deschisă. Marchează ajutorul finalizat sau folosește „Aprobă”.",
+        });
       }
 
       /*
@@ -603,6 +617,20 @@ if (
         data,
         pickGpsrPatchFromBody(body)
       );
+
+      /* profil logistic (produsul ambalat): aceeași validare ca la vendor */
+      const shippingValidation =
+        validateShippingProfile(body, existing);
+
+      if (!shippingValidation.ok) {
+        return res.status(400).json({
+          error: shippingValidation.error,
+          field: shippingValidation.field,
+          message: shippingValidation.message,
+        });
+      }
+
+      Object.assign(data, shippingValidation.data);
 
       /* =================================================
          ACTIV / ASCUNS

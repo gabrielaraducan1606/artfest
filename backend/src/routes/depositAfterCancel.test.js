@@ -14,6 +14,17 @@ process.env.DATABASE_URL = "postgresql://test:test@127.0.0.1:5";
 process.env.JWT_SECRET = "test-secret";
 process.env.APP_URL = "https://app.test";
 process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+// Izolare email: nicio cheie / server real, indiferent de .env. Variabilele sunt
+// setate ÎNAINTE de orice import, iar dotenv (inclusiv cel din Prisma) nu
+// suprascrie o variabilă deja existentă. Mailerul e oricum simulat complet mai jos.
+process.env.RESEND_API_KEY = "";
+process.env.MAIL_PROVIDER = "smtp";
+process.env.SMTP_HOST = "127.0.0.1";
+process.env.SMTP_PORT = "1";
+for (const role of ["ADMIN", "CONTACT", "NOREPLY", "SUPPORT"]) {
+  process.env[`SMTP_USER_${role}`] = "";
+  process.env[`SMTP_PASS_${role}`] = "";
+}
 
 import { test, mock, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
@@ -81,6 +92,9 @@ function makeFakeDb() {
       },
       update: async ({ where: { id }, data }) => Object.assign(orders.get(id), data),
     },
+
+    // AWB-uri active prin integrare (activeAwbGuard): niciunul în aceste scenarii
+    courierAwb: { findFirst: async () => null },
 
     shipment: {
       findFirst: async ({ where }) => {
@@ -191,6 +205,8 @@ let fakeStripe;
 let server;
 let baseUrl;
 let restoreAll;
+// emailurile „trimise” prin mailerul simulat (nimic nu pleacă în afara procesului)
+const sentEmails = [];
 
 const dbProxy = new Proxy({}, { get: (_t, k) => fakeDb[k] });
 const stripeProxy = new Proxy({}, { get: (_t, k) => fakeStripe[k] });
@@ -203,7 +219,7 @@ before(async () => {
   reg("../lib/stripe.js", { stripe: stripeProxy });
   reg("../api/auth.js", {
     authRequired: (req, _res, next) => {
-      req.user = { sub: "user-1", email: "client@test.local" };
+      req.user = { sub: "user-1", email: "client@example.com" };
       next();
     },
     requireRole: () => (_req, _res, next) => next(),
@@ -214,7 +230,28 @@ before(async () => {
   const actualMessaging = await import("../services/orderMessaging.js");
   const actualStock = await import("../services/stockRestore.js");
 
-  reg("../lib/mailer.js", { ...actualMailer, sendOrderCancelledByUserEmail: async () => {} });
+  /*
+   * Mailer simulat COMPLET: fiecare funcție send* doar înregistrează apelul,
+   * iar makeTransport aruncă eroare (nu se construiește niciun transport
+   * Resend / SMTP). Rămân reale doar constantele și funcțiile pure care
+   * construiesc conținutul emailurilor.
+   */
+  const mailerMock = {};
+  for (const [name, value] of Object.entries(actualMailer)) {
+    if (name === "makeTransport") {
+      mailerMock[name] = () => {
+        throw new Error("mailer transport blocat în test");
+      };
+    } else if (typeof value === "function" && name.startsWith("send")) {
+      mailerMock[name] = async (...args) => {
+        sentEmails.push({ name, args });
+        return { ok: true, mocked: true };
+      };
+    } else {
+      mailerMock[name] = value;
+    }
+  }
+  reg("../lib/mailer.js", mailerMock);
   reg("../services/orderMessaging.js", {
     ...actualMessaging,
     sendOrderCancelledByUserNotifications: async () => {},
@@ -252,8 +289,8 @@ const vendorReady = {
   stripeDetailsSubmitted: true,
   stripeConnectStatus: "enabled",
   displayName: "Atelier A",
-  email: "a@v.ro",
-  user: { email: "a@u.ro" },
+  email: "vendor-a@example.com",
+  user: { email: "vendor-a-user@example.com" },
 };
 
 function seedCodOrderWithPendingDeposit({ guest = false } = {}) {
@@ -278,6 +315,7 @@ function seedCodOrderWithPendingDeposit({ guest = false } = {}) {
     orderId: "o1",
     vendorId: "vA",
     status: "PENDING",
+    direction: "OUTBOUND", // implicitul din schema Prisma
     depositStatus: "PENDING",
     depositPercent: 15,
     depositRequestedAmount: 15,

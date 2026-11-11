@@ -8,9 +8,16 @@
 // După anularea participării (CANCELLED) inventarul rămâne vizibil, DOAR
 // pentru citire: situația fiecărui produs și starea rezervării online.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BadgeCheck, Package, Pencil, Plus, Send, Tag, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, BadgeCheck, Camera, Package, Pencil, Plus, Send, Tag, Trash2, X } from "lucide-react";
 import { api } from "../../../lib/api";
+import { uploadFile } from "../../../lib/uploadFile";
+import {
+  centsToPriceInput,
+  newClientRequestId,
+  validateManualItem,
+  validatePhotoFile,
+} from "./fairManualItem.js";
 import {
   INVENTORY_API,
   INVENTORY_STATUS_LABEL,
@@ -175,9 +182,264 @@ function LabelingByArtfest() {
   );
 }
 
+/* ===================== Alegerea sursei (din magazin / manual) ===================== */
+
+function SourceSwitch({ source, onChange, disabled }) {
+  return (
+    <div className={styles.sourceSwitch} role="radiogroup" aria-label="Tipul produsului">
+      {[
+        { key: "catalog", label: "Din magazin" },
+        { key: "manual", label: "Produs manual" },
+      ].map((opt) => (
+        <button
+          key={opt.key}
+          type="button"
+          role="radio"
+          aria-checked={source === opt.key}
+          className={`${styles.sourceOption} ${source === opt.key ? styles.sourceOptionActive : ""}`}
+          onClick={() => onChange(opt.key)}
+          disabled={disabled}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ===================== Modal produs manual (adăugare / editare) ===================== */
+
+function ManualItemModal({ mode, item, onClose, onSaved, onSourceChange }) {
+  const [form, setForm] = useState(() => ({
+    title: item?.title || "",
+    declaredQty: item ? String(item.declaredQty) : "1",
+    priceRon: item ? centsToPriceInput(item.priceCents) : "",
+  }));
+  // fotografia: cea salvată (url), una nouă aleasă (file + preview) sau ștearsă
+  const [photo, setPhoto] = useState(() => ({ url: item?.imageUrl || null, file: null, preview: null }));
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef(null);
+  // același id la reîncercări => serverul nu creează a doua linie
+  const clientRequestIdRef = useRef(newClientRequestId());
+  // fotografia urcată deja (reîncercare după o eroare) nu se mai urcă o dată
+  const uploadedRef = useRef(null);
+
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && !saving && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, saving]);
+
+  useEffect(() => () => photo.preview && URL.revokeObjectURL(photo.preview), [photo.preview]);
+
+  function update(field, value) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    setFieldErrors((prev) => (prev[field] ? { ...prev, [field]: "" } : prev));
+  }
+
+  function choosePhoto(event) {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    if (!file) return;
+    const invalid = validatePhotoFile(file);
+    if (invalid) {
+      setFieldErrors((prev) => ({ ...prev, imageUrl: invalid }));
+      return;
+    }
+    uploadedRef.current = null;
+    setFieldErrors((prev) => ({ ...prev, imageUrl: "" }));
+    setPhoto({ url: null, file, preview: URL.createObjectURL(file) });
+  }
+
+  function removePhoto() {
+    uploadedRef.current = null;
+    setPhoto({ url: null, file: null, preview: null });
+  }
+
+  async function onSubmit(event) {
+    event.preventDefault();
+    if (saving) return;
+    setError("");
+    const errors = validateManualItem(form);
+    if (Object.keys(errors).length) {
+      setFieldErrors(errors);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      let imageUrl = photo.url;
+      if (photo.file) {
+        if (!uploadedRef.current) uploadedRef.current = await uploadFile(photo.file, "/api/upload/products");
+        imageUrl = uploadedRef.current;
+      }
+
+      const body = {
+        title: form.title.trim(),
+        declaredQty: Number(form.declaredQty),
+        priceRon: form.priceRon.trim(),
+      };
+
+      if (mode === "add") {
+        await api(`${INVENTORY_API}/manual`, {
+          method: "POST",
+          body: { ...body, imageUrl: imageUrl || null, clientRequestId: clientRequestIdRef.current },
+        });
+      } else {
+        // fotografia se trimite doar dacă s-a schimbat (nouă sau ștearsă)
+        const photoChanged = (imageUrl || null) !== (item.imageUrl || null);
+        await api(`${INVENTORY_API}/${encodeURIComponent(item.id)}`, {
+          method: "PATCH",
+          body: { ...body, ...(photoChanged ? { imageUrl: imageUrl || null } : {}) },
+        });
+      }
+      onSaved();
+    } catch (err) {
+      setFieldErrors(err?.data?.fields || {});
+      setError(errorMessage(err, "Nu am putut salva produsul."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const previewSrc = photo.preview || photo.url;
+
+  return (
+    <div className={styles.backdrop} onClick={() => !saving && onClose()} role="presentation">
+      <form
+        className={styles.modal}
+        role="dialog"
+        aria-modal="true"
+        aria-label={mode === "add" ? "Adaugă produs manual" : "Editează produsul"}
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={onSubmit}
+        noValidate
+      >
+        <div className={styles.modalHead}>
+          <h3>{mode === "add" ? "Adaugă produs în inventar" : "Editează produsul"}</h3>
+          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Închide" disabled={saving}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className={styles.modalBody}>
+          {mode === "add" && <SourceSwitch source="manual" onChange={onSourceChange} disabled={saving} />}
+          {mode === "add" && (
+            <p className={styles.hint}>
+              Pentru produsele care nu sunt în magazinul tău online. Produsul apare doar în inventarul târgului și nu
+              se publică în magazin.
+            </p>
+          )}
+
+          <label className={styles.field}>
+            <span className={styles.label}>Denumire produs</span>
+            <input
+              className={styles.input}
+              value={form.title}
+              maxLength={200}
+              autoComplete="off"
+              enterKeyHint="next"
+              onChange={(e) => update("title", e.target.value)}
+              aria-invalid={fieldErrors.title ? "true" : undefined}
+            />
+            {fieldErrors.title && <span className={styles.fieldError}>{fieldErrors.title}</span>}
+          </label>
+
+          <div className={styles.fieldRow}>
+            <label className={styles.field}>
+              <span className={styles.label}>Cantitate</span>
+              <input
+                className={styles.input}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={1000}
+                step={1}
+                value={form.declaredQty}
+                onChange={(e) => update("declaredQty", e.target.value)}
+                aria-invalid={fieldErrors.declaredQty ? "true" : undefined}
+              />
+              {fieldErrors.declaredQty && <span className={styles.fieldError}>{fieldErrors.declaredQty}</span>}
+            </label>
+
+            <label className={styles.field}>
+              <span className={styles.label}>Preț unitar (lei)</span>
+              <input
+                className={styles.input}
+                type="text"
+                inputMode="decimal"
+                placeholder="ex. 45,50"
+                value={form.priceRon}
+                onChange={(e) => update("priceRon", e.target.value)}
+                aria-invalid={fieldErrors.priceRon ? "true" : undefined}
+              />
+              {fieldErrors.priceRon && <span className={styles.fieldError}>{fieldErrors.priceRon}</span>}
+            </label>
+          </div>
+
+          <div className={styles.field}>
+            <span className={styles.label}>Fotografie (opțional)</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className={styles.visuallyHidden}
+              onChange={choosePhoto}
+              tabIndex={-1}
+              aria-hidden="true"
+            />
+            {previewSrc ? (
+              <div className={styles.photoPreview}>
+                <img src={previewSrc} alt="Previzualizare fotografie produs" />
+                <div className={styles.photoActions}>
+                  <button type="button" className={styles.btnSmall} onClick={() => fileInputRef.current?.click()} disabled={saving}>
+                    <Camera size={14} aria-hidden="true" /> Înlocuiește
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.btnSmall} ${styles.btnDanger}`}
+                    onClick={removePhoto}
+                    disabled={saving}
+                  >
+                    <Trash2 size={14} aria-hidden="true" /> Șterge
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className={styles.photoDrop} onClick={() => fileInputRef.current?.click()} disabled={saving}>
+                <Camera size={22} aria-hidden="true" />
+                <span>Adaugă o fotografie</span>
+                <small>Din galerie sau direct cu camera telefonului</small>
+              </button>
+            )}
+            {fieldErrors.imageUrl && <span className={styles.fieldError}>{fieldErrors.imageUrl}</span>}
+          </div>
+
+          {error && (
+            <div className={styles.errorBox} role="alert">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className={styles.modalFoot}>
+          <button type="button" className={styles.btnGhost} onClick={onClose} disabled={saving}>
+            Renunță
+          </button>
+          <button type="submit" className={styles.btn} disabled={saving}>
+            {saving ? "Se salvează…" : mode === "add" ? "Adaugă în inventar" : "Salvează"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /* ===================== Modal adăugare / editare ===================== */
 
-function ItemModal({ mode, item, products, onClose, onSaved }) {
+function ItemModal({ mode, item, products, onClose, onSaved, onSourceChange }) {
   const [form, setForm] = useState(() =>
     item
       ? {
@@ -292,6 +554,7 @@ function ItemModal({ mode, item, products, onClose, onSaved }) {
         </div>
 
         <div className={styles.modalBody}>
+          {mode === "add" && onSourceChange && <SourceSwitch source="catalog" onChange={onSourceChange} disabled={saving} />}
           {mode === "add" ? (
             <div className={styles.field}>
               <span className={styles.label}>Produs</span>
@@ -489,7 +752,7 @@ export default function FairInventorySection() {
   }, [load]);
 
   async function openAdd() {
-    setModal({ mode: "add" });
+    setModal({ mode: "add", source: "catalog" });
     setNotice("");
     if (products === null) {
       try {
@@ -637,7 +900,7 @@ export default function FairInventorySection() {
         <p className={styles.empty}>
           {readOnly
             ? "Nu ai produse în inventarul pentru târg."
-            : "Nu ai adăugat încă produse. Toate produsele aduse sau trimise la târg trebuie să fie listate pe Artfest."}
+            : "Nu ai adăugat încă produse. Adaugă produsele aduse sau trimise la târg, din magazinul tău sau manual."}
         </p>
       ) : (
         <ul className={styles.list}>
@@ -654,6 +917,7 @@ export default function FairInventorySection() {
                   <div className={styles.itemTitle}>
                     <strong>{item.title}</strong>
                     {item.variantLabel && <span>{item.variantLabel}</span>}
+                    {item.isManual && <span className={styles.manualTag}>Adăugat manual</span>}
                   </div>
                   {readOnly ? (
                     <span className={`${styles.badge} ${styles[`tone_${SITUATION_TONE[item.situation] || "muted"}`]}`}>
@@ -672,8 +936,16 @@ export default function FairInventorySection() {
                     <dd>{formatPrice(item.priceCents)}</dd>
                   </div>
                   <div>
-                    <dt>Cantitate</dt>
-                    <dd>{item.declaredQty}</dd>
+                    <dt>Cantitate inițială</dt>
+                    <dd>{item.initialQty ?? item.declaredQty}</dd>
+                  </div>
+                  <div>
+                    <dt>Disponibil</dt>
+                    <dd>{item.availableQty ?? item.declaredQty}</dd>
+                  </div>
+                  <div>
+                    <dt>Valoare totală</dt>
+                    <dd>{formatPrice(item.totalValueCents ?? item.priceCents * item.declaredQty)}</dd>
                   </div>
                   <div>
                     <dt>Cod</dt>
@@ -746,19 +1018,35 @@ export default function FairInventorySection() {
         </ul>
       )}
 
-      {modal && (
-        <ItemModal
-          mode={modal.mode}
-          item={modal.item}
-          products={products}
-          onClose={() => setModal(null)}
-          onSaved={() => {
+      {modal &&
+        (() => {
+          const onSaved = () => {
             setModal(null);
             setNotice(modal.mode === "add" ? "Produsul a fost adăugat în inventar." : "Modificările au fost salvate.");
             load();
-          }}
-        />
-      )}
+          };
+          const onSourceChange = (source) => setModal((prev) => (prev ? { ...prev, source } : prev));
+          const manual = modal.mode === "add" ? modal.source === "manual" : Boolean(modal.item?.isManual);
+          return manual ? (
+            <ManualItemModal
+              key={modal.mode === "add" ? "manual-add" : `manual-${modal.item.id}`}
+              mode={modal.mode}
+              item={modal.item}
+              onClose={() => setModal(null)}
+              onSaved={onSaved}
+              onSourceChange={onSourceChange}
+            />
+          ) : (
+            <ItemModal
+              mode={modal.mode}
+              item={modal.item}
+              products={products}
+              onClose={() => setModal(null)}
+              onSaved={onSaved}
+              onSourceChange={modal.mode === "add" ? onSourceChange : undefined}
+            />
+          );
+        })()}
     </section>
   );
 }

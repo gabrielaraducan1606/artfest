@@ -15,6 +15,11 @@ import {
 
 import styles from "../../AdminDesktop.module.css";
 
+import {
+  AI_IMAGE_EDITING_ENABLED,
+  AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE,
+} from "../../../../../config/features.js";
+
 const FEATURE_TYPES = {
   PRODUCT_OF_DAY:
     "PRODUCT_OF_DAY",
@@ -1124,6 +1129,11 @@ const upcomingFeatures =
   async function generateFeatureImage(
     feature
   ) {
+    // oprit temporar (gpt-image-1 retras) - niciun request, vezi config/features.js
+    if (!AI_IMAGE_EDITING_ENABLED) {
+      return;
+    }
+
     const status =
       getFeatureStatus(
         feature
@@ -2184,24 +2194,61 @@ function ProductOfDayImagePanel({
           </button>
         )}
 
-        <button
-          type="button"
-          className={styles.tab}
-          disabled={generating}
-          onClick={() =>
-            onGenerate(feature)
-          }
-        >
-          {generating
-            ? "Se generează…"
-            : hasImage
+        {AI_IMAGE_EDITING_ENABLED ? (
+          <button
+            type="button"
+            className={styles.tab}
+            disabled={generating}
+            onClick={() =>
+              onGenerate(feature)
+            }
+          >
+            {generating
+              ? "Se generează…"
+              : hasImage
+                ? "Regenerare"
+                : "Generează imagine"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={styles.tab}
+            disabled
+            aria-disabled="true"
+            title={
+              AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE
+            }
+            style={
+              AI_IMAGE_UNAVAILABLE_BUTTON_STYLE
+            }
+          >
+            {hasImage
               ? "Regenerare"
               : "Generează imagine"}
-        </button>
+          </button>
+        )}
       </div>
+
+      {!AI_IMAGE_EDITING_ENABLED && (
+        <span className={styles.subtle}>
+          {
+            AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE
+          }
+        </span>
+      )}
     </div>
   );
 }
+
+/* buton „Generează imagine” când generarea AI e oprită temporar */
+const AI_IMAGE_UNAVAILABLE_BUTTON_STYLE = {
+  background: "var(--surface-muted, #f2f2f3)",
+  color: "var(--text-disabled, #9ca3af)",
+  borderColor: "var(--color-border, #e5e5e5)",
+  boxShadow: "none",
+  transition: "none",
+  cursor: "not-allowed",
+};
 
 function StatusBadge({
   active,

@@ -25,6 +25,13 @@ import {
   notifyVendorsAboutCustomerRequest,
 } from "../services/customerRequestVendorNotifications.js";
 
+import {
+  activeCustomerRequestWhere,
+  expireCustomerRequestIfDue,
+  isCustomerRequestExpired,
+  sweepExpiredCustomerRequests,
+} from "../services/customerRequestExpiry.js";
+
 const router = Router();
 
 /* =========================================================
@@ -897,25 +904,25 @@ router.get(
           );
       }
 
+      /*
+       * Cererile OPEN expirate devin persistent EXPIRED (lazy, cel mult o
+       * dată pe minut - services/customerRequestExpiry.js). Filtrul de mai
+       * jos rămâne: lista activă nu arată nimic expirat nici între treceri.
+       */
+      // ?status=EXPIRED (rar folosit) -> trecere imediată, ca lista să fie completă
+      await sweepExpiredCustomerRequests({
+        force:
+          status ===
+          "EXPIRED",
+      });
+
       if (
         status ===
         "OPEN"
       ) {
         where.AND = [
           {
-            OR: [
-              {
-                expiresAt:
-                  null,
-              },
-
-              {
-                expiresAt: {
-                  gt:
-                    new Date(),
-                },
-              },
-            ],
+            OR: activeCustomerRequestWhere().OR,
           },
         ];
       }
@@ -1111,6 +1118,31 @@ router.post(
       }
 
       /* =====================================================
+         VERIFICĂM EXPIRAREA
+         (EXPIRED sau OPEN cu termenul trecut -> marcată EXPIRED)
+      ===================================================== */
+
+      if (
+        isCustomerRequestExpired(
+          customerRequest
+        )
+      ) {
+        await expireCustomerRequestIfDue(
+          customerRequest
+        );
+
+        return res
+          .status(409)
+          .json({
+            error:
+              "customer_request_expired",
+
+            message:
+              "Această cerere a expirat și nu mai primește oferte.",
+          });
+      }
+
+      /* =====================================================
          DOAR CERERI DESCHISE
       ===================================================== */
 
@@ -1126,26 +1158,6 @@ router.post(
 
             message:
               "Această cerere nu mai primește oferte.",
-          });
-      }
-
-      /* =====================================================
-         VERIFICĂM EXPIRAREA
-      ===================================================== */
-
-      if (
-        customerRequest.expiresAt &&
-        customerRequest.expiresAt <
-          new Date()
-      ) {
-        return res
-          .status(409)
-          .json({
-            error:
-              "customer_request_expired",
-
-            message:
-              "Această cerere a expirat și nu mai primește oferte.",
           });
       }
 
@@ -1880,10 +1892,18 @@ router.post(
          VALIDĂM CEREREA
       ===================================================== */
 
+      /*
+       * Clientul continuă cu o ofertă PRIMITĂ deja: permis și după expirare
+       * (EXPIRED), ca înainte de marcarea explicită, când cererea expirată
+       * rămânea OPEN. Expirarea oprește doar ofertele NOI de la vânzători.
+       */
       if (
         customerRequest
           .status !==
-        "OPEN"
+          "OPEN" &&
+        customerRequest
+          .status !==
+          "EXPIRED"
       ) {
         return res
           .status(409)
@@ -2703,9 +2723,15 @@ router.get(
           });
       }
 
+      // OPEN cu termenul trecut -> EXPIRED (persistat); cererea rămâne vizibilă, fără oferte noi
+      const current =
+        await expireCustomerRequestIfDue(
+          request
+        );
+
       const serialized =
         serializeRequest(
-          request
+          current
         );
 
       /* =====================================================

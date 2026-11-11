@@ -1,4 +1,5 @@
 // src/routes/adminRoutes.js
+import { productCountsByService, vendorShippingSetup } from "../services/shipping/vendorShippingSetup.js";
 import { Router } from "express";
 import crypto from "crypto";
 import Stripe from "stripe";
@@ -6,6 +7,7 @@ import { prisma } from "../db.js";
 import { authRequired, requireRole } from "../api/auth.js";
 import { sendPasswordResetEmail } from "../lib/mailer.js";
 import { loadReturnLedgerState, evaluateReturnRefunds } from "../services/returnRefundStatus.js";
+import { summarizeReviewRequest } from "../services/productReviewRequest.js";
 
 const router = Router();
 
@@ -615,10 +617,16 @@ marketingPrefs: {
   },
 },
         _count: { select: { services: true, visitors: true, supportTickets: true } },
-        services: { include: { profile: true } },
+        services: { include: { profile: true, type: { select: { code: true } } } },
         VendorAcceptance: { select: { document: true, version: true, acceptedAt: true } },
       },
     });
+
+    // tariful de rezervă: obligatoriu doar la magazinele cu produse fizice prin checkout
+    const shippingProductCounts = await productCountsByService(
+      prisma,
+      vendors.flatMap((v) => (v.services || []).map((s) => s.id))
+    );
 
     const vendorsWithFollowers = await Promise.all(
       vendors.map(async (v) => {
@@ -739,9 +747,14 @@ services: services.map((service) => {
     v.email ||
     "";
 
+  const shippingSetup = vendorShippingSetup({
+    typeCode: service.type?.code,
+    estimatedShippingFeeCents,
+    ...(shippingProductCounts.get(service.id) || {}),
+  });
+
   const shippingComplete =
-    estimatedShippingFeeCents !== null &&
-    estimatedShippingFeeCents >= 0 &&
+    shippingSetup.status !== "incomplete" &&
     Boolean(returnAddress) &&
     Boolean(returnPhone) &&
     Boolean(returnEmail);
@@ -762,6 +775,7 @@ services: services.map((service) => {
     estimatedShippingFeeCents,
     freeShippingThresholdCents,
     shippingNotes: service.shippingNotes || null,
+    shippingSetupStatus: shippingSetup.status,
 
     returnAddress,
     returnPhone,
@@ -1125,7 +1139,18 @@ router.get("/orders", async (req, res) => {
   }
 });
 
-router.get("/products", async (req, res) => {
+router.get("/products", async (req, res, next) => {
+  /*
+   * Acest router e montat pe /api/admin ÎNAINTEA lui adminProducts.js, deci acest
+   * GET /products îl umbrea pe cel de acolo. Solicitările de ajutor ale vânzătorilor
+   * („Ajutor configurare”, „Verificare solicitată”: ?reviewRequested=1) se filtrează și se
+   * rezumă DOAR în adminProducts.js -> le predăm acolo. Lista obișnuită rămâne aici.
+   */
+  const reviewRequested = String(req.query?.reviewRequested || "").trim().toLowerCase();
+  if (reviewRequested === "1" || reviewRequested === "true") return next();
+  // același motiv: filtrul „Filtru GPSR” (?gpsr=...) există doar în adminProducts.js
+  if (String(req.query?.gpsr || "").trim()) return next();
+
   try {
     const {
       q = "",
@@ -1266,6 +1291,9 @@ router.get("/products", async (req, res) => {
         ...p,
 
         price: Math.round(Number(p.priceCents || 0)) / 100,
+
+        // solicitarea de ajutor a vânzătorului (mesajul inclus), ca în adminProducts.js
+        reviewRequest: summarizeReviewRequest(p),
 
         service: {
           id: service?.id || null,

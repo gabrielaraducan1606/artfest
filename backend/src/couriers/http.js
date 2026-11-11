@@ -3,14 +3,16 @@
 import rateLimit from "express-rate-limit";
 import { prisma } from "../db.js";
 import { isCourierError } from "./errors.js";
+import { AWB_LIVE_DISABLED_CODE, AWB_LIVE_DISABLED_MESSAGE, isCourierAwbLiveEnabled } from "./awbLive.js";
 
 /*
  * Helperi HTTP comuni rutelor de curier (conturi, adrese, AWB).
  */
 
 /*
- * Flag backend pentru integrarea de curierat a VENDORILOR (conturi, adrese
- * de ridicare, generare / anulare AWB, etichete Artfest):
+ * Flag backend pentru integrarea de curierat a VENDORILOR (conturi de curier,
+ * previzualizare / generare / anulare AWB, etichete Artfest; adresele de
+ * ridicare NU depind de el; AWB-ul real cere în plus COURIER_AWB_LIVE_ENABLED):
  *   COURIER_INTEGRATION_ENABLED = "1" / "true" -> pornit
  *   orice altă valoare sau nesetat             -> OPRIT (și local: NODE_ENV
  *                                                 nu mai activează nimic singur)
@@ -21,6 +23,16 @@ import { isCourierError } from "./errors.js";
 export function isCourierIntegrationEnabled(env = process.env) {
   const raw = String(env.COURIER_INTEGRATION_ENABLED ?? "").trim().toLowerCase();
   return raw === "1" || raw === "true";
+}
+
+/*
+ * AWB REAL (COURIER_AWB_LIVE_ENABLED, vezi couriers/awbLive.js) - în plus față
+ * de comutatorul general; folosit pe ruta de creare AWB. Serviciul și providerul
+ * verifică același flag (apărare în profunzime).
+ */
+export function requireCourierAwbLive(_req, res, next) {
+  if (isCourierAwbLiveEnabled()) return next();
+  return res.status(503).json({ error: AWB_LIVE_DISABLED_CODE, message: AWB_LIVE_DISABLED_MESSAGE });
 }
 
 export function requireCourierIntegration(_req, res, next) {
@@ -67,6 +79,17 @@ export function courierApiLimiter({ max, windowMs = 10 * 60 * 1000 } = {}) {
  * Altceva -> 500 generic; în log doar tipul erorii (mesajul poate conține
  * date din request).
  */
+// eticheta AWB (PDF de la curier) -> răspuns fără cache, cu nume de fișier sigur
+export function sendAwbLabelPdf(res, label) {
+  const safe = String(label.awbNumber || "").replace(/[^A-Za-z0-9-]/g, "").slice(0, 60);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="AWB-${safe || "eticheta"}.pdf"`);
+  res.setHeader("Content-Length", String(label.buffer.length));
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  return res.send(label.buffer);
+}
+
 export function handleCourier(fn, logLabel = "couriers") {
   return async (req, res) => {
     try {

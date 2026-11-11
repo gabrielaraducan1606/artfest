@@ -3,6 +3,12 @@ import crypto from "crypto";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import {
+  recordOrderMovements,
+  reservationTouches,
+  reserveOrderStock,
+  variantIdFor,
+} from "../services/inventory/inventoryService.js";
+import {
   sendOrderConfirmationEmail,
   sendVendorNewOrderEmail,
 } from "../lib/mailer.js";
@@ -58,7 +64,31 @@ import {
   realizeDiscountCodeAmount,
   redeemDiscountCode,
 } from "../services/discountCodeValidation.js";
+import { deliveryCatalog } from "../services/shipping/deliveryCatalog.js";
+import {
+  buildDeliverySnapshot,
+  DeliverySelectionError,
+  alignSnapshotWithOrderAddress,
+  priceGroupShipping,
+  resolveGroupShippingPrice,
+  shipmentDeliveryCreate,
+  publicDelivery,
+  validateGroupSelection,
+} from "../services/shipping/deliverySelection.js";
+import { getPrimaryShippingPricer } from "../services/shipping/samedayCheckoutPricer.js";
+import { isSamedayCheckoutActive } from "../services/shipping/checkoutMode.js";
+import { createUserOohLocationService, oohLocationsFromQuote } from "../services/shipping/userOohLocation.js";
 const router = Router();
+
+/* eroare de validare a livrării -> 400 cu mesaj pentru client */
+function deliveryErrorBody(error) {
+  return { error: error.code, message: error.message, serviceId: error.groupKey || null };
+}
+
+/* răspunsul de quote către frontend: fără snapshot-ul intern (ID serviciu etc.) */
+function publicQuote(quote) {
+  return { ...quote, shipments: (quote.shipments || []).map(({ delivery: _delivery, ...rest }) => rest) };
+}
 
 /*
  * GET /checkout/summary nu poate trimite un body JSON, așa
@@ -720,6 +750,12 @@ function mapCartItemForCheckout(
         it.qty || 0
       ),
 
+    // profilul logistic al produsului (intern: coletul pentru estimate-cost)
+    shippingWeightGrams: product.shippingWeightGrams ?? null,
+    shippingLengthCm: product.shippingLengthCm ?? null,
+    shippingWidthCm: product.shippingWidthCm ?? null,
+    shippingHeightCm: product.shippingHeightCm ?? null,
+
     selectedOptions:
       (it.variantPricing?.ok
         ? it.variantPricing.selectedOptions
@@ -967,7 +1003,15 @@ function buildNormalizedShippingAddress(address) {
     postalCode: normalizeText(address?.postalCode),
     street: normalizeText(address?.street),
     notes: normalizeText(address?.notes),
+    // ID-urile Sameday alese din nomenclator (validate la quote / place)
+    samedayCountyId: positiveIntOrNull(address?.samedayCountyId),
+    samedayCityId: positiveIntOrNull(address?.samedayCityId),
   };
+}
+
+function positiveIntOrNull(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 function buildNormalizedBillingAddress(billingAddress) {
@@ -1379,6 +1423,11 @@ async function getGuestCart(
         isHidden: true,
         moderationStatus: true,
         orderMode: true,
+        // profil logistic -> coletul pentru tariful Sameday
+        shippingWeightGrams: true,
+        shippingLengthCm: true,
+        shippingWidthCm: true,
+        shippingHeightCm: true,
         optionsSchema: true,
         repeatedGroups: true,
 
@@ -1812,6 +1861,11 @@ router.get(
                   true,
 
                 orderMode: true,
+                // profil logistic -> coletul pentru tariful Sameday
+                shippingWeightGrams: true,
+                shippingLengthCm: true,
+                shippingWidthCm: true,
+                shippingHeightCm: true,
 
                 optionsSchema: true,
 
@@ -2906,52 +2960,99 @@ router.post(
 /**
  * SHIPPING QUOTE
  */
-async function quoteShipping({ groups, selections }) {
-  const shipments = groups.map((g) => {
+/*
+ * Alegerea livrării per magazin (services/shipping/deliverySelection.js):
+ * cu checkout-ul nou activ (checkoutMode.js), metoda (adresă / easybox / Sameday Point) și
+ * locația sunt validate pe server; costul se recalculează mereu aici.
+ * Fără flag: doar livrarea la adresă (ca până acum) - un lockerId trimis de
+ * frontend NU mai e acceptat nevalidat.
+ */
+// liveOoh = true DOAR la plasare: easybox / Sameday Point revalidate punctual
+// (oohList=<id>); la quote rămâne lista din cache (fără apel Sameday la fiecare recalculare)
+// allowUnpriced = true DOAR la quote: un magazin fără niciun tarif (Sameday indisponibil +
+// fără tarif de rezervă) e marcat separat, ceilalți își primesc prețul; la plasare -> 400 pe acel magazin
+async function quoteShipping({ groups, selections, address = null, catalog = null, liveOoh = false, allowUnpriced = false }) {
+  const samedayCheckout = await isSamedayCheckoutActive();
+  const cat = samedayCheckout ? catalog || deliveryCatalog() : null;
+  const services = samedayCheckout ? await cat.getServices() : null;
+  // sursa principală de preț (tariful Sameday); indisponibilă -> tariful de rezervă al vendorului
+  const primaryPricer = samedayCheckout ? getPrimaryShippingPricer() : null;
+
+  // magazinele se calculează în paralel (fiecare estimare Sameday are propriul termen),
+  // ordinea rezultatelor rămâne cea a coșului
+  const shipments = await Promise.all(groups.map(async (g) => {
     const key = String(g.serviceId);
-    const sel = selections?.[key] || { method: "COURIER" };
-    const method = sel.method === "LOCKER" ? "LOCKER" : "COURIER";
+    let pricing = priceGroupShipping(g);
+    let delivery = null;
+    let method = "COURIER";
 
-    const estimatedShippingFeeCents =
-      g.estimatedShippingFeeCents != null
-        ? Number(g.estimatedShippingFeeCents)
-        : 0;
-
-    const freeShippingThresholdCents =
-      g.freeShippingThresholdCents != null
-        ? Number(g.freeShippingThresholdCents)
-        : null;
-
-    const vendorSubtotalCents = g.items.reduce(
-      (sum, it) =>
-        sum + Math.round(Number(it.price || 0) * 100) * Number(it.qty || 0),
-      0
-    );
-
-    const qualifiesFreeShipping =
-      freeShippingThresholdCents != null &&
-      vendorSubtotalCents >= freeShippingThresholdCents;
-
-    const finalShippingCents = qualifiesFreeShipping
-      ? 0
-      : estimatedShippingFeeCents;
+    if (samedayCheckout) {
+      const validated = await validateGroupSelection({
+        selection: selections?.[key],
+        address,
+        catalog: cat,
+        services,
+        groupKey: key,
+        liveOoh,
+      });
+      try {
+        pricing = await resolveGroupShippingPrice({
+          group: g,
+          method: validated.method,
+          serviceId: validated.serviceId,
+          ooh: validated.ooh,
+          place: validated.place,
+          address,
+          groupKey: key,
+          primaryPricer,
+        });
+      } catch (error) {
+        if (!(allowUnpriced && error instanceof DeliverySelectionError && error.code === "shipping_price_unavailable")) throw error;
+        // niciun tarif inventat: magazinul apare fără preț, cu mesajul pentru client
+        return {
+          serviceId: g.serviceId,
+          vendorId: g.vendorId,
+          method: validated.method === "HOME" ? "COURIER" : "LOCKER",
+          lockerId: null,
+          delivery: null,
+          publicDelivery: null,
+          price: null,
+          priceUnavailable: true,
+          priceUnavailableMessage: error.message,
+          shippingNotes: g.shippingNotes || null,
+          qualifiesFreeShipping: false,
+        };
+      }
+      delivery = buildDeliverySnapshot({
+        validated,
+        address,
+        priceCents: pricing.priceCents,
+        pricingSource: pricing.pricingSource,
+        fallbackReason: pricing.fallbackReason,
+        carrierCostCents: pricing.carrierCostCents,
+      });
+      // câmpul vechi Shipment.method: easybox și Sameday Point = livrare la punct fix
+      method = validated.method === "HOME" ? "COURIER" : "LOCKER";
+    }
 
     return {
       serviceId: g.serviceId,
       vendorId: g.vendorId,
       method,
-      lockerId: method === "LOCKER" ? sel.lockerId || null : null,
-      price: dec(finalShippingCents / 100),
-      estimatedShippingFee: dec(estimatedShippingFeeCents / 100),
+      lockerId: null,
+      delivery,
+      publicDelivery: publicDelivery(delivery),
+      price: dec(pricing.priceCents / 100),
+      estimatedShippingFee: dec(pricing.estimatedShippingFeeCents / 100),
       freeShippingThreshold:
-        freeShippingThresholdCents != null
-          ? dec(freeShippingThresholdCents / 100)
+        pricing.freeShippingThresholdCents != null
+          ? dec(pricing.freeShippingThresholdCents / 100)
           : null,
       shippingNotes: g.shippingNotes || null,
-      qualifiesFreeShipping,
-      vendorSubtotal: dec(vendorSubtotalCents / 100),
+      qualifiesFreeShipping: pricing.qualifiesFreeShipping,
+      vendorSubtotal: dec(pricing.vendorSubtotalCents / 100),
     };
-  });
+  }));
 
   const totalShipping = dec(
     shipments.reduce((s, x) => s + Number(x.price || 0), 0)
@@ -2967,6 +3068,16 @@ async function quoteShipping({ groups, selections }) {
 /**
  * QUOTE
  */
+/*
+ * Varianta de stoc a unei linii de comandă (ShipmentItem.variantIdSnapshot),
+ * doar pentru produsele cu stoc pe variante - celelalte linii rămân exact
+ * ca înainte (fără câmpul nou).
+ */
+function variantSnapshotFields(stockReservation, item) {
+  const variantId = variantIdFor(stockReservation, item.productId, item.selectedOptions);
+  return variantId ? { variantIdSnapshot: variantId } : {};
+}
+
 router.post("/checkout/quote", authRequired, async (req, res) => {
   const address = buildNormalizedShippingAddress(req.body?.address || {});
   const selections = req.body?.selections || {};
@@ -2990,6 +3101,11 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
 styleTags: true,
 occasionTags: true,
           orderMode: true,
+          // profil logistic -> coletul pentru tariful Sameday
+          shippingWeightGrams: true,
+          shippingLengthCm: true,
+          shippingWidthCm: true,
+          shippingHeightCm: true,
           optionsSchema: true,
           repeatedGroups: true,
           service: {
@@ -3043,10 +3159,16 @@ const groups =
     cart,
     pricingByProductId
   );
-  const q = await quoteShipping({ groups, selections });
+  let q;
+  try {
+    q = await quoteShipping({ groups, selections, address, allowUnpriced: true });
+  } catch (error) {
+    if (error instanceof DeliverySelectionError) return res.status(400).json(deliveryErrorBody(error));
+    throw error;
+  }
 
   const quoteId = `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  res.json({ id: quoteId, ...q });
+  res.json({ id: quoteId, ...publicQuote(q) });
 });
 
 router.post("/checkout/guest/quote", async (req, res) => {
@@ -3110,10 +3232,18 @@ const groups =
     pricingByProductId
   );
 
-    const quote = await quoteShipping({
-      groups,
-      selections,
-    });
+    let quote;
+    try {
+      quote = await quoteShipping({
+        groups,
+        selections,
+        address,
+        allowUnpriced: true,
+      });
+    } catch (error) {
+      if (error instanceof DeliverySelectionError) return res.status(400).json(deliveryErrorBody(error));
+      throw error;
+    }
 
     const quoteId =
       `q_${Date.now()}_${Math.random()
@@ -3122,7 +3252,7 @@ const groups =
 
     return res.json({
       id: quoteId,
-      ...quote,
+      ...publicQuote(quote),
     });
   } catch (err) {
     console.error(
@@ -3278,6 +3408,11 @@ occasionTags: true,
             isHidden: true,
             moderationStatus: true,
             orderMode: true,
+            // profil logistic -> coletul pentru tariful Sameday
+            shippingWeightGrams: true,
+            shippingLengthCm: true,
+            shippingWidthCm: true,
+            shippingHeightCm: true,
             optionsSchema: true,
             repeatedGroups: true,
             service: {
@@ -3611,7 +3746,13 @@ const groups =
     cart,
     pricingByProductId
   );
-    const quote = await quoteShipping({ groups, selections: selections || {} });
+    let quote;
+    try {
+      quote = await quoteShipping({ groups, selections: selections || {}, address: normalizedAddress, liveOoh: true });
+    } catch (error) {
+      if (error instanceof DeliverySelectionError) return res.status(400).json(deliveryErrorBody(error));
+      throw error;
+    }
     const shippingTotal = dec(quote.totalShipping);
     const total = dec(subtotal + shippingTotal);
 
@@ -3785,82 +3926,16 @@ for (const v of vendors) {
             companyName: normalizedBillingAddress?.companyName || "",
           }
         : normalizedAddress;
-const quantitiesByProductId = new Map();
+    let stockReservation = null;
 
-for (const item of cart) {
-  quantitiesByProductId.set(
-    item.productId,
-    Number(quantitiesByProductId.get(item.productId) || 0) +
-      Number(item.qty || 0)
-  );
-}
     const created = await prisma.$transaction(async (tx) => {
-      for (const [productId, qty] of quantitiesByProductId.entries()) {
-
-        if (!productId || qty <= 0) continue;
-
-        const product = await tx.product.findUnique({
-          where: { id: productId },
-          select: {
-            id: true,
-            title: true,
-            availability: true,
-            readyQty: true,
-            isActive: true,
-            isHidden: true,
-            moderationStatus: true,
-          },
-        });
-
-        if (!product) throw new Error("product_not_found");
-
-        if (
-          product.isActive === false ||
-          product.isHidden === true ||
-          product.moderationStatus !== "APPROVED"
-        ) {
-          throw new Error("product_unavailable");
-        }
-
-        const availability = String(product.availability || "READY").toUpperCase();
-
-        if (availability === "SOLD_OUT") {
-          throw new Error("product_sold_out");
-        }
-
-        if (availability === "READY" && product.readyQty !== null) {
-          const currentQty = Number(product.readyQty);
-
-          if (!Number.isFinite(currentQty) || currentQty < qty) {
-            throw new Error("insufficient_stock");
-          }
-
-          const nextQty = currentQty - qty;
-
-          const updatedStock = await tx.product.updateMany({
-            where: {
-              id: productId,
-              readyQty: { gte: qty },
-              isActive: true,
-              isHidden: false,
-              moderationStatus: "APPROVED",
-              availability: "READY",
-            },
-            data: {
-              readyQty: { decrement: qty },
-              availability: nextQty <= 0 ? "SOLD_OUT" : "READY",
-            },
-          });
-
-          if (updatedStock.count !== 1) {
-            throw new Error("insufficient_stock");
-          }
-
-          if (nextQty <= 0) {
-            soldOutProductIds.push(productId);
-          }
-        }
-      }
+      /*
+       * Verificăm și scădem stocul o singură dată pe produs / variantă
+       * (services/inventory/inventoryService.js - aceeași regulă pentru
+       * COD și CARD, cu cont și guest).
+       */
+      stockReservation = await reserveOrderStock(tx, cart);
+      soldOutProductIds.push(...stockReservation.soldOutProductIds);
 
       const order = await tx.order.create({
         data: {
@@ -4031,6 +4106,8 @@ for (const item of cart) {
             lockerId: s.lockerId || null,
             price: dec(s.price),
             status: "PENDING",
+            // snapshot-ul livrării validat pe server (doar cu checkout-ul nou activ - checkoutMode.js)
+            ...shipmentDeliveryCreate(alignSnapshotWithOrderAddress(s.delivery, shippingAddressForOrder, normalizedAddress)),
 
             campaignId: shipmentAttribution?.campaignId || null,
             campaignCommissionBps: shipmentAttribution
@@ -4219,9 +4296,25 @@ configurationKey:
           item.discountSource === "DISCOUNT_CODE"
             ? item.discount?.discountCodeFundingSource || null
             : null,
+
+        // varianta de stoc a liniei (doar produsele cu stoc pe variante)
+        ...variantSnapshotFields(stockReservation, item),
       };
     }),
   });
+
+  // istoricul stocului: ORDER_PLACED pe liniile scăzute din stoc
+  if (reservationTouches(stockReservation, its)) {
+    await recordOrderMovements(tx, {
+      orderId: order.id,
+      shipmentId: sh.id,
+      items: await tx.shipmentItem.findMany({
+        where: { shipmentId: sh.id },
+        select: { id: true, productId: true, qty: true, selectedOptions: true, variantIdSnapshot: true },
+      }),
+      reservation: stockReservation,
+    });
+  }
 
   if (discountCodeValidationForPlace?.valid) {
     const shipmentDiscountCodeAmount = dec(
@@ -4272,6 +4365,17 @@ configurationKey:
 
       return order;
     });
+
+    // „Ultimul punct folosit” (easybox / Sameday Point) - punctele tocmai
+    // revalidate la plasare; nu blochează comanda dacă eșuează
+    try {
+      const oohService = createUserOohLocationService();
+      for (const loc of oohLocationsFromQuote(quote)) {
+        await oohService.recordUsed(req.user.sub, loc);
+      }
+    } catch (err) {
+      console.error("Nu am putut salva ultimul punct de livrare folosit:", err?.message || err);
+    }
 
     try {
       await Promise.all(
@@ -4808,10 +4912,18 @@ const groups =
     pricingByProductId
   );
 
-    const quote = await quoteShipping({
-      groups,
-      selections: selections || {},
-    });
+    let quote;
+    try {
+      quote = await quoteShipping({
+        groups,
+        selections: selections || {},
+        address: normalizedAddress,
+        liveOoh: true,
+      });
+    } catch (error) {
+      if (error instanceof DeliverySelectionError) return res.status(400).json(deliveryErrorBody(error));
+      throw error;
+    }
 
     const shippingTotal = dec(quote.totalShipping);
     const total = dec(subtotal + shippingTotal);
@@ -4986,118 +5098,16 @@ const storeAddresses = {};
       Date.now() + 90 * 24 * 60 * 60 * 1000
     );
 
-    /*
-     * Agregăm cantitatea totală per produs.
-     * Același produs poate apărea de mai multe ori,
-     * cu configurationKey diferit.
-     */
-    const quantitiesByProductId = new Map();
-
-    for (const item of cart) {
-      quantitiesByProductId.set(
-        item.productId,
-        Number(
-          quantitiesByProductId.get(item.productId) || 0
-        ) + Number(item.qty || 0)
-      );
-    }
+    let stockReservation = null;
 
     const created = await prisma.$transaction(
       async (tx) => {
         /*
-         * Verificăm și scădem stocul o singură dată
-         * pentru fiecare produs.
+         * Verificăm și scădem stocul o singură dată pe produs / variantă
+         * (services/inventory/inventoryService.js).
          */
-        for (const [
-          productId,
-          qty,
-        ] of quantitiesByProductId.entries()) {
-          if (!productId || qty <= 0) {
-            continue;
-          }
-
-          const product = await tx.product.findUnique({
-            where: {
-              id: productId,
-            },
-            select: {
-              id: true,
-              title: true,
-              availability: true,
-              readyQty: true,
-              isActive: true,
-              isHidden: true,
-              moderationStatus: true,
-            },
-          });
-
-          if (!product) {
-            throw new Error("product_not_found");
-          }
-
-          if (
-            product.isActive === false ||
-            product.isHidden === true ||
-            product.moderationStatus !== "APPROVED"
-          ) {
-            throw new Error("product_unavailable");
-          }
-
-          const availability = String(
-            product.availability || "READY"
-          ).toUpperCase();
-
-          if (availability === "SOLD_OUT") {
-            throw new Error("product_sold_out");
-          }
-
-          if (
-            availability === "READY" &&
-            product.readyQty !== null
-          ) {
-            const currentQty = Number(product.readyQty);
-
-            if (
-              !Number.isFinite(currentQty) ||
-              currentQty < qty
-            ) {
-              throw new Error("insufficient_stock");
-            }
-
-            const nextQty = currentQty - qty;
-
-            const updatedStock =
-              await tx.product.updateMany({
-                where: {
-                  id: productId,
-                  readyQty: {
-                    gte: qty,
-                  },
-                  isActive: true,
-                  isHidden: false,
-                  moderationStatus: "APPROVED",
-                  availability: "READY",
-                },
-                data: {
-                  readyQty: {
-                    decrement: qty,
-                  },
-                  availability:
-                    nextQty <= 0
-                      ? "SOLD_OUT"
-                      : "READY",
-                },
-              });
-
-            if (updatedStock.count !== 1) {
-              throw new Error("insufficient_stock");
-            }
-
-            if (nextQty <= 0) {
-              soldOutProductIds.push(productId);
-            }
-          }
-        }
+        stockReservation = await reserveOrderStock(tx, cart);
+        soldOutProductIds.push(...stockReservation.soldOutProductIds);
 
         const order = await tx.order.create({
           data: {
@@ -5309,6 +5319,11 @@ const storeAddresses = {};
               price: dec(shipmentQuote.price),
               status: "PENDING",
 
+              // snapshot-ul livrării validat pe server (doar cu checkout-ul nou activ - checkoutMode.js)
+              ...shipmentDeliveryCreate(
+                alignSnapshotWithOrderAddress(shipmentQuote.delivery, shippingAddressForOrder, normalizedAddress)
+              ),
+
               campaignId:
                 guestShipmentAttribution?.campaignId || null,
               campaignCommissionBps: guestShipmentAttribution
@@ -5500,9 +5515,25 @@ configurationKey:
           item.discountSource === "DISCOUNT_CODE"
             ? item.discount?.discountCodeFundingSource || null
             : null,
+
+        // varianta de stoc a liniei (doar produsele cu stoc pe variante)
+        ...variantSnapshotFields(stockReservation, item),
       };
     }),
   });
+
+  // istoricul stocului: ORDER_PLACED pe liniile scăzute din stoc
+  if (reservationTouches(stockReservation, shipmentItems)) {
+    await recordOrderMovements(tx, {
+      orderId: order.id,
+      shipmentId: shipment.id,
+      items: await tx.shipmentItem.findMany({
+        where: { shipmentId: shipment.id },
+        select: { id: true, productId: true, qty: true, selectedOptions: true, variantIdSnapshot: true },
+      }),
+      reservation: stockReservation,
+    });
+  }
 
   if (discountCodeValidationForPlace?.valid) {
     const shipmentDiscountCodeAmount = dec(

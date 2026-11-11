@@ -28,9 +28,10 @@ export const RETURN_STATUS_INFO = Object.freeze({
     client: "Returul a fost acceptat. Acum poți pregăti produsul pentru expediere folosind instrucțiunile de mai jos.",
     vendor: "Acceptată - aștepți produsul",
   },
+  // AWB de retur generat de Artfest: ridicarea e COMANDATĂ, nu efectuată
   PICKUP_REQUESTED: {
-    client: "Returul a fost acceptat - coletul este preluat prin curier.",
-    vendor: "Colet de retur prin curier",
+    client: "Ridicarea prin curier a fost comandată. Pregătește coletul și eticheta de retur - curierul te va contacta.",
+    vendor: "Ridicare prin curier comandată de Artfest",
   },
   REJECTED: {
     client: "Cererea a fost respinsă. Motivul este mai jos; poți răspunde în conversație sau contacta suportul.",

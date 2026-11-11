@@ -20,6 +20,9 @@ import {
   PACKAGE_TYPE_LABELS,
 } from "./awbMapper.js";
 import { resolveSamedayPlace } from "./geolocation.js";
+import { fetchOohLocationById } from "./catalog.js";
+import { assertCourierAwbLiveEnabled } from "../../awbLive.js";
+import { SamedayEnvironmentError } from "../../samedayEnvironment.js";
 
 /*
  * Provider Sameday - surse: „API custom documentation” v3.6 (PDF, 28.09.2026)
@@ -64,6 +67,23 @@ export function _clearSamedayAccountData() {
 
 function listOf(data) {
   return Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+}
+
+/** GET /api/public/status-list -> [{ id, label, reasons: [{ id, name }] }] (fără câmpuri inventate). */
+export function parseSamedayStatusList(body) {
+  return {
+    total: Number.isFinite(Number(body?.total)) ? Number(body.total) : null,
+    pages: Number.isFinite(Number(body?.pages)) ? Number(body.pages) : null,
+    items: listOf(body)
+      .map((s) => ({
+        id: Number(s?.id),
+        label: String(s?.label ?? "").trim() || null,
+        reasons: (Array.isArray(s?.reasons) ? s.reasons : [])
+          .map((r) => ({ id: Number(r?.id), name: String(r?.name ?? "").trim() || null }))
+          .filter((r) => Number.isInteger(r.id)),
+      }))
+      .filter((s) => Number.isInteger(s.id)),
+  };
 }
 // numerele AWB Sameday sunt alfanumerice; orice altceva -> fără link
 const AWB_NUMBER_RE = /^[A-Za-z0-9]{4,40}$/;
@@ -151,7 +171,7 @@ export const samedayProvider = {
     cashOnDelivery: true,
     pickupPoints: true,
     cancelShipment: true,
-    // POST /api/awb/estimate-cost (estimateCost) - pregătit, neintegrat în checkout
+    // POST /api/awb/estimate-cost (estimateCost) - și sursa de preț din checkout
     quote: true,
     // etapele următoare (tracking = job de sincronizare; fetchStatusSync e doar apelul):
     tracking: false,
@@ -201,6 +221,16 @@ export const samedayProvider = {
     return resolveSamedayPlace(ctx, place);
   },
 
+  /**
+   * Revalidare PUNCTUALĂ a unei locații easybox / Sameday Point înainte de AWB
+   * (GET /api/client/ooh-locations?oohList=<id>), FĂRĂ cache: null = nu există
+   * (404 / lipsă din răspuns); orice eroare (auth, timeout, 5xx) se propagă.
+   * @returns {Promise<Object|null>} locația normalizată (oohType, clientVisible...)
+   */
+  findOohLocation(ctx, oohId) {
+    return fetchOohLocationById(ctx, oohId);
+  },
+
   // tipul coletului (packageType) după greutate - aceeași regulă ca la creare
   describePackage(parcels) {
     const type = samedayPackageType(parcels);
@@ -213,6 +243,8 @@ export const samedayProvider = {
    * - CourierTimeoutError / CourierUnavailableError -> rezultat NECUNOSCUT.
    */
   async createShipment(ctx, input) {
+    // ultima barieră înainte de POST /api/awb (COURIER_AWB_LIVE_ENABLED)
+    assertCourierAwbLiveEnabled();
     const body = await samedayRequest(ctx, {
       method: "POST",
       path: "/api/awb",
@@ -249,15 +281,21 @@ export const samedayProvider = {
    * Eticheta (Swagger): GET /api/awb/download/{awbNumber}/{format}/{contentType}/{disposition}
    * format A4 | A6 (implicit la noi A6), contentType pdf, disposition attachment.
    * PDF-ul v3.6 arată doar „pdfLink” = /api/awb/download/{awbNumber}.
+   * Swagger documentează exemplul 200 ca JSON: trimitem mai departe DOAR un
+   * PDF real (antet %PDF-), altfel eroare (fără conținutul brut Sameday).
    */
   async getLabel(ctx, awbNumber, { format = "A6" } = {}) {
     const wanted = String(format || "").toUpperCase();
     const fmt = LABEL_FORMATS.includes(wanted) ? wanted : "A6";
-    return samedayRequest(ctx, {
+    const label = await samedayRequest(ctx, {
       method: "GET",
       path: `/api/awb/download/${encodeURIComponent(String(awbNumber))}/${fmt}/${LABEL_CONTENT_TYPE}/${LABEL_DISPOSITION}`,
       binary: true,
     });
+    if (label.buffer.subarray(0, 5).toString("latin1") !== "%PDF-") {
+      throw new CourierUnavailableError("Sameday nu a trimis o etichetă PDF validă.");
+    }
+    return { buffer: label.buffer, contentType: "application/pdf", format: fmt };
   },
 
   /**
@@ -274,6 +312,8 @@ export const samedayProvider = {
         allowEmpty: true,
       });
     } catch (e) {
+      // mediu nepermis: nimic trimis la Sameday - NU înseamnă „nu se mai poate anula”
+      if (e instanceof SamedayEnvironmentError) throw e;
       if (e?.providerStatus === 405 || e instanceof CourierValidationError) {
         throw new AwbNotCancellableError();
       }
@@ -288,8 +328,8 @@ export const samedayProvider = {
   /**
    * Estimare cost (Swagger): POST /api/awb/estimate-cost - aceleași câmpuri ca
    * la creare (schema AwbType2, fără clientInternalReference) ->
-   * { amount, currency, time }. Pregătit pentru previzualizare / admin; NU e
-   * folosit în checkout.
+   * { amount, currency, time }. Previzualizare / admin și sursa de preț din
+   * checkout (services/shipping/samedayCheckoutPricer.js).
    */
   async estimateCost(ctx, input) {
     const body = await samedayRequest(ctx, {
@@ -299,7 +339,9 @@ export const samedayProvider = {
     });
     const amount = Number(body?.amount);
     if (body?.amount == null || !Number.isFinite(amount)) {
-      throw new CourierUnavailableError("Răspuns neașteptat de la Sameday.");
+      const err = new CourierUnavailableError("Răspuns neașteptat de la Sameday.");
+      err.invalidResponse = true;
+      throw err;
     }
     const time = Number(body?.time);
     return {
@@ -315,7 +357,13 @@ export const samedayProvider = {
    *   GET /api/client/mkt-status-sync  (marketplace - etapa următoare de tracking)
    * startTimestamp / endTimestamp se trimit EXACT cum le dă apelantul: formatul
    * „string($timestamp)” nu e precizat în surse (de confirmat la sandbox).
-   * Doar apelul - fără job / polling (capabilities.tracking = false).
+   * Paginare: răspunsul NU are total / pagini (doar currentPage, perPage,
+   * data) - apelantul se oprește la o pagină incompletă. 404 („no results
+   * were found”, Swagger) = fereastră / pagină fără evenimente -> items [].
+   * Se păstrează DOAR câmpurile utile pentru timeline: fără codurile de
+   * deschidere a lockerului (dischargeClientCode), consolidationHash,
+   * coordonatele curierului, createdBy sau măsurători.
+   * Job: couriers/tracking/statusSyncWorker.js (oprit implicit).
    */
   async fetchStatusSync(ctx, { startTimestamp, endTimestamp, page = 1, countPerPage = 500 } = {}, { marketplace = false } = {}) {
     if (startTimestamp == null || endTimestamp == null || startTimestamp === "" || endTimestamp === "") {
@@ -327,23 +375,49 @@ export const samedayProvider = {
       page: String(page),
       countPerPage: String(countPerPage),
     });
-    const body = await samedayGet(ctx, `/api/client/${marketplace ? "mkt-status-sync" : "status-sync"}?${q}`);
+    let body;
+    try {
+      body = await samedayGet(ctx, `/api/client/${marketplace ? "mkt-status-sync" : "status-sync"}?${q}`);
+    } catch (e) {
+      if (e?.providerStatus === 404) return { currentPage: page, perPage: countPerPage, items: [] };
+      throw e;
+    }
+    const num = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+    const text = (v) => (v == null ? null : String(v).trim() || null);
     return {
       currentPage: body?.currentPage ?? null,
       perPage: body?.perPage ?? null,
       items: listOf(body).map((s) => ({
-        parcelAwbNumber: s?.parcelAwbNumber ?? null,
-        statusId: s?.statusId ?? null,
-        status: s?.status ?? null,
-        statusLabel: s?.statusLabel ?? null,
-        statusState: s?.statusState ?? null,
-        statusDate: s?.statusDate ?? null,
-        reasonId: s?.reasonId ?? null,
-        reason: s?.reason ?? null,
+        parcelAwbNumber: text(s?.parcelAwbNumber),
+        statusId: num(s?.statusId),
+        status: text(s?.status),
+        statusLabel: text(s?.statusLabel),
+        statusState: text(s?.statusState),
+        statusDate: text(s?.statusDate),
+        reasonId: num(s?.reasonId),
+        reason: text(s?.reason),
         inReturn: s?.inReturn === true,
+        transitLocation: text(s?.transitLocation),
+        location: s?.location
+          ? { logisticLocationId: num(s.location.logisticLocationId), logisticLocationName: text(s.location.logisticLocationName) }
+          : null,
+        // PDF v3.6: la PUDO informația vine DOAR în oohDetails; la easybox identic în ambele
+        oohDetails: s?.oohDetails ? { oohId: num(s.oohDetails.oohId), oohType: num(s.oohDetails.oohType) } : null,
+        lockerDetails: s?.lockerDetails ? { lockerId: num(s.lockerDetails.lockerId) } : null,
         ...(marketplace ? { marketplaceId: s?.marketplaceId ?? null, sellerId: s?.sellerId ?? null } : {}),
       })),
     };
+  },
+
+  /**
+   * Lista statusurilor (Swagger): GET /api/public/status-list?page&countPerPage
+   * -> { total, currentPage, pages, perPage, data: [{ id, label, reasons: [{ id, name }] }] }.
+   * Cu token întoarce statusurile vizibile clientului. Doar citire; folosită
+   * pentru a confirma maparea statusurilor (nu decide singură nimic).
+   */
+  async fetchStatusList(ctx, { page = 1, countPerPage = 500 } = {}) {
+    const q = new URLSearchParams({ page: String(page), countPerPage: String(countPerPage) });
+    return parseSamedayStatusList(await samedayGet(ctx, `/api/public/status-list?${q}`));
   },
 
   // link public de urmărire, doar pentru un număr AWB cu format sigur

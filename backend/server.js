@@ -34,7 +34,9 @@ import productCommentsRouter from "./src/routes/commentProductRoutes.js";
 import vendorVisitorsRoutes from "./src/routes/vendorVisitorsRoutes.js";
 import vendorVisitorsPublicRoutes from "./src/routes/vendorVisitorsPublicRoutes.js";
 import checkoutRoutes from "./src/routes/chekoutRoutes.js";
-import samedayRoutes from "./src/routes/samedayRoutes.js";
+import shippingRoutes from "./src/routes/shippingRoutes.js";
+import userAddressesRoutes from "./src/routes/userAddressesRoutes.js";
+// import samedayRoutes from "./src/routes/samedayRoutes.js"; // legacy, nemontat - vezi mai jos (audit 2026-10-31)
 // import samedayWebhookRoutes from "./src/routes/samedayWebhookRoutes.js"; // dezactivat, vezi montarea de mai jos
 import vendorCourierRoutes from "./src/routes/vendorCourierRoutes.js";
 import vendorShipmentAwbRoutes from "./src/routes/vendorShipmentAwbRoutes.js";
@@ -69,6 +71,7 @@ import accountSettingsRouter from "./src/routes/userSettingsRoutes.js";
 import legalRoutes from "./src/routes/legalRoutes.js";
 import AdminSupportRoutes from "./src/routes/adminSupportRoutes.js";
 import userMessagesRoutes from "./src/routes/userMessagesRoutes.js";
+import productContactRoutes from "./src/routes/productContactRoutes.js";
 import vendorInvoicesRouter from "./src/routes/vendorInvoices.js";
 import vendorInboxThreadsRouter from "./src/routes/vendorInboxThreadsRoutes.js";
 import userConsentsRoutes from "./src/routes/adminUserConsentPolicies.js";
@@ -95,6 +98,7 @@ import marketplaceWaitlistRouter from "./src/routes/waitlistMarketplaceRoutes.js
 import adminMarketplaceWaitlistRouter from "./src/routes/adminMarketplaceWaitlistRoutes.js";
 import adminSubscriptions from "./src/routes/adminSubscriptionRoutes.js";
 import adminPickupsRoutes from "./src/routes/adminPickupsRoutes.js";
+import adminCouriersRoutes from "./src/routes/adminCouriersRoutes.js";
 import platformBillingRouter from "./src/routes/platformBillingRoutes.js";
 import adminInvoicesRoutes from "./src/routes/adminInvoicesRoutes.js";
 import adminInfluencersRoutes from "./src/routes/adminInfluencersRoutes.js";
@@ -110,6 +114,7 @@ import vendorArtfestFairRoutes from "./src/routes/vendorArtfestFairRoutes.js";
 import vendorArtfestFairInventoryRoutes from "./src/routes/vendorArtfestFairInventoryRoutes.js";
 import vendorsStripeConnectRoutes from "./src/routes/vendors.stripeConnect.js";
 import adminProductsRoutes from "./src/routes/adminProducts.js";
+import adminGpsrRoutes from "./src/routes/adminGpsrRoutes.js";
 import newsletterRoutes from "./src/routes/newsletterRoutes.js";
 import stripeWebhookRoutes from "./src/routes/stripeWebhookRoutes.js";
 import sitemapRoutes from "./src/routes/sitemap.js";
@@ -133,16 +138,26 @@ import adminProductsEditRoutes
 import cookiesRoutes from "./src/routes/cookiesRoutes.js";
 import metaCatalogFeedRoutes from "./src/routes/metaCatalogFeedRoutes.js";
 import vendorCatalogImportRoutes from "./src/routes/vendorCatalogImportRoutes.js";
+import vendorIntegrationsRoutes from "./src/routes/vendorIntegrationsRoutes.js";
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
 // 🔔 JOB: preț orientativ lipsă la produse QUOTE_ONLY
 import { runQuotePriceReminderJob } from "./src/jobs/quotePriceReminderJob.js";
 // 🔔 JOB: reminder plată CARD neterminată (comenzi guest)
 import { runGuestPaymentReminderJob } from "./src/jobs/guestPaymentReminderJob.js";
+import { cardPaymentExpiryConfig, runCardPaymentExpiryJob } from "./src/services/cardPaymentExpiry.js";
 import { runReturnVendorReminderJob } from "./src/jobs/returnVendorReminderJob.js";
+import { runReturnNoticeJob } from "./src/jobs/returnNoticeJob.js";
 // 🔔 JOB: notificare vendor/influencer la expirarea unui cod de reducere
 import { runDiscountCodeExpiryJob } from "./src/jobs/discountCodeExpiryJob.js";
 import { runHomepageFeatureEmailJob } from "./src/jobs/homepageFeatureEmailJob.js";
+// 🔔 JOB: statusurile AWB Sameday (status-sync) - OPRIT implicit
+import { startCourierStatusSyncJob } from "./src/couriers/tracking/statusSyncWorker.js";
+import { runPlatformStatusSync } from "./src/couriers/tracking/statusSyncStore.js";
+import { createStatusSyncNotifier } from "./src/couriers/tracking/statusSyncNotifications.js";
+import { createVendorNotification } from "./src/services/notifications.js";
+// 🔔 JOB: reconcilierea ledger-ului SALE / influencer / referral - OPRIT implicit
+import { startShipmentLedgerReconcileJob } from "./src/services/shipmentLedgerReconcile.js";
 import { retryFailedMessageEmails } from "./src/services/messageEmailNotifications.js";
 import vendorCatalogProductsRoutes
   from "./src/routes/vendorCatalogProductsRoutes.js";
@@ -495,9 +510,13 @@ app.use("/api/admin", adminDigitalWaitlistRoutes);
 app.use("/api", marketplaceWaitlistRouter);
 app.use("/api/admin", adminMarketplaceWaitlistRouter);
 app.use("/api/admin", adminSubscriptions);
+// Admin „Curieri”: starea integrărilor (Sameday) + verificare read-only (doar ADMIN)
+app.use("/api/admin/couriers", adminCouriersRoutes);
 app.use("/api/admin", adminPickupsRoutes);
 app.use("/api/admin", adminInvoicesRoutes);
 app.use("/api/admin", adminProductsRoutes);
+// evidența GPSR (doar citire, doar ADMIN)
+app.use("/api/admin/gpsr", adminGpsrRoutes);
 app.use("/api/admin", adminCollectionsRoutes);
 app.use("/api/influencer", influencerRoutes);
 app.use("/api/influencer", influencerPayoutsRoutes);
@@ -555,6 +574,8 @@ app.use("/api", marketingRoutes);
 app.use("/api/public/support", PublicSupportRoutes);
 app.use("/api/stores", storeFollowRoutes);
 app.use("/api/user-inbox", userMessagesRoutes);
+// „Întreabă vânzătorul” din pagina produsului (doar autentificat)
+app.use("/api/product-contact", productContactRoutes);
 app.use("/api/account", accountSettingsRouter);
 app.use("/api", unsubscribeRouter);
 app.use("/api/vendors/me/visitors", vendorVisitorsRoutes);
@@ -596,7 +617,22 @@ app.get("/api/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOS
 /* ---------------- RESTUL DE RUTE /api ---------------- */
 
 app.use("/api", checkoutRoutes);
-app.use("/api", samedayRoutes);
+// opțiuni de livrare pentru checkout (Sameday prin backend; SAMEDAY_CHECKOUT_ENABLED)
+app.use("/api/shipping", shippingRoutes);
+// agenda de adrese + ultimul easybox / Sameday Point (client autentificat)
+app.use("/api/me", userAddressesRoutes);
+/*
+ * DEZACTIVAT (audit pre-test Sameday 2026-10-31): rutele legacy
+ * /api/shipping/sameday/* (counties, localities, postal-code, lockers)
+ * foloseau clientul vechi services/samedayClient.js - SAMEDAY_BASE
+ * (implicit https://api.sameday.ro = PRODUCȚIE), SAMEDAY_USERNAME /
+ * SAMEDAY_PASSWORD din env și endpoint-ul depreciat /api/client/lockers.
+ * Orice user autentificat putea declanșa requesturi către producție (și
+ * consuma limita de 12 autentificări / IP / minut a contului Artfest).
+ * Checkout-ul nou folosește /api/shipping (shippingRoutes.js, contul
+ * PLATFORM din CourierAccount). Codul rămâne pentru referință, nemontat.
+ */
+// app.use("/api", samedayRoutes);
 /*
  * DEZACTIVAT TEMPORAR (audit multi-curier 2026-09-30): webhook-ul Sameday
  * era neautentificat și defect (scria în câmpul inexistent `awbNumber`,
@@ -644,6 +680,8 @@ app.use(
   "/api/vendor/catalog/imports",
   vendorCatalogImportRoutes
 );
+// magazine externe (WooCommerce): oprit implicit, EXTERNAL_INTEGRATIONS_ENABLED=true
+app.use("/api/vendor/integrations", vendorIntegrationsRoutes);
 app.use("/api/favorites", favoritesRoutes);
 mountWishlistCountAlias(app);
 
@@ -736,6 +774,29 @@ setInterval(() => {
 }, guestPaymentReminderIntervalMs);
 
 /*
+ * Expirarea comenzilor CARD neplătite (services/cardPaymentExpiry.js).
+ * Pornește DOAR cu CARD_PAYMENT_EXPIRY_ENABLED=true; implicit în modul de
+ * verificare (CARD_PAYMENT_EXPIRY_DRY_RUN != "false"), fără modificări.
+ */
+const cardPaymentExpiry = cardPaymentExpiryConfig();
+
+if (cardPaymentExpiry.enabled) {
+  console.log(
+    `[card expiry] job pornit (${cardPaymentExpiry.dryRun ? "verificare, fără modificări" : "EXPIRARE ACTIVĂ"}; de la ${
+      cardPaymentExpiry.startAt ? cardPaymentExpiry.startAt.toISOString() : "START_AT lipsă - inactiv"
+    })`
+  );
+
+  const runCardPaymentExpiry = () =>
+    runCardPaymentExpiryJob().catch((err) =>
+      console.error("cardPaymentExpiryJob failed:", err)
+    );
+
+  runCardPaymentExpiry();
+  setInterval(runCardPaymentExpiry, 10 * 60 * 1000);
+}
+
+/*
  * Retururi NEW fără răspuns: reminder vânzător la 48h, Admin la 72h.
  * dedupeKey pe cerere -> o singură notificare fiecare; rulare orară e
  * suficientă (pragurile sunt în ore). NU acceptă / respinge nimic.
@@ -751,6 +812,19 @@ setInterval(() => {
     console.error("returnVendorReminderJob (interval) failed:", err)
   );
 }, returnVendorReminderIntervalMs);
+
+/*
+ * Retur Sameday STANDARD: notificările persistente (ridicare comandată / anulată)
+ * și pașii întrerupți după AWB confirmat / anulat - reluate fără duplicate
+ * (services/returnNotices.js). Fără apeluri la Sameday. Pornește doar cu RETURN_NOTICE_JOB_ENABLED=true.
+ */
+const returnNoticeIntervalMs = 5 * 60 * 1000;
+setTimeout(() => {
+  runReturnNoticeJob().catch((err) => console.error("returnNoticeJob (startup) failed:", err?.message || err));
+}, 30 * 1000).unref?.();
+setInterval(() => {
+  runReturnNoticeJob().catch((err) => console.error("returnNoticeJob (interval) failed:", err?.message || err));
+}, returnNoticeIntervalMs).unref?.();
 
 /*
  * Notificare vendor/influencer la expirarea unui cod de reducere
@@ -787,6 +861,32 @@ setInterval(() => {
     console.error("homepageFeatureEmailJob (interval) failed:", err)
   );
 }, homepageFeatureEmailIntervalMs);
+
+/*
+ * Statusurile AWB Sameday (GET /api/client/status-sync) -> timeline
+ * ShipmentTrackingEvent, la 15 minute. PORNEȘTE DOAR cu
+ * COURIER_STATUS_SYNC_ENABLED=true; fără format de timestamp confirmat
+ * (publicConfig.statusSyncTimestampFormat) nu face niciun request. Faza 1:
+ * doar IN_TRANSIT se aplică (urmat de ledger-ul comun, SALE doar COD / CARD
+ * offline); livrat / refuzat / returnat rămân în timeline, fără ledger /
+ * FULFILLED / refund - vezi couriers/tracking/statusSyncWorker.js.
+ */
+// notificare in-app „Colet preluat” (doar IN_TRANSIT aplicat, deduplicată, fără email)
+startCourierStatusSyncJob({
+  runOnce: () =>
+    runPlatformStatusSync({
+      onImportantEvent: createStatusSyncNotifier({ db: prisma, notifyVendor: createVendorNotification }),
+    }),
+});
+
+/*
+ * Reconcilierea ledger-ului de vânzare (SALE vendor / influencer / referral)
+ * pentru expedierile OUTBOUND în tranzit / livrate, la 6 ore. PORNEȘTE DOAR
+ * cu SHIPMENT_LEDGER_RECONCILE_ENABLED=true și atunci doar RAPORTEAZĂ; reface
+ * intrările lipsă doar cu SHIPMENT_LEDGER_RECONCILE_REPAIR=true. Fără CARD
+ * online, fără Stripe / SmartBill - vezi services/shipmentLedgerReconcile.js.
+ */
+startShipmentLedgerReconcileJob();
 
 /*
  * Email „mesaj nou” - reia trimiterile FAILED din ultimele 24h (max 3

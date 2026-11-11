@@ -6,7 +6,8 @@
 //  - ?orderToken=  token semnat din emailul „predat curierului”: același acces
 //                  ca ?token= pentru retur (solicitare după livrare + urmărire);
 //  - ?returnToken= token semnat din emailurile de status ale returului:
-//                  doar urmărire + răspuns către vânzător.
+//                  doar urmărire + răspuns către vânzător + eticheta returului
+//                  (FĂRĂ modificarea metodei / adresei - serverul o refuză).
 // Același formular (ReturnRequestModal, mode="guest") și aceleași reguli ca
 // pentru clienții cu cont. Nu se creează cont.
 
@@ -17,6 +18,7 @@ import { api } from "../../../lib/api";
 import ReturnRequestModal from "../../User/Orders/ReturnRequestModal/ReturnRequestModal.jsx";
 import ClientReturnCard from "../../../components/Returns/ClientReturnCard.jsx";
 import { returnStyles } from "../../../components/Returns/returnUtils.js";
+import { clientLabelPath } from "../../../components/Returns/returnLogistics.js";
 import styles from "./GuestReturnsPage.module.css";
 
 export default function GuestReturnsPage() {
@@ -62,6 +64,9 @@ export default function GuestReturnsPage() {
   const list = Array.isArray(data?.returnRequests) ? data.returnRequests : [];
   const canCreate = Boolean(data?.canCreate && data?.order?.status === "DELIVERED");
   const orderLabel = data?.order?.orderNumber || id;
+  // drept de modificare: DOAR accesul complet (token / orderToken), ca pe server
+  const fullAccess = Boolean(token || orderToken);
+  const orderId = data?.orderId || id;
 
   return (
     <main className={styles.page}>
@@ -100,6 +105,20 @@ export default function GuestReturnsPage() {
                 <ClientReturnCard
                   key={rr.id}
                   rr={rr}
+                  onSaveMethod={
+                    fullAccess
+                      ? async (r, returnMethod, pickupAddress) => {
+                          await api(
+                            `/api/guest/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(r.id)}/method?${access}`,
+                            { method: "PATCH", body: { returnMethod, pickupAddress } }
+                          );
+                          await load();
+                        }
+                      : null
+                  }
+                  labelPath={(r, format) =>
+                    clientLabelPath({ returnRequestId: r.id, format, guestOrderId: orderId, guestAccessQuery: access })
+                  }
                   onReply={async (message) => {
                     await api(
                       `/api/guest/orders/${encodeURIComponent(id)}/returns/${encodeURIComponent(rr.id)}/reply?${access}`,

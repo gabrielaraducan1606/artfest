@@ -5,7 +5,9 @@ import express from "express";
 import {
   prisma,
 } from "../db.js";
+import { HELD_PRIVATE_ERROR, isHeldPrivate } from "../services/productReviewRequest.js";
 import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
+import { gpsrDeclarationAllowsPublication } from "../lib/gpsrDeclaration.js";
 
 import {
   authRequired,
@@ -618,12 +620,95 @@ router.patch(
           });
       }
 
+      /*
+       * Activare: produsele private pentru ajutorul Artfest rămân inactive.
+       * Se caută pozitiv (un filtru NOT pe Json ar exclude și produsele
+       * fără aiModeration), iar celelalte produse se actualizează ca înainte.
+       */
+      let allowedIds = ids;
+      let skippedHeld = 0;
+
+      if (active) {
+        const marked =
+          await prisma.product.findMany({
+            where: {
+              ...ownedProductWhere(
+                req.user.sub,
+                ids
+              ),
+              aiModeration: {
+                path: ["reviewRequest", "holdPrivate"],
+                equals: true,
+              },
+            },
+            select: {
+              id: true,
+              aiModeration: true,
+            },
+          });
+
+        const heldIds = new Set(
+          marked
+            .filter(isHeldPrivate)
+            .map((product) => product.id)
+        );
+
+        allowedIds = ids.filter(
+          (id) => !heldIds.has(id)
+        );
+        skippedHeld =
+          ids.length - allowedIds.length;
+      }
+
+      /*
+       * Declarația GPSR: produsele create după intrarea în vigoare a regulii,
+       * fără declarație pentru datele curente, nu se activează în masă
+       * (produsele vechi și cele deja active rămân ca înainte).
+       */
+      let skippedGpsr = 0;
+
+      if (active && allowedIds.length) {
+        const candidates =
+          await prisma.product.findMany({
+            where: ownedProductWhere(req.user.sub, allowedIds),
+            select: {
+              id: true,
+              createdAt: true,
+              isActive: true,
+              isOwnManufacturer: true,
+              manufacturerName: true,
+              manufacturerAddress: true,
+              manufacturerEmail: true,
+              manufacturerInEU: true,
+              responsiblePersonName: true,
+              responsiblePersonAddress: true,
+              responsiblePersonEmail: true,
+              safetyWarnings: true,
+              isForChildren: true,
+              service: { select: { vendor: { select: { id: true, ...VENDOR_GPSR_SELECT } } } },
+            },
+          });
+
+        const blocked = new Set();
+        for (const product of candidates) {
+          if (product.isActive) continue;
+          const allowed = await gpsrDeclarationAllowsPublication(prisma, {
+            product,
+            vendor: product.service?.vendor ?? null,
+          });
+          if (!allowed) blocked.add(product.id);
+        }
+
+        allowedIds = allowedIds.filter((id) => !blocked.has(id));
+        skippedGpsr = blocked.size;
+      }
+
       const result =
         await prisma.product.updateMany({
           where:
             ownedProductWhere(
               req.user.sub,
-              ids
+              allowedIds
             ),
 
           data: {
@@ -637,6 +722,10 @@ router.patch(
 
         updated:
           result.count,
+
+        ...(skippedHeld ? { skippedHeld } : {}),
+
+        ...(skippedGpsr ? { skippedGpsr } : {}),
 
         active,
       });
@@ -1101,6 +1190,10 @@ router.post(
 
             dimensions:
               true,
+            shippingWeightGrams: true,
+            shippingLengthCm: true,
+            shippingWidthCm: true,
+            shippingHeightCm: true,
 
             careInstructions:
               true,
@@ -1137,6 +1230,9 @@ router.post(
 
             quoteSchema:
               true,
+
+            aiModeration:
+              true,
           },
         });
 
@@ -1150,6 +1246,13 @@ router.post(
             message:
               "Produsul nu a fost găsit sau nu îți aparține.",
           });
+      }
+
+      // o copie nu moștenește marcajul și ar ocoli protecția
+      if (isHeldPrivate(source)) {
+        return res
+          .status(409)
+          .json(HELD_PRIVATE_ERROR);
       }
 
       const baseTitle =
@@ -1237,6 +1340,16 @@ router.post(
 
             dimensions:
               source.dimensions,
+
+            // același ambalaj -> același profil logistic
+            shippingWeightGrams:
+              source.shippingWeightGrams,
+            shippingLengthCm:
+              source.shippingLengthCm,
+            shippingWidthCm:
+              source.shippingWidthCm,
+            shippingHeightCm:
+              source.shippingHeightCm,
 
             careInstructions:
               source.careInstructions,

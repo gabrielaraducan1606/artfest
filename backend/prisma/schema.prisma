@@ -111,7 +111,10 @@ model User {
   proposedInfluencerCommissionAgreements InfluencerCommissionAgreement[] @relation("InfluencerCommissionAgreementProposedBy")
 
   orders              Order[]
+  addresses           UserAddress[]
+  oohLocations        UserOohLocation[]
   handedOverShipments Shipment[]          @relation("ShipmentHandedOverBy")
+  returnCostDecisions ReturnRequest[]     @relation("ReturnRequestCostDecidedBy")
   returnRequests      ReturnRequest[]
   withdrawalRequests  WithdrawalRequest[]
 
@@ -463,6 +466,8 @@ model Vendor {
   fairDiscounts           ArtfestFairDiscount[]
   fairSettlements         ArtfestFairSettlement[]
   fairReturns             ArtfestFairReturn[]
+
+  externalStoreConnections ExternalStoreConnection[]
 
   @@index([isActive], map: "vendor_isActive_idx")
   @@index([citySlug], map: "vendor_citySlug_idx")
@@ -925,6 +930,16 @@ model Product {
   acceptsCustom Boolean             @default(false)
   nextShipDate  DateTime?
 
+  // Unde se ține stocul:
+  // PRODUCT = readyQty, ca până acum (null = stoc neurmărit);
+  // VARIANT = pe ProductVariant; readyQty devine totalul calculat de
+  // serviciul de inventar, doar pentru listări / feed-uri.
+  stockScope ProductStockScope @default(PRODUCT)
+
+  // Stocul comun al variantelor cu stockMode PRODUCT_POOL (ex. variantele
+  // WooCommerce care folosesc stocul produsului părinte). Doar la VARIANT.
+  variantPoolQty Int?
+
   limitedEditionOf     Int?
   limitedEditionNumber Int?
   isHidden             Boolean @default(false)
@@ -934,6 +949,14 @@ model Product {
   styleTags        String[]
   occasionTags     String[]
   dimensions       String?  @db.VarChar(120)
+
+  // profil logistic: produsul AMBALAT, gata de expediere (tariful Sameday la
+  // checkout); nu dimensiunile afișate clientului (dimensions). null =
+  // necompletat - fără valori implicite. Validare: src/lib/productShipping.js
+  shippingWeightGrams Int? // grame, 1..100000
+  shippingLengthCm    Int? // cm, 1..300 (toate trei sau niciuna)
+  shippingWidthCm     Int?
+  shippingHeightCm    Int?
   careInstructions String?
   specialNotes     String?
 
@@ -1041,6 +1064,11 @@ model Product {
   additionalCategories ProductAdditionalCategory[]
 
   costing ProductCosting?
+
+  // Inventar: variante de stoc, sursa externă (max. una) și istoricul mișcărilor
+  variants           ProductVariant[]
+  externalLink       ExternalProductLink?
+  inventoryMovements InventoryMovement[]
 
   @@index([serviceId, isActive, createdAt])
   @@index([category])
@@ -1959,6 +1987,9 @@ model Shipment {
 
   items                  ShipmentItem[]
   courierAwbs            CourierAwb[]
+  // alegerea livrării validată la checkout (Sameday: adresă / easybox / Sameday Point)
+  delivery               ShipmentDelivery?
+  trackingEvents         ShipmentTrackingEvent[]
   returnRequest          ReturnRequest?  @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
   originalReturnRequests ReturnRequest[] @relation("ReturnOriginalShipment")
 
@@ -2063,6 +2094,13 @@ model ShipmentItem {
   vendorCollectionIdSnapshot   String?
   vendorCollectionSlugSnapshot String? @db.VarChar(180)
 
+  /**
+   * Snapshot ProductVariant (stoc pe variantă), setat la checkout. Fără FK
+   * intenționat: comanda rămâne citibilă și după ștergerea variantei.
+   * Ce s-a scăzut efectiv din stoc stă în InventoryMovement (shipmentItemId).
+   */
+  variantIdSnapshot String?
+
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@index([shipmentId])
@@ -2073,6 +2111,7 @@ model ShipmentItem {
   @@index([discountSource])
   @@index([discountCodeId])
   @@index([vendorCollectionIdSnapshot])
+  @@index([variantIdSnapshot])
 }
 
 model SupportTicket {
@@ -2208,6 +2247,17 @@ model MessageThread {
   vendorMessageEmailAt DateTime?
   userMessageEmailAt   DateTime?
 
+  /// „Întreabă vânzătorul” din pagina produsului. Fără relație/FK spre
+  /// Product (migrarea nu blochează tabela Product); dacă produsul e șters,
+  /// rămâne doar id-ul, iar citirea tolerează lipsa lui.
+  productId         String?
+  /// SAFETY | MATERIALS | OTHER. SAFETY: escaladare către Admin și fără
+  /// consum din cota lunară de mesaje a vânzătorului.
+  contactReason     String?   @db.VarChar(20)
+  safetyEscalatedAt DateTime?
+  /// Tichetul de suport (Admin) deschis pentru o sesizare de siguranță.
+  supportTicketId   String?
+
   messages        Message[]
   user            User?          @relation(fields: [userId], references: [id])
   vendor          Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -2236,6 +2286,8 @@ model MessageThread {
   @@index([recipientVendorId, lastAt])
   @@index([recipientVendorId, deletedByRecipientVendorAt])
   @@index([vendorId, recipientVendorId])
+  @@index([userId, productId])
+  @@index([productId])
 }
 
 model Message {
@@ -2868,9 +2920,150 @@ enum PaymentMethod {
   CARD
 }
 
+/// Metoda de livrare aleasă de client pentru un shipment (checkout Sameday).
+enum DeliveryMethod {
+  HOME
+  LOCKER
+  PUDO
+}
+
+/**
+ * Livrarea aleasă și validată la checkout, per shipment (un magazin din coș).
+ * Snapshot complet pentru „Generează AWB” (vendorul nu mai completează nimic):
+ *   HOME   -> destinatar + adresă (+ ID-urile Sameday de județ / localitate);
+ *   LOCKER -> easybox (oohType 0), oohId = oohLastMile la AWB;
+ *   PUDO   -> Sameday Point (oohType 1), oohId = oohLastMile la AWB.
+ * serviceId = serviceId-ul Sameday ACTIV pe contul Artfest la momentul comenzii.
+ * Costul e cel recalculat pe server (pricingSource). Shipment.method rămâne
+ * câmpul vechi (COURIER / LOCKER) pentru compatibilitate.
+ */
+model ShipmentDelivery {
+  id         String @id @default(cuid())
+  shipmentId String @unique
+
+  courierProvider String         @db.VarChar(32)
+  method          DeliveryMethod
+  serviceId       String?        @db.VarChar(32)
+
+  // transport - valori monetare în RON (tratamentul TVA se stabilește la etapa de facturare)
+  shippingCost         Decimal   @db.Decimal(10, 2) // suma taxată clientului pentru acest shipment; fixă după plasare
+  carrierCost          Decimal?  @db.Decimal(10, 2) // costul real al curierului (Sameday) pentru acest shipment; null până e cunoscut
+  carrierCostUpdatedAt DateTime?                    // când a fost completat / actualizat carrierCost (reconciliere)
+  vendorShippingCost   Decimal?  @db.Decimal(10, 2) // suma de refacturat vendorului; null până e cunoscut carrierCost
+  pricingSource        String    @db.VarChar(32)    // SAMEDAY | VENDOR_FALLBACK | ARTFEST_RULE
+  fallbackReason       String?   @db.VarChar(64)    // motivul tarifului de rezervă; doar la VENDOR_FALLBACK
+  // retur (Shipment RETURN): shippingCost = partea clientului, vendorShippingCost = partea vendorului,
+  // artfestSubsidyAmount = partea Artfest din carrierCost; null = nedecis / livrare veche
+  artfestSubsidyAmount Decimal?  @db.Decimal(10, 2) // partea din carrierCost suportată de Artfest
+  eligibleUntil        DateTime?                    // Easybox Return: termenul de depunere trimis la Sameday
+
+  recipientName  String? @db.VarChar(160)
+  recipientPhone String? @db.VarChar(40)
+  recipientEmail String? @db.VarChar(320)
+
+  // livrare la adresă (HOME)
+  countyId   Int?
+  countyName String? @db.VarChar(120)
+  cityId     Int?
+  cityName   String? @db.VarChar(160)
+  address    String? @db.VarChar(500)
+  postalCode String? @db.VarChar(16)
+
+  // easybox / Sameday Point (LOCKER / PUDO)
+  oohId         Int?
+  oohType       Int?
+  oohName       String?  @db.VarChar(200)
+  oohAddress    String?  @db.VarChar(500)
+  oohCityName   String?  @db.VarChar(160)
+  oohCountyName String?  @db.VarChar(120)
+  oohPostalCode String?  @db.VarChar(16)
+  oohLat        Decimal? @db.Decimal(9, 6)
+  oohLng        Decimal? @db.Decimal(9, 6)
+  oohSchedule   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([method])
+  @@index([oohId])
+}
+
 enum ShippingMethod {
   COURIER
   LOCKER
+}
+
+/// Eticheta unei adrese salvate de client: Acasă / Birou / Altă adresă.
+enum UserAddressLabel {
+  HOME
+  WORK
+  OTHER
+}
+
+/**
+ * Agenda de adrese a clientului (checkout autentificat).
+ * Cel mult o adresă implicită per user - garantat în DB de indexul unic
+ * parțial "UserAddress_one_default_per_user" (doar în SQL-ul migrației;
+ * Prisma nu poate exprima indexuri parțiale).
+ * samedayCountyId / samedayCityId = ID-uri din nomenclatorul Sameday,
+ * salvate DOAR după validare (samedayValidatedAt); se revalidează la
+ * editare și înainte de plasarea comenzii.
+ */
+model UserAddress {
+  id                 String           @id @default(cuid())
+  userId             String
+  label              UserAddressLabel @default(HOME)
+  firstName          String           @db.VarChar(80)
+  lastName           String           @db.VarChar(80)
+  phone              String           @db.VarChar(40)
+  county             String           @db.VarChar(120)
+  city               String           @db.VarChar(160)
+  street             String           @db.VarChar(500)
+  postalCode         String?          @db.VarChar(16)
+  notes              String?          @db.VarChar(500)
+  samedayCountyId    Int?
+  samedayCityId      Int?
+  samedayValidatedAt DateTime?
+  isDefault          Boolean          @default(false)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/**
+ * Ultimul punct OOH folosit de client, separat pe tip (0 = easybox,
+ * 1 = Sameday Point) - NU e „adresă implicită”. oohId + oohType sunt
+ * identificatorii; restul e snapshot DOAR pentru afișare și se revalidează
+ * punctual prin GET /api/client/ooh-locations?oohList=<id> înainte de
+ * reutilizare și din nou la plasarea comenzii.
+ */
+model UserOohLocation {
+  id               String   @id @default(cuid())
+  userId           String
+  courierProvider  String   @default("SAMEDAY") @db.VarChar(32)
+  oohType          Int
+  oohId            Int
+  name             String   @db.VarChar(200)
+  address          String?  @db.VarChar(500)
+  cityName         String?  @db.VarChar(160)
+  countyName       String?  @db.VarChar(120)
+  postalCode       String?  @db.VarChar(16)
+  lat              Decimal? @db.Decimal(9, 6)
+  lng              Decimal? @db.Decimal(9, 6)
+  scheduleSnapshot Json?
+  lastValidatedAt  DateTime
+  lastUsedAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courierProvider, oohType])
 }
 
 enum TicketStatus {
@@ -3063,6 +3256,21 @@ model WithdrawalRequest {
   @@index([userId, submittedAt])
 }
 
+/// Metoda returului unei cereri (ReturnRequest.returnMethod).
+enum ReturnMethod {
+  HOME_PICKUP
+  EASYBOX
+  CUSTOMER_SELF
+}
+
+/// Cine suportă transportul returului (ReturnRequest.costBearer).
+enum ReturnCostBearer {
+  VENDOR
+  CUSTOMER
+  ARTFEST
+  SPLIT
+}
+
 enum ReturnRequestStatus {
   NEW
   IN_REVIEW
@@ -3088,7 +3296,23 @@ model ReturnRequest {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
+  /// Retur Sameday: metoda aleasă (HOME_PICKUP = retur standard, service 10;
+  /// EASYBOX = Easybox Return, service 24; CUSTOMER_SELF = clientul expediază
+  /// singur, fluxul de azi). null = cerere veche / metodă încă nealeasă.
+  returnMethod    ReturnMethod?
+  /// Cine suportă transportul returului - decizie EXPLICITĂ (faultParty nu o
+  /// stabilește automat). null = nedecis; sumele stau pe ShipmentDelivery (RETURN).
+  costBearer      ReturnCostBearer?
+  costDecidedAt   DateTime?
+  costDecidedById String?
+  /// Adresa de ridicare CONFIRMATĂ de client pentru HOME_PICKUP (snapshot validat
+  /// în nomenclatorul Sameday: contact, adresă, countyId / cityId, confirmedAt).
+  /// Copiată în ShipmentDelivery la crearea Shipment-ului RETURN. null = cerere
+  /// veche / altă metodă.
+  pickupAddress   Json?
+
   user             User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  costDecidedBy    User?               @relation("ReturnRequestCostDecidedBy", fields: [costDecidedById], references: [id], onDelete: SetNull)
   order            Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
   originalShipment Shipment            @relation("ReturnOriginalShipment", fields: [originalShipmentId], references: [id], onDelete: Cascade)
   vendor           Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -3099,6 +3323,7 @@ model ReturnRequest {
   @@index([vendorId, createdAt])
   @@index([status, createdAt])
   @@index([originalShipmentId])
+  @@index([costDecidedById])
 }
 
 model ReturnRequestItem {
@@ -3646,10 +3871,412 @@ model ProductImport {
 
   items ProductImportItem[]
 
+  // Import dintr-un magazin conectat (null = fișier Excel/CSV)
+  connectionId String?
+  connection   ExternalStoreConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
   @@index([vendorId, createdAt])
   @@index([serviceId, createdAt])
   @@index([vendorId, status, createdAt])
   @@index([serviceId, status, createdAt])
+  @@index([connectionId, createdAt])
+}
+
+/// ==================== Inventar: variante de stoc ====================
+
+enum ProductStockScope {
+  PRODUCT
+  VARIANT
+}
+
+enum ProductVariantStockMode {
+  // stoc propriu: ProductVariant.stockQty (obligatoriu, >= 0)
+  OWN
+  // stocul comun al produsului: Product.variantPoolQty
+  PRODUCT_POOL
+  // fără stoc urmărit; disponibilitatea decide
+  UNTRACKED
+}
+
+enum ProductVariantOrigin {
+  MANUAL
+  // variantă reală, preluată din magazinul extern
+  EXTERNAL
+  // sugerată de AI din descriere și CONFIRMATĂ de vânzător; sugestiile
+  // neconfirmate NU devin ProductVariant (stau în ProductImportItem)
+  AI_CONFIRMED
+}
+
+/**
+ * O combinație vândabilă a opțiunilor de STOC ale produsului (ex. Mărime M +
+ * Culoare roșu). Personalizările clientului (nume, mesaj, fotografie,
+ * instrucțiuni - customSchema / repeatedGroups) NU fac parte din combinație
+ * și nu au stoc. Prețul rămâne în optionsSchema (priceDeltaCents /
+ * combinationPriceOverrides) - o singură sursă pentru preț.
+ */
+model ProductVariant {
+  id        String @id @default(cuid())
+  productId String
+
+  // combinationKey(selections) din lib/variantPricing.js - doar opțiunile de stoc
+  combinationKey String  @db.VarChar(1000)
+  selections     Json
+  label          String? @db.VarChar(255)
+  sku            String? @db.VarChar(100)
+
+  stockMode ProductVariantStockMode @default(OWN)
+  stockQty  Int?
+
+  // null = aceeași disponibilitate ca produsul
+  availability ProductAvailability?
+
+  isActive Boolean              @default(true)
+  origin   ProductVariantOrigin @default(MANUAL)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product      Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  externalLink ExternalVariantLink?
+  movements    InventoryMovement[]
+
+  @@unique([productId, combinationKey])
+  @@index([productId, isActive])
+  @@index([sku])
+}
+
+enum InventoryStockTarget {
+  // Product.readyQty (stockScope = PRODUCT)
+  PRODUCT
+  // ProductVariant.stockQty (stockMode = OWN)
+  VARIANT
+  // Product.variantPoolQty (variantă cu stockMode = PRODUCT_POOL)
+  VARIANT_POOL
+}
+
+enum InventoryMovementReason {
+  ORDER_PLACED
+  ORDER_CANCELLED
+  PAYMENT_EXPIRED
+  RETURN_RESTOCK
+  EXTERNAL_SYNC
+  RECONCILE
+  MANUAL_ADJUST
+  IMPORT
+  FAIR
+}
+
+/**
+ * Istoricul mișcărilor de stoc online. Fiecare scădere / restaurare are o
+ * cheie de idempotență unică - aceeași operație nu se poate aplica de două
+ * ori (ex. „order:<shipmentItemId>:place”). Restaurarea la anulare citește
+ * de aici ce s-a scăzut efectiv. Referințele la comandă sunt fără FK:
+ * istoricul rămâne și după ștergeri.
+ */
+model InventoryMovement {
+  id        String  @id @default(cuid())
+  productId String
+  variantId String?
+
+  target    InventoryStockTarget
+  delta     Int
+  // valorile din momentul scrierii (null = stoc neurmărit / necunoscut)
+  qtyBefore Int?
+  qtyAfter  Int?
+
+  reason         InventoryMovementReason
+  idempotencyKey String                  @unique @db.VarChar(191)
+
+  orderId        String?
+  shipmentId     String?
+  shipmentItemId String?
+
+  connectionId    String?
+  externalEventId String?
+
+  actorUserId String?
+  note        String? @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+
+  product    Product                  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant    ProductVariant?          @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  connection ExternalStoreConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([productId, createdAt])
+  @@index([variantId, createdAt])
+  @@index([orderId])
+  @@index([shipmentItemId])
+  @@index([connectionId, createdAt])
+  @@index([reason, createdAt])
+}
+
+/// ==================== Magazine externe (WooCommerce / Shopify / easySales) ====================
+
+enum ExternalPlatform {
+  WOOCOMMERCE
+  SHOPIFY
+  EASYSALES
+}
+
+enum ExternalConnectionStatus {
+  PENDING
+  ACTIVE
+  ERROR
+  DISCONNECTED
+}
+
+enum ExternalStockMaster {
+  // magazinul extern e sursa stocului (implicit pentru produsele conectate)
+  EXTERNAL
+  ARTFEST
+}
+
+/**
+ * Conexiunea unui vânzător la magazinul lui extern. Credentialele și
+ * secretul webhook-urilor sunt DOAR criptate (cheie dedicată integrărilor,
+ * separată de curieri) și nu ies niciodată spre frontend.
+ * activeShopKey = adresa normalizată a magazinului cât timp conexiunea NU
+ * e DISCONNECTED (la deconectare devine null). Unicitatea pe
+ * (platform, activeShopKey) împiedică doi vânzători / două conexiuni să
+ * sincronizeze același magazin, dar permite reconectarea ulterioară.
+ */
+model ExternalStoreConnection {
+  id       String           @id @default(cuid())
+  vendorId String
+  platform ExternalPlatform
+
+  label         String? @db.VarChar(120)
+  shopUrl       String  @db.VarChar(500)
+  activeShopKey String? @db.VarChar(500)
+
+  status ExternalConnectionStatus @default(PENDING)
+
+  credentialsCipher       Bytes
+  credentialsKeyVersion   Int     @default(1)
+  credentialsHint         String? @db.VarChar(160)
+  webhookSecretCipher     Bytes?
+  webhookSecretKeyVersion Int?
+
+  stockMaster ExternalStockMaster @default(EXTERNAL)
+
+  // ce se sincronizează după import; implicit doar stocul
+  syncStock   Boolean @default(true)
+  syncPrice   Boolean @default(false)
+  syncContent Boolean @default(false)
+
+  // unități păstrate deoparte când sursa e EXTERNAL (protecție la supravânzare)
+  safetyBufferQty Int @default(0)
+
+  isPaused Boolean   @default(false)
+  pausedAt DateTime?
+
+  connectedByUserId String?
+  lastTestedAt      DateTime?
+  lastSyncAt        DateTime?
+  lastSuccessAt     DateTime?
+  lastErrorAt       DateTime?
+  lastErrorCode     String?   @db.VarChar(64)
+  lastErrorMessage  String?   @db.VarChar(1000)
+  disconnectedAt    DateTime?
+
+  meta Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor        Vendor                 @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  productLinks  ExternalProductLink[]
+  syncJobs      ExternalSyncJob[]
+  webhookEvents ExternalWebhookEvent[]
+  imports       ProductImport[]
+  movements     InventoryMovement[]
+
+  @@unique([platform, activeShopKey])
+  @@index([vendorId, platform])
+  @@index([status, isPaused])
+}
+
+enum ExternalProductLinkStatus {
+  ACTIVE
+  // vânzătorul a desfăcut legătura; produsul Artfest rămâne local
+  UNLINKED
+  // produsul a dispărut din magazinul extern
+  EXTERNAL_DELETED
+}
+
+/**
+ * Legătura produs Artfest <-> produs extern. Un produs Artfest are cel mult
+ * O sursă externă (productId unic), iar un produs extern e importat cel mult
+ * o dată pe conexiune (connectionId + externalProductId unic) - importurile
+ * duplicate sunt blocate în baza de date.
+ */
+model ExternalProductLink {
+  id           String @id @default(cuid())
+  connectionId String
+  productId    String @unique
+
+  externalProductId String  @db.VarChar(64)
+  externalType      String? @db.VarChar(32)
+  externalSku       String? @db.VarChar(100)
+
+  status ExternalProductLinkStatus @default(ACTIVE)
+
+  // ce se sincronizează pentru acest produs (null = setarea conexiunii)
+  syncContent Boolean?
+  syncPrice   Boolean?
+
+  // hash-ul conținutului extern la ultimul import / sincronizare
+  externalContentHash String?   @db.VarChar(64)
+  externalModifiedAt  DateTime?
+  lastSyncedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  connection   ExternalStoreConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  product      Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantLinks ExternalVariantLink[]
+
+  @@unique([connectionId, externalProductId])
+  @@index([connectionId, status])
+}
+
+enum ExternalStockManagedAt {
+  // stocul e gestionat pe variația externă
+  VARIANT
+  // variația externă folosește stocul produsului părinte (WooCommerce „parent”)
+  PARENT
+  // magazinul extern nu urmărește stocul (doar instock / outofstock)
+  NONE
+}
+
+/**
+ * O unitate de stoc externă: o variație externă sau - pentru produse simple -
+ * produsul extern însuși (externalVariantId = "", fără variantă Artfest).
+ * "" în loc de null: unicitatea (productLinkId, externalVariantId) trebuie să
+ * funcționeze și pentru produsul simplu (în Postgres NULL-urile nu se ciocnesc).
+ * pendingOutboundDelta = mișcările Artfest încă netrimise în magazinul extern.
+ * O valoare absolută primită din exterior NU le conține, deci stocul Artfest
+ * = stoc extern + pendingOutboundDelta (fără a pierde vânzări recente).
+ */
+model ExternalVariantLink {
+  id            String  @id @default(cuid())
+  productLinkId String
+  variantId     String? @unique
+
+  externalVariantId String  @default("") @db.VarChar(64)
+  externalSku       String? @db.VarChar(100)
+
+  stockManagedAt ExternalStockManagedAt @default(VARIANT)
+
+  lastExternalStock       Int?
+  lastExternalStockStatus String?   @db.VarChar(32)
+  lastExternalSeenAt      DateTime?
+  lastPushedStock         Int?
+  lastPushedAt            DateTime?
+  pendingOutboundDelta    Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  productLink ExternalProductLink @relation(fields: [productLinkId], references: [id], onDelete: Cascade)
+  variant     ProductVariant?     @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([productLinkId, externalVariantId])
+  @@index([externalVariantId])
+}
+
+enum ExternalSyncJobType {
+  IMPORT_PRODUCTS
+  PULL_STOCK
+  PUSH_STOCK
+  PROCESS_WEBHOOK
+  RECONCILE
+  REGISTER_WEBHOOKS
+}
+
+enum ExternalSyncJobStatus {
+  // și reîncercările (attempts > 0, cu runAfter în viitor)
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  // eșec definitiv, după maxAttempts
+  DEAD
+  CANCELLED
+}
+
+/**
+ * Coada de sincronizare (în Postgres, fără Redis). Workerul ia joburile cu
+ * FOR UPDATE SKIP LOCKED. dedupeKey e unic cât timp jobul e activ (QUEUED /
+ * RUNNING) și se eliberează (null) la final - același lucru nu se pune de
+ * două ori în coadă (impus și prin CHECK în migrație).
+ */
+model ExternalSyncJob {
+  id           String                @id @default(cuid())
+  connectionId String
+  type         ExternalSyncJobType
+  status       ExternalSyncJobStatus @default(QUEUED)
+
+  payload   Json?
+  dedupeKey String? @unique @db.VarChar(191)
+  priority  Int     @default(0)
+
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(8)
+  runAfter    DateTime  @default(now())
+  lockedAt    DateTime?
+  lockedBy    String?   @db.VarChar(100)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  lastErrorCode    String? @db.VarChar(64)
+  lastErrorMessage String? @db.VarChar(1000)
+  result           Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  connection ExternalStoreConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter, priority])
+  @@index([connectionId, status, createdAt])
+  @@index([connectionId, type, createdAt])
+}
+
+enum ExternalWebhookEventStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+/**
+ * Webhook-uri primite. (connectionId, deliveryKey) unic = aceeași livrare
+ * (ex. X-WC-Webhook-Delivery-ID) se procesează o singură dată. Se salvează
+ * doar webhook-urile cu semnătura validă.
+ */
+model ExternalWebhookEvent {
+  id           String @id @default(cuid())
+  connectionId String
+
+  deliveryKey String  @db.VarChar(191)
+  topic       String  @db.VarChar(100)
+  resourceId  String? @db.VarChar(64)
+  payloadHash String  @db.VarChar(64)
+  payload     Json?
+
+  status       ExternalWebhookEventStatus @default(RECEIVED)
+  errorMessage String?                    @db.VarChar(1000)
+
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  connection ExternalStoreConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, deliveryKey])
+  @@index([connectionId, receivedAt])
+  @@index([status, receivedAt])
 }
 
 model ProductImportItem {
@@ -4423,6 +5050,7 @@ model CourierAccount {
   pickupAddress VendorPickupAddress? @relation(fields: [pickupAddressId], references: [id], onDelete: SetNull)
 
   awbs CourierAwb[]
+  statusSyncCursors CourierStatusSyncCursor[]
 
   @@index([vendorId, provider])
   @@index([vendorId, status])
@@ -4503,10 +5131,89 @@ model CourierAwb {
 
   courierAccount CourierAccount? @relation(fields: [courierAccountId], references: [id], onDelete: SetNull)
 
+  trackingEvents ShipmentTrackingEvent[]
+
   @@unique([provider, awbNumber])
   @@index([shipmentId, createdAt])
   @@index([courierAccountId])
   @@index([status, updatedAt])
+}
+
+/**
+ * Fluxul de statusuri citit de la curier (Sameday):
+ * STATUS_SYNC = GET /api/client/status-sync (RO-RO);
+ * XB_STATUS_SYNC = GET /api/client/xb-status-sync (crossborder, ulterior).
+ */
+enum CourierSyncFeed {
+  STATUS_SYNC
+  XB_STATUS_SYNC
+}
+
+/**
+ * Checkpoint-ul sincronizării de statusuri, per cont de curier + flux.
+ * syncedUntil avansează DOAR după ce o fereastră (max 2h) a fost procesată
+ * complet, cu toate paginile. lockedUntil / lockedBy = lease (o singură
+ * instanță rulează). Vezi couriers/tracking/statusSyncWorker.js.
+ */
+model CourierStatusSyncCursor {
+  id               String          @id @default(cuid())
+  courierAccountId String
+  feed             CourierSyncFeed
+  syncedUntil      DateTime
+  lockedUntil      DateTime?
+  lockedBy         String?         @db.VarChar(100)
+  lastRunAt        DateTime?
+  lastSuccessAt    DateTime?
+  lastErrorCode    String?         @db.VarChar(64)
+  failures         Int             @default(0)
+  nextRunAfter     DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  courierAccount CourierAccount @relation(fields: [courierAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([courierAccountId, feed])
+}
+
+/**
+ * Timeline-ul expedierii din statusurile curierului (status-sync). Doar
+ * câmpuri documentate și utile - fără codul de deschidere a lockerului,
+ * coordonate sau payload brut. dedupeKey = sha256(provider | parcelAwbNumber
+ * | statusId | statusDate brut | reasonId). mappedStatus null = status
+ * nemapat; applied = a schimbat Shipment.status (faza 1: doar IN_TRANSIT).
+ */
+model ShipmentTrackingEvent {
+  id                   String          @id @default(cuid())
+  shipmentId           String
+  courierAwbId         String?
+  provider             CourierProvider
+  parcelNumber         String          @db.VarChar(120)
+  statusId             Int
+  status               String?         @db.VarChar(120)
+  statusLabel          String?         @db.VarChar(255)
+  statusState          String?         @db.VarChar(120)
+  statusDateRaw        String          @db.VarChar(64)
+  occurredAt           DateTime?
+  reasonId             Int?
+  reason               String?         @db.VarChar(255)
+  inReturn             Boolean         @default(false)
+  transitLocation      String?         @db.VarChar(255)
+  logisticLocationId   Int?
+  logisticLocationName String?         @db.VarChar(255)
+  oohId                Int?
+  oohType              Int?
+  lockerId             Int?
+  mappedStatus         ShipmentStatus?
+  applied              Boolean         @default(false)
+  dedupeKey            String          @unique @db.Char(64)
+  createdAt            DateTime        @default(now())
+
+  shipment   Shipment    @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  courierAwb CourierAwb? @relation(fields: [courierAwbId], references: [id], onDelete: SetNull)
+
+  @@index([shipmentId, occurredAt])
+  @@index([courierAwbId])
+  @@index([parcelNumber])
 }
 
 model VendorPickupAddress {
@@ -5485,4 +6192,29 @@ model AiUsageDaily {
 
   @@unique([feature, scope, subjectId, day])
   @@index([feature, scope, day])
+}
+
+/// Declarația GPSR a vânzătorului PER PRODUS (append-only, auditabilă).
+/// Generată doar pe server (lib/gpsrDeclaration.js): vânzătorul și
+/// utilizatorul din sesiune, versiunea curentă a informării, ora serverului.
+/// Fără FK spre Product / Vendor / User: istoricul rămâne și dacă produsul
+/// sau contul se șterg. Nu conține adrese: doar amprente sha256.
+/// Distinctă de VendorProductDeclaration (declarația generală) și de
+/// VendorAcceptance (politici generale).
+model ProductGpsrDeclaration {
+  id               String   @id @default(cuid())
+  productId        String
+  vendorId         String
+  userId           String
+  kind             String   @db.VarChar(32)
+  noticeVersion    String   @db.VarChar(40)
+  textHash         String   @db.VarChar(64)
+  manufacturerHash String   @db.VarChar(64)
+  safetyHash       String   @db.VarChar(64)
+  source           String?  @db.VarChar(32)
+  createdAt        DateTime @default(now())
+
+  @@unique([productId, noticeVersion, manufacturerHash, safetyHash], map: "ProductGpsrDeclaration_product_version_hashes_key")
+  @@index([productId, createdAt])
+  @@index([vendorId, createdAt])
 }

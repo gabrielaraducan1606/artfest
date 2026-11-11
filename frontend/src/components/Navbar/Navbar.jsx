@@ -43,6 +43,8 @@ import {
   Bot,
   Truck,
   Gift,
+  Palette,
+  Crown,
 } from "lucide-react";
 
 import { api } from "../../lib/api";
@@ -131,6 +133,8 @@ const VENDOR_DRAWER_ICONS = {
   AlertTriangle,
   Truck,
   Gift,
+  Palette,
+  Crown,
 };
 
 function VendorDrawerIcon({ name, size = 18 }) {
@@ -1698,6 +1702,9 @@ const isAdminRoute = location.pathname.startsWith("/admin");
             </NavLink>
             <NavLink className={styles.navLink} to="/admin/pickups" end>
               Colete
+            </NavLink>
+            <NavLink className={styles.navLink} to="/admin/couriers" end>
+              Curieri
             </NavLink>
             <NavLink className={styles.navLink} to="/admin/billing" end>
               Facturare

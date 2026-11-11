@@ -12,6 +12,7 @@ import {
   PackageCheck,
   MapPin,
   SearchCheck,
+  Printer,
   X,
 } from "lucide-react";
 import { api, buildApiUrl } from "../../../../lib/api";
@@ -36,10 +37,17 @@ import {
   isCourierSetupPending,
   isPlatformSetupBlocker,
   courierSetupMessage,
+  isAwbLiveDisabled,
+  AWB_LIVE_DISABLED_MESSAGE,
   isPickupBlocker,
   PICKUP_DETAILS_MISSING_MESSAGE,
   packageTypeLabel,
   canCancelArtfestAwb,
+  awbCancelView,
+  cancelErrorIsState,
+  canDownloadArtfestLabel,
+  isArtfestManagedAwb,
+  labelFileName,
   initialAwbForm,
   buildAwbRequestBody,
   validateAwbForm,
@@ -55,7 +63,13 @@ import {
   validateManualShipForm,
   buildManualShipBody,
   formatShippedDate,
+  awbPickupStage,
+  awbProgressSteps,
+  AWB_LABEL_FORMATS,
+  labelQueryFormat,
+  labelErrorMessage,
 } from "../utils/awbPanelLogic.js";
+import TrackingTimeline from "../../../../components/Courier/TrackingTimeline.jsx";
 import styles from "./AwbPanel.module.css";
 
 /*
@@ -81,8 +95,10 @@ import styles from "./AwbPanel.module.css";
  * anulare (DELETE la Sameday; starea se schimbă doar la confirmarea lui).
  */
 
-async function downloadLabel(shipmentId, awb) {
-  const res = await fetch(buildApiUrl(`/api/vendor/shipments/${encodeURIComponent(shipmentId)}/label`), {
+// eticheta PDF prin backend (frontend-ul nu apelează niciodată Sameday)
+async function fetchLabelBlob(shipmentId, format = "A6") {
+  const f = labelQueryFormat(format);
+  const res = await fetch(buildApiUrl(`/api/vendor/shipments/${encodeURIComponent(shipmentId)}/label?format=${f}`), {
     credentials: "include",
   });
   if (!res.ok) {
@@ -97,15 +113,41 @@ async function downloadLabel(shipmentId, awb) {
     err.data = data;
     throw err;
   }
-  const blob = await res.blob();
+  return res.blob();
+}
+
+function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `AWB-${awb || shipmentId}.pdf`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+async function downloadLabel(shipmentId, awb, format = "A6") {
+  saveBlob(await fetchLabelBlob(shipmentId, format), labelFileName(awb, shipmentId));
+}
+
+// PDF-ul în tab nou (vizualizatorul browserului are „Tipărește”); fereastra se
+// deschide sincron la click (altfel o blochează browserul), apoi primește PDF-ul
+async function printLabel(shipmentId, awb, format = "A6") {
+  const win = window.open("", "_blank");
+  try {
+    const blob = await fetchLabelBlob(shipmentId, format);
+    if (!win) {
+      saveBlob(blob, labelFileName(awb, shipmentId)); // pop-up blocat -> descărcare
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    win.location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    win?.close();
+    throw e;
+  }
 }
 
 function errorCode(e) {
@@ -145,31 +187,128 @@ function SetupPendingNotice({ message = COURIER_SETUP_PENDING_MESSAGE }) {
 
 /* ---------- AWB creat ---------- */
 
-function CreatedView({ shipment, awbStatus, orderStatus, onChanged, reload }) {
+/*
+ * Istoricul curierului (status-sync): se încarcă doar la deschidere; include
+ * și evenimentele care nu au schimbat statusul comenzii. Doar citire.
+ */
+function TrackingHistory({ shipmentId }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [events, setEvents] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await api(`/api/vendor/shipments/${encodeURIComponent(shipmentId)}/awb/tracking`);
+      setEvents(Array.isArray(res?.events) ? res.events : []);
+    } catch (e) {
+      setError(apiErrorMessage(e, "Nu am putut încărca istoricul curierului."));
+    } finally {
+      setLoading(false);
+    }
+  }, [shipmentId]);
+
+  useEffect(() => {
+    if (open && events === null && !loading && !error) load();
+  }, [open, events, loading, error, load]);
+
+  return (
+    <details className={styles.trackingHistory} onToggle={(e) => setOpen(e.currentTarget.open)} data-awb-tracking-history>
+      <summary>Istoric curier</summary>
+      {loading ? (
+        <div className={styles.loading} role="status">
+          <Loader2 size={16} className={styles.spin} /> Se încarcă istoricul…
+        </div>
+      ) : error ? (
+        <div className={styles.error} role="alert">
+          {error}{" "}
+          <button type="button" className={styles.linkBtn} onClick={load}>
+            <RefreshCcw size={14} /> Încearcă din nou
+          </button>
+        </div>
+      ) : events ? (
+        <>
+          <TrackingTimeline events={events} />
+          <button type="button" className={styles.linkBtn} onClick={load}>
+            <RefreshCcw size={14} /> Reîmprospătează
+          </button>
+        </>
+      ) : null}
+    </details>
+  );
+}
+
+function CreatedView({ shipment, awbStatus, onChanged, reload }) {
   const [downloading, setDownloading] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   // refuzul Sameday (ex. 405 - coletul preluat) rămâne vizibil în secțiune
   const [cancelError, setCancelError] = useState("");
+  // A6 implicit (etichetă termică); A4 pentru imprimante de birou
+  const [labelFormat, setLabelFormat] = useState("A6");
+  // eticheta indisponibilă / eroare: mesaj vizibil + „Verifică din nou”
+  const [labelError, setLabelError] = useState("");
+  const [rechecking, setRechecking] = useState(false);
+  const formatSelectId = useId();
+  const pickup = awbPickupStage({ awbStatus, shipment });
+  const steps = awbProgressSteps(pickup.stage);
 
   const s = awbStatus?.shipment || {};
   const awb = s.awb || shipment?.awb;
   const latest = awbStatus?.latest?.awbNumber === awb ? awbStatus.latest : null;
   const trackingUrl = s.trackingUrl || shipment?.trackingUrl || null;
-  const artfestLabel = s.artfestLabel ?? String(shipment?.labelUrl || "").startsWith("/api/vendor/shipments/");
+  // originea AWB-ului (Artfest vs. manual) - neschimbată de o anulare în curs
+  const artfestAwb = isArtfestManagedAwb({ awbStatus, shipment });
+  // butoanele etichetei: doar AWB Artfest confirmat, fără anulare în curs / neconfirmată
+  const canDownloadLabel = canDownloadArtfestLabel({ awbStatus, shipment });
   const provider = s.courierProvider || shipment?.courierProvider;
   const service = s.courierService || shipment?.courierService;
-  // anulare la Sameday (DELETE /api/awb): serverul decide dacă e permisă (coletul nepredat)
-  const canCancel = AWB_GENERATION_ENABLED && canCancelArtfestAwb({ awbStatus, orderStatus });
+  // anulare la Sameday (DELETE /api/awb): serverul decide dacă e permisă (coletul
+  // nepredat, fără anulare în curs / neconfirmată) - și pentru o comandă anulată
+  const canCancel = AWB_GENERATION_ENABLED && canCancelArtfestAwb({ awbStatus });
+  // anulare în curs / neconfirmată: fără buton (fără retry orb), doar starea
+  const cancelView = awbCancelView(awbStatus);
+
+  // un singur fetch de etichetă odată (descărcare sau tipărire)
+  const labelBusy = downloading || printing;
 
   const onDownload = async () => {
-    if (downloading) return;
+    if (labelBusy) return;
     setDownloading(true);
+    setLabelError("");
     try {
-      await downloadLabel(shipment.id, awb);
+      await downloadLabel(shipment.id, awb, labelFormat);
     } catch (e) {
-      toast.error(apiErrorMessage(e, "Nu am putut descărca eticheta."));
+      setLabelError(labelErrorMessage(e));
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const onPrint = async () => {
+    if (labelBusy) return;
+    setPrinting(true);
+    setLabelError("");
+    try {
+      await printLabel(shipment.id, awb, labelFormat);
+    } catch (e) {
+      setLabelError(labelErrorMessage(e));
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  // reîncarcă starea AWB-ului (fără apel la curier) și șterge eroarea
+  const onRecheck = async () => {
+    if (rechecking) return;
+    setRechecking(true);
+    try {
+      await reload();
+      setLabelError("");
+    } finally {
+      setRechecking(false);
     }
   };
 
@@ -189,8 +328,14 @@ function CreatedView({ shipment, awbStatus, orderStatus, onChanged, reload }) {
       onChanged?.();
     } catch (e) {
       const message = apiErrorMessage(e, "Nu am putut anula AWB-ul.");
-      setCancelError(message);
-      toast.error(message);
+      if (cancelErrorIsState(errorCode(e))) {
+        // rezultat incert / în curs: starea (din reload) explică, nu un „refuz”
+        setCancelError("");
+        toast.warn(message);
+      } else {
+        setCancelError(message);
+        toast.error(message);
+      }
       await reload();
     } finally {
       setCancelling(false);
@@ -206,12 +351,65 @@ function CreatedView({ shipment, awbStatus, orderStatus, onChanged, reload }) {
         </span>
       </div>
 
+      {/* ce urmează: doar starea locală; fără ore / date de ridicare inventate */}
+      {!cancelView && (
+        <>
+          <ol className={styles.progress} aria-label="Progresul expedierii">
+            {steps.map((st) => (
+              <li
+                key={st.key}
+                className={`${styles.progressStep} ${styles[`progress_${st.state}`] || ""}`}
+                aria-current={st.state === "current" ? "step" : undefined}
+              >
+                <span className={styles.progressDot} aria-hidden="true">
+                  {st.state === "done" ? "✓" : ""}
+                </span>
+                {st.label}
+              </li>
+            ))}
+          </ol>
+          <div
+            className={`${styles.notice} ${pickup.tone === "warning" ? styles.notice_warning : ""}`}
+            role="status"
+            data-awb-pickup-stage={pickup.stage}
+          >
+            <strong>{pickup.title}</strong>
+            <span>{pickup.message}</span>
+            {pickup.at && <span className={styles.muted}>{formatDateTime(pickup.at)}</span>}
+          </div>
+        </>
+      )}
+
+      {canDownloadLabel && (
+        <div className={styles.labelFormat}>
+          <label htmlFor={formatSelectId}>Format etichetă</label>
+          <select
+            id={formatSelectId}
+            value={labelFormat}
+            onChange={(e) => setLabelFormat(labelQueryFormat(e.target.value))}
+            disabled={labelBusy}
+          >
+            {AWB_LABEL_FORMATS.map((f) => (
+              <option key={f} value={f}>
+                {f === "A6" ? "A6 (etichetă 10×15)" : "A4 (imprimantă obișnuită)"}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* acțiunile principale primele (pe mobil: lățime completă) */}
       <div className={styles.actions}>
-        {artfestLabel && (
-          <button type="button" className={styles.primaryBtn} onClick={onDownload} disabled={downloading}>
+        {canDownloadLabel && (
+          <button type="button" className={styles.primaryBtn} onClick={onDownload} disabled={labelBusy} aria-busy={downloading}>
             {downloading ? <Loader2 size={16} className={styles.spin} /> : <FileDown size={16} />}
-            Descarcă eticheta
+            {downloading ? "Se descarcă…" : `Descarcă eticheta ${labelFormat}`}
+          </button>
+        )}
+        {canDownloadLabel && (
+          <button type="button" className={styles.secondaryBtn} onClick={onPrint} disabled={labelBusy} aria-busy={printing}>
+            {printing ? <Loader2 size={16} className={styles.spin} /> : <Printer size={16} />}
+            {printing ? "Se deschide…" : "Tipărește eticheta"}
           </button>
         )}
         {trackingUrl && (
@@ -219,13 +417,44 @@ function CreatedView({ shipment, awbStatus, orderStatus, onChanged, reload }) {
             <ExternalLink size={16} aria-hidden="true" /> Vezi tracking
           </a>
         )}
-        {canCancel && (
+        {canCancel && !cancelView && (
           <button type="button" className={styles.dangerBtn} onClick={onCancel} disabled={cancelling}>
             {cancelling ? <Loader2 size={16} className={styles.spin} /> : <Ban size={16} />}
-            Anulează AWB
+            {cancelling ? "Se anulează…" : "Anulează AWB"}
           </button>
         )}
       </div>
+
+      {labelError && (
+        <div className={styles.error} role="alert" data-awb-label-error>
+          <span>{labelError}</span>
+          <button type="button" className={styles.linkBtn} onClick={onRecheck} disabled={rechecking}>
+            {rechecking ? <Loader2 size={14} className={styles.spin} /> : <RefreshCcw size={14} />} Verifică din nou
+          </button>
+        </div>
+      )}
+
+      {cancelView?.state === "in_progress" && (
+        <div className={styles.loading} role="status" data-awb-cancel-in-progress>
+          <Loader2 size={16} className={styles.spin} /> {cancelView.message}
+          <button type="button" className={styles.linkBtn} onClick={reload}>
+            <RefreshCcw size={14} /> Reîmprospătează
+          </button>
+        </div>
+      )}
+
+      {cancelView?.state === "unknown" && (
+        <div className={`${styles.notice} ${styles.notice_warning}`} role="status" data-awb-cancel-unknown>
+          <strong>Anulare neconfirmată</strong>
+          <span>{cancelView.message}</span>
+          <span className={styles.muted}>
+            Nu preda coletul cu acest AWB și nu genera altul până la confirmare. Echipa Artfest verifică AWB-ul la Sameday.
+          </span>
+          <button type="button" className={styles.linkBtn} onClick={reload}>
+            <RefreshCcw size={14} /> Verifică din nou
+          </button>
+        </div>
+      )}
 
       <dl className={styles.details}>
         <div className={styles.detail}>
@@ -250,13 +479,15 @@ function CreatedView({ shipment, awbStatus, orderStatus, onChanged, reload }) {
         )}
       </dl>
 
+      {artfestAwb && shipment?.id ? <TrackingHistory shipmentId={shipment.id} /> : null}
+
       {cancelError && (
         <div className={styles.error} role="alert" data-awb-cancel-error>
           {cancelError}
         </div>
       )}
 
-      {!artfestLabel && (
+      {!artfestAwb && (
         <span className={styles.muted}>AWB setat manual de echipa Artfest.</span>
       )}
     </>
@@ -573,16 +804,19 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
     (b) => !isPlatformSetupBlocker(b) && !isPickupBlocker(b)
   );
   const pickupBlocked = (allBlockers || []).some(isPickupBlocker);
+  const awbLiveOff = isAwbLiveDisabled(preview);
   const canOpenConfirm =
     !!preview &&
     !loadingPreview &&
     !setupPending &&
+    !awbLiveOff &&
     !pickupBlocked &&
     canSubmitAwb({ blockers: allBlockers, inputsTouched, formErrors, submitting });
 
   useEffect(() => {
-    if (preview) onSetupPendingChange?.(setupPending);
-  }, [preview, setupPending, onSetupPendingChange]);
+    // AWB real oprit: „Trimite fără integrare” devine acțiunea clară
+    if (preview) onSetupPendingChange?.(setupPending || awbLiveOff);
+  }, [preview, setupPending, awbLiveOff, onSetupPendingChange]);
 
   const setField = (key, value) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -620,6 +854,10 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
         setInputsTouched(false);
       }
       setSubmitError(apiErrorMessage(e, "Nu am putut genera AWB-ul. Încearcă din nou."));
+      if (errorCode(e) === "courier_awb_live_disabled") {
+        setConfirmOpen(false); // AWB real oprit pe server - nimic trimis la curier
+        setPreview((p) => (p ? { ...p, awbLiveEnabled: false } : p));
+      }
       if (["awb_status_unknown", "awb_saved_partially", "awb_in_progress", "awb_exists"].includes(errorCode(e))) {
         setConfirmOpen(false);
         onCreated(null); // reîncarcă: secțiunea arată starea reală (verificare / AWB existent)
@@ -772,6 +1010,12 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
             </div>
           )}
 
+          {awbLiveOff && !setupPending && (
+            <div className={`${styles.notice} ${styles.notice_warning}`} role="status" data-awb-live-disabled>
+              {AWB_LIVE_DISABLED_MESSAGE}
+            </div>
+          )}
+
           <div className={styles.actions}>
             <button
               type="button"
@@ -779,7 +1023,15 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
               onClick={openConfirm}
               disabled={!canOpenConfirm}
               aria-disabled={!canOpenConfirm}
-              title={setupPending ? setupMessage : pickupBlocked ? PICKUP_DETAILS_MISSING_MESSAGE : undefined}
+              title={
+                setupPending
+                  ? setupMessage
+                  : awbLiveOff
+                    ? AWB_LIVE_DISABLED_MESSAGE
+                    : pickupBlocked
+                      ? PICKUP_DETAILS_MISSING_MESSAGE
+                      : undefined
+              }
             >
               <Truck size={16} />
               {notice?.retryLabel || "Generează AWB"}
@@ -1197,7 +1449,6 @@ function AwbPanelInner({ shipment, orderStatus, orderId, canProcess = true, onCh
         <CreatedView
           shipment={shipment}
           awbStatus={awbStatus}
-          orderStatus={orderStatus}
           onChanged={onChanged}
           reload={load}
         />

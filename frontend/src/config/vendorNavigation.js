@@ -48,6 +48,14 @@ export const VENDOR_DASHBOARD_LINK = {
  */
 export const VENDOR_FAIR_URL = "/vendor/targ-artfest";
 
+/*
+ * Abonamente (etapa 1 - doar interfață): „Abonamentul meu” rămâne tabul
+ * existent din Setări (aceeași destinație ca linkurile din Dashboard), iar
+ * „Design magazin” prezintă serviciile de personalizare (separate de abonamente).
+ */
+export const VENDOR_SUBSCRIPTION_URL = "/setari?tab=subscription";
+export const VENDOR_STORE_DESIGN_URL = "/vendor/design-magazin";
+
 // link de nivel 1 în burger (sub Dashboard), vizibil fără a deschide o secțiune
 export const VENDOR_FEATURED_LINKS = [
   { label: "Târg Artfest", to: VENDOR_FAIR_URL, icon: "Gift" },
@@ -66,6 +74,8 @@ export const VENDOR_NAV_SECTIONS = [
        * (VendorStoresPage.jsx, acum legată la /vendor/stores).
        */
       { label: "Magazinele mele", to: "/vendor/stores", icon: "Store" },
+      { label: "Design magazin", to: VENDOR_STORE_DESIGN_URL, icon: "Palette" },
+      { label: "Abonamentul meu", to: VENDOR_SUBSCRIPTION_URL, icon: "Crown" },
       { label: "Vizitatori", to: "/vendor/visitors", icon: "Users" },
     ],
   },

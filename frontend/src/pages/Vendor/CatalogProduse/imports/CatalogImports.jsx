@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import styles from "./CatalogImports.module.css";
+import WooCommerceImport from "./woocommerce/WooCommerceImport.jsx";
 
 const IMPORT_SOURCES = [
   {
@@ -273,6 +274,12 @@ export default function CatalogImports() {
   const [step, setStep] =
     useState("SOURCE");
 
+  // WooCommerce: disponibil doar dacă backend-ul are integrarea pornită (altfel 404)
+  const [
+    isWooAvailable,
+    setIsWooAvailable,
+  ] = useState(false);
+
   const [,
     setSelectedSource,
   ] = useState(null);
@@ -520,6 +527,17 @@ export default function CatalogImports() {
   useEffect(() => {
     loadHistory();
     loadServices();
+
+    // fără „/” final: pe Vercel, /api/.../ nu trece prin proxy (404 HTML)
+    fetch("/api/vendor/integrations", {
+      credentials: "include",
+    })
+      .then((response) =>
+        setIsWooAvailable(response.ok)
+      )
+      .catch(() =>
+        setIsWooAvailable(false)
+      );
   }, []);
 
   function resetImportFlow() {
@@ -1307,7 +1325,17 @@ export default function CatalogImports() {
             styles.sourceGrid
           }
         >
-          {IMPORT_SOURCES.map((source) => {
+          {IMPORT_SOURCES.map((baseSource) => {
+            const source =
+              baseSource.key ===
+                "WOOCOMMERCE" &&
+              isWooAvailable
+                ? {
+                    ...baseSource,
+                    available: true,
+                  }
+                : baseSource;
+
             const Icon = source.icon;
 
             return (
@@ -1354,7 +1382,38 @@ export default function CatalogImports() {
 
                   <p>{source.subtitle}</p>
 
-                  {source.available && (
+                  {source.available &&
+                    source.key ===
+                      "WOOCOMMERCE" && (
+                    <div
+                      className={
+                        styles.sourceActions
+                      }
+                    >
+                      <button
+                        type="button"
+                        className={
+                          styles.primaryBtn
+                        }
+                        onClick={() => {
+                          setSelectedSource(
+                            source.key
+                          );
+                          setErrorMessage("");
+                          setStep(
+                            "WOOCOMMERCE"
+                          );
+                        }}
+                      >
+                        <Globe2 size={16} />
+                        Deschide WooCommerce
+                      </button>
+                    </div>
+                  )}
+
+                  {source.available &&
+                    source.key !==
+                      "WOOCOMMERCE" && (
                     <div
                       className={
                         styles.sourceActions
@@ -2563,9 +2622,12 @@ export default function CatalogImports() {
         )}
       </header>
 
-      <ImportProgress
-        step={step}
-      />
+      {step !==
+        "WOOCOMMERCE" && (
+        <ImportProgress
+          step={step}
+        />
+      )}
 
       {errorMessage && (
         <section
@@ -2592,6 +2654,23 @@ export default function CatalogImports() {
       {step ===
         "SOURCE" &&
         renderSourceStep()}
+
+      {step ===
+        "WOOCOMMERCE" && (
+        <WooCommerceImport
+          services={services}
+          serviceId={
+            selectedServiceId
+          }
+          onServiceChange={
+            setSelectedServiceId
+          }
+          onBack={() =>
+            setStep("SOURCE")
+          }
+          onImported={loadHistory}
+        />
+      )}
 
       {step ===
         "UPLOAD" &&
@@ -2998,7 +3077,10 @@ function ImportHistory({
                   {Number(
                     item.failedRows ||
                       0
-                  ) > 0 && (
+                  ) > 0 &&
+                    ["EXCEL", "CSV"].includes(
+                      item.source
+                    ) && (
                     <button
                       type="button"
                       className={

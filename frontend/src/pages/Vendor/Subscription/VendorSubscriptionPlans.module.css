@@ -1,0 +1,698 @@
+@import "../../../styles/variables.css";
+
+/* =========================================================
+   VendorSubscriptionPlans.module.css
+   - token-based (dark-safe), aceleași variabile ca Settings
+   - fără lățimi fixe: nimic nu depășește containerul pe mobil
+========================================================= */
+
+.page {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+  color: var(--color-text);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===== Abonamentul meu ===== */
+.current {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.currentMain {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+.currentLabel {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.currentRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.currentName {
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.currentMuted {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.error {
+  font-size: 13px;
+  color: var(--color-danger);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+  color: var(--color-muted);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===== Butoane ===== */
+.btnPrimary,
+.btnGhost {
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btnPrimary {
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: var(--on-primary);
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: var(--color-hover);
+  border-color: var(--color-hover);
+}
+
+.btnPrimary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.btnGhost {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+}
+
+.btnGhost:hover {
+  background: var(--hover-bg);
+}
+
+/* ===== Hero ===== */
+.hero {
+  text-align: center;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 8px 0 0;
+}
+
+.eyebrow {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.heroTitle {
+  margin: 0;
+  font-size: clamp(24px, 3.2vw, 32px);
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.heroSubtitle {
+  margin: 0;
+  max-width: 560px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+
+/* ===== Carduri planuri ===== */
+.plansGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.planCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 22px 20px 20px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-sm);
+}
+
+.planHighlighted {
+  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.planCurrent {
+  border-color: var(--color-success);
+}
+
+.planHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.planName {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.planTagline {
+  margin: -6px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+
+.planPrice {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.planPrice strong {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.planPrice span {
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+/* ===== Badge-uri ===== */
+.badgeCurrent,
+.badgeSoon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badgeCurrent {
+  color: var(--color-success);
+  background: var(--success-bg-soft);
+}
+
+.badgeSoon {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+/* ===== Comisioane (explicite, fără „0% / 5%”) ===== */
+.commissionList {
+  list-style: none;
+  margin: 0;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.commissionList li {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+}
+
+.commissionValue {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.commissionLabel {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
+/* ===== Liste beneficii ===== */
+.featureList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.featureList li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.featureList li svg {
+  margin-top: 2px;
+}
+
+.iconYes {
+  color: var(--color-success);
+  flex-shrink: 0;
+}
+
+.iconNo {
+  color: var(--text-disabled);
+  flex-shrink: 0;
+}
+
+/* credite AI propuse - informativ, nu limită activă */
+.aiCredits {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px dashed var(--color-border);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.aiCredits svg {
+  margin-top: 2px;
+  color: var(--color-primary);
+}
+
+.aiCredits small {
+  display: block;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.planFoot {
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.stateCurrent {
+  color: var(--color-success);
+}
+
+.stateSoon {
+  color: var(--color-muted);
+}
+
+.footnote {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: -8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.footnote svg {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+/* ===== Comparație ===== */
+.compare {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.compareToggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.compareToggle:hover {
+  background: var(--hover-bg);
+}
+
+.chevron,
+.chevronUp {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.chevronUp {
+  transform: rotate(180deg);
+}
+
+.compareBody {
+  border-top: 1px solid var(--color-border);
+  padding: 4px 18px 16px;
+}
+
+.compareHeadRow,
+.compareRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: center;
+}
+
+.compareHeadRow {
+  position: sticky;
+  top: 0;
+  padding: 12px 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.compareHeadCell {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.compareGroupTitle {
+  padding: 16px 0 6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.compareRow {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.compareGroup:last-child .compareRow:last-child {
+  border-bottom: 0;
+}
+
+.compareLabel {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.compareCell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-width: 0;
+}
+
+/* eticheta planului în celulă - vizibilă doar pe mobil (pe desktop o dă antetul) */
+.compareCellPlan {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.compareText {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* ===== Servicii de personalizare ===== */
+.services {
+  display: grid;
+  gap: 16px;
+  padding-top: 8px;
+}
+
+.sectionHead {
+  display: grid;
+  gap: 4px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.sectionSubtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+.servicesGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.serviceCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+}
+
+.serviceTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.serviceName {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.servicePrice {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.servicePrice strong {
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.servicePrice span {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.serviceNote {
+  margin: auto 0 0;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border);
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.servicesHint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+/* ===== Link Design magazin ===== */
+.designLink {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--color-text);
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.designLink:hover {
+  border-color: var(--color-primary);
+  background: var(--hover-bg);
+}
+
+.designIcon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.designText {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.designText span {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 1100px) {
+  .plansGrid {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 560px;
+    width: 100%;
+    margin: 0 auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .page {
+    gap: 20px;
+  }
+
+  .servicesGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .planCard {
+    padding: 18px 16px 16px;
+  }
+
+  .planPrice strong {
+    font-size: 30px;
+  }
+
+  .compareBody {
+    padding: 0 14px 12px;
+  }
+
+  /* pe mobil: eticheta pe un rând, cele 3 planuri dedesubt */
+  .compareHeadRow {
+    display: none;
+  }
+
+  .compareRow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .compareLabel {
+    grid-column: 1 / -1;
+    font-weight: 600;
+  }
+
+  .compareCell {
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 4px;
+    border-radius: 10px;
+    background: var(--surface-muted);
+  }
+
+  .compareCellPlan {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: var(--color-muted);
+  }
+
+  .compareText {
+    font-size: 12px;
+  }
+
+  .current {
+    padding: 14px;
+  }
+
+  .current .btnPrimary {
+    width: 100%;
+  }
+}

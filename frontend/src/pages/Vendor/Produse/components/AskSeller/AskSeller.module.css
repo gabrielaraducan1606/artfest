@@ -1,0 +1,362 @@
+/* „Ai întrebări? Întreabă vânzătorul” - stil secundar (outline), sub acțiunea principală. */
+
+.trigger {
+  flex: 1 1 100%;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 38%, var(--color-border));
+  background: transparent;
+  color: var(--color-text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.trigger svg {
+  color: var(--color-primary);
+  font-size: 1.05em;
+}
+
+.trigger:hover {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.trigger:active {
+  transform: translateY(1px);
+}
+
+/* ---------- fereastra ---------- */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  /* peste butonul flotant al asistentului (FloatingHub / AiAssistant: 999999) */
+  z-index: 1000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: rgba(17, 17, 22, 0.48);
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.16s ease;
+}
+
+.dialog {
+  width: min(560px, 100%);
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+  background: var(--surface, #fff);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
+  padding: 22px 22px 20px;
+  animation: riseIn 0.2s ease;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+  color: var(--color-muted, #6b7280);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.closeBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.closeBtn:hover {
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+}
+
+.label {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.reasons {
+  border: 0;
+  margin: 0 0 14px;
+  padding: 0;
+  min-width: 0;
+}
+
+.reasonList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reasonChip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.reasonChip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reasonChip:focus-within {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.reasonChipActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  font-weight: 600;
+}
+
+.safetyNote {
+  margin: -4px 0 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+  border: 1px solid color-mix(in srgb, #f59e0b 35%, transparent);
+}
+
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 120px;
+  resize: vertical;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--surface, #fff);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 16px; /* fără zoom automat pe iOS */
+  line-height: 1.5;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.metaRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--color-muted, #6b7280);
+}
+
+.counter {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  background: color-mix(in srgb, #dc2626 9%, transparent);
+  border: 1px solid color-mix(in srgb, #dc2626 30%, transparent);
+}
+
+.error p {
+  margin: 0 0 6px;
+}
+
+.error p:last-child {
+  margin-bottom: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.primaryAction,
+.ghostAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.primaryAction {
+  flex: 1 1 auto;
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.primaryAction:hover {
+  background: var(--color-hover, var(--color-primary));
+}
+
+.ghostAction {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+}
+
+.primaryAction:disabled,
+.ghostAction:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.primaryAction:focus-visible,
+.ghostAction:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.loginHint {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  color: var(--color-muted, #6b7280);
+}
+
+.success {
+  text-align: center;
+  padding: 8px 4px 0;
+}
+
+.successIcon {
+  font-size: 2.2rem;
+  color: #16a34a;
+}
+
+.successTitle {
+  margin: 10px 0 4px;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.successText {
+  margin: 0;
+  color: var(--color-muted, #6b7280);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.success .actions {
+  justify-content: center;
+}
+
+/* mobil: fereastră de tip „bottom sheet” */
+@media (max-width: 560px) {
+  .backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .dialog {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 20px 20px 0 0;
+    border-bottom: none;
+    padding: 18px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    animation: sheetIn 0.22s ease;
+  }
+
+  .actions {
+    flex-direction: column-reverse;
+  }
+
+  .primaryAction,
+  .ghostAction {
+    width: 100%;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes sheetIn {
+  from { transform: translateY(24px); opacity: 0.6; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop,
+  .dialog {
+    animation: none;
+  }
+}

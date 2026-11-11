@@ -4,7 +4,8 @@
 // endpointurile existente din adminPickupsRoutes.js:
 //   GET   /api/admin/returns?status=&q=&page=   (listă + counts pe status)
 //   PATCH /api/admin/returns/:id/status          (schimbare status)
-//   POST  /api/admin/returns/:id/create-shipment (colet de retur prin curier)
+// + „Transport retur” (AdminReturnLogistics.jsx): cost, colet RETURN, AWB
+//   Sameday STANDARD pe contractul Artfest, etichetă, recuperare, anulare.
 // Nu e un al doilea sistem de retur: vânzătorul gestionează cererea din
 // pagina comenzii; aici Admin vede tot și poate interveni.
 
@@ -19,6 +20,8 @@ import {
   returnStyles as styles,
 } from "../../../../components/Returns/returnUtils.js";
 import tabStyles from "./AdminReturnsTab.module.css";
+import AdminReturnLogistics from "./AdminReturnLogistics.jsx";
+import { COST_BEARER_LABELS, RETURN_METHOD_LABELS } from "../../../../components/Returns/returnLogistics.js";
 
 const FILTERS = [
   { key: "", label: "Total", count: "ALL" },
@@ -26,7 +29,7 @@ const FILTERS = [
   { key: "IN_REVIEW", label: "În analiză", count: "IN_REVIEW" },
   { key: "APPROVED", label: "Aprobate", count: "APPROVED" },
   { key: "REJECTED", label: "Respinse", count: "REJECTED" },
-  { key: "PICKUP_REQUESTED", label: "În transport", count: "PICKUP_REQUESTED" },
+  { key: "PICKUP_REQUESTED", label: "Ridicare comandată", count: "PICKUP_REQUESTED" },
   { key: "CLOSED", label: "Închise", count: "CLOSED" },
 ];
 
@@ -43,6 +46,15 @@ function AdminReturnCard({ item, onChanged }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // închidere cu AWB de retur activ, fără livrare confirmată: excepție explicită, cu motiv
+  const [overrideNeeded, setOverrideNeeded] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  // transportul: deschis implicit pentru cererile care îl necesită acum
+  const needsLogistics =
+    item.returnMethod === "HOME_PICKUP" || item.hasReturnShipment || ["APPROVED", "PICKUP_REQUESTED"].includes(item.status);
+  const [showLogistics, setShowLogistics] = useState(
+    item.hasReturnShipment || (item.returnMethod === "HOME_PICKUP" && ["APPROVED", "PICKUP_REQUESTED"].includes(item.status))
+  );
 
   // cerere fără răspuns de la vânzător: vechimea e afișată, fără prag arbitrar
   const waitingDays = ["NEW", "IN_REVIEW"].includes(item.status) ? daysSince(item.updatedAt || item.createdAt) : null;
@@ -55,6 +67,7 @@ function AdminReturnCard({ item, onChanged }) {
       await fn();
       await onChanged();
     } catch (e) {
+      if (e?.data?.error === "return_delivery_unconfirmed") setOverrideNeeded(true);
       setError(e?.data?.message || e?.data?.error || e?.message || "Acțiunea nu a putut fi salvată.");
     } finally {
       setBusy(false);
@@ -93,6 +106,12 @@ function AdminReturnCard({ item, onChanged }) {
           {item.reasonKind ? `${REASON_KIND_LABELS[item.reasonKind]} · ` : ""}
           {item.reasonLabel || item.reasonCode}
           {item.reasonText ? ` - ${item.reasonText}` : ""}
+        </div>
+        <div className={styles.fact}>
+          <span className={styles.factLabel}>Metodă · cost transport</span>
+          {item.returnMethod ? RETURN_METHOD_LABELS[item.returnMethod] : "Nealeasă"}
+          {" · "}
+          {item.costBearer ? COST_BEARER_LABELS[item.costBearer] : "nedecis"}
         </div>
       </div>
 
@@ -134,11 +153,14 @@ function AdminReturnCard({ item, onChanged }) {
           onChange={(e) => setStatus(e.target.value)}
           aria-label="Status nou"
         >
-          {Object.entries(RETURN_STATUS_SHORT).map(([key, label]) => (
-            <option key={key} value={key}>
-              {label}
-            </option>
-          ))}
+          {Object.entries(RETURN_STATUS_SHORT)
+            // „Ridicare comandată” se setează automat după AWB confirmat, nu manual
+            .filter(([key]) => key !== "PICKUP_REQUESTED" || item.status === "PICKUP_REQUESTED")
+            .map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
         </select>
 
         <button
@@ -149,7 +171,13 @@ function AdminReturnCard({ item, onChanged }) {
             run(() =>
               api(`/api/admin/returns/${encodeURIComponent(item.id)}/status`, {
                 method: "PATCH",
-                body: { status, message: message.trim() || null },
+                body: {
+                  status,
+                  message: message.trim() || null,
+                  ...(overrideNeeded && status === "CLOSED" && overrideReason.trim()
+                    ? { override: true, overrideReason: overrideReason.trim() }
+                    : {}),
+                },
               })
             )
           }
@@ -157,21 +185,31 @@ function AdminReturnCard({ item, onChanged }) {
           Salvează statusul
         </button>
 
-        {["APPROVED", "PICKUP_REQUESTED"].includes(item.status) && !item.hasReturnShipment && (
+        {needsLogistics && (
           <button
             type="button"
-            className={styles.btn}
-            disabled={busy}
-            onClick={() =>
-              run(() =>
-                api(`/api/admin/returns/${encodeURIComponent(item.id)}/create-shipment`, { method: "POST", body: {} })
-              )
-            }
+            className={`${styles.btn} ${showLogistics ? styles.btnActive : ""}`}
+            aria-expanded={showLogistics}
+            onClick={() => setShowLogistics((v) => !v)}
           >
-            Creează colet de retur (curier)
+            {showLogistics ? "Ascunde transportul" : "Transport retur (curier)"}
           </button>
         )}
       </div>
+
+      {overrideNeeded && status === "CLOSED" && (
+        <div className={`${styles.notice} ${styles.notice_warning}`}>
+          Excepție: închizi cererea deși curierul nu a confirmat livrarea coletului de retur. Notează cum ai verificat primirea
+          (ex. confirmarea scrisă a vânzătorului); motivul se salvează în auditul AWB-ului. Rambursarea nu se modifică.
+          <textarea
+            className={styles.textarea}
+            value={overrideReason}
+            onChange={(e) => setOverrideReason(e.target.value)}
+            placeholder="Motivul excepției (obligatoriu)"
+            maxLength={500}
+          />
+        </div>
+      )}
 
       {status !== item.status && (
         <div className={styles.composer}>
@@ -195,16 +233,11 @@ function AdminReturnCard({ item, onChanged }) {
         </div>
       )}
 
-      {item.hasReturnShipment && (
-        <div className={styles.hint}>
-          Colet de retur creat
-          {item.returnShipments?.[0]?.awb ? ` · AWB ${item.returnShipments[0].awb}` : ""} - urmărire în Ridicări.
-        </div>
-      )}
+      {showLogistics && <AdminReturnLogistics returnRequestId={item.id} onChanged={onChanged} />}
 
       <div className={styles.hint}>
-        La schimbarea statusului (și la crearea coletului de retur), clientul este anunțat automat în cont, pe
-        email și în conversația comenzii.
+        La schimbarea statusului, clientul este anunțat automat în cont, pe email și în conversația comenzii. Crearea
+        coletului de retur nu schimbă statusul; după AWB confirmat cererea trece automat în „Ridicare comandată”.
       </div>
 
       {error && <div className={styles.error}>{error}</div>}

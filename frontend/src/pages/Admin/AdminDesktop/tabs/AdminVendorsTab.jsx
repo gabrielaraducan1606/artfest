@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { FaUndoAlt } from "react-icons/fa";
 import { api } from "../../../../lib/api";
 import styles from "../AdminDesktop.module.css";
+import { AdminGpsrVendorPanel } from "./gpsr/AdminGpsrPanels.jsx";
 
 const PAGE_SIZE = 25;
 
@@ -735,7 +736,7 @@ function VendorDetailsDrawer({
         </div>
 
         <div className={styles.drawerField}>
-          <span>Cost estimativ transport</span>
+          <span>Tarif de rezervă transport</span>
 
           <span>
             {formatRonFromCents(service.estimatedShippingFeeCents)}
@@ -1053,6 +1054,11 @@ function VendorDetailsDrawer({
                 </div>
               </>
             )}
+          </section>
+
+          <section className={styles.drawerSection}>
+            <h4>Informări și confirmări GPSR</h4>
+            <AdminGpsrVendorPanel vendorId={vendor.id} />
           </section>
 
           <section className={styles.drawerSection}>

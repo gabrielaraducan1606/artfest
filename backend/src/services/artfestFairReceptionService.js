@@ -23,6 +23,7 @@ import { FairError, ensureFair } from "./artfestFairService.js";
 import { lockProductForFair } from "./fairProductLock.js";
 import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { FAIR_TX_OPTIONS, PARTICIPATION_CANCELLED_BLOCK_REASON } from "../config/artfestFair.js";
+import { isManualFairItem } from "../lib/artfestFairManualItem.js";
 
 export const RETURN_ONLY_TEXT = "Produs primit doar pentru retur – nu este disponibil pentru vânzare.";
 
@@ -55,11 +56,14 @@ export function describeDifference(declaredQty, receivedQty, rejectedQty) {
  */
 export function getSaleEligibility(line, product, { registrationStatus = "APPROVED" } = {}) {
   const reasons = [];
-  if (!product) reasons.push("Produsul nu mai există pe Artfest.");
-  else {
-    if (product.moderationStatus !== "APPROVED") reasons.push("Produsul nu mai este aprobat pe Artfest (moderare).");
-    if (product.isActive === false) reasons.push("Produsul nu mai este activ pe Artfest.");
-    if (product.isHidden === true) reasons.push("Produsul este ascuns pe Artfest.");
+  // produs manual: nu există în catalog => fără verificări de moderare / vizibilitate online
+  if (!isManualFairItem(line)) {
+    if (!product) reasons.push("Produsul nu mai există pe Artfest.");
+    else {
+      if (product.moderationStatus !== "APPROVED") reasons.push("Produsul nu mai este aprobat pe Artfest (moderare).");
+      if (product.isActive === false) reasons.push("Produsul nu mai este activ pe Artfest.");
+      if (product.isHidden === true) reasons.push("Produsul este ascuns pe Artfest.");
+    }
   }
   const eligible = reasons.length === 0;
   // POS-ul (viitor) vinde DOAR linii ale înscrierilor APPROVED
@@ -206,6 +210,7 @@ export function serializeAdminLine(
     imageUrl: line.imageUrlSnapshot || null,
     vendor: { id: line.vendorId, name: vendor?.displayName || null },
     productId: line.productId,
+    isManual: isManualFairItem(line),
     priceCents: line.priceSnapshotCents,
     currency: line.currency,
     declaredQty: line.declaredQty,
@@ -644,7 +649,7 @@ export async function releaseOnlineReservation(tx, line, { actorUserId, now }) {
       qty > 0 && product
         ? await tx.product.updateMany({
             // aceeași regulă ca stockRestore: doar produse încă urmărite pe stoc
-            where: { id: product.id, readyQty: { not: null }, availability: { in: ["READY", "SOLD_OUT"] } },
+            where: { id: product.id, readyQty: { not: null }, availability: { in: ["READY", "SOLD_OUT"] }, stockScope: { not: "VARIANT" } },
             data: { readyQty: { increment: qty }, availability: "READY" },
           })
         : { count: 0 };
@@ -681,7 +686,7 @@ export async function releaseOnlineReservation(tx, line, { actorUserId, now }) {
     // sigur doar dacă produsul e încă exact în starea pusă de noi
     const res = product
       ? await tx.product.updateMany({
-          where: { id: product.id, availability: "SOLD_OUT", readyQty: forcedReadyQty },
+          where: { id: product.id, availability: "SOLD_OUT", readyQty: forcedReadyQty, stockScope: { not: "VARIANT" } },
           data: { availability: nextAvailability, readyQty: nextReadyQty },
         })
       : { count: 0 };

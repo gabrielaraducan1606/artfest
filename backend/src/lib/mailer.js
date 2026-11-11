@@ -41,6 +41,11 @@ function resolveProvider() {
   return process.env.RESEND_API_KEY ? "resend" : "smtp";
 }
 
+/** Providerul folosit acum ("resend" | "smtp") - doar Resend are idempotență la trimitere. */
+export function currentMailProvider() {
+  return resolveProvider();
+}
+
 /**
  * Logo pentru email (URL, fără CID/attachments).
  * Prioritate:
@@ -200,6 +205,22 @@ function buildListUnsubscribeHeaders({ email, category = "marketing" }) {
 /* ============================================================
    HELPERS
 ============================================================ */
+// „28 octombrie la 14:30” (ora României)
+function formatBucharestDateTime(value) {
+  try {
+    return new Intl.DateTimeFormat("ro-RO", {
+      hour: "2-digit",
+      minute: "2-digit",
+      day: "numeric",
+      month: "long",
+      timeZone: "Europe/Bucharest",
+    })
+      .format(new Date(value));
+  } catch {
+    return String(value || "");
+  }
+}
+
 function formatMoney(value, currency = "RON") {
   const v = Number(value || 0);
   return new Intl.NumberFormat("ro-RO", {
@@ -295,7 +316,7 @@ async function markEmailLogFailed(id, err) {
 ============================================================ */
 function getResendClient() {
   const key = process.env.RESEND_API_KEY;
-  if (!key) throw new Error("Missing RESEND_API_KEY");
+  if (!key) throw Object.assign(new Error("Missing RESEND_API_KEY"), { provider: "resend", deliveryDefinitelyFailed: true });
   return new Resend(key);
 }
 
@@ -305,12 +326,34 @@ function normalizeToArray(to) {
   return [String(to)];
 }
 
-async function sendViaResend({ mailOptions }) {
+/*
+ * Clasificarea unui eșec Resend (SDK 6.x întoarce { error: { statusCode, name } }
+ * și pentru excepțiile de rețea - statusCode null - deci un timeout NU e o
+ * dovadă că emailul nu a plecat):
+ *   - 4xx cu cod HTTP (cerere respinsă: validare, domeniu, rate limit), exceptând
+ *     408 (timeout) și 409 (conflict de idempotență)       -> sigur NETRIMIS;
+ *   - fără cod HTTP (rețea / timeout), 408, 409, 5xx        -> INCERT.
+ * Cu cheie de idempotență, o retrimitere cu ACEEAȘI cheie e deduplicată de
+ * Resend (24h) -> err.idempotentRetrySafe.
+ */
+export function classifyResendFailure(error, { idempotencyKey = null } = {}) {
+  const statusCode = Number.isFinite(Number(error?.statusCode)) && error?.statusCode != null ? Number(error.statusCode) : null;
+  const definite = statusCode != null && statusCode >= 400 && statusCode < 500 && statusCode !== 408 && statusCode !== 409;
+  return {
+    statusCode,
+    deliveryDefinitelyFailed: definite,
+    deliveryUncertain: !definite,
+    idempotentRetrySafe: !definite && Boolean(idempotencyKey),
+  };
+}
+
+async function sendViaResend({ mailOptions, idempotencyKey = null }) {
   const resend = getResendClient();
 
   const to = normalizeToArray(mailOptions.to);
-  if (!to.length) throw new Error("Missing 'to'");
-  if (!mailOptions.from) throw new Error("Missing 'from'");
+  // fără nicio cerere trimisă: eșec sigur
+  if (!to.length) throw Object.assign(new Error("Missing 'to'"), { provider: "resend", deliveryDefinitelyFailed: true });
+  if (!mailOptions.from) throw Object.assign(new Error("Missing 'from'"), { provider: "resend", deliveryDefinitelyFailed: true });
 
   const payload = {
   from: mailOptions.from,
@@ -325,9 +368,13 @@ async function sendViaResend({ mailOptions }) {
     : {}),
 };
 
-  const out = await resend.emails.send(payload);
+  const out = await resend.emails.send(payload, idempotencyKey ? { idempotencyKey: String(idempotencyKey).slice(0, 256) } : {});
 
-  if (out?.error) throw new Error(out.error?.message || "Resend error");
+  if (out?.error) {
+    const err = new Error(out.error?.message || "Resend error");
+    Object.assign(err, { provider: "resend", resendErrorName: out.error?.name || null }, classifyResendFailure(out.error, { idempotencyKey }));
+    throw err;
+  }
 
   return {
     provider: "resend",
@@ -350,6 +397,8 @@ async function sendMailLogged({
   toName = null,
   headers = null,
   mailOptions,
+  // doar Resend: aceeași cheie la reîncercări -> fără email dublat
+  idempotencyKey = null,
 }) {
   const provider = resolveProvider();
 
@@ -378,6 +427,7 @@ async function sendMailLogged({
           ...mailOptions,
           headers: headers || mailOptions.headers,
         },
+        idempotencyKey,
       });
 
       if (log?.id) {
@@ -401,6 +451,7 @@ async function sendMailLogged({
 
     return res;
   } catch (err) {
+    if (err && typeof err === "object" && !err.provider) err.provider = provider;
     if (log?.id) await markEmailLogFailed(log.id, err);
     throw err;
   }
@@ -2013,7 +2064,7 @@ function returnEmailLayout({ title, paragraphs = [], itemsHtml = "", boxText = "
 </div>`.trim();
 }
 
-function sendReturnEmail({ to, subject, template, orderId, toName, userId = null, html, text }) {
+function sendReturnEmail({ to, subject, template, orderId, toName, userId = null, html, text, idempotencyKey = null }) {
   return sendMailLogged({
     senderKey: "noreply",
     to,
@@ -2022,6 +2073,7 @@ function sendReturnEmail({ to, subject, template, orderId, toName, userId = null
     orderId,
     userId,
     toName: toName || null,
+    idempotencyKey,
     mailOptions: {
       ...senderEnvelope("noreply"),
       to,
@@ -2153,10 +2205,15 @@ const RETURN_STATUS_EMAIL = {
     subject: "Vânzătorul a primit produsul returnat",
     lead: "Vânzătorul a confirmat primirea produsului. Rambursarea se procesează separat.",
   },
+  // AWB de retur anulat (confirmat de curier) - nu e un status al cererii
+  PICKUP_CANCELLED: {
+    subject: "Ridicarea coletului de retur a fost anulată",
+    lead: "Ridicarea prin curier a coletului de retur a fost anulată. Nu preda coletul cu eticheta primită anterior - nu mai este valabilă. Te anunțăm când ridicarea este comandată din nou.",
+  },
   // setate doar din Admin
   PICKUP_REQUESTED: {
-    subject: "Coletul de retur este preluat prin curier",
-    lead: "Returul a fost acceptat, iar coletul este preluat prin curier. Vei fi contactat pentru ridicare.",
+    subject: "Ridicarea coletului de retur a fost comandată",
+    lead: "Returul a fost acceptat, iar ridicarea prin curier a fost comandată. Pregătește coletul și eticheta de retur; curierul te va contacta pentru ridicare.",
   },
   NEW: {
     subject: "Cererea de retur a fost redeschisă",
@@ -2173,6 +2230,8 @@ export async function sendReturnStatusEmail({
   link,
   orderId = null,
   userId = null,
+  // notificările persistente de retur: cheie stabilă per AWB + tip (returnNotices.js)
+  idempotencyKey = null,
 }) {
   const info = RETURN_STATUS_EMAIL[status];
   if (!to || !info) return;
@@ -2202,6 +2261,7 @@ export async function sendReturnStatusEmail({
     toName: clientName,
     html,
     text,
+    idempotencyKey,
   });
 }
 
@@ -4955,6 +5015,12 @@ const orderLink =
    per comandă (dedup pe Order.guestPaymentReminderSentAt).
 ============================================================ */
 
+/*
+ * Reamintire plată CARD nefinalizată (guestPaymentReminderJob).
+ * Guest: link cu paymentToken. Client cu cont (accountOrder): pagina
+ * comenzii din cont (template separat). payUntil = termenul după care comanda expiră
+ * (doar când regula de expirare e activă pentru comandă).
+ */
 export async function sendGuestPaymentReminderEmail({
   to,
   userId = null,
@@ -4963,15 +5029,19 @@ export async function sendGuestPaymentReminderEmail({
   customerName,
   total,
   currency = "RON",
-  paymentToken,
+  paymentToken = null,
+  accountOrder = false,
+  payUntil = null,
 }) {
   if (
     !to ||
     !orderId ||
-    !paymentToken
+    (!paymentToken && !accountOrder)
   ) {
     return;
   }
+
+  const payUntilLabel = payUntil ? formatBucharestDateTime(payUntil) : null;
 
   const displayNo =
     orderNumber ||
@@ -4984,13 +5054,15 @@ export async function sendGuestPaymentReminderEmail({
     );
 
   const orderLink =
-    APP_URL
-      ? `${APP_URL}/comanda-guest/${encodeURIComponent(
+    !APP_URL
+      ? null
+      : accountOrder
+      ? `${APP_URL}/comanda/${encodeURIComponent(orderId)}`
+      : `${APP_URL}/comanda-guest/${encodeURIComponent(
           orderId
         )}?paymentToken=${encodeURIComponent(
           paymentToken
-        )}`
-      : null;
+        )}`;
 
   const subject =
     `Plata pentru comanda #${displayNo} nu a fost finalizată - ${BRAND_NAME}`;
@@ -5038,8 +5110,11 @@ export async function sendGuestPaymentReminderEmail({
     </div>
 
     <p style="color:#374151;margin:0 0 16px;line-height:1.6;">
-      Poți finaliza plata în siguranță, oricând, folosind butonul de
-      mai jos.
+      ${
+        payUntilLabel
+          ? `Poți finaliza plata în siguranță până la <strong>${payUntilLabel}</strong>, folosind butonul de mai jos. După această oră, comanda se anulează automat dacă plata nu a fost finalizată.`
+          : "Poți finaliza plata în siguranță, oricând, folosind butonul de mai jos."
+      }
     </p>
 
     ${
@@ -5084,6 +5159,9 @@ export async function sendGuestPaymentReminderEmail({
     "",
     `Plata cu cardul pentru comanda #${displayNo} nu a fost finalizată.`,
     `Total de achitat: ${totalLabel}`,
+    payUntilLabel
+      ? `Poți finaliza plata până la ${payUntilLabel}. După această oră, comanda se anulează automat dacă plata nu a fost finalizată.`
+      : "",
     "",
     orderLink
       ? `Finalizează plata: ${orderLink}`
@@ -5101,7 +5179,9 @@ export async function sendGuestPaymentReminderEmail({
     subject,
 
     template:
-      "guest_payment_reminder",
+      accountOrder
+        ? "card_payment_reminder"
+        : "guest_payment_reminder",
 
     userId,
 
@@ -5124,6 +5204,151 @@ export async function sendGuestPaymentReminderEmail({
 
       headers:
         AUTO_HEADERS,
+    },
+  });
+}
+
+function paymentEmailShell({ title, bodyHtml, orderLink, buttonLabel }) {
+  return `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+  <div style="background:#ffffff;border-radius:14px;padding:22px;border:1px solid #e5e7eb;">
+    <h2 style="color:#111827;margin:0 0 12px;">${title}</h2>
+    ${bodyHtml}
+    ${
+      orderLink
+        ? `<p style="text-align:center;margin:24px 0 12px;">
+             <a href="${orderLink}" style="background:#4b5563;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">${buttonLabel}</a>
+           </p>
+           <p style="color:#6b7280;font-size:12px;text-align:center;margin:0;">
+             Dacă butonul nu funcționează, accesează: <a href="${orderLink}">${orderLink}</a>
+           </p>`
+        : ""
+    }
+  </div>
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:20px 0 0;">
+    Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
+  </p>
+</div>`.trim();
+}
+
+function paymentEmailCustomerName(order) {
+  const address = order?.shippingAddress || {};
+  return (
+    order?.customerName ||
+    address.name ||
+    `${address.lastName || ""} ${address.firstName || ""}`.trim() ||
+    "client"
+  );
+}
+
+/*
+ * Comandă CARD anulată automat pentru că plata nu a fost finalizată la
+ * termen (services/cardPaymentExpiry.js). Se trimite doar după ce Stripe a
+ * confirmat că nu există nicio plată reușită sau în curs pentru comandă.
+ */
+export async function sendCardPaymentExpiredEmail({ to, order, userId = null }) {
+  if (!to || !order) return;
+
+  const displayNo = order.orderNumber || order.id;
+  const customerName = paymentEmailCustomerName(order);
+  const total = formatMoney(order.total || 0, order.currency || "RON");
+  const orderLink = APP_URL ? (order.userId ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(order.id)}` : APP_URL) : null;
+  const subject = `Comanda #${displayNo} a expirat - ${BRAND_NAME}`;
+
+  const html = paymentEmailShell({
+    title: "Comanda ta a expirat",
+    bodyHtml: `
+    <p style="color:#374151;margin:0 0 12px;line-height:1.6;">Bună, <strong>${customerName}</strong>,</p>
+    <p style="color:#374151;margin:0 0 12px;line-height:1.6;">
+      Comanda <strong>#${displayNo}</strong> (total ${total}) a fost anulată automat, pentru că plata cu cardul
+      nu a fost finalizată în 2 ore de la plasarea comenzii.
+    </p>
+    <p style="color:#374151;margin:0 0 12px;line-height:1.6;">
+      Nu am înregistrat nicio plată finalizată pentru această comandă, așa că nu ai nimic de achitat.
+      Dacă îți dorești în continuare produsele, poți plasa o comandă nouă.
+    </p>`,
+    orderLink,
+    buttonLabel: order.userId ? "Vezi comenzile tale" : `Mergi la ${BRAND_NAME}`,
+  });
+
+  const text = [
+    `Bună, ${customerName},`,
+    "",
+    `Comanda #${displayNo} (total ${total}) a fost anulată automat, pentru că plata cu cardul nu a fost finalizată în 2 ore de la plasarea comenzii.`,
+    "Nu am înregistrat nicio plată finalizată pentru această comandă, așa că nu ai nimic de achitat.",
+    orderLink ? `${orderLink}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "card_payment_expired",
+    userId,
+    orderId: order.id,
+    toName: customerName,
+    mailOptions: { ...senderEnvelope("noreply"), to, subject, html, text, headers: AUTO_HEADERS },
+  });
+}
+
+/*
+ * Plată CARD primită după anularea comenzii și rambursată automat
+ * (orderPaymentGuards.refundBlockedOrderPayment). Se trimite doar când
+ * rambursarea a fost creată efectiv în Stripe.
+ */
+export async function sendLatePaymentRefundedEmail({ to, order, amountCents, refundId = null, userId = null }) {
+  if (!to || !order) return;
+
+  const displayNo = order.orderNumber || order.id;
+  const customerName = paymentEmailCustomerName(order);
+  const amount = formatMoney(Number(amountCents || 0) / 100, order.currency || "RON");
+  const orderLink = APP_URL && order.userId ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(order.id)}` : null;
+  const subject = `Rambursare pentru comanda #${displayNo} - ${BRAND_NAME}`;
+
+  const html = paymentEmailShell({
+    title: "Am inițiat rambursarea plății tale",
+    bodyHtml: `
+    <p style="color:#374151;margin:0 0 12px;line-height:1.6;">Bună, <strong>${customerName}</strong>,</p>
+    <p style="color:#374151;margin:0 0 12px;line-height:1.6;">
+      Plata cu cardul pentru comanda <strong>#${displayNo}</strong> a ajuns după ce comanda fusese anulată,
+      așa că nu a fost procesată.
+    </p>
+    <p style="color:#374151;margin:0 0 12px;line-height:1.6;">
+      Am inițiat rambursarea integrală a sumei de <strong>${amount}</strong> pe cardul folosit.
+      Banii ajung în cont în funcție de banca emitentă, de obicei în 5–10 zile lucrătoare.
+    </p>`,
+    orderLink,
+    buttonLabel: "Vezi comenzile tale",
+  });
+
+  const text = [
+    `Bună, ${customerName},`,
+    "",
+    `Plata cu cardul pentru comanda #${displayNo} a ajuns după ce comanda fusese anulată, așa că nu a fost procesată.`,
+    `Am inițiat rambursarea integrală a sumei de ${amount} pe cardul folosit. Banii ajung în cont în funcție de banca emitentă, de obicei în 5–10 zile lucrătoare.`,
+  ].join("\n");
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "late_payment_refunded",
+    userId,
+    orderId: order.id,
+    toName: customerName,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: { ...AUTO_HEADERS, "X-Artfest-Refund": String(refundId || "") },
     },
   });
 }

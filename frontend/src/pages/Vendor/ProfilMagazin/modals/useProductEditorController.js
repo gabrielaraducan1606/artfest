@@ -11,7 +11,9 @@ import { useNavigate } from "react-router-dom";
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { uploadFile as uploadFileHelper } from "../../../../lib/uploadFile";
 import { api } from "../../../../lib/api";
+import { AI_IMAGE_EDITING_ENABLED } from "../../../../config/features.js";
 import { saveVendorGpsrDraftIfNeeded } from "../utils/vendorGpsrManufacturer.js";
+import { clearLinkedSourceDraft, readAvailabilityHandoff } from "../utils/productDraftHandoff.js";
 
 import {
   useProductFieldOptions,
@@ -635,6 +637,11 @@ const closeManualPrompt =
 
   const handleAiEnhanceImage =
     useCallback(async (index = 0) => {
+      // oprit temporar (gpt-image-1 retras) - niciun request, vezi config/features.js
+      if (!AI_IMAGE_EDITING_ENABLED) {
+        return;
+      }
+
       const imageUrl =
         form.images?.[index];
 
@@ -821,6 +828,9 @@ useEffect(() => {
 
   setActiveStep(initialStep);
 
+  // fiecare deschidere a editorului cere o confirmare GPSR nouă (dacă e necesară)
+  setForm((current) => ({ ...current, gpsrConfirmed: false }));
+
   setManualPromptOpen(false);
   setPendingManualEdit(null);
   setManualModeConfirmed(false);
@@ -921,12 +931,13 @@ quoteSchema:
 
             /*
              * Datele de disponibilitate nu sunt
-             * restaurate automat din draft.
+             * restaurate automat din draft
+             * (excepție: transferul din Smart Listing).
              */
-            availability: "",
-            readyQty: "",
-            leadTimeDays: "",
-            nextShipDate: "",
+            ...readAvailabilityHandoff(
+              localStorage,
+              draftKey
+            ),
           }));
         } else {
           setForm((current) => ({
@@ -1718,6 +1729,9 @@ quoteSchema: [],
       const safeForm = {
         ...form,
 
+        // declarația GPSR nu se păstrează în ciornă: se bifează la publicare
+        gpsrConfirmed: false,
+
         availability: "",
         readyQty: "",
         leadTimeDays: "",
@@ -1796,6 +1810,10 @@ quoteSchema: [],
             localStorage.removeItem(
               draftKey
             );
+            clearLinkedSourceDraft(
+              localStorage,
+              draftKey
+            );
 
             setAiImagePreview("");
             setAiImageVariant(1);
@@ -1807,6 +1825,8 @@ quoteSchema: [],
 
             setForm((current) => ({
               ...current,
+
+              gpsrConfirmed: false,
 
               title: "",
               description: "",

@@ -36,6 +36,10 @@ import {
   calculateProductPromotionPricing,
 } from "../services/productPromotionPrice.js";
 
+import {
+  requireAiImageEditingEnabled,
+} from "../middleware/aiImageEditingGate.js";
+
 const router = express.Router();
 
 const MIN_SCHEDULE_AHEAD_MS =
@@ -1874,6 +1878,8 @@ router.delete(
  */
 router.post(
   "/:id/generate-image",
+  // oprit temporar (gpt-image-1 retras): 503 fără OpenAI - aiImageEditingGate.js
+  requireAiImageEditingEnabled,
   async (req, res) => {
     try {
       const id = String(

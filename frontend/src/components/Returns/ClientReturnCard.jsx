@@ -7,10 +7,15 @@
 //
 // - client cu cont: link spre conversația comenzii (conversationLink);
 // - guest: conversația de retur afișată aici + răspuns (onReply).
+// - transport retur (ReturnLogisticsPanel): metoda, adresa de ridicare,
+//   progresul, AWB-ul, eticheta și urmărirea. onSaveMethod / labelPath vin de
+//   la părinte DOAR când accesul o permite (ex. guest cu returnToken: fără
+//   onSaveMethod - doar urmărire și etichetă).
 
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ReturnBadge, ReturnItems } from "./ReturnParts.jsx";
+import ReturnLogisticsPanel from "./ReturnLogisticsPanel.jsx";
 import {
   CLIENT_STATUS_TONE,
   REASON_KIND_LABELS,
@@ -65,7 +70,14 @@ function GuestReply({ onReply }) {
   );
 }
 
-export default function ClientReturnCard({ rr, conversationLink = null, onReply = null }) {
+export default function ClientReturnCard({
+  rr,
+  conversationLink = null,
+  onReply = null,
+  onSaveMethod = null,
+  labelPath = null,
+  defaultAddress = null,
+}) {
   const tone = CLIENT_STATUS_TONE[rr.status] || "info";
   const messages = Array.isArray(rr.messages) ? rr.messages : null;
 
@@ -82,6 +94,14 @@ export default function ClientReturnCard({ rr, conversationLink = null, onReply 
       <div className={`${styles.notice} ${styles[`notice_${tone}`]}`}>{rr.statusLabel}</div>
 
       <ReturnItems items={rr.items} />
+
+      <ReturnLogisticsPanel
+        rr={rr}
+        audience="client"
+        onSaveMethod={onSaveMethod ? (method, address) => onSaveMethod(rr, method, address) : null}
+        labelPath={labelPath ? (format) => labelPath(rr, format) : null}
+        defaultAddress={defaultAddress}
+      />
 
       <div className={styles.meta}>
         Motiv: {rr.reasonKind ? `${REASON_KIND_LABELS[rr.reasonKind]} · ` : ""}

@@ -12,6 +12,8 @@ import {
   X,
 } from "lucide-react";
 
+import { LabelButtons } from "../../../components/Returns/ReturnLogisticsPanel.jsx";
+import { adminLabelPath } from "../../../components/Returns/returnLogistics.js";
 import styles from "./AdminPickupsPage.module.css";
 
 /* Utils */
@@ -60,6 +62,35 @@ const STATUS_OPTIONS = [
   // { value: "RETURNED", label: "RETURNED" },
 ];
 
+// sursa listei: ridicări programate (istoric) sau AWB-uri generate prin
+// integrarea de curier (OUTBOUND + RETURN) - backend: adminPickupsFilters.js
+const SOURCE_OPTIONS = [
+  { value: "", label: "Ridicări programate" },
+  { value: "courier", label: "AWB-uri generate (Artfest)" },
+];
+
+const COURIER_STATUS_OPTIONS = [
+  { value: "", label: "Toate statusurile" },
+  ...["PENDING", "PREPARING", "READY_FOR_PICKUP", "PICKUP_SCHEDULED", "AWB", "IN_TRANSIT", "DELIVERED", "REFUSED", "RETURNED"].map(
+    (v) => ({ value: v, label: v })
+  ),
+];
+
+const DIRECTION_OPTIONS = [
+  { value: "", label: "Livrare + retur" },
+  { value: "OUTBOUND", label: "Doar livrare" },
+  { value: "RETURN", label: "Doar retur" },
+];
+
+const AWB_STATUS_OPTIONS = [
+  { value: "", label: "Orice stare AWB" },
+  { value: "UNKNOWN", label: "Necesită verificare" },
+  { value: "CREATED", label: "Creat" },
+  { value: "REQUESTED", label: "În curs" },
+  { value: "FAILED", label: "Eșuat" },
+  { value: "CANCELLED", label: "Anulat" },
+];
+
 function statusBadgeClass(status) {
   if (status === "DELIVERED") return styles.badgeSuccess;
   if (status === "RETURNED") return styles.badgeWarning;
@@ -101,6 +132,10 @@ export default function AdminPickupsPage() {
   const [status, setStatus] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [source, setSource] = useState("");
+  const [direction, setDirection] = useState("");
+  const [awbStatus, setAwbStatus] = useState("");
+  const [reloadTick, setReloadTick] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
 
@@ -115,11 +150,12 @@ export default function AdminPickupsPage() {
   const totalPages = Math.max(1, Math.ceil((data?.total || 0) / pageSize));
 
   const query = useMemo(
-    () => ({ q, status, from, to, page, pageSize }),
-    [q, status, from, to, page, pageSize]
+    () => ({ q, status, from, to, source, direction, awbStatus: source === "courier" ? awbStatus : "", page, pageSize, _r: reloadTick }),
+    [q, status, from, to, source, direction, awbStatus, page, pageSize, reloadTick]
   );
 
-  const refresh = () => setPage((p) => p);
+  // setPage(p => p) nu declanșa nicio reîncărcare; contorul schimbă query-ul
+  const refresh = () => setReloadTick((n) => n + 1);
 
   useEffect(() => {
     let alive = true;
@@ -130,7 +166,7 @@ export default function AdminPickupsPage() {
       try {
         const qs = new URLSearchParams(
           Object.fromEntries(
-            Object.entries(query).filter(([, v]) => v !== "" && v != null)
+            Object.entries(query).filter(([k, v]) => k !== "_r" && v !== "" && v != null)
           )
         ).toString();
 
@@ -161,6 +197,9 @@ export default function AdminPickupsPage() {
     setStatus("");
     setFrom("");
     setTo("");
+    setSource("");
+    setDirection("");
+    setAwbStatus("");
   }
 
   async function openDetails(row) {
@@ -240,13 +279,74 @@ export default function AdminPickupsPage() {
             }}
             aria-label="Filtru status"
           >
-            {STATUS_OPTIONS.map((o) => (
+            {(source === "courier" ? COURIER_STATUS_OPTIONS : STATUS_OPTIONS).map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
             ))}
           </select>
         </div>
+
+        <div className={styles.selectWrap} title="Sursa listei">
+          <Filter size={16} className={styles.inputIcon} />
+          <select
+            className={styles.select}
+            value={source}
+            onChange={(e) => {
+              setPage(1);
+              setStatus("");
+              setAwbStatus("");
+              setSource(e.target.value);
+            }}
+            aria-label="Sursa listei"
+          >
+            {SOURCE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className={styles.selectWrap} title="Livrare / retur">
+          <Filter size={16} className={styles.inputIcon} />
+          <select
+            className={styles.select}
+            value={direction}
+            onChange={(e) => {
+              setPage(1);
+              setDirection(e.target.value);
+            }}
+            aria-label="Filtru livrare sau retur"
+          >
+            {DIRECTION_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {source === "courier" && (
+          <div className={styles.selectWrap} title="Starea AWB-ului">
+            <Filter size={16} className={styles.inputIcon} />
+            <select
+              className={styles.select}
+              value={awbStatus}
+              onChange={(e) => {
+                setPage(1);
+                setAwbStatus(e.target.value);
+              }}
+              aria-label="Filtru stare AWB"
+            >
+              {AWB_STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className={styles.actions}>
           <div className={styles.dateWrap}>
@@ -331,6 +431,11 @@ export default function AdminPickupsPage() {
                     <td className={styles.td}>
                       <div>
                         <code className={styles.code}>#{p.shortShipmentId}</code>
+                        {p.direction === "RETURN" && (
+                          <span className={`${styles.badge} ${styles.badgeWarning}`} style={{ marginLeft: 6 }}>
+                            Retur
+                          </span>
+                        )}
                       </div>
 
                       <div className={styles.muted} style={{ fontSize: 12, marginTop: 4 }}>
@@ -371,6 +476,16 @@ export default function AdminPickupsPage() {
                         {p.courierAwb?.status === "UNKNOWN" && (
                           <span className={styles.error} style={{ fontSize: 12 }} title={p.courierAwb.errorMessage || ""}>
                             AWB necunoscut – verifică
+                          </span>
+                        )}
+                        {p.courierAwb?.status === "FAILED" && (
+                          <span className={styles.error} style={{ fontSize: 12 }} title={p.courierAwb.errorMessage || ""}>
+                            AWB eșuat{p.courierAwb.errorMessage ? `: ${p.courierAwb.errorMessage}` : ""}
+                          </span>
+                        )}
+                        {p.courierAwb?.cancel?.state === "UNKNOWN" && (
+                          <span className={styles.error} style={{ fontSize: 12 }}>
+                            Anulare neconfirmată – verifică
                           </span>
                         )}
                         {p.awb && (
@@ -713,6 +828,7 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved, o
                   <CourierAwbSection
                     shipmentId={shipment.shipmentId}
                     rows={shipment.courierAwbs}
+                    direction={shipment.direction}
                     onResolved={onReload}
                   />
                 </KV>
@@ -898,7 +1014,17 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved, o
                 </KV>
               </div>
 
+              {/* coletul RETURN: curier / AWB / refuzat / returnat se gestionează din Retururi
+                  (serverul refuză oricum: 409 return_shipment_admin_flow); „Livrat” rămâne */}
+              {shipment.direction === "RETURN" && (
+                <div className={styles.muted} style={{ fontSize: 13, marginBottom: 8 }}>
+                  Colet de retur: curierul, AWB-ul, anularea și închiderea se gestionează din tab-ul Retururi →
+                  „Transport retur”. Aici poți doar marca livrarea la vânzător.
+                </div>
+              )}
+
               <div className={styles.modalActions}>
+                {shipment.direction !== "RETURN" && (
                 <button
                   className={styles.primaryBtn}
                   disabled={saving || !providerDraft.trim()}
@@ -907,6 +1033,7 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved, o
                 >
                   {saving ? <Loader2 size={16} className={styles.spin} /> : "Salvează"}
                 </button>
+                )}
 
                 {/* ✅ NEW: status buttons */}
                 <button
@@ -918,23 +1045,27 @@ function AdminPickupDetailsModal({ loading, error, shipment, onClose, onSaved, o
                   {statusSaving ? <Loader2 size={16} className={styles.spin} /> : "Livrat"}
                 </button>
 
-                <button
-                  className={styles.secondaryBtn}
-                  disabled={statusSaving}
-                  onClick={() => setShipmentStatus("refused")}
-                  title="Marchează refuzat"
-                >
-                  {statusSaving ? <Loader2 size={16} className={styles.spin} /> : "Refuzat"}
-                </button>
+                {shipment.direction !== "RETURN" && (
+                  <>
+                    <button
+                      className={styles.secondaryBtn}
+                      disabled={statusSaving}
+                      onClick={() => setShipmentStatus("refused")}
+                      title="Marchează refuzat"
+                    >
+                      {statusSaving ? <Loader2 size={16} className={styles.spin} /> : "Refuzat"}
+                    </button>
 
-                <button
-                  className={styles.secondaryBtn}
-                  disabled={statusSaving}
-                  onClick={() => setShipmentStatus("returned")}
-                  title="Marchează returnat"
-                >
-                  {statusSaving ? <Loader2 size={16} className={styles.spin} /> : "Returnat"}
-                </button>
+                    <button
+                      className={styles.secondaryBtn}
+                      disabled={statusSaving}
+                      onClick={() => setShipmentStatus("returned")}
+                      title="Marchează returnat"
+                    >
+                      {statusSaving ? <Loader2 size={16} className={styles.spin} /> : "Returnat"}
+                    </button>
+                  </>
+                )}
 
                 {!!statusErr && <div className={styles.error}>{statusErr}</div>}
 
@@ -1069,7 +1200,108 @@ function ResolveAwbForm({ shipmentId, row, onDone, onCancel }) {
   );
 }
 
-function CourierAwbSection({ shipmentId, rows, onResolved }) {
+/*
+ * Anulare AWB din Admin: o singură încercare la click (fără retry automat).
+ * Pe o anulare neconfirmată (UNKNOWN) = „Reîncearcă anularea”: doar un 204
+ * confirmă; 404 / 405 / timeout lasă starea neconfirmată.
+ */
+function AdminCancelAwbButton({ shipmentId, row, retry = false, disabled, onDone }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function run() {
+    if (busy) return;
+    const ok = window.confirm(
+      retry
+        ? `Retrimiți anularea AWB-ului ${row.awbNumber} la Sameday? Doar o confirmare (204) închide cazul.`
+        : `Anulezi AWB-ul ${row.awbNumber} la Sameday? Anularea nu poate fi refăcută.`
+    );
+    if (!ok) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await api(
+        `/api/admin/pickups/${encodeURIComponent(shipmentId)}/courier-awb/${encodeURIComponent(row.id)}/cancel`,
+        { method: "POST", body: JSON.stringify({}) }
+      );
+    } catch (e) {
+      setErr(e?.data?.message || "Nu am putut anula AWB-ul.");
+    } finally {
+      setBusy(false);
+      await onDone?.();
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className={styles.secondaryBtn} disabled={busy || disabled} onClick={run}>
+        {busy ? <Loader2 size={16} className={styles.spin} /> : null}
+        {busy ? "Se anulează…" : retry ? "Reîncearcă anularea la Sameday" : "Anulează AWB"}
+      </button>
+      {err && <div className={styles.error} style={{ fontSize: 12 }}>{err}</div>}
+    </>
+  );
+}
+
+// rezolvarea unei anulări neconfirmate, după verificarea în contul curierului
+function ResolveCancelForm({ shipmentId, row, onDone, onCancel }) {
+  const [outcome, setOutcome] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function submit() {
+    if (busy || !outcome) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await api(
+        `/api/admin/pickups/${encodeURIComponent(shipmentId)}/courier-awb/${encodeURIComponent(row.id)}/resolve-cancel`,
+        { method: "POST", body: JSON.stringify({ outcome, note }) }
+      );
+      await onDone?.();
+    } catch (e) {
+      setErr(e?.data?.message || "Nu am putut rezolva anularea.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={styles.resolveBox}>
+      <div className={styles.muted} style={{ fontSize: 12 }}>
+        Verifică mai întâi AWB-ul {row.awbNumber} în contul curierului (eAWB).
+      </div>
+      <label className={styles.resolveOption}>
+        <input type="radio" name={`resolve-cancel-${row.id}`} checked={outcome === "CANCELLED"} onChange={() => setOutcome("CANCELLED")} />
+        AWB anulat la Sameday – expedierea poate genera un AWB nou
+      </label>
+      <label className={styles.resolveOption}>
+        <input type="radio" name={`resolve-cancel-${row.id}`} checked={outcome === "ACTIVE"} onChange={() => setOutcome("ACTIVE")} />
+        AWB încă activ – anularea nu s-a făcut
+      </label>
+      <input
+        className={styles.input}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Notă pentru audit (opțional)"
+        aria-label="Notă pentru audit"
+        maxLength={500}
+      />
+      {err && <div className={styles.error} style={{ fontSize: 12 }}>{err}</div>}
+      <div className={styles.resolveActions}>
+        <button type="button" className={styles.primaryBtn} disabled={busy || !outcome} onClick={submit}>
+          {busy ? <Loader2 size={16} className={styles.spin} /> : null} Confirmă
+        </button>
+        <button type="button" className={styles.secondaryBtn} disabled={busy} onClick={onCancel}>
+          Renunță
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CourierAwbSection({ shipmentId, rows, direction, onResolved }) {
   const [resolvingId, setResolvingId] = useState("");
 
   const list = Array.isArray(rows) ? rows : [];
@@ -1116,6 +1348,54 @@ function CourierAwbSection({ shipmentId, rows, onResolved }) {
                 Rezolvă AWB
               </button>
             ))}
+
+          {/* anulare în curs / neconfirmată (fără retry automat) */}
+          {row.status === "CREATED" && row.cancel?.state === "IN_PROGRESS" && (
+            <div className={styles.muted} style={{ fontSize: 12 }}>Anulare în curs la Sameday…</div>
+          )}
+          {row.status === "CREATED" && row.cancel?.state === "UNKNOWN" && (
+            <>
+              <div className={styles.error} style={{ fontSize: 12 }}>
+                Anulare neconfirmată ({row.cancel.errorCode || "necunoscut"}). AWB-ul rămâne blocant până la rezolvare.
+              </div>
+              {resolvingId === `cancel-${row.id}` ? (
+                <ResolveCancelForm
+                  shipmentId={shipmentId}
+                  row={row}
+                  onCancel={() => setResolvingId("")}
+                  onDone={async () => {
+                    setResolvingId("");
+                    await onResolved?.();
+                  }}
+                />
+              ) : (
+                <div className={styles.resolveActions}>
+                  <button
+                    type="button"
+                    className={styles.primaryBtn}
+                    disabled={!!resolvingId}
+                    onClick={() => setResolvingId(`cancel-${row.id}`)}
+                  >
+                    Rezolvă anularea
+                  </button>
+                  <AdminCancelAwbButton shipmentId={shipmentId} row={row} retry disabled={!!resolvingId} onDone={onResolved} />
+                </div>
+              )}
+            </>
+          )}
+          {/* eticheta: doar AWB-ul activ confirmat, fără anulare în curs / neconfirmată */}
+          {row.status === "CREATED" && row.active && !row.cancel && row.awbNumber && (
+            <LabelButtons
+              labelPath={(format) => adminLabelPath(shipmentId, format)}
+              awbNumber={row.awbNumber}
+              filePrefix={direction === "RETURN" ? "AWB-retur" : "AWB"}
+            />
+          )}
+          {row.status === "CREATED" && row.active && !row.cancel && (
+            <div className={styles.resolveActions}>
+              <AdminCancelAwbButton shipmentId={shipmentId} row={row} disabled={!!resolvingId} onDone={onResolved} />
+            </div>
+          )}
 
           {row.audit?.length > 0 && (
             <details style={{ fontSize: 12 }}>
@@ -1167,6 +1447,7 @@ function normalizeShipment(s) {
     vendorId: s.vendorId,
 
     status: s.status,
+    direction: s.direction || "OUTBOUND",
 
     courierProvider: s.courierProvider || "",
     courierService: s.courierService || "",

@@ -108,10 +108,35 @@ export function buildSamedayAwbForm(input, { forEstimate = false } = {}) {
   const r = input.recipient;
   f.set("awbRecipient[name]", r.name);
   f.set("awbRecipient[phoneNumber]", r.phone);
-  f.set("awbRecipient[personType]", String(PERSON_TYPE.INDIVIDUAL));
-  setPlace(f, "awbRecipient", r);
-  f.set("awbRecipient[address]", r.address);
-  setIf(f, "awbRecipient[postalCode]", r.postalCode);
+  // Persoană juridică DOAR când destinatarul vine explicit clasificat (vendorul
+  // destinatar al unui retur, returnAwb.classifyReturnRecipient). Destinatarii
+  // OUTBOUND (clienții) nu au personType / company -> neschimbat: persoană fizică.
+  const recipientCompany = r.personType === PERSON_TYPE.COMPANY && r.company ? r.company : null;
+  f.set("awbRecipient[personType]", String(recipientCompany ? PERSON_TYPE.COMPANY : PERSON_TYPE.INDIVIDUAL));
+  if (recipientCompany) {
+    setIf(f, "awbRecipient[companyName]", recipientCompany.name);
+    setIf(f, "awbRecipient[companyCui]", recipientCompany.cui);
+    setIf(f, "awbRecipient[companyOnrcNumber]", recipientCompany.onrc);
+  }
+  // easybox / Sameday Point: locația din oohLastMile (PDF v3.6: noii parametri
+  // OOH, recomandați pentru ambele servicii; lockerId e depreciat în Swagger).
+  // Exemplele PDF pentru Locker / PUDO nu trimit adresa destinatarului.
+  const ooh = input.oohLastMile != null && input.oohLastMile !== "";
+  if (ooh) {
+    f.set("oohLastMile", String(input.oohLastMile));
+    // estimate-cost: Swagger NU listează oohLastMile, dar cere awbRecipient ->
+    // trimitem și adresa locației (destinația reală a coletului), ca tariful
+    // să aibă zona de livrare chiar dacă oohLastMile e ignorat.
+    if (forEstimate && r.address) {
+      setPlace(f, "awbRecipient", r);
+      f.set("awbRecipient[address]", r.address);
+      setIf(f, "awbRecipient[postalCode]", r.postalCode);
+    }
+  } else {
+    setPlace(f, "awbRecipient", r);
+    f.set("awbRecipient[address]", r.address);
+    setIf(f, "awbRecipient[postalCode]", r.postalCode);
+  }
   setIf(f, "awbRecipient[email]", r.email);
 
   parcels.forEach((p, i) => {

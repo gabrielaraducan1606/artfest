@@ -27,6 +27,14 @@ import {
 } from "../../../components/AIAssistant/quotes/quoteRequestIntentEvent.js";
 import { CONTACT_FIX_APPLY_EVENT } from "../../../components/AIAssistant/contactInfo/contactInfoFixFlow.js";
 import { COLLECTIONS_HUB_URL } from "../CatalogProduse/VendorCollections/collectionsHubLinks.js";
+// Smart Listing: doar `vite dev` + flag (smartListingAccess.js); altfel nimic nu se schimbă
+import {
+  SMART_LISTING_ADVANCED_EVENT,
+  SMART_LISTING_EDIT_ADVANCED_EVENT,
+  openSmartListing,
+  openSmartListingEdit,
+  smartListingAccessFor,
+} from "../../../features/smartListing/smartListingAccess.js";
 import { showContactInfoFix } from "../../../components/AIAssistant/contactInfo/contactInfoFixToast.jsx";
 import {
   applyContactFixToProductForm,
@@ -748,6 +756,75 @@ const [gateState, setGateState] = useState({
   sellerData: null,
 });
 
+  /*
+   * „Adaugă produs”: local (flag activ) deschide Smart Listing; în producție,
+   * ProductModal - EXACT ca înainte. Editarea (openEditProduct) nu trece pe aici.
+   */
+  function openNewProductEntry() {
+    // venit din Smart Listing („Editorul avansat”): direct în ProductModal
+    if (forceAdvancedEditorRef.current) {
+      forceAdvancedEditorRef.current = false;
+      openNewProduct();
+      return;
+    }
+    // `import.meta.env.DEV` e false la build -> ramura dispare din producție
+    if (import.meta.env.DEV && smartListingAccessFor(me).canSave && storeSlug) {
+      openSmartListing(storeSlug);
+      return;
+    }
+    openNewProduct();
+  }
+
+  /*
+   * „Continuă în Editorul avansat” din Smart Listing: ciorna e deja în cheia
+   * de ciornă a ProductModal (artfest-product-draft-<slug>), care o restaurează
+   * la deschiderea unui produs NOU. Doar proprietarul; parametrul se șterge.
+   */
+  const forceAdvancedEditorRef = useRef(false);
+  // o singură deschidere: filtrele listei pot rescrie URL-ul cu parametrul vechi,
+  // iar o a doua deschidere ar goli formularul transferat
+  const advancedEditorOpenedRef = useRef(false);
+
+  useEffect(() => {
+    // doar local (Smart Listing e doar în `vite dev`) - în producție nimic nu se schimbă
+    if (!import.meta.env.DEV) return;
+    if (searchParams.get("editorAvansat") !== "1" || !isOwner || !storeSlug) return;
+    if (advancedEditorOpenedRef.current) return;
+    advancedEditorOpenedRef.current = true;
+    const next = new URLSearchParams(searchParams);
+    next.delete("editorAvansat");
+    setSearchParams(next, { replace: true });
+    // aceleași verificări ca „Adaugă produs” (limită de plan, declarația pentru primul produs)
+    forceAdvancedEditorRef.current = true;
+    handleAddProduct();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isOwner, storeSlug]);
+
+  // „Continuă în Editorul avansat” din modal, chiar pe pagina acestui magazin: fără navigare
+  useEffect(() => {
+    if (!import.meta.env.DEV) return undefined;
+    const onAdvanced = (event) => {
+      if (event.detail?.storeSlug !== storeSlug || !isOwner) return;
+      event.preventDefault();
+      forceAdvancedEditorRef.current = true;
+      handleAddProduct();
+    };
+    window.addEventListener(SMART_LISTING_ADVANCED_EVENT, onAdvanced);
+    return () => window.removeEventListener(SMART_LISTING_ADVANCED_EVENT, onAdvanced);
+  });
+
+  // editare în Smart Listing -> „Editorul avansat”: ProductModal-ul existent, pentru același produs
+  useEffect(() => {
+    if (!import.meta.env.DEV) return undefined;
+    const onEditAdvanced = (event) => {
+      if (event.detail?.storeSlug !== storeSlug || !isOwner || !event.detail?.productId) return;
+      event.preventDefault();
+      openEditProduct({ id: event.detail.productId }, { advanced: true });
+    };
+    window.addEventListener(SMART_LISTING_EDIT_ADVANCED_EVENT, onEditAdvanced);
+    return () => window.removeEventListener(SMART_LISTING_EDIT_ADVANCED_EVENT, onEditAdvanced);
+  });
+
   async function handleAddProduct() {
     dismissAddProductHint();
 
@@ -764,7 +841,7 @@ const [gateState, setGateState] = useState({
     const hasProducts = Array.isArray(products) && products.length > 0;
 
     if (hasProducts) {
-      openNewProduct();
+      openNewProductEntry();
       return;
     }
 
@@ -782,7 +859,7 @@ const [gateState, setGateState] = useState({
     open: false,
   }));
 
-  openNewProduct();
+  openNewProductEntry();
   return;
 }
 
@@ -826,7 +903,7 @@ const [gateState, setGateState] = useState({
           "Nu am putut verifica declarația produselor. Poți continua să adaugi produsul.",
       }));
 
-      openNewProduct();
+      openNewProductEntry();
     }
   }
 async function handleAcceptGate() {
@@ -837,7 +914,7 @@ async function handleAcceptGate() {
     error: "",
   }));
 
-  openNewProduct();
+  openNewProductEntry();
 }
 
   async function openEditProduct(p, options = {}) {
@@ -845,6 +922,13 @@ async function handleAcceptGate() {
 
     const id = p.id || p._id;
     if (!id) return;
+
+    // local (`vite dev` + flag): editarea în Smart Listing; „Editorul avansat” revine aici
+    // cu `advanced: true`. `import.meta.env.DEV` e false la build -> în producție, ProductModal.
+    if (import.meta.env.DEV && !options.advanced && smartListingAccessFor(me).canSave && storeSlug) {
+      openSmartListingEdit({ storeSlug, productId: id });
+      return;
+    }
 
     try {
       const full = await fetchVendorProduct(id);

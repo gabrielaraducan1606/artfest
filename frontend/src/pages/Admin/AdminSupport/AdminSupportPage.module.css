@@ -741,3 +741,43 @@ svg {
   max-width: 100%;
   height: auto;
 }
+
+/* corpul mesajului: păstrează rândurile scrise de utilizator și rupe cuvintele lungi */
+.bubbleBody {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* cererile de ajutor ale vânzătorilor */
+.helpTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 12%, var(--surface));
+}
+
+.unreadDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #dc2626;
+  flex: 0 0 auto;
+}
+
+.helpFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.helpFilterRow select {
+  flex: 1 1 auto;
+  min-width: 0;
+}

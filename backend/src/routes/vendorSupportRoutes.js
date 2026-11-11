@@ -2,7 +2,16 @@
 import { Router } from "express";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
 import { prisma } from "../db.js";
+import {
+  HELP_MESSAGE_MAX,
+  buildHelpContextFooter,
+  composeHelpMessage,
+  helpSubject,
+  normalizeHelpContext,
+  normalizeRequestKey,
+} from "../lib/supportHelpRequests.js";
 
 /**
  * Autentificare:
@@ -121,7 +130,16 @@ const bodyCreateTicket = z.object({
   priority: z.enum(["low", "medium", "high"]).default("medium"),
   message: z.string().min(1),
   attachments: z.array(attachmentSchema).optional().default([]),
+  // cererile de ajutor (GPSR / adăugare produs): tip + produs / ciornă; validate pe server
+  context: z.unknown().optional(),
+  // aceeași cheie la reîncercare / dublu-click = același tichet
+  requestKey: z.string().max(64).optional(),
 });
+
+/** Id determinist pentru o cerere de ajutor (același cont + aceeași cheie = același tichet). */
+function helpTicketId(userId, requestKey) {
+  return `help_${crypto.createHash("sha256").update(`${userId}:${requestKey}`).digest("hex").slice(0, 24)}`;
+}
 
 const paramsTicketId = z.object({ id: z.string().min(1) });
 const paramsMessageId = z.object({ mid: z.string().min(1) });
@@ -207,18 +225,68 @@ VendorSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
       .json({ error: "bad_request", details: parsed.error.flatten() });
   }
 
-  const { subject, category, priority, message, attachments } = parsed.data;
+  const { priority, attachments } = parsed.data;
+  let { subject, category, message } = parsed.data;
+  const help = normalizeHelpContext(parsed.data.context);
+  const requestKey = help ? normalizeRequestKey(parsed.data.requestKey) : null;
+  const ticketId = requestKey ? helpTicketId(user.id, requestKey) : null;
 
   try {
     const vendor = await prisma.vendor.findUnique({
       where: { userId: user.id },
-      select: { id: true },
+      select: { id: true, displayName: true },
     });
+
+    if (help) {
+      const own = String(message || "").trim();
+      if (own.length < 3) {
+        return res.status(400).json({ error: "help_message_required", message: "Scrie pe scurt cu ce ai nevoie de ajutor." });
+      }
+      if (own.length > HELP_MESSAGE_MAX) {
+        return res.status(400).json({ error: "help_message_too_long", message: `Mesajul poate avea cel mult ${HELP_MESSAGE_MAX} de caractere.` });
+      }
+
+      // produsul (inclusiv o ciornă privată salvată) trebuie să fie al acestui vânzător
+      let product = null;
+      if (help.productId) {
+        product = vendor
+          ? await prisma.product.findFirst({
+              where: { id: help.productId, service: { vendorId: vendor.id } },
+              select: { id: true, title: true },
+            })
+          : null;
+        if (!product) return res.status(403).json({ error: "product_not_owned" });
+      }
+
+      // reîncercare / dublu-click cu aceeași cheie: tichetul există deja
+      if (ticketId) {
+        const existing = await prisma.supportTicket.findFirst({
+          where: { id: ticketId, requesterId: user.id },
+          select: { id: true, subject: true, status: true, priority: true, updatedAt: true },
+        });
+        if (existing) return res.status(200).json({ ticket: mapTicketToUI(existing), duplicate: true });
+      }
+
+      category = help.type;
+      subject = helpSubject(help.type, subject);
+      message = composeHelpMessage(
+        own,
+        buildHelpContextFooter({
+          type: help.type,
+          storeName: vendor?.displayName || "",
+          storeSlug: help.storeSlug,
+          productId: product?.id || null,
+          productTitle: product?.title || "",
+          draftId: product ? null : help.draftId,
+        })
+      );
+    }
 
     const ticket = await prisma.$transaction(async (tx) => {
       // 1) ticket
       const createdTicket = await tx.supportTicket.create({
         data: {
+          ...(ticketId ? { id: ticketId } : {}),
           requesterId: user.id,
           vendorId: vendor?.id ?? null,
           audience: "VENDOR",
@@ -275,6 +343,16 @@ VendorSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
 
     res.status(201).json({ ticket: mapTicketToUI(ticket) });
   } catch (e) {
+    // două cereri simultane cu aceeași cheie: a doua găsește tichetul creat de prima
+    if (ticketId && e?.code === "P2002") {
+      const existing = await prisma.supportTicket
+        .findFirst({
+          where: { id: ticketId, requesterId: user.id },
+          select: { id: true, subject: true, status: true, priority: true, updatedAt: true },
+        })
+        .catch(() => null);
+      if (existing) return res.status(200).json({ ticket: mapTicketToUI(existing), duplicate: true });
+    }
     console.error("vendor create ticket error:", e);
     res.status(500).json({ error: "server_error" });
   }

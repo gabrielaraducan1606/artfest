@@ -418,6 +418,94 @@ router.post("/", async (req, res) => {
 });
 
 /* =========================================================
+   POST /api/vendor/collections/attach-product
+   Body: { productId, collectionIds: [] }
+   Folosit la crearea unui produs (Smart Listing): adaugă produsul PROPRIU,
+   proaspăt creat, în colecțiile PROPRII alese. Spre deosebire de
+   POST /:id/products, produsul poate fi încă în verificare sau privat
+   (ex. „Cere ajutor Artfest”): pagina publică a colecției afișează oricum
+   DOAR produse publice (PUBLIC_COLLECTION_PRODUCT_WHERE), deci un produs
+   privat / neaprobat nu devine vizibil prin colecție.
+   Autorizare pe server: produsul trebuie să aparțină vânzătorului; se ating
+   DOAR colecțiile lui (celelalte id-uri sunt ignorate și raportate).
+   Nu modifică produsul, nu șterge și nu reordonează elemente existente.
+========================================================= */
+
+const AttachProductSchema = z.object({
+  productId: z.string().trim().min(1).max(64),
+  collectionIds: z.array(z.string().trim().min(1).max(64)).min(1).max(20),
+});
+
+router.post("/attach-product", async (req, res) => {
+  try {
+    const vendor = await requireVendor(req, res);
+    if (!vendor) return;
+
+    const parsed = AttachProductSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: "invalid_payload", details: parsed.error.flatten() });
+    }
+
+    const productId = parsed.data.productId;
+    const requestedIds = [...new Set(parsed.data.collectionIds)];
+
+    const product = await prisma.product.findFirst({
+      where: { id: productId, service: { is: { vendorId: vendor.id } } },
+      select: { id: true },
+    });
+    if (!product) {
+      return res.status(404).json({ ok: false, error: "product_not_found" });
+    }
+
+    const owned = await prisma.vendorCollection.findMany({
+      where: { id: { in: requestedIds }, vendorId: vendor.id },
+      select: { id: true, title: true },
+    });
+    const ownedIds = new Set(owned.map((c) => c.id));
+    const notFound = requestedIds.filter((id) => !ownedIds.has(id));
+
+    const added = [];
+    const already = [];
+    const full = [];
+
+    for (const collection of owned) {
+      const [existing, count, lastItem] = await Promise.all([
+        prisma.vendorCollectionItem.findUnique({
+          where: { collectionId_productId: { collectionId: collection.id, productId } },
+          select: { productId: true },
+        }),
+        prisma.vendorCollectionItem.count({ where: { collectionId: collection.id } }),
+        prisma.vendorCollectionItem.findFirst({
+          where: { collectionId: collection.id },
+          orderBy: { position: "desc" },
+          select: { position: true },
+        }),
+      ]);
+
+      if (existing) {
+        already.push(collection.id);
+        continue;
+      }
+      if (count >= MAX_COLLECTION_PRODUCTS) {
+        full.push(collection.id);
+        continue;
+      }
+
+      await prisma.vendorCollectionItem.createMany({
+        data: [{ collectionId: collection.id, productId, position: Number(lastItem?.position ?? -1) + 1 }],
+        skipDuplicates: true,
+      });
+      added.push(collection.id);
+    }
+
+    return res.json({ ok: true, productId, added, already, full, notFound });
+  } catch (error) {
+    console.error("[vendorCollections] POST /attach-product error:", error);
+    return res.status(500).json({ ok: false, error: "vendor_collection_attach_failed" });
+  }
+});
+
+/* =========================================================
    GET /api/vendor/collections/:id
 ========================================================= */
 

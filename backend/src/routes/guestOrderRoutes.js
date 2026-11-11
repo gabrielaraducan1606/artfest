@@ -11,6 +11,7 @@ import {
   createPaymentForOrder,
 } from "../payments/orchestrator.js";
 import { CardPaymentUnavailableError } from "../payments/vendorStripeStatus.js";
+import { isCardPaymentExpiredOrder } from "../services/cardPaymentExpiry.js";
 import {
   DEPOSIT_BLOCK_MESSAGES,
   DepositPaymentBlockedError,
@@ -1344,6 +1345,12 @@ router.get(
         canRetryPayment:
           paymentState
             .canRetryPayment,
+
+        // anulată automat: plata cu cardul nu a fost finalizată la termen
+        cardPaymentExpired:
+          isCardPaymentExpiredOrder(
+            order
+          ),
 
         paidAt:
           order.paidAt ||

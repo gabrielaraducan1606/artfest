@@ -259,7 +259,7 @@ export default function VendorGateModal({
       ""
     ) {
       list.push(
-        "Completează costul estimativ de livrare."
+        "Completează tariful de rezervă pentru transport."
       );
     }
 
@@ -273,7 +273,7 @@ export default function VendorGateModal({
       ) < 0
     ) {
       list.push(
-        "Costul de livrare nu poate fi negativ."
+        "Tariful de rezervă pentru transport nu poate fi negativ."
       );
     }
 
@@ -854,8 +854,8 @@ export default function VendorGateModal({
                       styles.vendorGateField
                     }
                   >
-                    Cost estimativ
-                    livrare *
+                    Tarif de rezervă
+                    pentru transport *
 
                     <input
                       className={
@@ -879,6 +879,9 @@ export default function VendorGateModal({
                       }
                       placeholder="25"
                     />
+                    <span className={styles.vendorGateHelp}>
+                      Se folosește doar dacă tariful Sameday nu poate fi calculat temporar.
+                    </span>
                   </label>
 
                   <label

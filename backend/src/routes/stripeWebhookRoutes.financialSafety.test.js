@@ -107,6 +107,9 @@ function makeFakeDb() {
     findUnique: async ({ where: { vendorId } }) => state.vendors.get(vendorId)?.billing || null,
   };
 
+  // AWB-uri active prin integrare (activeAwbGuard): niciunul în aceste scenarii
+  db.courierAwb = { findFirst: async () => null };
+
   db.shipment = {
     findUnique: async ({ where: { id } }) => {
       if (state.failShipmentFindUnique.has(id)) {
@@ -168,6 +171,8 @@ function makeFakeDb() {
   };
   db.influencerEarningEntry = emptyModel;
   db.vendorReferralEarningEntry = emptyModel;
+  // anularea CARD neplătit eliberează codurile de reducere: aici nu există
+  db.discountCodeRedemption = emptyModel;
 
   db.stripeEvent = {
     create: async ({ data }) => {
@@ -580,6 +585,16 @@ before(async () => {
         fakeStripe.sessionExpires.push(id);
         return { id, status: "expired" };
       },
+      // anularea CARD neplătit verifică întâi sesiunile comenzii (cardPaymentExpiry.js):
+      // nicio altă sesiune în listă; cea salvată pe comandă e deschisă până la expirare
+      list: async () => ({ data: [], has_more: false }),
+      retrieve: async (id) => ({
+        id,
+        status: fakeStripe.sessionExpires.includes(id) ? "expired" : "open",
+        payment_status: "unpaid",
+        payment_intent: null,
+        metadata: { kind: "order_payment", orderId: "order-1" },
+      }),
     },
   };
 

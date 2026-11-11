@@ -10,6 +10,7 @@
  */
 
 import { additionalCategoriesPayload } from "../../../../utils/additionalCategories.js";
+import { shippingFormFromProduct, shippingPayloadFromForm } from "../../../../utils/productShippingForm.js";
 export function mapFullProductToEditDraft(full) {
   return {
     id: full.id || full._id || "",
@@ -84,6 +85,7 @@ export function mapFullProductToEditDraft(full) {
       ? full.occasionTags.join(", ")
       : full.occasionTags || "",
     dimensions: full.dimensions || "",
+    ...shippingFormFromProduct(full),
     careInstructions: full.careInstructions || "",
     specialNotes: full.specialNotes || "",
 
@@ -203,6 +205,8 @@ export function buildProductSavePayload(
     dimensions:
       String(prodFormValue.dimensions || "").trim() ||
       null,
+
+    ...shippingPayloadFromForm(prodFormValue),
 
     careInstructions:
       String(

@@ -3,6 +3,17 @@ import { useState } from "react";
 import styles from "../../../components/css/ProductModal.module.css";
 import localStyles from "./ProductImagesSection.module.css";
 import ProductVideoField from "../../../../../../components/ProductVideoField";
+import {
+  AI_IMAGE_EDITING_ENABLED,
+  AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE,
+} from "../../../../../../config/features.js";
+
+/*
+ * Editarea foto cu AI e oprită temporar (config/features.js): butoanele
+ * rămân vizibile, dar disabled + aria-disabled și fără onClick.
+ * Încărcarea, ștergerea, reordonarea și „Completează detalii” nu depind de flag.
+ */
+const imageEditingOff = !AI_IMAGE_EDITING_ENABLED;
 
 export default function ProductImagesSection({
   form,
@@ -149,6 +160,17 @@ export default function ProductImagesSection({
                 <strong>
                   📸 Îmbunătățește fotografia
                 </strong>
+
+                {imageEditingOff && (
+                  <p>
+                    <em>
+                      {
+                        AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE
+                      }
+                      .
+                    </em>
+                  </p>
+                )}
 
                 <p>
                   Retușează fundalul, lumina și
@@ -366,13 +388,21 @@ export default function ProductImagesSection({
 
             <button
               type="button"
-              onClick={() =>
-                handleAiEnhanceImage(
-                  aiPreviewSourceIndex
-                )
+              onClick={
+                imageEditingOff
+                  ? undefined
+                  : () =>
+                      handleAiEnhanceImage(
+                        aiPreviewSourceIndex
+                      )
               }
               disabled={
+                imageEditingOff ||
                 aiImageLoading
+              }
+              aria-disabled={
+                imageEditingOff ||
+                undefined
               }
               className={`${localStyles.previewButton} ${localStyles.previewButtonGhost}`}
             >
@@ -617,22 +647,40 @@ export default function ProductImagesSection({
 
                         <button
                           type="button"
-                          onClick={() =>
-                            handleAiEnhanceImage(
-                              idx
-                            )
+                          onClick={
+                            imageEditingOff
+                              ? undefined
+                              : () =>
+                                  handleAiEnhanceImage(
+                                    idx
+                                  )
                           }
                           disabled={
+                            imageEditingOff ||
                             aiImageLoading ||
                             !isUploadedImage?.(
                               img
                             )
                           }
-                          title="Fotografie profesională - îmbunătățește fundalul, lumina și claritatea acestei poze, fără să modifice produsul"
-                          aria-label="Îmbunătățește această fotografie cu AI"
-                          className={
-                            localStyles.thumbControlBtn
+                          aria-disabled={
+                            imageEditingOff ||
+                            undefined
                           }
+                          title={
+                            imageEditingOff
+                              ? `Îmbunătățește fotografia - ${AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE.toLowerCase()}`
+                              : "Fotografie profesională - îmbunătățește fundalul, lumina și claritatea acestei poze, fără să modifice produsul"
+                          }
+                          aria-label={
+                            imageEditingOff
+                              ? `Îmbunătățește această fotografie cu AI - ${AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE.toLowerCase()}`
+                              : "Îmbunătățește această fotografie cu AI"
+                          }
+                          className={`${localStyles.thumbControlBtn} ${
+                            imageEditingOff
+                              ? localStyles.aiEditUnavailable
+                              : ""
+                          }`}
                         >
                           ✨
                         </button>
@@ -725,7 +773,11 @@ export default function ProductImagesSection({
               </div>
 
               <div
-                className={`${localStyles.aiCard} ${localStyles.aiCardPhoto}`}
+                className={`${localStyles.aiCard} ${
+                  imageEditingOff
+                    ? localStyles.aiCardUnavailable
+                    : localStyles.aiCardPhoto
+                }`}
               >
                 <div
                   className={
@@ -763,37 +815,67 @@ export default function ProductImagesSection({
                   poza dorită.
                 </p>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleAiEnhanceImage(
-                      0
-                    )
-                  }
-                  disabled={
-                    aiImageLoading ||
-                    !mainImageReadyForAi
-                  }
-                  className={`${localStyles.aiCardButton} ${localStyles.aiCardButtonPhoto}`}
-                >
-                  {aiImageLoading
-                    ? "Retușez fotografia..."
-                    : !mainImageReadyForAi
-                    ? "Se încarcă imaginea..."
-                    : "Îmbunătățește fotografia"}
-                </button>
+                {imageEditingOff ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled
+                      aria-disabled="true"
+                      aria-describedby="ai-image-edit-unavailable"
+                      className={`${localStyles.aiCardButton} ${localStyles.aiCardButtonUnavailable}`}
+                    >
+                      <span aria-hidden="true">
+                        📸
+                      </span>{" "}
+                      Îmbunătățește fotografia
+                    </button>
+
+                    <p
+                      id="ai-image-edit-unavailable"
+                      className={
+                        localStyles.aiUnavailableNote
+                      }
+                    >
+                      {
+                        AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE
+                      }
+                    </p>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleAiEnhanceImage(
+                        0
+                      )
+                    }
+                    disabled={
+                      aiImageLoading ||
+                      !mainImageReadyForAi
+                    }
+                    className={`${localStyles.aiCardButton} ${localStyles.aiCardButtonPhoto}`}
+                  >
+                    {aiImageLoading
+                      ? "Retușez fotografia..."
+                      : !mainImageReadyForAi
+                      ? "Se încarcă imaginea..."
+                      : "Îmbunătățește fotografia"}
+                  </button>
+                )}
               </div>
             </div>
 
-            <p
-              className={
-                localStyles.aiReassurance
-              }
-            >
-              AI îmbunătățește doar fundalul și
-              calitatea fotografiei. Produsul
-              rămâne neschimbat.
-            </p>
+            {!imageEditingOff && (
+              <p
+                className={
+                  localStyles.aiReassurance
+                }
+              >
+                AI îmbunătățește doar fundalul și
+                calitatea fotografiei. Produsul
+                rămâne neschimbat.
+              </p>
+            )}
           </>
         )}
 

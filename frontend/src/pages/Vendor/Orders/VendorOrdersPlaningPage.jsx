@@ -17,6 +17,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import styles from "./OrdersPlaning.module.css";
+import { canMoveOrderOnBoard, isFinalVendorOrderStatus, statusChangeErrorMessage } from "./utils/orderStatusRules.js";
 
 /* Utils */
 function formatMoney(n) {
@@ -325,6 +326,8 @@ function VendorOrdersPlanningContent() {
         });
 
   async function changeStatus(order, nextStatus) {
+    // livrată / anulată: fără acțiuni generice de status (și backend-ul le refuză)
+    if (isFinalVendorOrderStatus(order?.status)) return;
     try {
       await api(`/api/vendor/orders/${order.id}/status`, {
         method: "PATCH",
@@ -336,8 +339,8 @@ function VendorOrdersPlanningContent() {
           o.id === order.id ? { ...o, status: nextStatus } : o
         )
       );
-    } catch {
-      setErr("Nu am putut actualiza statusul comenzii. Încearcă din nou.");
+    } catch (e) {
+      setErr(statusChangeErrorMessage(e));
     }
   }
 
@@ -470,7 +473,7 @@ function VendorOrdersPlanningContent() {
   function handleDropOnColumn(col) {
     if (!draggingOrderId) return;
     const order = filteredItems.find((o) => o.id === draggingOrderId);
-    if (order && order.status !== col) {
+    if (canMoveOrderOnBoard(order, col)) {
       changeStatus(order, col);
     }
     setDraggingOrderId(null);
@@ -1018,7 +1021,12 @@ function VendorOrdersPlanningContent() {
                                 ? styles.boardCardDragging
                                 : ""
                             }`}
-                            draggable
+                            draggable={!isFinalVendorOrderStatus(o.status)}
+                            title={
+                              isFinalVendorOrderStatus(o.status)
+                                ? "Comanda este finalizată sau anulată - statusul nu mai poate fi schimbat."
+                                : undefined
+                            }
                             onDragStart={() => handleDragStart(o.id)}
                             onDragEnd={handleDragEnd}
                           >

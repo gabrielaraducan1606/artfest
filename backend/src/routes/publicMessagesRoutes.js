@@ -1,106 +1,27 @@
-// backend/routes/publicContactRoutes.js
+// backend/src/routes/publicMessagesRoutes.js
 import express from "express";
-import { prisma } from "../db.js";
-import { moderateMarketplaceMessage } from "../services/marketplaceMessageModeration.js";
 
 const router = express.Router();
 
-const MAX_MESSAGE_LENGTH = 5000;
-
-// POST /public/contact-vendor
-// body: { vendorId, name?, email?, phone?, userId?, message }
-router.post("/contact-vendor", async (req, res) => {
-  const { vendorId, name, email, phone, userId, message } = req.body || {};
-
-  if (!vendorId) return res.status(400).json({ error: "vendorId lipsă" });
-  if (!message || !String(message).trim()) {
-    return res.status(400).json({ error: "Mesajul nu poate fi gol" });
-  }
-
-  if (String(message).length > MAX_MESSAGE_LENGTH) {
-    return res.status(400).json({
-      error: "Mesajul este prea lung. Maxim 5000 de caractere.",
-    });
-  }
-
-  // trebuie să știm cine e contactul:
-  if (!userId && !email && !phone) {
-    return res.status(400).json({
-      error: "Lipsește identificatorul contactului (userId sau email sau phone)",
-    });
-  }
-
-  const authorType = userId ? "USER" : "VISITOR";
-
-  const moderation = await moderateMarketplaceMessage({
-    text: message,
-    senderType: authorType,
+/*
+ * POST /public/contact-vendor - DEZACTIVAT.
+ *
+ * Ruta era publică (montată în afara /api: fără autentificare, fără
+ * limitatorul global), accepta `userId` din body (autor falsificabil) și
+ * apela moderarea AI la fiecare cerere. Nu are apelanți în frontend.
+ *
+ * Mesajele către vânzători se trimit DOAR autentificat:
+ *   POST /api/user-inbox/ensure-thread
+ *   POST /api/user-inbox/threads/:id/messages
+ * (utilizatorul vine din token, nu din body).
+ *
+ * Răspuns constant: fără bază de date, fără AI, pentru orice metodă.
+ */
+router.all("/contact-vendor", (_req, res) => {
+  res.status(410).json({
+    error: "endpoint_removed",
+    message: "Această rută nu mai este disponibilă. Trimite mesajul din contul tău Artfest.",
   });
-
-  if (!moderation.allowed) {
-    const technicalReasons = new Set([
-      "text_moderation_failed",
-      "text_moderation_invalid_response",
-      "text_moderation_ambiguous_response",
-    ]);
-
-    const isTechnicalError = technicalReasons.has(moderation.reason);
-
-    return res.status(isTechnicalError ? 503 : 422).json({
-      error: isTechnicalError ? "moderation_unavailable" : "message_blocked",
-      reason: moderation.reason || "not_allowed",
-      detections: moderation.detections || [],
-      message: isTechnicalError
-        ? "Mesajul nu a putut fi verificat momentan și nu a fost trimis. Încearcă din nou peste câteva secunde."
-        : "Mesajul nu poate fi trimis deoarece conține sau sugerează date de contact, comunicare, comandă ori plată în afara platformei.",
-    });
-  }
-
-  // găsim thread existent pentru același contact sau creăm unul nou
-  const whereBase = { vendorId };
-  const existing = await prisma.messageThread.findFirst({
-    where: {
-      ...whereBase,
-      OR: [
-        userId ? { userId } : undefined,
-        email ? { contactEmail: email } : undefined,
-        phone ? { contactPhone: phone } : undefined,
-      ].filter(Boolean),
-    },
-  });
-
-  const thread =
-    existing ||
-    (await prisma.messageThread.create({
-      data: {
-        vendorId,
-        userId: userId || null,
-        contactName: name || null,
-        contactEmail: email || null,
-        contactPhone: phone || null,
-      },
-    }));
-
-  const msg = await prisma.message.create({
-    data: {
-      threadId: thread.id,
-      body: String(message).trim(),
-      authorType,
-      authorUserId: userId || null,
-      authorName: !userId ? name || "Vizitator" : null,
-    },
-  });
-
-  await prisma.messageThread.update({
-    where: { id: thread.id },
-    data: {
-      lastMsg: msg.body,
-      lastAt: msg.createdAt,
-      // vendorLastReadAt neschimbat -> are necitite
-    },
-  });
-
-  res.status(201).json({ ok: true, threadId: thread.id });
 });
 
 export default router;

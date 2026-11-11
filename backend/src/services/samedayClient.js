@@ -1,4 +1,10 @@
+// LEGACY - nefolosit (audit pre-test Sameday 2026-10-31): singurul consumator,
+// routes/samedayRoutes.js, nu mai e montat. Credentiale globale din env,
+// SAMEDAY_BASE implicit = PRODUCȚIE, /api/client/lockers depreciat (PDF v3.6).
+// Clientul activ e couriers/providers/sameday/client.js (per CourierAccount).
+// Păstrat doar pentru referință - nu îl importa în cod nou.
 import fetch from "node-fetch";
+import { assertCourierAwbLiveEnabled } from "../couriers/awbLive.js";
 
 const SAMEDAY_BASE = process.env.SAMEDAY_BASE || "https://api.sameday.ro";
 const SAMEDAY_USERNAME = process.env.SAMEDAY_USERNAME;
@@ -10,6 +16,11 @@ let tokenCache = null;
 let tokenExpires = 0;
 
 async function getToken() {
+  // BLOCAT (separarea DEMO / production, 2026-11-04): clientul legacy nu respectă
+  // SAMEDAY_ACTIVE_ENVIRONMENT (implicit PRODUCȚIE) -> niciun apel, niciodată.
+  // Clientul activ: couriers/providers/sameday/client.js.
+  throw new Error("Clientul Sameday legacy este dezactivat.");
+  // eslint-disable-next-line no-unreachable
   if (tokenCache && Date.now() < tokenExpires) return tokenCache;
 
   const resp = await fetch(`${SAMEDAY_BASE}/api/authenticate`, {
@@ -57,6 +68,7 @@ export const samedayClient = {
 
   /** 📦 AWB nou */
   async createAwb(payload) {
+    assertCourierAwbLiveEnabled();
     return samedayFetch(`/api/shipments`, {
       method: "POST",
       body: JSON.stringify(payload),

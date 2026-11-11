@@ -1,3 +1,8 @@
+// LEGACY - NEMONTAT în server.js (audit pre-test Sameday 2026-10-31).
+// Folosește clientul vechi (services/samedayClient.js: SAMEDAY_BASE implicit
+// producție + /api/client/lockers depreciat). NU remonta: checkout-ul nou
+// folosește /api/shipping (routes/shippingRoutes.js, contul PLATFORM).
+// Păstrat doar pentru referință.
 import { Router } from "express";
 import { authRequired } from "../api/auth.js";
 import { samedayClient } from "../services/samedayClient.js";

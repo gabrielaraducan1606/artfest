@@ -1193,3 +1193,89 @@ test("limite AI: repornirea serverului nu resetează limitele (router încărcat
   }
   assert.equal(aiCalls.length, 5);
 });
+
+/* =========================================================
+   POST /api/vendor/collections/attach-product
+   (Smart Listing: produsul propriu, proaspăt creat, în colecțiile proprii)
+========================================================= */
+
+function seedOwnNewProduct(extra = {}) {
+  tables.product.push(product("a-nou", vendors.a, "Lumânare nouă în verificare", { moderationStatus: "PENDING", ...extra }));
+  tables.vendorCollection.push(
+    { id: "col-a2", vendorId: "vendor-a", title: "Colecția A2", slug: "colectia-a2", isActive: true, sort: "curated", visits: 0, clicks: 0, createdAt: new Date(), updatedAt: new Date() },
+    { id: "col-b", vendorId: "vendor-b", title: "Colecția B", slug: "colectia-b", isActive: true, sort: "curated", visits: 0, clicks: 0, createdAt: new Date(), updatedAt: new Date() }
+  );
+}
+
+test("attach-product: produs propriu în verificare -> adăugat în colecțiile proprii alese; produsul nu se modifică", async () => {
+  seedOwnNewProduct();
+  const before = JSON.stringify(tables.product.find((p) => p.id === "a-nou"));
+  const res = await call("POST", "/api/vendor/collections/attach-product", { productId: "a-nou", collectionIds: ["col-a", "col-a2"] });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(res.body.added.sort(), ["col-a", "col-a2"]);
+  assert.deepEqual(res.body.notFound, []);
+  assert.deepEqual(
+    tables.vendorCollectionItem.map((i) => `${i.collectionId}:${i.productId}`).sort(),
+    ["col-a2:a-nou", "col-a:a-nou"].sort()
+  );
+  assert.equal(JSON.stringify(tables.product.find((p) => p.id === "a-nou")), before, "produsul rămâne neschimbat");
+});
+
+test("attach-product: colecția altui vânzător e ignorată (notFound), fără scriere acolo", async () => {
+  seedOwnNewProduct();
+  const res = await call("POST", "/api/vendor/collections/attach-product", { productId: "a-nou", collectionIds: ["col-b", "col-a"] });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.added, ["col-a"]);
+  assert.deepEqual(res.body.notFound, ["col-b"]);
+  assert.ok(!tables.vendorCollectionItem.some((i) => i.collectionId === "col-b"));
+});
+
+test("attach-product: produsul altui vânzător -> 404, nicio legătură creată", async () => {
+  seedOwnNewProduct();
+  const res = await call("POST", "/api/vendor/collections/attach-product", { productId: "b1", collectionIds: ["col-a"] });
+  assert.equal(res.status, 404);
+  assert.equal(res.body.error, "product_not_found");
+  assert.equal(tables.vendorCollectionItem.length, 0);
+});
+
+test("attach-product: fără autentificare 401; payload invalid 400; peste 20 de colecții 400", async () => {
+  seedOwnNewProduct();
+  assert.equal((await call("POST", "/api/vendor/collections/attach-product", { productId: "a-nou", collectionIds: [] })).status, 400);
+  assert.equal((await call("POST", "/api/vendor/collections/attach-product", { collectionIds: ["col-a"] })).status, 400);
+  const many = Array.from({ length: 21 }, (_, i) => `c${i}`);
+  assert.equal((await call("POST", "/api/vendor/collections/attach-product", { productId: "a-nou", collectionIds: many })).status, 400);
+  currentUserId = null;
+  assert.equal((await call("POST", "/api/vendor/collections/attach-product", { productId: "a-nou", collectionIds: ["col-a"] })).status, 401);
+  assert.equal(tables.vendorCollectionItem.length, 0);
+});
+
+test("attach-product: deja în colecție -> already; colecție plină (300) -> full; elementele existente rămân neatinse", async () => {
+  seedOwnNewProduct();
+  tables.vendorCollectionItem.push({ collectionId: "col-a", productId: "a-nou", position: 7 });
+  for (let i = 0; i < 300; i += 1) tables.vendorCollectionItem.push({ collectionId: "col-a2", productId: `x${i}`, position: i });
+  const snapshot = JSON.stringify(tables.vendorCollectionItem);
+  const res = await call("POST", "/api/vendor/collections/attach-product", { productId: "a-nou", collectionIds: ["col-a", "col-a2"] });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.already, ["col-a"]);
+  assert.deepEqual(res.body.full, ["col-a2"]);
+  assert.deepEqual(res.body.added, []);
+  assert.equal(JSON.stringify(tables.vendorCollectionItem), snapshot);
+});
+
+test("attach-product: produs privat (ajutor Artfest) sau în verificare NU apare pe pagina publică a colecției", async () => {
+  tables.product.push(
+    product("a-privat", vendors.a, "Produs privat pentru ajutor", { isActive: false, isHidden: true, moderationStatus: "PENDING" }),
+    product("a-verificare", vendors.a, "Produs în verificare", { moderationStatus: "PENDING" })
+  );
+  for (const id of ["a-privat", "a-verificare", "a1"]) {
+    const r = await call("POST", "/api/vendor/collections/attach-product", { productId: id, collectionIds: ["col-a"] });
+    assert.equal(r.status, 200);
+  }
+  const page = await publicPage();
+  assert.deepEqual(page.collection.products.map((p) => p.id), ["a1"]);
+
+  // după aprobare și publicare, produsul apare (aceeași legătură, fără altă acțiune)
+  Object.assign(tables.product.find((p) => p.id === "a-verificare"), { moderationStatus: "APPROVED" });
+  const after = await publicPage();
+  assert.deepEqual(after.collection.products.map((p) => p.id).sort(), ["a-verificare", "a1"]);
+});

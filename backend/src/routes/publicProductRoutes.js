@@ -2646,7 +2646,7 @@ router.get("/store/:slug/initial", async (req, res, next) => {
       brandStory: profile.about || null,
       city: profile.city || vendor.city || "",
       country: "",
-      address: profile.address || "",
+      // adresa de RETUR (ServiceProfile.address) NU se expune public - lib/publicVendorData.js
       coverImageUrl: profile.coverUrl || "",
       profileImageUrl: profile.logoUrl || "",
       tags: [],
@@ -2769,7 +2769,7 @@ router.get("/store/:slug", async (req, res) => {
     brandStory: profile.about || null,
     city: profile.city || vendor.city || "",
     country: "",
-    address: profile.address || "",
+    // adresa de RETUR (ServiceProfile.address) NU se expune public - lib/publicVendorData.js
     coverImageUrl: profile.coverUrl || "",
     profileImageUrl: profile.logoUrl || "",
     tags: [],

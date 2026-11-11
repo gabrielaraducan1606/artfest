@@ -17,6 +17,7 @@
  * fapt verificabil).
  */
 
+import { activeCustomerRequestWhere } from "../services/customerRequestExpiry.js";
 import { prisma } from "../db.js";
 import { getProductProfitability } from "../services/costProfitService.js";
 import { ronText } from "../services/vendorAssistantCommandService.js";
@@ -293,7 +294,8 @@ async function buildQuoteInsights(vendorId) {
 
   const openMarketRequests = await prisma.customerRequest.findMany({
     where: {
-      status: "OPEN",
+      // doar cererile active (OPEN și neexpirate) - services/customerRequestExpiry.js
+      ...activeCustomerRequestWhere(),
       offers: { none: { vendorId } },
     },
 
@@ -890,7 +892,7 @@ export async function getInsightItemsList(vendorId, type) {
     case "CUSTOMER_REQUEST_UNANSWERED": {
       const items = await prisma.customerRequest.findMany({
         where: {
-          status: "OPEN",
+          ...activeCustomerRequestWhere(),
           offers: { none: { vendorId } },
         },
 

@@ -13,7 +13,7 @@ import { formatReviewDate as formatDate, reviewRequestPublicNotice } from "./rev
  * (fereastra de verificare, editarea, aprobarea, „Cere modificări”).
  */
 
-export default function AdminReviewRequestsPanel({ refreshKey, workingProductId, onView, onEdit, onApprove, onRequestChanges }) {
+export default function AdminReviewRequestsPanel({ refreshKey, workingProductId, onResolve, onView, onEdit, onApprove, onRequestChanges }) {
   const [state, setState] = useState({ loading: true, items: [], error: "" });
 
   useEffect(() => {
@@ -23,7 +23,8 @@ export default function AdminReviewRequestsPanel({ refreshKey, workingProductId,
       .then((data) => {
         if (!alive) return;
         const items = (Array.isArray(data?.items) ? data.items : [])
-          .filter((p) => p.reviewRequest?.open)
+          // cele din formular au secțiunea lor: „Ajutor configurare”
+          .filter((p) => p.reviewRequest?.open && !p.reviewRequest.holdPrivate)
           .sort((a, b) => new Date(a.reviewRequest.requestedAt) - new Date(b.reviewRequest.requestedAt));
         setState({ loading: false, items, error: "" });
       })
@@ -83,6 +84,9 @@ export default function AdminReviewRequestsPanel({ refreshKey, workingProductId,
                   </button>
                   <button type="button" className={styles.btn} onClick={() => onEdit(p)}>
                     Editează produsul
+                  </button>
+                  <button type="button" className={styles.btn} disabled={working} onClick={() => onResolve?.(p)}>
+                    Marchează ajutorul finalizat
                   </button>
                   <button type="button" className={styles.approve} disabled={working} onClick={() => onApprove(p)}>
                     {working ? "Se procesează..." : "Aprobă"}

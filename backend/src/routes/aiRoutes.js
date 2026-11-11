@@ -8,6 +8,7 @@ import {
 } from "../api/auth.js";
 
 import { openai } from "../lib/openai.js";
+import { sanitizeOptionPriceDeltas } from "../lib/orderAssistantPriceDeltas.js";
 
 import {
   CATEGORIES,
@@ -32,6 +33,10 @@ import {
 import {
   MAX_BATCH_CLUSTER_IMAGES,
 } from "../constants/aiLimits.js";
+
+import {
+  requireAiImageEditingEnabled,
+} from "../middleware/aiImageEditingGate.js";
 
 const router = Router();
 
@@ -1393,6 +1398,12 @@ Reguli:
 - Pentru QUOTE_ONLY:
   price trebuie să fie 0.
 
+- Dacă vânzătorul spune explicit că o valoare a unei variante
+  costă mai mult (ex. „dimensiunea mare costă cu 15 lei în plus”),
+  adaugă suma în optionPriceDeltas, în lei, pentru acea valoare.
+  Nu deduce sume din imagini și nu pune nimic dacă suma nu a fost spusă.
+  Nu schimba prețul de bază pentru asta.
+
 - Răspunde în română.
 - Returnează EXCLUSIV JSON valid, fără markdown.
 
@@ -1459,6 +1470,10 @@ Schema exactă:
 
     "quoteSchema": []
   },
+
+  "optionPriceDeltas": [
+    { "optionKey": "aroma", "value": "Lavandă", "deltaLei": 0 }
+  ],
 
   "suggestions": [],
   "visionAnalysis": {},
@@ -1527,6 +1542,18 @@ Schema exactă:
 
         patch: safePatch,
 
+        // separat de patch: doar propuneri, verificate față de mesajele vânzătorului
+        optionPriceDeltas:
+          sanitizeOptionPriceDeltas(
+            parsed.optionPriceDeltas,
+            {
+              optionsSchema:
+                safePatch.optionsSchema,
+              message,
+              history,
+            }
+          ),
+
         suggestions: cleanArray(
           parsed.suggestions,
           6
@@ -1581,6 +1608,8 @@ Schema exactă:
 router.post(
   "/product-image-enhance",
   aiVendorAccess,
+  // oprit temporar (gpt-image-1 retras): 503 fără OpenAI - aiImageEditingGate.js
+  requireAiImageEditingEnabled,
   async (req, res) => {
     try {
       const imageUrl = String(

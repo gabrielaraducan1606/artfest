@@ -289,8 +289,20 @@ before(async () => {
   });
 
   const actualMailer = await import("../lib/mailer.js");
+  // mailer simulat complet: toate funcțiile send* sunt no-op, iar makeTransport e blocat -
+  // niciun email (Resend / SMTP) nu poate pleca din test, indiferent de .env
+  const mailerStub = Object.fromEntries(
+    Object.entries(actualMailer).map(([name, value]) => [
+      name,
+      name === "makeTransport"
+        ? () => { throw new Error("mailer transport blocat în test"); }
+        : typeof value === "function" && name.startsWith("send")
+          ? async () => {}
+          : value,
+    ])
+  );
   reg("../lib/mailer.js", {
-    namedExports: { ...actualMailer, sendOrderConfirmationEmail: async () => {}, sendVendorNewOrderEmail: async () => {}, sendVendorNewQuoteRequestEmail: async () => {} },
+    namedExports: { ...mailerStub, sendOrderConfirmationEmail: async () => {}, sendVendorNewOrderEmail: async () => {}, sendVendorNewQuoteRequestEmail: async () => {} },
   });
   const actualNotifications = await import("../services/notifications.js");
   reg("../services/notifications.js", {

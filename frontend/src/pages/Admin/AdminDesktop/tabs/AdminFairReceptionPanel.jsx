@@ -332,6 +332,7 @@ function ItemCard({ item, onUpdated, onError }) {
             )}
           </div>
           {item.variantLabel && <p className={styles.muted}>{item.variantLabel}</p>}
+          {item.isManual && <p className={styles.muted}>Adăugat manual (nu există în magazinul online)</p>}
           <dl className={styles.facts}>
             <div><dt>Vendor</dt><dd>{item.vendor?.name || "—"}{item.storeName ? ` · ${item.storeName}` : ""}</dd></div>
             <div><dt>Declarat</dt><dd>{item.declaredQty}</dd></div>
@@ -736,6 +737,7 @@ export default function AdminFairReceptionPanel() {
                       {row.title}
                     </button>
                     {row.variantLabel && <div className={styles.muted}>{row.variantLabel}</div>}
+                    {row.isManual && <div className={styles.muted}>Adăugat manual</div>}
                   </td>
                   <td>{row.vendor?.name || "—"}</td>
                   <td className={styles.code}>{row.barcodeDisplay}</td>

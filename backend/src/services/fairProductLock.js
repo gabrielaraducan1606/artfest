@@ -37,6 +37,8 @@ export const FAIR_LOCK_MESSAGES = Object.freeze({
     "Produsul este rezervat pentru Târgul Artfest și nu poate fi făcut disponibil online momentan.",
   delete:
     "Produsul este în inventarul Târgului Artfest și nu poate fi șters până la încheierea târgului.",
+  variantStock:
+    "Stocul acestui produs este gestionat pe variante. Modifică stocul fiecărei variante, nu stocul total.",
 });
 
 export function isFairLockError(error) {
@@ -214,6 +216,25 @@ export function fairLockedFields(data = {}) {
 }
 
 /*
+ * Stoc pe variante (Product.stockScope = VARIANT): readyQty e totalul
+ * calculat de services/inventory/inventoryService.js - editorii (vendor,
+ * Admin, asistent, catalog) nu îl scriu direct. Aceeași eroare 409 ca
+ * blocările de târg, deja tratată de toți apelanții guardedProductUpdate.
+ */
+async function assertNoDirectVariantStockWrite(db, productIds, patch) {
+  if (patch.readyQty === undefined) return;
+  const variantProducts = await db.product.findMany({
+    where: { id: { in: productIds }, stockScope: "VARIANT" },
+    select: { id: true },
+  });
+  if (variantProducts.length) {
+    throw new ProductFairLockError("variant_stock_managed", FAIR_LOCK_MESSAGES.variantStock, {
+      productIds: variantProducts.map((p) => p.id),
+    });
+  }
+}
+
+/*
  * Scriere pe produs(e) verificată pentru târg. Dacă datele nu ating preț /
  * disponibilitate / stoc, scrierea rulează direct (fără tranzacție nouă);
  * altfel: tranzacție + lock pe produs + verificare + scriere.
@@ -228,6 +249,7 @@ export async function guardedProductUpdate(productIds, data, write, { db = prism
     ids,
     async (tx) => {
       await assertProductsNotLockedByFair({ productIds: ids, patch, db: tx });
+      await assertNoDirectVariantStockWrite(tx, ids, patch);
       return write(tx);
     },
     { db }

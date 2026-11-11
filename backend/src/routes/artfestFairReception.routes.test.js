@@ -34,10 +34,16 @@ mock.module("../api/auth.js", {
 });
 
 const R2 = "https://cdn.test";
+const uploadCalls = [];
 mock.module("../services/r2Storage.js", {
   namedExports: {
     buildPublicUrl: (key) => `${R2}/${key}`,
-    async uploadToR2({ folder, index }) {
+    async uploadToR2(args) {
+      const { folder, index, file } = args;
+      uploadCalls.push(args);
+      if (file?.originalname === "respins.jpg") {
+        throw Object.assign(new Error("UPLOAD_CONTENT_MISMATCH"), { code: "upload_content_mismatch" });
+      }
       return { url: `${R2}/${folder}/admin/${index}.jpg` };
     },
   },
@@ -342,6 +348,14 @@ test("fotografii: upload în folderul recepției din R2", async () => {
   const body = await res.json();
   assert.equal(res.status, 200);
   assert.ok(body.urls.every((u) => u.startsWith(`${R2}/artfest-fair-reception/`)));
+  // doar imagini verificate după conținut, cu limită de pixeli
+  assert.ok(uploadCalls.slice(-2).every((c) => c.policy === "image" && c.maxPixels === 60_000_000));
+
+  const bad = new FormData();
+  bad.append("files", new Blob([Buffer.from("<svg/>")], { type: "image/jpeg" }), "respins.jpg");
+  const rejected = await fetch(`${base}${A}/photos`, { method: "POST", headers: { "x-test-user": ctx.admin.id }, body: bad });
+  assert.equal(rejected.status, 415);
+  assert.equal((await rejected.json()).error, "invalid_image");
 });
 
 /* ============================== blocare ============================== */

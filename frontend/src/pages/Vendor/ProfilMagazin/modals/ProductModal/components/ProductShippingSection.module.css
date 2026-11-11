@@ -1,0 +1,52 @@
+/* „Livrare și colet” - profilul logistic al produsului (editorul de produs) */
+
+.dims {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dimField {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dimField input {
+  min-width: 0;
+}
+
+.unitInput {
+  position: relative;
+}
+
+.unitInput input {
+  width: 100%;
+  padding-right: 40px;
+}
+
+.unit {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  pointer-events: none;
+}
+
+.warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 55%, var(--color-border) 45%);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 420px) {
+  .dims {
+    gap: 6px;
+  }
+}

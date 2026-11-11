@@ -7,6 +7,7 @@ import {
   CourierUnavailableError,
   CourierValidationError,
 } from "../../errors.js";
+import { assertSamedayEnvironment, SAMEDAY_BASE_URLS } from "../../samedayEnvironment.js";
 
 /*
  * Client HTTP Sameday, PER CONT (CourierAccount) - fără credentiale
@@ -30,10 +31,8 @@ import {
  *    alt apel (nu consumăm limita de 12/min cu aceleași date greșite).
  */
 
-export const SAMEDAY_BASE_URLS = Object.freeze({
-  production: "https://api.sameday.ro",
-  demo: "https://sameday-api.demo.zitec.com",
-});
+// URL-urile + regulile de mediu: couriers/samedayEnvironment.js (sursa unică)
+export { SAMEDAY_BASE_URLS };
 
 const REQUEST_TIMEOUT_MS = 10_000;
 // remember_me=1 -> 14 zile (doc v3.6); plafon dacă răspunsul n-are expirare validă
@@ -81,23 +80,15 @@ function fingerprintOf(credentials, baseUrl) {
     .digest("hex");
 }
 
+/*
+ * Poarta UNICĂ spre rețea: fiecare apel (autentificare + orice endpoint) trece
+ * prin getSamedaySession -> resolveBaseUrl. Mediul contului trebuie să fie
+ * explicit, egal cu SAMEDAY_ACTIVE_ENVIRONMENT și permis pe acest server
+ * (production blocat din DEV / local fără aprobare explicită). Fără mediu ->
+ * SamedayEnvironmentError, NICIODATĂ production implicit.
+ */
 export function resolveBaseUrl(publicConfig = {}, env = process.env) {
-  const environment = publicConfig?.environment || "production";
-  if (environment === "demo") {
-    const allowDemo =
-      env.COURIER_ALLOW_SANDBOX === "1" || env.NODE_ENV !== "production";
-    if (!allowDemo) {
-      throw new CourierValidationError(
-        "Mediul de test Sameday nu este disponibil.",
-        ["environment"]
-      );
-    }
-  }
-  const url = SAMEDAY_BASE_URLS[environment];
-  if (!url) {
-    throw new CourierValidationError("Mediul Sameday nu este valid.", ["environment"]);
-  }
-  return url;
+  return assertSamedayEnvironment(publicConfig?.environment, env);
 }
 
 // fetch cu timeout; erorile de rețea devin erori generice (fără detalii)
@@ -131,7 +122,7 @@ async function readJson(res) {
 function parseUtcTimestamp(value) {
   const raw = String(value || "").trim();
   if (!raw) return NaN;
-  if (/[zZ]$|[+-]d{2}:?d{2}$/.test(raw)) return Date.parse(raw);
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)) return Date.parse(raw);
   return Date.parse(`${raw.replace(" ", "T")}Z`);
 }
 

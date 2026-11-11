@@ -4,6 +4,7 @@
 
 import { buildConfigurationKey, normalizeCartData } from "../lib/configurationKey.js";
 import { resolveVariantPricing } from "../lib/variantPricing.js";
+import { variantCartAllowance } from "../services/inventory/inventoryService.js";
 import { linePricingFor } from "../services/cartLinePricing.js";
 import { Router } from "express";
 import { prisma } from "../db.js";
@@ -168,7 +169,51 @@ function productIsPublicAvailable(
   return false;
 }
 
+/*
+ * Stoc pe variante (doar Product.stockScope = VARIANT): limita pe varianta
+ * aleasă, adunând celelalte linii din coș care folosesc același stoc.
+ * Întoarce răspunsul de eroare (409) sau null dacă linia încape.
+ */
+async function variantCartLimitError({ userId, product, selectedOptions, configurationKey, nextQty }) {
+  if (product?.stockScope !== "VARIANT") return null;
+
+  const otherLines = await prisma.cartItem.findMany({
+    where: { userId, productId: product.id, configurationKey: { not: configurationKey } },
+    select: { selectedOptions: true, qty: true },
+  });
+
+  const allowance = await variantCartAllowance(prisma, product, selectedOptions, otherLines);
+
+  if (!allowance.ok) {
+    return {
+      error: allowance.error,
+      message: allowance.error === "product_sold_out" ? "Varianta aleasă este epuizată." : "Alege o variantă disponibilă a produsului.",
+    };
+  }
+
+  if (allowance.limit !== null && allowance.otherQty + nextQty > allowance.limit) {
+    const remainingQty = Math.max(0, allowance.limit - allowance.otherQty);
+    return {
+      error: "insufficient_stock",
+      message:
+        remainingQty > 0
+          ? `Mai sunt disponibile doar ${remainingQty} ${remainingQty === 1 ? "bucată" : "bucăți"} din varianta aleasă.`
+          : "Varianta aleasă nu mai este disponibilă în cantitatea cerută.",
+    };
+  }
+
+  return null;
+}
+
 function getStockLimit(p) {
+  /*
+   * Stoc pe variante: readyQty e doar totalul calculat; limita se
+   * verifică pe varianta aleasă (variantCartLimitError).
+   */
+  if (p?.stockScope === "VARIANT") {
+    return null;
+  }
+
   const availability =
     String(
       p?.availability ||
@@ -818,6 +863,10 @@ router.post(
 
           readyQty: true,
 
+          stockScope: true,
+
+          variantPoolQty: true,
+
           isActive: true,
 
           isHidden: true,
@@ -992,6 +1041,19 @@ router.post(
       currentProductQty +
       safeQty;
 
+    const variantLimit =
+      await variantCartLimitError({
+        userId: req.user.sub,
+        product: prod,
+        selectedOptions: safeSelectedOptions,
+        configurationKey,
+        nextQty: nextConfigurationQty,
+      });
+
+    if (variantLimit) {
+      return res.status(409).json(variantLimit);
+    }
+
     const stockLimit =
       getStockLimit(prod);
 
@@ -1141,8 +1203,20 @@ router.post(
 
           qty: true,
 
+          selectedOptions: true,
+
           product: {
             select: {
+              id: true,
+
+              optionsSchema: true,
+
+              repeatedGroups: true,
+
+              stockScope: true,
+
+              variantPoolQty: true,
+
               orderMode:
                 true,
 
@@ -1282,6 +1356,19 @@ router.post(
     const requestedProductQty =
       otherConfigurationsQty +
       safeQty;
+
+    const variantLimit =
+      await variantCartLimitError({
+        userId: req.user.sub,
+        product: item.product,
+        selectedOptions: item.selectedOptions,
+        configurationKey,
+        nextQty: safeQty,
+      });
+
+    if (variantLimit) {
+      return res.status(409).json(variantLimit);
+    }
 
     const stockLimit =
       getStockLimit(
@@ -1504,6 +1591,10 @@ router.post(
 
           readyQty: true,
 
+          stockScope: true,
+
+          variantPoolQty: true,
+
           isActive: true,
 
           isHidden: true,
@@ -1689,6 +1780,20 @@ router.post(
             ?._sum?.qty ||
             0
         );
+
+      const variantLimit =
+        await variantCartLimitError({
+          userId,
+          product,
+          selectedOptions,
+          configurationKey,
+          nextQty: currentConfigurationQty + qty,
+        });
+
+      if (variantLimit) {
+        skipped++;
+        continue;
+      }
 
       const stockLimit =
         getStockLimit(

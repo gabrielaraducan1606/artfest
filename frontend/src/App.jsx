@@ -100,7 +100,17 @@ const VendorOrdersPlanningPage = lazy(() =>
   import("./pages/Vendor/Orders/VendorOrdersPlaningPage.jsx")
 );
 const VendorFairPage = lazy(() => import("./pages/Vendor/Fair/FairPage.jsx"));
+// Smart Listing (creare produse noi) - ruta există DOAR în `vite dev`;
+// accesul efectiv: features/smartListing/smartListingAccess.js
+// condiția statică elimină complet chunk-ul din build-ul de producție
+const SmartListingRoute = import.meta.env.DEV
+  ? lazy(() => import("./features/smartListing/SmartListingRoute.jsx"))
+  : null;
+const SmartListingModal = import.meta.env.DEV
+  ? lazy(() => import("./features/smartListing/SmartListingModal.jsx"))
+  : null;
 const FairRulesDraftPage = lazy(() => import("./pages/Vendor/Fair/FairRulesDraftPage.jsx"));
+const StoreDesignPage = lazy(() => import("./pages/Vendor/StoreDesign/StoreDesignPage.jsx"));
 import ProductsPage from "./pages/Products/Products";
 import StoresPage from "./pages/Stores/StoresPage";
 import AccountPage from "./pages/AccountPage/AccountPage";
@@ -152,6 +162,9 @@ const AdminMaintenance = lazy(() =>
 );
 const AdminVendorPlansPage = lazy(() =>
   import("./pages/Admin/AdminVendorPlansPage/AdminVendorPlansPage.jsx")
+);
+const AdminCouriersPage = lazy(() =>
+  import("./pages/Admin/AdminCouriersPage/AdminCouriersPage.jsx")
 );
 const AdminPickupsPage = lazy(() =>
   import("./pages/Admin/AdminPickupsPage/AdminPickupsPage.jsx")
@@ -1043,6 +1056,9 @@ export default function App() {
               }
             />
 
+            {/* Artfest Smart Listing - doar în dezvoltare locală (import.meta.env.DEV e false la build) */}
+            {import.meta.env.DEV && <Route path="/vendor/produs-nou" element={<SmartListingRoute />} />}
+
             <Route
               path="/vendor/catalog"
               element={
@@ -1295,6 +1311,19 @@ export default function App() {
               }
             />
 
+            {/*
+              „Design magazin” - prezentarea serviciilor de personalizare ale
+              echipei Artfest (separate de abonamente; doar prezentare, fără editor).
+            */}
+            <Route
+              path="/vendor/design-magazin"
+              element={
+                <RequireVendor>
+                  <StoreDesignPage />
+                </RequireVendor>
+              }
+            />
+
             <Route
               path="/categorii"
               element={
@@ -1415,6 +1444,14 @@ export default function App() {
               }
             />
 
+            {/* starea integrărilor de curierat (Sameday) - doar ADMIN */}
+            <Route
+              path="couriers"
+              element={
+                <AdminCouriersPage />
+              }
+            />
+
             <Route
               path="billing"
               element={
@@ -1424,6 +1461,13 @@ export default function App() {
           </Route>
         </Routes>
         </Suspense>
+
+        {/* Smart Listing: fereastra deschisă de „Adaugă produs” - doar în dezvoltare locală */}
+        {import.meta.env.DEV && (
+          <Suspense fallback={null}>
+            <SmartListingModal />
+          </Suspense>
+        )}
 
         {/* Banner global, disponibil pe orice rută */}
         <CookieBanner />

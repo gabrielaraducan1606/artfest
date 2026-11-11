@@ -8,6 +8,13 @@ import {
   moderateMarketplaceMessage,
   moderateMarketplaceImage,
 } from "../services/marketplaceMessageModeration.js";
+import {
+  attachmentProxyHeaders,
+  messageAttachmentErrorResponse,
+  messageUploadGuard,
+  prepareMessageAttachments,
+} from "../services/messageAttachmentImage.js";
+import { attachProductContext } from "../lib/productContact.js";
 import multer from "multer";
 import crypto from "crypto";
 import path from "path";
@@ -441,6 +448,8 @@ router.get("/threads", async (req, res) => {
         (a.lastAt ? new Date(a.lastAt).getTime() : 0)
     );
 
+    await attachProductContext(prisma, items.flatMap((g) => g.threads || []));
+
     return res.json({ items });
   }
 
@@ -463,6 +472,8 @@ router.get("/threads", async (req, res) => {
       orderSummary: { id: t.id },
     };
   });
+
+  await attachProductContext(prisma, items);
 
   res.json({ items });
 });
@@ -1008,7 +1019,7 @@ if (
    POST /api/user-inbox/threads/:id/attachments
 ========================= */
 
-router.post("/threads/:id/attachments", upload.array("files", 10), async (req, res) => {
+router.post("/threads/:id/attachments", messageUploadGuard, upload.array("files", 10), async (req, res) => {
   const userId = req.user.sub;
   const threadId = String(req.params.id || "");
 
@@ -1027,12 +1038,26 @@ router.post("/threads/:id/attachments", upload.array("files", 10), async (req, r
   });
 
   if (!thread) return res.status(404).json({ error: "Thread not found" });
-for (const file of files) {
+// imagini verificate după conținut, re-encodate JPEG, fără EXIF/GPS -
+// moderarea și R2 primesc versiunea curată
+let prepared;
+try {
+  prepared = await prepareMessageAttachments(files);
+} catch (error) {
+  const rejected = messageAttachmentErrorResponse(error);
+  if (!rejected) {
+    console.error("message attachment prepare error:", error);
+    return res.status(500).json({ error: "server_error" });
+  }
+  if (rejected.retryAfterSeconds) res.setHeader("Retry-After", String(rejected.retryAfterSeconds));
+  return res.status(rejected.status).json(rejected.body);
+}
+for (const file of prepared) {
   const moderation =
     await moderateMarketplaceImage({
       buffer: file.buffer,
-      mimeType: file.mimetype,
-      filename: file.originalname,
+      mimeType: file.mime,
+      filename: file.filename,
       senderType: "USER",
     });
 
@@ -1114,8 +1139,8 @@ for (const file of files) {
 
       const created = [];
 
-      for (const f of files) {
-        const originalName = safeFilename(f.originalname || "file");
+      for (const f of prepared) {
+        const originalName = safeFilename(f.filename);
         const ext = extOf(originalName);
         const rnd = crypto.randomBytes(10).toString("hex");
 
@@ -1124,7 +1149,7 @@ for (const file of files) {
         await uploadToR2({
           key,
           buffer: f.buffer,
-          contentType: f.mimetype,
+          contentType: f.mime,
         });
 
         const url = publicUrlForKey(key);
@@ -1135,7 +1160,7 @@ for (const file of files) {
             filename: originalName,
             url,
             size: typeof f.size === "number" ? f.size : null,
-            mime: f.mimetype || null,
+            mime: f.mime,
           },
           select: {
             id: true,
@@ -1426,16 +1451,11 @@ router.get("/attachments/:attId/download", async (req, res) => {
     }
 
     const filename = att.filename || "atasament";
-    const contentType =
-      att.mime || upstream.headers.get("content-type") || "application/octet-stream";
-
     const forceDownload = req.query.download === "1" || req.query.download === "true";
 
-    res.setHeader("Content-Type", contentType);
-    res.setHeader(
-      "Content-Disposition",
-      `${forceDownload ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(filename)}`
-    );
+    // inline doar imagini raster; orice alt MIME (atașamente vechi) se descarcă
+    const headers = attachmentProxyHeaders({ mime: att.mime, filename, forceDownload });
+    for (const [name, value] of Object.entries(headers)) res.setHeader(name, value);
 
     const len = upstream.headers.get("content-length");
     if (len) res.setHeader("Content-Length", len);

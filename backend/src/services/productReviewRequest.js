@@ -28,7 +28,7 @@ export const REVIEW_REQUEST_STATUS = Object.freeze({
 });
 
 // cum s-a închis: aceleași acțiuni ca în Admin
-export const REVIEW_REQUEST_RESOLUTIONS = Object.freeze(["APPROVED", "CHANGES_REQUESTED", "REJECTED"]);
+export const REVIEW_REQUEST_RESOLUTIONS = Object.freeze(["APPROVED", "CHANGES_REQUESTED", "REJECTED", "HANDLED"]);
 
 function baseAiModeration(aiModeration) {
   return aiModeration && typeof aiModeration === "object" && !Array.isArray(aiModeration)
@@ -36,7 +36,7 @@ function baseAiModeration(aiModeration) {
     : {};
 }
 
-export function createReviewRequest({ note, vendorUserId, now = new Date() }) {
+export function createReviewRequest({ note, vendorUserId, holdPrivate = false, now = new Date() }) {
   return {
     id: crypto.randomUUID(),
     status: REVIEW_REQUEST_STATUS.OPEN,
@@ -46,6 +46,7 @@ export function createReviewRequest({ note, vendorUserId, now = new Date() }) {
     resolvedAt: null,
     resolvedByUserId: null,
     resolution: null,
+    ...(holdPrivate ? { holdPrivate: true } : {}),
   };
 }
 
@@ -57,6 +58,29 @@ export function getReviewRequest(product) {
 export function isReviewRequestOpen(product) {
   return getReviewRequest(product)?.status === REVIEW_REQUEST_STATUS.OPEN;
 }
+
+/*
+ * holdPrivate: produs NOU, salvat privat din Smart Listing pentru ajutor uman. Cât
+ * timp solicitarea e deschisă, vânzătorul nu îl poate face vizibil și nici Adminul din
+ * editor. Produsele fără marcaj se comportă exact ca înainte. Marcajul se acordă doar
+ * unui produs deja privat și dispare odată cu închiderea solicitării.
+ */
+export function isProductFullyPrivate(product) {
+  return product?.isActive === false && product?.isHidden === true;
+}
+
+export function isHeldPrivate(product) {
+  return isReviewRequestOpen(product) && getReviewRequest(product)?.holdPrivate === true;
+}
+
+export function requestsVisibility(body) {
+  return body?.isActive === true || body?.isHidden === false;
+}
+
+export const HELD_PRIVATE_ERROR = Object.freeze({
+  error: "help_request_open",
+  message: "Produsul rămâne privat cât timp echipa Artfest lucrează la solicitarea ta de ajutor. Îl vei putea publica după finalizare.",
+});
 
 // filtrul Admin „Verificare solicitată de vendor” (căutare în Json, fără coloană)
 export const OPEN_REVIEW_REQUEST_WHERE = Object.freeze({
@@ -77,6 +101,7 @@ export function summarizeReviewRequest(product) {
     resolution: request.resolution || null,
     // aprobat automat de AI după solicitare - verificarea umană e încă cerută
     aiApprovedAt: request.aiApprovedAt || null,
+    holdPrivate: request.holdPrivate === true,
   };
 }
 

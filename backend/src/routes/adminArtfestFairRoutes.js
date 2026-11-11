@@ -595,10 +595,19 @@ router.post("/inventory/photos", (req, res) => {
     try {
       const uploaded = [];
       for (const [index, file] of files.entries()) {
-        uploaded.push(await uploadToR2({ file, folder: FAIR_PHOTO_FOLDER, userId: req.adminUser.id, index }));
+        // doar imagini verificate după conținut, cu limită de pixeli înainte de decodare
+        uploaded.push(
+          await uploadToR2({ file, folder: FAIR_PHOTO_FOLDER, userId: req.adminUser.id, index, policy: "image", maxPixels: 60_000_000 })
+        );
       }
       res.json({ ok: true, urls: uploaded.map((u) => u.url) });
     } catch (error) {
+      if (error?.code === "upload_content_mismatch") {
+        return res.status(415).json({ error: "invalid_image", message: "Fișierul nu este o fotografie validă." });
+      }
+      if (error?.code === "image_too_many_pixels") {
+        return res.status(422).json({ error: "image_too_many_pixels", message: "Fotografia are o rezoluție prea mare." });
+      }
       console.error("[adminArtfestFair] photo upload:", error?.message || error);
       res.status(500).json({ error: "upload_failed", message: "Nu am putut încărca fotografiile." });
     }

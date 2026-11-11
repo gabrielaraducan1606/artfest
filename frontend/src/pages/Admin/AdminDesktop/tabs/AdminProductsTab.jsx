@@ -10,8 +10,14 @@ import ProductChangeRequestModal
   from "./ProductChangeRequestModal.jsx";
 import AdminReviewRequestsPanel
   from "./AdminReviewRequestsPanel.jsx";
+import AdminHelpRequestsPanel from "./AdminHelpRequestsPanel.jsx";
+import { useAdminHelpRequests } from "./useAdminHelpRequests.js";
 import { reviewRequestPublicNotice } from "./reviewRequestNotice.js";
 import reviewStyles from "../css/AdminReviewRequestsPanel.module.css";
+// TEMPORAR, doar `npm run dev` + flag local: link spre prototipul Smart Listing
+import SmartListingDevLink from "../../../../features/smartListing/SmartListingDevLink.jsx";
+import { AdminGpsrProductPanel } from "./gpsr/AdminGpsrPanels.jsx";
+import { ADMIN_GPSR_FILTER_OPTIONS } from "./gpsr/adminGpsrView.js";
 
 const PAGE_SIZE = 200;
 
@@ -221,6 +227,7 @@ export default function AdminProductsTab() {
   const [storeStatusFilter, setStoreStatusFilter] = useState("");
   const [moderationFilter, setModerationFilter] = useState("");
   const [gpsrIncompleteFilter, setGpsrIncompleteFilter] = useState(false);
+  const [gpsrFilter, setGpsrFilter] = useState("");
 
   /*
    * Link direct (clopoțel / Asistent Admin), reutilizând filtrele
@@ -229,6 +236,8 @@ export default function AdminProductsTab() {
    * doar când URL-ul se schimbă - filtrele alese manual rămân ale tale.
    */
   const [searchParams] = useSearchParams();
+  const [productsView, setProductsView] = useState(() => (searchParams.get("view") === "help" ? "help" : "all"));
+  const helpRequests = useAdminHelpRequests({ refreshKey: reviewRefresh });
   const pendingOpenProductIdRef = useRef(null);
 
   useEffect(() => {
@@ -287,6 +296,7 @@ export default function AdminProductsTab() {
         if (moderationFilter) params.set("moderationStatus", moderationFilter);
         if (storeStatusFilter) params.set("serviceStatus", storeStatusFilter);
         if (gpsrIncompleteFilter) params.set("gpsrIncomplete", "true");
+        if (gpsrFilter) params.set("gpsr", gpsrFilter);
 
         if (activeFilter === "active") params.set("isActive", "true");
         if (activeFilter === "inactive") params.set("isActive", "false");
@@ -340,6 +350,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
     storeStatusFilter,
     moderationFilter,
     gpsrIncompleteFilter,
+    gpsrFilter,
   ]);
 
   useEffect(() => {
@@ -352,6 +363,7 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
     storeStatusFilter,
     moderationFilter,
     gpsrIncompleteFilter,
+    gpsrFilter,
   ]);
 
   const products = productsState;
@@ -397,6 +409,29 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
       setReviewRefresh((n) => n + 1);
     } catch (e) {
       setError(e?.message || "Nu am putut aproba produsul.");
+    } finally {
+      setWorkingProductId("");
+    }
+  };
+
+  // închide doar solicitarea: fără publicare și fără altă modificare a produsului
+  const resolveReviewRequest = async (productId) => {
+    if (!productId) return;
+
+    try {
+      setWorkingProductId(productId);
+      setError("");
+
+      const data = await fetchJson(`/api/admin/products/${productId}/review-request/resolve`, {
+        method: "PATCH",
+      });
+
+      if (data?.product) {
+        setProductEverywhere(productId, data.product);
+      }
+      setReviewRefresh((n) => n + 1);
+    } catch (e) {
+      setError(e?.message || "Nu am putut marca ajutorul ca finalizat.");
     } finally {
       setWorkingProductId("");
     }
@@ -523,9 +558,51 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
 
   return (
     <div className={styles.wrap}>
+      <div className={styles.viewTabs} role="group" aria-label="Secțiunea de produse">
+        <button
+          type="button"
+          className={productsView === "all" ? styles.viewTabActive : styles.viewTab}
+          aria-pressed={productsView === "all"}
+          onClick={() => setProductsView("all")}
+        >
+          Toate produsele
+        </button>
+        <button
+          type="button"
+          className={productsView === "help" ? styles.viewTabActive : styles.viewTab}
+          aria-pressed={productsView === "help"}
+          onClick={() => setProductsView("help")}
+        >
+          Ajutor configurare
+          {helpRequests.openCount > 0 ? <span className={styles.viewTabCount}>{helpRequests.openCount}</span> : null}
+          {helpRequests.unreadCount > 0 ? (
+            <span
+              data-help-unread-dot
+              title={`${helpRequests.unreadCount} necitite`}
+              aria-label={`${helpRequests.unreadCount} solicitări necitite`}
+              style={{ display: "inline-block", width: 8, height: 8, marginLeft: 6, borderRadius: 999, background: "#dc2626", verticalAlign: "middle" }}
+            />
+          ) : null}
+        </button>
+      </div>
+
+      {productsView === "help" && (
+        <AdminHelpRequestsPanel
+          data={helpRequests}
+          onEdit={(product) => openProduct(product, "edit")}
+          onResolved={(productId, updated) => {
+            if (updated) setProductEverywhere(productId, updated);
+          }}
+        />
+      )}
+
+      <div hidden={productsView === "help"}>
+      <SmartListingDevLink />
+
       <AdminReviewRequestsPanel
         refreshKey={reviewRefresh}
         workingProductId={workingProductId}
+        onResolve={(product) => resolveReviewRequest(product.id)}
         onView={(product) => openProduct(product, "details")}
         onEdit={(product) => openProduct(product, "edit")}
         onApprove={(product) => approveProduct(product.id)}
@@ -596,21 +673,22 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
           <option value="INACTIVE">Store INACTIVE</option>
         </select>
 
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 13,
+        {/* un singur filtru GPSR (înlocuiește „Doar GPSR incomplet”) */}
+        <select
+          className={styles.select}
+          value={gpsrFilter}
+          onChange={(e) => {
+            setGpsrFilter(e.target.value);
+            setGpsrIncompleteFilter(false);
           }}
+          aria-label="Filtru GPSR"
         >
-          <input
-            type="checkbox"
-            checked={gpsrIncompleteFilter}
-            onChange={(e) => setGpsrIncompleteFilter(e.target.checked)}
-          />
-          Doar GPSR incomplet
-        </label>
+          {ADMIN_GPSR_FILTER_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className={styles.metaRow}>
@@ -929,6 +1007,8 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
         </div>
       )}
 
+      </div>
+
       {selectedProduct ? (
        <ProductReviewModal
   product={selectedProduct}
@@ -954,6 +1034,9 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
     setModerationMessage(
       ""
     );
+
+    // titlul sau imaginea pot fi schimbate în editor
+    if (productsView === "help") setReviewRefresh((n) => n + 1);
   }}
   onApprove={() =>
     approveProduct(
@@ -1849,6 +1932,8 @@ function ProductReviewModal({
               <h4>
                 Producător și siguranță (GPSR)
               </h4>
+
+              <AdminGpsrProductPanel productId={product.id} />
 
               <Detail
                 label="Stare GPSR"

@@ -33,6 +33,7 @@ import { FairError, ensureFair } from "./artfestFairService.js";
 import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { cleanText, lockLine, normalizeScannedBarcode, requireIdempotencyKey } from "./artfestFairReceptionService.js";
 import { notifyVendorsDailySales } from "./artfestFairNotifications.js";
+import { isManualFairItem } from "../lib/artfestFairManualItem.js";
 
 const BARCODE_RE = /^AF[2-9ABCDEFGHJKMNPQRSTVWX]{8}$/;
 const MAX_LINES = 100;
@@ -133,7 +134,8 @@ export function saleBlockReasons({ fair, line, registrationStatus, product, quan
   if (registrationStatus !== "APPROVED") reasons.push("registration_inactive");
   if (line.status !== "RECEIVED") reasons.push("not_received");
   if (line.saleBlockedAt) reasons.push("sale_blocked");
-  reasons.push(...productBlockReasons(product));
+  // produs manual: nu există în catalog, deci nu are stare de moderare / vizibilitate online
+  if (!isManualFairItem(line)) reasons.push(...productBlockReasons(product));
   if (!line.labelGeneratedAt || line.labelPriceCents == null) reasons.push("label_missing");
   else if (line.labelPriceCents !== line.priceSnapshotCents) reasons.push("label_outdated");
   const sellableQty = Math.max(0, (line.availableQty || 0) - heldQty);

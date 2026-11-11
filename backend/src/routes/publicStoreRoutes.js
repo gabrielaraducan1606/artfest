@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { omitPrivateStoreContact } from "../lib/publicStoreContact.js";
+import { toPublicServiceProfile } from "../lib/publicVendorData.js";
 
 import {
   CATEGORIES,
@@ -1499,10 +1500,7 @@ router.get(
         country:
           "România",
 
-        address:
-          profile.address ||
-          vendor.address ||
-          "",
+        // adresa de RETUR NU se expune public - lib/publicVendorData.js
 
         // phone/email/website NU se expun public (lib/publicStoreContact.js)
 
@@ -1553,7 +1551,9 @@ router.get(
         updatedAt:
           profile.updatedAt,
 
-        profile,
+        // allowlist: fără rândurile Prisma complete (lib/publicVendorData.js)
+
+        profile: toPublicServiceProfile(profile),
       }));
     } catch (error) {
       return next(
@@ -1769,10 +1769,7 @@ router.get(
           country:
             "România",
 
-          address:
-            profile.address ||
-            vendor.address ||
-            "",
+          // adresa de RETUR NU se expune public - lib/publicVendorData.js
 
           // phone/email/website NU se expun public (lib/publicStoreContact.js)
 

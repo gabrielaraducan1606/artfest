@@ -101,3 +101,30 @@ export const COURIER_MANUAL_SHIPPING_MESSAGE = "Momentan poți expedia comanda f
  * fără consimțământ (utils/campaignAttribution.js, ?camp=).
  */
 export const ATTRIBUTION_REQUIRES_CONSENT = false;
+
+/*
+ * AI_IMAGE_EDITING_ENABLED - editarea / generarea fotografiilor cu AI
+ * (modelul gpt-image-1, oprit de OpenAI pe 2026-10-23). Oprire TEMPORARĂ,
+ * fixă în cod, până la decizia de migrare la alt model.
+ *
+ * false = butoanele rămân vizibile, dar disabled + aria-disabled, cu mesajul
+ *         AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE; handlerele nu trimit request.
+ * Backend-ul are flag-ul pereche AI_IMAGE_EDITING_ENABLED (env, implicit
+ * oprit): endpointurile răspund 503 ai_image_editing_disabled fără OpenAI.
+ *
+ * Unde e folosit:
+ *   - ProfilMagazin/modals/useProductEditorController  handleAiEnhanceImage (gardă)
+ *   - ProductModal/components/ProductImagesSection     „Îmbunătățește fotografia”, „✨”, „Încearcă din nou”
+ *   - Admin/.../AdminHomepageFeaturesTab               „Generează imagine” (Produsul zilei)
+ *
+ * NU afectează încărcarea / ștergerea / reordonarea pozelor și nici
+ * „Completează detalii cu AI” (analiza fotografiilor).
+ */
+export const AI_IMAGE_EDITING_ENABLED = false;
+export const AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE = "Funcționalitate temporar indisponibilă";
+
+/*
+ * Smart Listing (formularul nou pentru produse noi): accesul NU se
+ * controlează aici, ci în features/smartListing/smartListingAccess.js
+ * (doar `vite dev` + VITE_SMART_LISTING_ENABLED).
+ */

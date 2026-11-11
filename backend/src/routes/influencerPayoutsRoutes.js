@@ -346,10 +346,13 @@ router.post(
           });
         }
 
+        // policy "invoice": PDF + XML e-Factura, salvate ca descărcare
+        // (Content-Disposition: attachment) - XML nu e acceptat implicit
         const uploadedPdf = await uploadToR2({
           file: pdfFile,
           folder: "influencer-invoices",
           userId: req.user.sub,
+          policy: "invoice",
         });
 
         let uploadedXml = null;
@@ -361,6 +364,7 @@ router.post(
             folder: "influencer-invoices",
             userId: req.user.sub,
             index: "xml",
+            policy: "invoice",
           });
         }
 

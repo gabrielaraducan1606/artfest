@@ -1,0 +1,330 @@
+@import "../../../styles/variables.css";
+
+.wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  display: grid;
+  gap: 28px;
+  color: var(--color-text);
+  min-width: 0;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===== Hero ===== */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: center;
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.heroText {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.badgeSoon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(26px, 3.4vw, 34px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--color-muted);
+}
+
+.planLine {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.planLine svg {
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+
+/* ===== Ilustrație statică ===== */
+.mock {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--surface-muted);
+}
+
+.mockBar {
+  display: flex;
+  gap: 5px;
+}
+
+.mockBar span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.mockHeader,
+.mockFooter {
+  height: 14px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+.mockBanner {
+  height: 84px;
+  border-radius: 10px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary) 40%, transparent),
+    color-mix(in srgb, var(--color-primary) 10%, transparent)
+  );
+}
+
+.mockRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mockRow span {
+  height: 54px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+}
+
+/* ===== Servicii ===== */
+.sectionTitle {
+  margin: 0 0 14px;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.services {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.serviceCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+}
+
+.serviceTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.serviceName {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.servicePrice {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.servicePrice strong {
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.servicePrice span {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.includes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.includes li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.includes svg {
+  margin-top: 2px;
+  color: var(--color-success);
+}
+
+.serviceNote {
+  margin: auto 0 0;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+/* ===== Pași ===== */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.step {
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  font-size: 14px;
+}
+
+.step p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.stepNo {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+
+/* ===== Notă finală ===== */
+.note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px dashed var(--color-border);
+  background: var(--surface);
+}
+
+.note p {
+  margin: 0;
+  flex: 1 1 320px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.note a {
+  color: var(--color-primary);
+}
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+  color: var(--on-primary) !important;
+  background: var(--color-primary);
+}
+
+.cta:hover {
+  background: var(--color-hover);
+}
+
+@media (max-width: 960px) {
+  .steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .wrap {
+    padding: 16px 16px 40px;
+    gap: 22px;
+  }
+
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 20px 16px;
+  }
+
+  .services,
+  .steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cta {
+    width: 100%;
+    justify-content: center;
+  }
+}

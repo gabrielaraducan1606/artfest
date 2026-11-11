@@ -31,8 +31,14 @@ import {
   expirePendingDepositsForOrder,
 } from "../services/depositInvalidation.js";
 import {
-  expireOrderCheckoutSession,
-} from "../services/orderPaymentGuards.js";
+  guardUnpaidCardCancellation,
+  isUnpaidCardOrder,
+  releaseOrderDiscountCodes,
+} from "../services/cardPaymentExpiry.js";
+import { findOrderCancelAwbBlock } from "../couriers/awb/activeAwbGuard.js";
+import { ensureShipmentSaleLedgers } from "../services/shipmentSaleLedger.js";
+import { SHIPMENT_FINAL_STATUSES } from "../services/shipmentStatusGuard.js";
+import { computeVendorOrderPaymentState } from "../services/vendorOrderPaymentState.js";
 
 const router = Router();
 
@@ -658,8 +664,11 @@ router.post(
               include: {
                 items: {
                   select: {
+                    id: true,
+                    shipmentId: true,
                     productId: true,
                     qty: true,
+                    variantIdSnapshot: true,
                   },
                 },
               },
@@ -700,6 +709,26 @@ router.post(
 
           message:
             "Comanda nu mai poate fi anulată deoarece procesarea sau livrarea a început.",
+        });
+      }
+
+      /*
+       * AWB activ prin integrare (CREATED, generare sau anulare
+       * neconfirmată): anularea l-ar ascunde - întâi se anulează AWB-ul.
+       */
+      const awbBlock =
+        await findOrderCancelAwbBlock(
+          prisma,
+          order.shipments,
+          { audience: "admin" }
+        );
+
+      if (awbBlock) {
+        return res.status(awbBlock.status).json({
+          error: awbBlock.error,
+          message: awbBlock.message,
+          shipmentId: awbBlock.shipmentId,
+          awbNumber: awbBlock.awbNumber,
         });
       }
 
@@ -747,6 +776,23 @@ router.post(
           });
       }
 
+      /*
+       * CARD încă neplătit: înainte de a elibera stocul, plata nu mai
+       * trebuie să poată fi finalizată - toate sesiunile Stripe ale comenzii
+       * se închid; o plată reușită sau în curs oprește anularea.
+       */
+      const unpaidCard = isUnpaidCardOrder(order);
+
+      if (unpaidCard) {
+        const blocked = await guardUnpaidCardCancellation({ order, stripe });
+        if (blocked) {
+          return res.status(blocked.status).json({
+            error: blocked.error,
+            message: blocked.message,
+          });
+        }
+      }
+
       await prisma.$transaction(
         async (tx) => {
           /*
@@ -761,6 +807,10 @@ router.post(
               where: {
                 orderId:
                   order.id,
+
+                // doar coletele de vânzare (coletul RETURN are flux separat)
+                direction:
+                  "OUTBOUND",
 
                 status:
                   "PENDING",
@@ -809,16 +859,43 @@ router.post(
             allItems
           );
 
-          await tx.order.update({
-            where: {
-              id: order.id,
-            },
+          if (unpaidCard) {
+            // utilizarea codului de reducere se eliberează (idempotent)
+            await releaseOrderDiscountCodes(tx, order.id);
 
-            data: {
-              status:
-                "CANCELLED",
-            },
-          });
+            /*
+             * CONDIȚIONAT: dacă webhook-ul a marcat între timp plata,
+             * tranzacția se anulează (P2025) - nu scriem CANCELLED peste o
+             * plată încasată.
+             */
+            const cancelled = await tx.order.updateMany({
+              where: {
+                id: order.id,
+                status: order.status,
+                paidAt: null,
+              },
+              data: {
+                status:
+                  "CANCELLED",
+              },
+            });
+
+            if (cancelled.count !== 1) {
+              throw new Error(
+                "order_already_changed"
+              );
+            }
+          } else {
+            await tx.order.update({
+              where: {
+                id: order.id,
+              },
+              data: {
+                status:
+                  "CANCELLED",
+              },
+            });
+          }
         }
       );
 
@@ -844,21 +921,10 @@ router.post(
       }
 
       /*
-       * Comandă CARD neplătită: expirăm sesiunea Stripe Checkout deschisă
-       * (plata târzie rămâne acoperită de webhook). Non-blocant.
+       * Sesiunile Stripe ale unei comenzi CARD neplătite au fost închise
+       * ÎNAINTE de anulare (guardUnpaidCardCancellation); o plată pe o
+       * sesiune necunoscută rămâne acoperită de webhook (rambursare).
        */
-      if (
-        String(order.paymentMethod || "").toUpperCase() === "CARD" &&
-        !order.paidAt &&
-        order.status !== "PAID" &&
-        order.stripeCheckoutSessionId
-      ) {
-        await expireOrderCheckoutSession({
-          sessionId:
-            order.stripeCheckoutSessionId,
-          stripe,
-        });
-      }
 
       return res.json({
         ok: true,
@@ -940,32 +1006,72 @@ router.post(
         });
       }
 
+      /*
+       * CARD online neconfirmat: nu se marchează livrată (aceeași regulă
+       * ca la vendor) - fără FULFILLED și fără vânzare pentru o plată
+       * încă neîncasată.
+       */
+      if (
+        computeVendorOrderPaymentState(order)
+          .waitingForCardPayment
+      ) {
+        return res.status(409).json({
+          error:
+            "card_payment_pending",
+
+          message:
+            "Clientul nu a finalizat încă plata cu cardul. Comanda nu poate fi marcată ca livrată.",
+        });
+      }
+
+      // doar coletele de vânzare încă nefinalizate (RETURN: flux separat)
+      const eligibleShipmentIds =
+        (order.shipments || [])
+          .filter(
+            (s) =>
+              String(s.direction || "OUTBOUND") === "OUTBOUND" &&
+              !SHIPMENT_FINAL_STATUSES.includes(String(s.status))
+          )
+          .map((s) => s.id);
+
+      const deliveredShipmentIds = [];
+
       const updated =
         await prisma.$transaction(
           async (tx) => {
-            await tx.shipment.updateMany({
-              where: {
-                orderId:
-                  order.id,
+            /*
+             * Per expediere, condiționat: o expediere ajunsă între timp
+             * într-un status final (livrat / returnat / refuzat) nu e
+             * atinsă; știm exact care au trecut acum în DELIVERED.
+             */
+            for (const shipmentId of eligibleShipmentIds) {
+              const res =
+                await tx.shipment.updateMany({
+                  where: {
+                    id: shipmentId,
+                    orderId: order.id,
 
-                // coletul RETURN nu e livrare de vânzare
-                direction:
-                  "OUTBOUND",
+                    // coletul RETURN nu e livrare de vânzare
+                    direction:
+                      "OUTBOUND",
 
-                status: {
-                  notIn: [
-                    "DELIVERED",
-                    "RETURNED",
-                    "REFUSED",
-                  ],
-                },
-              },
+                    status: {
+                      notIn: [
+                        ...SHIPMENT_FINAL_STATUSES,
+                      ],
+                    },
+                  },
 
-              data: {
-                status:
-                  "DELIVERED",
-              },
-            });
+                  data: {
+                    status:
+                      "DELIVERED",
+                  },
+                });
+
+              if (res.count === 1) {
+                deliveredShipmentIds.push(shipmentId);
+              }
+            }
 
             return tx.order.update({
               where: {
@@ -984,9 +1090,40 @@ router.post(
           }
         );
 
+      /*
+       * Logica financiară comună (services/shipmentSaleLedger.js), DUPĂ
+       * status, doar pentru expedierile trecute acum în DELIVERED: COD /
+       * CARD offline -> SALE idempotent; CARD online -> doar SALE-ul din
+       * webhook (fără Stripe); influencer / referral. Un eșec nu anulează
+       * livrarea - rămâne pentru reconciliere.
+       */
+      for (const shipmentId of deliveredShipmentIds) {
+        try {
+          const ledger =
+            await ensureShipmentSaleLedgers({
+              shipmentId,
+            });
+
+          if (!ledger.ok) {
+            console.error(
+              "[admin mark-fulfilled] ledger SALE incomplet (de reconciliat):",
+              shipmentId,
+              ledger.reason
+            );
+          }
+        } catch (ledgerError) {
+          console.error(
+            "[admin mark-fulfilled] ledger eșuat (de reconciliat):",
+            shipmentId,
+            ledgerError?.name || "Error"
+          );
+        }
+      }
+
       return res.json({
         ok: true,
         order: updated,
+        deliveredShipmentIds,
       });
     } catch (error) {
       console.error(
@@ -1770,7 +1907,26 @@ router.post(
          * anularea comenzii de către client (cancelOwnOrder). Comportament
          * identic pentru admin: aceleași chei de idempotență, aceeași
          * metadata Stripe, aceeași notă de audit.
+         *
+         * Refundul integral marchează livrările nepredate ca REFUSED:
+         * cu un AWB încă activ la curier, întâi se anulează AWB-ul.
          */
+        const awbBlock =
+          await findOrderCancelAwbBlock(
+            prisma,
+            order.shipments,
+            { audience: "admin" }
+          );
+
+        if (awbBlock) {
+          return res.status(awbBlock.status).json({
+            error: awbBlock.error,
+            message: awbBlock.message,
+            shipmentId: awbBlock.shipmentId,
+            awbNumber: awbBlock.awbNumber,
+          });
+        }
+
         const who =
           req.user?.email ||
           req.user?.id ||

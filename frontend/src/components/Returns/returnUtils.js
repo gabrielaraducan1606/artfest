@@ -10,7 +10,8 @@ export const RETURN_STATUS_SHORT = {
   NEW: "Nouă",
   IN_REVIEW: "Informații cerute",
   APPROVED: "Acceptată",
-  PICKUP_REQUESTED: "În transport",
+  // AWB de retur confirmat: ridicarea e COMANDATĂ (nu înseamnă colet preluat)
+  PICKUP_REQUESTED: "Ridicare comandată",
   REJECTED: "Respinsă",
   CLOSED: "Închisă",
 };

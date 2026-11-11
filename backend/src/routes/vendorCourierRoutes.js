@@ -39,9 +39,11 @@ const router = Router();
 const courierLimiter = courierApiLimiter();
 const handle = (fn) => handleCourier(fn, "vendorCourierRoutes");
 
-// flag backend (COURIER_INTEGRATION_ENABLED): DOAR prefixele de curierat -
-// routerul e montat pe /api/vendor, un router.use() global ar bloca tot
-router.use(["/couriers", "/pickup-addresses"], requireCourierIntegration);
+// flag backend (COURIER_INTEGRATION_ENABLED): DOAR conturile de curier ale
+// vendorului - routerul e montat pe /api/vendor, un router.use() global ar
+// bloca tot. Adresele de ridicare (doar DB, fără apeluri la curier) rămân
+// disponibile oricând: sunt necesare și pentru tariful din checkout.
+router.use("/couriers", requireCourierIntegration);
 
 router.use(["/couriers", "/pickup-addresses"], authRequired, requireVendorAccount);
 

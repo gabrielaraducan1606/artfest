@@ -311,28 +311,164 @@ function resolveMimeForDetectedKind(detected, declaredExt) {
  * mai sus) înainte de a fi urcat ca atare pe R2. Dacă semnătura reală
  * nu corespunde extensiei declarate (sau nu e recunoscută deloc),
  * upload-ul e respins.
+ *
+ * POLITICI (opțiunea `policy`) - ce poate fi urcat CA ATARE când sharp
+ * nu decodează fișierul. Bucketul e public (R2_PUBLIC_BASE_URL), deci
+ * nimic din ce ajunge aici nu are voie să ruleze în browser:
+ *   - "image":    doar imagini (HEIC/BMP rămân brute, ca până acum);
+ *                 XML/SVG/text nici nu mai ajung la sharp;
+ *   - "document": imagini + PDF/TXT/DOC/DOCX (suport);
+ *   - "invoice":  PDF + XML (factură / e-Factura);
+ *   - lipsă:      apelanții vechi (importuri, Târg, resurse...) - ca
+ *                 înainte, dar fără XML.
+ * XML-ul nu e acceptat niciodată implicit (un XML cu namespace XHTML
+ * rulează scripturi pe domeniul public). Documentele (PDF/TXT/Office/
+ * XML) se salvează cu Content-Disposition: attachment -> descărcate,
+ * nu afișate/executate pe media.artfest.ro.
+ *
+ * `maxPixels` (opțional): limită verificată din header, înainte de
+ * decodare (fără ea, sharp rulează fără limită - comportamentul vechi).
  */
+/*
+ * Limita reală de pixeli pentru un header sharp.metadata(): formatele pe
+ * care libvips le decodează integral în memorie primesc mai puțin. Vârf
+ * RSS măsurat local la 60 MP (o imagine): JPEG ~60 MB, WebP ~56 MB, PNG
+ * ~110-155 MB, JPEG progresiv ~230 MB, PNG întrețesut ~250-350 MB, AVIF
+ * ~500-730 MB. La plafoanele de mai jos: JPEG progresiv 36 MP ~153 MB,
+ * PNG întrețesut 25 MP ~158 MB, AVIF 8 MP ~135 MB.
+ * GIF (cadru decodat integral): 40 MP ~244 MB, 100 MP ~511 MB -> 25 MP
+ * ~150 MB, ca celelalte plafoane (măsurat 2026-10-30).
+ */
+export const FULL_DECODE_PIXEL_CAPS = {
+  progressiveJpeg: 36_000_000,
+  interlacedPng: 25_000_000,
+  avif: 8_000_000,
+  gif: 25_000_000,
+};
+
+export function pixelLimitForHeader(header, maxPixels) {
+  const format = header?.format;
+  let cap = Infinity;
+
+  // doar AVIF (av1) se decodează integral; HEIC (hevc) nu e decodat de
+  // sharp-ul nostru, rămâne pe fallback-ul brut -> fără plafonul AVIF
+  if (format === "heif" && header.compression !== "hevc") cap = FULL_DECODE_PIXEL_CAPS.avif;
+  else if (format === "jpeg" && header.isProgressive) cap = FULL_DECODE_PIXEL_CAPS.progressiveJpeg;
+  else if (format === "png" && header.isProgressive) cap = FULL_DECODE_PIXEL_CAPS.interlacedPng;
+  else if (format === "gif") cap = FULL_DECODE_PIXEL_CAPS.gif;
+
+  return Math.min(maxPixels, cap);
+}
+
+const FALLBACK_KINDS_BY_POLICY = {
+  image: new Set(["heic", "bmp"]),
+  document: new Set(["heic", "bmp", "pdf", "text", "zip-office", "ole2"]),
+  invoice: new Set(["pdf", "xml"]),
+};
+
+const NEVER_IMPLICIT_KINDS = new Set(["xml"]);
+
+const DOWNLOAD_ONLY_KINDS = new Set(["pdf", "text", "zip-office", "ole2", "xml"]);
+
+/* conținut text/XML: în politica "image" nu îl dăm deloc lui sharp (SVG) */
+const NON_IMAGE_TEXT_KINDS = new Set(["xml", "text"]);
+
+function uploadRejected(code = "upload_content_mismatch") {
+  const error = new Error(code === "upload_content_mismatch" ? "UPLOAD_CONTENT_MISMATCH" : code);
+  error.code = code;
+  return error;
+}
+
+/*
+ * XML-ul de factură (e-Factura UBL) nu are nevoie de nimic din ce poate
+ * deveni activ într-un browser: XHTML/SVG, scripturi, foi de stil XSLT
+ * sau DOCTYPE (entități).
+ */
+const ACTIVE_XML_MARKERS = [
+  /http:\/\/www\.w3\.org\/1999\/xhtml/i,
+  /http:\/\/www\.w3\.org\/2000\/svg/i,
+  /<\s*([a-z0-9_-]+:)?script\b/i,
+  /<\?xml-stylesheet\b/i,
+  /<!DOCTYPE\b/i,
+  /<!ENTITY\b/i,
+];
+
+function isPassiveXml(buffer) {
+  const text = buffer.toString("utf8");
+  return !ACTIVE_XML_MARKERS.some((re) => re.test(text));
+}
+
+function isFallbackAllowed(policy, kind) {
+  if (policy && FALLBACK_KINDS_BY_POLICY[policy]) {
+    return FALLBACK_KINDS_BY_POLICY[policy].has(kind);
+  }
+
+  return !NEVER_IMPLICIT_KINDS.has(kind);
+}
+
 export async function uploadToR2({
   file,
   folder,
   userId,
   index = null,
+  policy = null,
+  maxPixels = null,
+  abortSignal = null,
 }) {
   const originalMime = file.mimetype || "application/octet-stream";
   const originalName = file.originalname || "file";
 
+  if (policy && !FALLBACK_KINDS_BY_POLICY[policy]) {
+    throw new Error(`uploadToR2: politică necunoscută "${policy}"`);
+  }
+
   let body = file.buffer;
   let mime = originalMime;
+  let contentDisposition;
 
   let safeOriginalName = sanitizeFileName(
     originalName.replace(/\.[^.]+$/, ".jpg")
   );
 
+  const preDetected = detectRealFileKind(file.buffer);
+
+  if (policy === "image" && (!preDetected || NON_IMAGE_TEXT_KINDS.has(preDetected.kind))) {
+    console.warn("[UPLOAD] Rejected - not an image (policy image):", {
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      detectedKind: preDetected?.kind || null,
+    });
+    throw uploadRejected();
+  }
+
+  let pixelLimit = false;
+
+  if (maxPixels) {
+    let header = null;
+
+    try {
+      header = await sharp(file.buffer, { limitInputPixels: false }).metadata();
+    } catch {
+      header = null; // nu e imagine decodabilă -> decide fallback-ul de mai jos
+    }
+
+    pixelLimit = pixelLimitForHeader(header, maxPixels);
+
+    if (header?.width && header?.height && header.width * header.height > pixelLimit) {
+      const error = uploadRejected("image_too_many_pixels");
+      error.maxPixels = pixelLimit;
+      throw error;
+    }
+  }
+
   try {
+    // facturile nu sunt imagini: nu le convertim, trec direct la verificarea semnăturii
+    if (policy === "invoice") throw new Error("invoice: fără conversie sharp");
+
     body = await sharp(file.buffer, {
       failOn: "none",
       animated: false,
-      limitInputPixels: false,
+      limitInputPixels: pixelLimit,
     })
       .rotate()
       .resize({
@@ -349,12 +485,14 @@ export async function uploadToR2({
 
     mime = "image/jpeg";
   } catch (err) {
-    console.error("[UPLOAD] Sharp convert failed, checking real file signature:", {
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size,
-      error: err?.message || err,
-    });
+    if (policy !== "invoice") {
+      console.error("[UPLOAD] Sharp convert failed, checking real file signature:", {
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        error: err?.message || err,
+      });
+    }
 
     const detected = detectRealFileKind(file.buffer);
     const declaredExt = getFileExtension(originalName);
@@ -362,7 +500,9 @@ export async function uploadToR2({
     const rejected =
       !detected ||
       STRICT_SHARP_KINDS.has(detected.kind) ||
-      !detected.exts.includes(declaredExt);
+      !detected.exts.includes(declaredExt) ||
+      !isFallbackAllowed(policy, detected.kind) ||
+      (detected.kind === "xml" && !isPassiveXml(file.buffer));
 
     if (rejected) {
       console.warn("[UPLOAD] Rejected - content does not match a known/allowed file type:", {
@@ -370,16 +510,19 @@ export async function uploadToR2({
         mimetype: file.mimetype,
         declaredExt,
         detectedKind: detected?.kind || null,
+        policy,
       });
 
-      const rejectionError = new Error("UPLOAD_CONTENT_MISMATCH");
-      rejectionError.code = "upload_content_mismatch";
-      throw rejectionError;
+      throw uploadRejected();
     }
 
     body = file.buffer;
     mime = resolveMimeForDetectedKind(detected, declaredExt);
     safeOriginalName = sanitizeFileName(originalName);
+
+    if (DOWNLOAD_ONLY_KINDS.has(detected.kind)) {
+      contentDisposition = `attachment; filename="${safeOriginalName}"`;
+    }
   }
 
   const timestamp = Date.now();
@@ -393,6 +536,7 @@ export async function uploadToR2({
     Key: key,
     Body: body,
     ContentType: mime,
+    ...(contentDisposition ? { ContentDisposition: contentDisposition } : {}),
     CacheControl: "public, max-age=31536000, immutable",
   });
 
@@ -408,7 +552,9 @@ export async function uploadToR2({
     convertedToJpeg: mime === "image/jpeg",
   });
 
-  await r2Client.send(putCommand);
+  // anulabil (limitatorul de upload-uri): un apel R2 blocat nu ține locul la nesfârșit
+  abortSignal?.throwIfAborted();
+  await r2Client.send(putCommand, abortSignal ? { abortSignal } : undefined);
 
   console.info("[UPLOAD] R2 upload success:", {
     folder,

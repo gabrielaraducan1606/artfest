@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "../../lib/api";
@@ -30,6 +30,34 @@ import {
 import { humanizeOptionValue } from "../../utils/optionLabels.js";
 import styles from "./Checkout.module.css";
 import TraderStatusNotice from "./TraderStatusNotice.jsx";
+import DeliveryMethodPicker from "./delivery/DeliveryMethodPicker.jsx";
+import OohLocationPicker from "./delivery/OohLocationPicker.jsx";
+import SamedayCityField from "./delivery/SamedayCityField.jsx";
+import { fetchCounties as fetchSamedayCounties, fetchDeliveryOptions } from "./delivery/deliveryApi.js";
+import {
+  CITIES_FALLBACK_MESSAGE,
+  CITY_PICK_MESSAGE,
+  mergeSamedayCounties,
+  postalSuggestion,
+} from "./delivery/placeFields.js";
+import {
+  buildSelectionsPayload,
+  clearSelections,
+  DEFAULT_DELIVERY_OPTIONS,
+  effectiveSelection,
+  loadDeliveryOptions,
+  loadSelections,
+  mergeDeliveryOptions,
+  METHOD_LABELS as DELIVERY_METHOD_LABELS,
+  missingLocations,
+  publicLocation,
+  saveDeliveryOptions,
+  saveSelections,
+  unavailableSelections,
+} from "./delivery/deliveryState.js";
+import deliveryStyles from "./delivery/Delivery.module.css";
+import { quotedShipping, shippingPriceLabel } from "./delivery/shippingQuote.js";
+import { useShippingQuote } from "./delivery/useShippingQuote.js";
 import {
   RO_COUNTIES_FALLBACK,
   filterCounties,
@@ -41,6 +69,14 @@ import {
   sanitizePhoneInput,
 } from "./checkoutForm.js";
 import { getGroupTraderStatus } from "../../utils/traderStatus.js";
+import { useAuth } from "../Auth/Context/context.js";
+import { loadCheckoutDraft, saveCheckoutDraft } from "./addresses/checkoutStorage.js";
+import { addressToShipping, lastOohByMethod } from "./addresses/addressBook.js";
+import { fetchLastOohLocations } from "./addresses/addressBookApi.js";
+import useAddressBook from "./addresses/useAddressBook.js";
+import { AddressDrawer, DeliverToCard } from "./addresses/AddressBook.jsx";
+import addressStyles from "./addresses/AddressBook.module.css";
+import useCheckoutChrome from "./useCheckoutChrome.js";
 
 const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
@@ -150,6 +186,7 @@ function validateCheckoutForm({
   customerType,
   items,
   shipToDifferentAddress,
+  samedayCityRequired = false,
 }) {
   const errors = {};
 
@@ -187,6 +224,8 @@ function validateCheckoutForm({
 
     if (!normalizeText(shippingAddress.city)) {
       errors.city = "Completează orașul / localitatea.";
+    } else if (samedayCityRequired && !shippingAddress.samedayCityId) {
+      errors.city = CITY_PICK_MESSAGE;
     }
 
     if (!normalizeText(shippingAddress.street)) {
@@ -277,6 +316,8 @@ function validateCheckoutForm({
 
       if (!normalizeText(shippingAddress.city)) {
         errors.city = "Completează orașul / localitatea.";
+      } else if (samedayCityRequired && !shippingAddress.samedayCityId) {
+        errors.city = CITY_PICK_MESSAGE;
       }
 
       if (!normalizeText(shippingAddress.street)) {
@@ -297,6 +338,7 @@ function validateSingleField({
   shippingAddress,
   billingCompany,
   contactPerson,
+  samedayCityRequired = false,
 }) {
   switch (fieldName) {
     case "lastName":
@@ -338,6 +380,10 @@ function validateSingleField({
     case "city":
       if (!normalizeText(shippingAddress.city)) {
         return "Completează orașul / localitatea.";
+      }
+      // nomenclator Sameday activ: localitatea se alege din listă (ID validat)
+      if (samedayCityRequired && !shippingAddress.samedayCityId) {
+        return CITY_PICK_MESSAGE;
       }
       return "";
 
@@ -654,6 +700,23 @@ export default function Checkout() {
     setQuoteCheckout,
   ] = useState(null);
 const [me, setMe] = useState(null);
+  /*
+   * Login făcut în timpul checkout-ului (modalul din navbar): checkout-ul se
+   * reîncarcă pe contul nou (coșul guest se unește cu al contului, alegerile
+   * de livrare și datele formularului rămân - sessionStorage + state).
+   * „pending” = sesiunea încă se verifică -> nu încărcăm de două ori.
+   */
+  const { me: authMe } = useAuth();
+  const authKey = authMe === undefined ? "pending" : authMe?.id ? `user:${authMe.id}` : "guest";
+  // datele formularului din tab (refresh / login) - citite o singură dată
+  const [checkoutDraft] = useState(() => loadCheckoutDraft());
+  /*
+   * Draftul din sessionStorage se salvează DOAR după ce prima încărcare l-a
+   * restaurat: altfel efectul de salvare (care rulează imediat, cu formularul
+   * încă gol) l-ar suprascrie înainte ca rezumatul să se încarce -> refresh =
+   * date pierdute. Reîncărcările ulterioare (login) citesc formularul curent.
+   */
+  const draftRestoredRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -698,6 +761,112 @@ const [me, setMe] = useState(null);
   });
 
   const [customerType, setCustomerType] = useState("PF");
+
+  /*
+   * Livrare per magazin (delivery/): adresă / easybox / Sameday Point.
+   * Opțiunile vin de la backend (/api/shipping/options); alegerea fiecărui
+   * magazin se păstrează la reîncărcare (sessionStorage, fără secrete).
+   * Serverul revalidează metoda, locația și costul la plasare.
+   */
+  // ultimele opțiuni reușite (sessionStorage) -> după refresh, aceeași structură imediat
+  const [deliveryOptions, setDeliveryOptions] = useState(() => loadDeliveryOptions() || DEFAULT_DELIVERY_OPTIONS);
+  const [deliveryOptionsRetrying, setDeliveryOptionsRetrying] = useState(false);
+  const [deliverySelections, setDeliverySelections] = useState(() => loadSelections());
+  const [deliveryErrors, setDeliveryErrors] = useState({});
+  const [locationPicker, setLocationPicker] = useState(null);
+  const deliveryEnabled = deliveryOptions.enabled && !isQuoteCheckout;
+  const availableDeliveryMethods = useMemo(
+    () => deliveryOptions.methods.map((m) => m.method),
+    [deliveryOptions]
+  );
+
+  /*
+   * O cerere eșuată (rețea / 503) NU schimbă formularul (mergeDeliveryOptions):
+   * structura nouă rămâne, doar easybox / Sameday Point dispar. La prima
+   * încărcare eșuată mai încercăm o dată după câteva secunde.
+   */
+  function applyDeliveryOptions(next) {
+    setDeliveryOptions((prev) => mergeDeliveryOptions(prev, next));
+    if (next?.ok) saveDeliveryOptions(next);
+  }
+
+  function refreshDeliveryOptions() {
+    setDeliveryOptionsRetrying(true);
+    return fetchDeliveryOptions()
+      .then((next) => {
+        applyDeliveryOptions(next);
+        if (!next?.ok) return;
+        // metoda magazinului a revenit -> mesajul „indisponibil” vechi dispare
+        const available = (next.methods || []).map((m) => m.method);
+        setDeliveryErrors((prev) =>
+          Object.fromEntries(
+            Object.entries(prev).filter(([key]) => {
+              const method = deliverySelections[key]?.method;
+              return !(method && method !== "HOME" && available.includes(method));
+            })
+          )
+        );
+      })
+      .finally(() => setDeliveryOptionsRetrying(false));
+  }
+
+  useEffect(() => {
+    if (isQuoteCheckout) return undefined;
+    let cancelled = false;
+    let retryTimer = null;
+    fetchDeliveryOptions().then((options) => {
+      if (cancelled) return;
+      applyDeliveryOptions(options);
+      if (!options.ok) {
+        retryTimer = setTimeout(() => {
+          fetchDeliveryOptions().then((again) => !cancelled && applyDeliveryOptions(again));
+        }, 4000);
+      }
+    });
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [isQuoteCheckout]);
+
+  useEffect(() => {
+    saveSelections(deliverySelections);
+  }, [deliverySelections]);
+
+  /*
+   * Alt județ -> ID-urile Sameday se resetează DOAR la acțiunea clientului
+   * (tastare în câmpul județ / alt județ ales - handleSelectShippingCounty).
+   * Un efect pe shippingAddress.county ar șterge și ID-urile validate ale
+   * unei adrese din agendă sau ale județului tocmai ales din listă.
+   */
+
+  function clearDeliveryError(groupKey) {
+    setDeliveryErrors((prev) => {
+      if (!prev[groupKey]) return prev;
+      const next = { ...prev };
+      delete next[groupKey];
+      return next;
+    });
+  }
+
+  function chooseDeliveryMethod(groupKey, method, storeLabel) {
+    const current = effectiveSelection(deliverySelections, groupKey, availableDeliveryMethods);
+    let location = current.location && current.location.type === method ? current.location : null;
+    // „Ultimul punct folosit” - doar dacă serverul tocmai l-a revalidat (status ok);
+    // la plasare se revalidează oricum din nou
+    if (method !== "HOME" && !location && lastOoh[method]?.status === "ok") {
+      location = publicLocation(lastOoh[method].location);
+    }
+    setDeliverySelections((prev) => ({ ...prev, [groupKey]: { method, location } }));
+    clearDeliveryError(groupKey);
+    if (method !== "HOME" && !location) setLocationPicker({ groupKey, method, storeLabel });
+  }
+
+  function chooseDeliveryLocation(groupKey, location) {
+    setDeliverySelections((prev) => ({ ...prev, [groupKey]: { method: location.type, location } }));
+    clearDeliveryError(groupKey);
+    setLocationPicker(null);
+  }
   const [shipToDifferentAddress, setShipToDifferentAddress] = useState(false);
 
   const [placing, setPlacing] = useState(false);
@@ -723,6 +892,81 @@ const [me, setMe] = useState(null);
     useState(false);
 
   const [fieldErrors, setFieldErrors] = useState({});
+
+  /*
+   * Agenda de adrese (client autentificat): adresa aleasă completează
+   * câmpurile de livrare; emailul rămâne al clientului. Guest -> formularul
+   * de până acum. PJ -> doar la „Livrez la altă adresă”.
+   */
+  const addressBookEnabled = Boolean(me) && (customerType === "PF" || shipToDifferentAddress);
+  const addressBook = useAddressBook({
+    enabled: addressBookEnabled,
+    shippingAddress,
+    initialSelectedId: checkoutDraft?.selectedAddressId || null,
+    applyAddress: (address) => {
+      setShippingAddress((prev) => addressToShipping(address, prev));
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        for (const k of ["firstName", "lastName", "phone", "county", "city", "postalCode", "street"]) delete next[k];
+        return next;
+      });
+    },
+  });
+  // agenda e folosită doar dacă s-a încărcat (altfel - eroare de rețea - formularul manual)
+  const useSavedAddresses = addressBookEnabled && addressBook.loaded && !(addressBook.error && !addressBook.addresses.length && !addressBook.drawer);
+
+  /*
+   * Emailul clientului autentificat vine din cont (doar dacă e gol) - înainte
+   * îl aducea copia permanentă din localStorage, care nu mai există.
+   */
+  useEffect(() => {
+    const email = me?.email;
+    if (!email) return;
+    setShippingAddress((prev) => (prev.email ? prev : { ...prev, email }));
+    setContactPerson((prev) => (prev.email ? prev : { ...prev, email }));
+  }, [me?.email]);
+
+  /*
+   * Nomenclatorul Sameday pentru livrarea la adresă (delivery/placeFields.js):
+   * județele din nomenclator, localitatea aleasă din listă (ID-uri validate),
+   * codul poștal doar sugerat. Lista de localități indisponibilă -> text
+   * acceptat, nevalidat (serverul reîncearcă la plasare).
+   */
+  const nomenclatorActive = Boolean(deliveryEnabled && deliveryOptions.nomenclator);
+  const [samedayCounties, setSamedayCounties] = useState([]);
+  const [citiesAvailable, setCitiesAvailable] = useState(true);
+  const [postalHint, setPostalHint] = useState(null);
+  useEffect(() => {
+    if (!nomenclatorActive) {
+      setSamedayCounties([]);
+      return undefined;
+    }
+    let cancelled = false;
+    fetchSamedayCounties()
+      .then((items) => !cancelled && setSamedayCounties(mergeSamedayCounties(items, [])))
+      .catch(() => !cancelled && setCitiesAvailable(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [nomenclatorActive]);
+  // opțiunile câmpului „Județ” pentru livrare (facturarea PJ rămâne pe lista locală)
+  const shippingCounties = samedayCounties.length ? samedayCounties : counties;
+  const samedayCityRequired = nomenclatorActive && citiesAvailable && !useSavedAddresses;
+
+  // ultimul easybox / Sameday Point folosit (revalidat pe server la fiecare citire)
+  const [lastOoh, setLastOoh] = useState({});
+  useEffect(() => {
+    if (!me || !deliveryEnabled) {
+      setLastOoh({});
+      return undefined;
+    }
+    let cancelled = false;
+    fetchLastOohLocations().then((items) => !cancelled && setLastOoh(lastOohByMethod(items)));
+    return () => {
+      cancelled = true;
+    };
+  }, [me, deliveryEnabled]);
+
   const [activeStep, setActiveStep] = useState(1);
   const checkoutStepsTrackedRef = useRef({ shipping: false, payment: false });
 const checkoutTrackedRef =
@@ -751,6 +995,15 @@ const checkoutTrackedRef =
   const contactEmailRef = useRef(null);
   const contactPhoneRef = useRef(null);
 
+  const deliverToRef = useRef(null);
+  const summaryAsideRef = useRef(null);
+  const placeButtonRef = useRef(null);
+  const { stickySummary, showMobileBar } = useCheckoutChrome({
+    asideRef: summaryAsideRef,
+    placeButtonRef,
+    enabled: !loading,
+  });
+
   const fieldRefs = useMemo(
     () => ({
       lastName: lastNameRef,
@@ -771,8 +1024,12 @@ const checkoutTrackedRef =
       contactFirstName: contactFirstNameRef,
       contactEmail: contactEmailRef,
       contactPhone: contactPhoneRef,
+      // adresa vine din agendă: câmpurile sunt ascunse -> eroarea duce la cardul „Livrează la”
+      ...(useSavedAddresses
+        ? Object.fromEntries(["lastName", "firstName", "phone", "county", "city", "street", "postalCode"].map((k) => [k, deliverToRef]))
+        : {}),
     }),
-    []
+    [useSavedAddresses]
   );
 
   useEffect(() => {
@@ -797,8 +1054,8 @@ const checkoutTrackedRef =
 
   // filtrare fără diacritice („iasi” găsește „Iași”)
   const filteredCounties = useMemo(
-    () => filterCounties(counties, countyInput),
-    [counties, countyInput]
+    () => filterCounties(shippingCounties, countyInput),
+    [shippingCounties, countyInput]
   );
 
   const filteredCompanyCounties = useMemo(
@@ -812,6 +1069,7 @@ const checkoutTrackedRef =
     countyInput,
     companyCountyInput,
     counties,
+    shippingCounties,
   };
 
   const serviceGroups = useMemo(() => {
@@ -893,6 +1151,40 @@ const checkoutTrackedRef =
   }, [items]);
 
 
+  /*
+   * Livrare Sameday activă: prețul transportului vine din quote-ul serverului
+   * (tariful Sameday sau tariful de rezervă al magazinului); altfel regula
+   * locală de până acum (tariful magazinului + pragul de gratuitate).
+   */
+  const deliveryGroupKeys = useMemo(
+    () => serviceGroups.map((g) => String(g.serviceId || "")).filter(Boolean),
+    [serviceGroups]
+  );
+  const shippingQuote = useShippingQuote({
+    enabled: deliveryEnabled,
+    isGuest: !me,
+    guestItems: me ? null : getGuestCart(),
+    groupKeys: deliveryGroupKeys,
+    selections: deliverySelections,
+    methods: availableDeliveryMethods,
+    address: shippingAddress,
+    cartKey: JSON.stringify(
+      serviceGroups.map((g) => [g.serviceId, (g.items || []).map((it) => [it.productId, it.qty, it.price])])
+    ),
+  });
+  const shippingForGroup = useCallback(
+    (group) => {
+      const base = getGroupShipping(group);
+      return deliveryEnabled ? { ...base, ...quotedShipping(shippingQuote, String(group.serviceId || "")) } : base;
+    },
+    [deliveryEnabled, shippingQuote]
+  );
+  const shippingPending = useMemo(
+    () => (deliveryEnabled ? serviceGroups.map((g) => shippingForGroup(g).pending).find(Boolean) || null : null),
+    [deliveryEnabled, serviceGroups, shippingForGroup]
+  );
+  const priceLabelFor = (shipping) => shippingPriceLabel(shipping, (v) => money(v, currency));
+
   const shippingTotal =
   useMemo(() => {
     /*
@@ -922,10 +1214,10 @@ const checkoutTrackedRef =
           group
         ) =>
           sum +
-          getGroupShipping(
+          (shippingForGroup(
             group
           )
-            .finalShipping,
+            .finalShipping || 0),
         0
       )
     );
@@ -933,6 +1225,7 @@ const checkoutTrackedRef =
     isQuoteCheckout,
     quoteCheckout,
     serviceGroups,
+    shippingForGroup,
   ]);
 
  const grandTotal =
@@ -1108,6 +1401,7 @@ const checkoutTrackedRef =
       shippingAddress,
       billingCompany,
       contactPerson,
+      samedayCityRequired,
     });
 
     setFieldError(fieldName, message);
@@ -1119,6 +1413,16 @@ const checkoutTrackedRef =
       ...prev,
       [name]: value,
     }));
+  }
+
+  // clientul rescrie județul: codul și ID-urile Sameday (județ + localitate) nu mai sunt valabile
+  function clearShippingCounty() {
+    setShippingAddress((prev) =>
+      prev.county || prev.samedayCountyId || prev.samedayCityId
+        ? { ...prev, county: "", samedayCountyId: null, samedayCityId: null }
+        : prev
+    );
+    setPostalHint(null);
   }
 
   /*
@@ -1142,7 +1446,7 @@ const checkoutTrackedRef =
     }
 
     const input = isCompany ? latest.companyCountyInput : latest.countyInput;
-    const match = matchCounty(input, latest.counties);
+    const match = matchCounty(input, isCompany ? latest.counties : latest.shippingCounties || latest.counties);
 
     if (match) {
       if (isCompany) {
@@ -1276,6 +1580,9 @@ const checkoutTrackedRef =
   }
 
  useEffect(() => {
+  // sesiunea încă se verifică: așteptăm (altfel checkout-ul s-ar încărca de două ori)
+  if (authKey === "pending") return undefined;
+
   let cancelled =
     false;
 
@@ -1923,17 +2230,10 @@ const offer =
        */
 
       try {
-        const saved =
-          localStorage.getItem(
-            "checkoutAddress"
-          );
+        // doar din tab-ul curent (sessionStorage); copia veche din localStorage se șterge
+        const parsed = loadCheckoutDraft();
 
-        if (saved) {
-          const parsed =
-            JSON.parse(
-              saved
-            );
-
+        {
           if (
             parsed &&
             typeof parsed ===
@@ -2052,6 +2352,8 @@ const offer =
       if (
         !cancelled
       ) {
+        // de acum formularul se poate salva (draftul vechi a fost deja citit)
+        draftRestoredRef.current = true;
         setLoading(
           false
         );
@@ -2069,6 +2371,7 @@ const offer =
   offerId,
   nav,
   discountCodeReloadKey,
+  authKey,
 ]);
 
 /*
@@ -2133,27 +2436,24 @@ const removeDiscountCode = () => {
     if (found) setCompanyCountyInput(found.name);
   }, [billingCompany.county, counties]);
 
+  // datele formularului rămân doar pe durata tabului (sessionStorage), nu permanent
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        "checkoutAddress",
-        JSON.stringify({
-          customerType,
-          shipToDifferentAddress,
-          shippingAddress,
-          billingCompany,
-          contactPerson,
-        })
-      );
-    } catch {
-      // ignore
-    }
+    if (!draftRestoredRef.current) return;
+    saveCheckoutDraft({
+      customerType,
+      shipToDifferentAddress,
+      shippingAddress,
+      billingCompany,
+      contactPerson,
+      selectedAddressId: addressBook.selectedId || null,
+    });
   }, [
     customerType,
     shipToDifferentAddress,
     shippingAddress,
     billingCompany,
     contactPerson,
+    addressBook.selectedId,
   ]);
 
   useEffect(() => {
@@ -2197,10 +2497,17 @@ const removeDiscountCode = () => {
   function handleSelectShippingCounty(county) {
     setCountyInput(county.name);
     setShowCountyDropdown(false);
-    setShippingAddress((prev) => ({
-      ...prev,
-      county: county.code,
-    }));
+    setShippingAddress((prev) => {
+      const changed = prev.county !== county.code;
+      return {
+        ...prev,
+        county: county.code,
+        samedayCountyId: county.samedayId ?? null,
+        // alt județ -> localitatea (și ID-ul ei) trebuie aleasă din nou
+        ...(changed ? { city: prev.samedayCityId ? "" : prev.city, samedayCityId: null } : {}),
+      };
+    });
+    if (county.code !== shippingAddress.county) setPostalHint(null);
     clearFieldError("county");
   }
 
@@ -2233,6 +2540,7 @@ const removeDiscountCode = () => {
       customerType,
       items,
       shipToDifferentAddress,
+      samedayCityRequired,
     });
 
     if (Object.keys(errors).length > 0) {
@@ -2301,6 +2609,7 @@ const removeDiscountCode = () => {
       customerType,
       items,
       shipToDifferentAddress,
+      samedayCityRequired,
     });
 
     if (formError) {
@@ -2319,6 +2628,54 @@ const removeDiscountCode = () => {
       setActiveStep(1);
       focusFirstError(errors, fieldRefs);
       return;
+    }
+
+    if (deliveryEnabled) {
+      const unavailable = unavailableSelections(
+        serviceGroups.map((g) => String(g.serviceId || "")).filter(Boolean),
+        deliverySelections,
+        availableDeliveryMethods
+      );
+      if (unavailable.length) {
+        const message = "Momentan nu putem încărca opțiunile Easybox / Sameday Point. Poți continua cu livrare la adresă sau poți încerca din nou.";
+        setDeliveryErrors(Object.fromEntries(unavailable.map((k) => [k, message])));
+        setError(message);
+        document
+          .querySelector(`[data-delivery-group="${unavailable[0]}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      const missing = missingLocations(
+        serviceGroups.map((g) => String(g.serviceId || "")).filter(Boolean),
+        deliverySelections,
+        availableDeliveryMethods
+      );
+      if (missing.length) {
+        setDeliveryErrors(
+          Object.fromEntries(
+            missing.map((k) => [k, "Alege locația de livrare pentru acest magazin."])
+          )
+        );
+        setError("Alege locația easybox / Sameday Point pentru fiecare magazin marcat.");
+        document
+          .querySelector(`[data-delivery-group="${missing[0]}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      if (shippingPending === "loading") {
+        setError("Calculăm costul transportului. Încearcă din nou în câteva secunde.");
+        return;
+      }
+      // magazin fără niciun tarif acum (fără tarif de rezervă + Sameday indisponibil): doar acel magazin
+      const blockedGroup = serviceGroups.find((g) => shippingForGroup(g).pending === "blocked");
+      if (blockedGroup) {
+        const key = String(blockedGroup.serviceId || "");
+        const message = shippingForGroup(blockedGroup).blockedMessage;
+        setDeliveryErrors((prev) => ({ ...prev, [key]: message }));
+        setError(message);
+        document.querySelector(`[data-delivery-group="${key}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
     }
 
     trackShippingInfoOnce();
@@ -2387,6 +2744,16 @@ const removeDiscountCode = () => {
         paymentMethod,
         shipToDifferentAddress:
           customerType === "PJ" ? shipToDifferentAddress : false,
+        // livrarea fiecărui magazin: metoda + locația (costul îl calculează serverul)
+        ...(deliveryEnabled
+          ? {
+              selections: buildSelectionsPayload(
+                serviceGroups.map((g) => String(g.serviceId || "")).filter(Boolean),
+                deliverySelections,
+                availableDeliveryMethods
+              ),
+            }
+          : {}),
         // campaniile din navigarea curentă (memorie / ?camp=), revalidate pe server
         campaignSlugs: getCampaignSlugsForCheckout(),
         // referral influencer + vendor + VendorCollection din navigarea curentă
@@ -2552,6 +2919,7 @@ if (result?.ok || result?.orderId) {
   }
 
   clearStoredDiscountCode();
+  clearSelections();
 
   /*
    * Hint de atribuire pe cod (discountCodeAttribution.js) - șters
@@ -2669,6 +3037,34 @@ if (me) {
         return;
       }
 
+      const deliveryCode = String(e?.data?.error || "");
+      if (/^(ooh_|delivery_method_|shipping_place_|shipping_price_unavailable)/.test(deliveryCode)) {
+        const key = String(e?.data?.serviceId || "");
+        const message = e?.data?.message || "Verifică livrarea aleasă.";
+        if (deliveryCode === "shipping_place_invalid") {
+          setShippingAddress((prev) => ({ ...prev, samedayCountyId: null, samedayCityId: null }));
+          setFieldErrors({ city: message });
+          setActiveStep(1);
+        } else if (key) {
+          setDeliveryErrors((prev) => ({ ...prev, [key]: message }));
+          // ooh_location_unverified: Sameday nu răspunde -> păstrăm locația (clientul poate reîncerca)
+          if (!["delivery_method_unavailable", "ooh_location_unverified", "shipping_price_unavailable"].includes(deliveryCode)) {
+            setDeliverySelections((prev) => ({
+              ...prev,
+              [key]: { method: prev[key]?.method || "HOME", location: null },
+            }));
+          }
+          document
+            .querySelector(`[data-delivery-group="${key}"]`)
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        setError(message);
+        if (deliveryCode === "delivery_method_unavailable" || deliveryCode === "ooh_location_unverified") {
+          refreshDeliveryOptions();
+        }
+        return;
+      }
+
       if (e?.data?.discountCodeInvalid) {
         /*
          * Fail-CLOSED: codul a devenit invalid chiar acum
@@ -2693,6 +3089,114 @@ if (me) {
       setPlacing(false);
     }
   }
+
+  /*
+   * „Localitate” (PF și PJ cu altă adresă de livrare): cu nomenclator Sameday
+   * se alege din listă (ID-uri validate, clientul vede doar numele); fără
+   * nomenclator / listă indisponibilă -> text (nevalidat, reverificat la plasare).
+   */
+  const shippingCityField = nomenclatorActive ? (
+    <>
+      <SamedayCityField
+        enabled
+        value={shippingAddress.city}
+        countyId={shippingAddress.samedayCountyId || null}
+        countyName={countyInput}
+        selected={Boolean(shippingAddress.samedayCityId)}
+        inputRef={cityRef}
+        className={fieldErrors.city ? styles.inputError : ""}
+        placeholder="Scrie și alege din listă"
+        ariaInvalid={Boolean(fieldErrors.city)}
+        onStatus={({ available }) => setCitiesAvailable(available)}
+        onTextChange={(value) => {
+          clearFieldError("city");
+          setPostalHint(null);
+          setShippingAddress((prev) => ({ ...prev, city: value, samedayCityId: null }));
+        }}
+        onPick={(city) => {
+          clearFieldError("city");
+          // codul poștal NU se completează singur - doar sugestie (vezi placeFields.js)
+          const suggested = postalSuggestion(city, shippingAddress.postalCode);
+          setPostalHint(suggested ? { code: suggested, city: city.name } : null);
+          setShippingAddress((prev) => ({ ...prev, city: city.name, samedayCountyId: city.countyId, samedayCityId: city.cityId }));
+        }}
+        onBlur={() => validateAndSetFieldError("city")}
+      />
+      {!citiesAvailable ? <p className={deliveryStyles.fallbackNote}>{CITIES_FALLBACK_MESSAGE}</p> : null}
+    </>
+  ) : (
+    <input
+      ref={cityRef}
+      className={fieldErrors.city ? styles.inputError : ""}
+      value={shippingAddress.city}
+      onChange={(e) => {
+        clearFieldError("city");
+        updateShippingField("city", e.target.value);
+      }}
+      onBlur={() => validateAndSetFieldError("city")}
+      placeholder="Ex: București"
+    />
+  );
+
+  const postalHintBlock =
+    postalHint && postalHint.code !== shippingAddress.postalCode ? (
+      <span className={deliveryStyles.postalHint}>
+        <span>
+          Cod poștal sugerat pentru {postalHint.city}: <strong>{postalHint.code}</strong>
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            clearFieldError("postalCode");
+            updateShippingField("postalCode", postalHint.code);
+            setPostalHint(null);
+          }}
+        >
+          Folosește
+        </button>
+      </span>
+    ) : null;
+
+  /*
+   * „Livrează la” (client autentificat): adresa aleasă din agendă sau adresa
+   * tastată înainte de login (nesalvată - oferim salvarea, nu o facem singuri).
+   */
+  const hiddenAddressError = useSavedAddresses
+    ? ["lastName", "firstName", "phone", "county", "city", "street", "postalCode"].map((k) => fieldErrors[k]).find(Boolean)
+    : null;
+  const deliverToAddress =
+    addressBook.selected || (addressBook.typedKept ? { ...shippingAddress, label: "TYPED", isDefault: false } : null);
+  const deliverToBlock = (
+    <div ref={deliverToRef} tabIndex={-1} className={styles.deliverToWrap}>
+      <DeliverToCard address={deliverToAddress} counties={shippingCounties} onChange={addressBook.openList}>
+        {addressBook.typedKept ? (
+          <div className={addressStyles.saveOffer}>
+            <span>Această adresă nu este salvată în cont.</span>
+            <button type="button" className={addressStyles.link} onClick={addressBook.saveTyped} disabled={addressBook.busy}>
+              Salvează această adresă în cont
+            </button>
+          </div>
+        ) : null}
+        {hiddenAddressError ? (
+          <p className={addressStyles.error} role="alert">
+            {hiddenAddressError}{" "}
+            <button
+              type="button"
+              className={addressStyles.link}
+              onClick={() => (addressBook.selected ? addressBook.openForm(addressBook.selected) : addressBook.openList())}
+            >
+              Editează adresa
+            </button>
+          </p>
+        ) : null}
+        {addressBook.error && !addressBook.drawer ? (
+          <p className={addressStyles.error} role="alert">
+            {addressBook.error}
+          </p>
+        ) : null}
+      </DeliverToCard>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -3190,6 +3694,10 @@ if (me) {
 
               {customerType === "PF" ? (
                 <div className={styles.formGrid}>
+                  {useSavedAddresses ? (
+                    <div className={styles.fieldFull}>{deliverToBlock}</div>
+                  ) : (
+                  <>
                   <label className={styles.field}>
                     <span>Nume*</span>
                     <input
@@ -3229,8 +3737,10 @@ if (me) {
                       </span>
                     )}
                   </label>
+                  </>
+                  )}
 
-                  <label className={styles.field}>
+                  <label className={useSavedAddresses ? styles.fieldFull : styles.field}>
                     <span>Email*</span>
                     <input
                       ref={emailRef}
@@ -3251,6 +3761,8 @@ if (me) {
                     )}
                   </label>
 
+                  {!useSavedAddresses && (
+                  <>
                   <label className={styles.field}>
                     <span>Telefon*</span>
                     <input
@@ -3294,7 +3806,7 @@ if (me) {
                             clearFieldError("county");
                             setCountyInput(e.target.value);
                             setShowCountyDropdown(true);
-                            updateShippingField("county", "");
+                            clearShippingCounty();
                           }}
                           onFocus={() => setShowCountyDropdown(true)}
                           onBlur={() => {
@@ -3336,17 +3848,7 @@ if (me) {
 
                   <label className={styles.field}>
                     <span>Oraș / Localitate*</span>
-                    <input
-                      ref={cityRef}
-                      className={fieldErrors.city ? styles.inputError : ""}
-                      value={shippingAddress.city}
-                      onChange={(e) => {
-                        clearFieldError("city");
-                        updateShippingField("city", e.target.value);
-                      }}
-                      onBlur={() => validateAndSetFieldError("city")}
-                      placeholder="Ex: București"
-                    />
+                    {shippingCityField}
                     {fieldErrors.city && (
                       <span className={styles.fieldError}>
                         {fieldErrors.city}
@@ -3377,6 +3879,7 @@ if (me) {
                         {fieldErrors.postalCode}
                       </span>
                     )}
+                    {postalHintBlock}
                   </label>
 
                   <label className={styles.fieldFull}>
@@ -3409,6 +3912,8 @@ if (me) {
                       rows={3}
                     />
                   </label>
+                  </>
+                  )}
                 </div>
               ) : (
                 <>
@@ -3736,6 +4241,9 @@ if (me) {
 
                     {shipToDifferentAddress && (
                       <div style={{ marginTop: 16 }}>
+                        {useSavedAddresses ? (
+                          deliverToBlock
+                        ) : (
                         <div className={styles.formGrid}>
                           <div className={styles.fieldFull}>
                             <span className={styles.sectionLabel}>
@@ -3859,7 +4367,7 @@ if (me) {
                                     clearFieldError("county");
                                     setCountyInput(e.target.value);
                                     setShowCountyDropdown(true);
-                                    updateShippingField("county", "");
+                                    clearShippingCounty();
                                   }}
                                   onFocus={() => setShowCountyDropdown(true)}
                                   onBlur={() => {
@@ -3910,17 +4418,7 @@ if (me) {
 
                           <label className={styles.field}>
                             <span>Oraș / Localitate*</span>
-                            <input
-                              ref={cityRef}
-                              className={fieldErrors.city ? styles.inputError : ""}
-                              value={shippingAddress.city}
-                              onChange={(e) => {
-                                clearFieldError("city");
-                                updateShippingField("city", e.target.value);
-                              }}
-                              onBlur={() => validateAndSetFieldError("city")}
-                              placeholder="Ex: București"
-                            />
+                            {shippingCityField}
                             {fieldErrors.city && (
                               <span className={styles.fieldError}>
                                 {fieldErrors.city}
@@ -3955,6 +4453,7 @@ if (me) {
                                 {fieldErrors.postalCode}
                               </span>
                             )}
+                            {postalHintBlock}
                           </label>
 
                           <label className={styles.fieldFull}>
@@ -3990,6 +4489,7 @@ if (me) {
                             />
                           </label>
                         </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -4002,11 +4502,13 @@ if (me) {
              <p className={styles.muted}>
   {isQuoteCheckout
     ? "Costul de transport este cel stabilit de creator în oferta acceptată."
-    : "Costul de transport se calculează separat pentru fiecare magazin, pe baza tarifelor configurate de vendor."}
+    : deliveryEnabled
+      ? "Costul transportului se calculează pentru fiecare magazin, după metoda de livrare aleasă."
+      : "Costul de transport se calculează separat pentru fiecare magazin, pe baza tarifelor configurate de vendor."}
 </p>
            <div className={styles.shipGrid}>
   {serviceGroups.map((group) => {
-    const shipping = getGroupShipping(group);
+    const shipping = shippingForGroup(group);
 
     const key = String(
       group.serviceId ||
@@ -4035,6 +4537,7 @@ if (me) {
       <div
         key={key}
         className={styles.vendorBox}
+        data-delivery-group={String(group.serviceId || "")}
       >
         <div className={styles.vendorHead}>
           <strong>{label}</strong>
@@ -4048,6 +4551,38 @@ if (me) {
         </div>
 
         <TraderStatusNotice status={groupTraderStatus} />
+
+        {deliveryEnabled && group.serviceId ? (
+          <DeliveryMethodPicker
+            groupKey={String(group.serviceId)}
+            methods={deliveryOptions.methods}
+            selection={effectiveSelection(
+              deliverySelections,
+              String(group.serviceId),
+              availableDeliveryMethods
+            )}
+            priceLabel={priceLabelFor(shipping)}
+            error={deliveryErrors[String(group.serviceId)] || shipping.blockedMessage}
+            lastUsed={lastOoh}
+            unavailableMethod={
+              unavailableSelections([String(group.serviceId)], deliverySelections, availableDeliveryMethods).length
+                ? deliverySelections[String(group.serviceId)]?.method || null
+                : null
+            }
+            retrying={deliveryOptionsRetrying}
+            onRetry={refreshDeliveryOptions}
+            onChangeMethod={(method) =>
+              chooseDeliveryMethod(String(group.serviceId), method, label)
+            }
+            onOpenLocations={(method) =>
+              setLocationPicker({
+                groupKey: String(group.serviceId),
+                method,
+                storeLabel: label,
+              })
+            }
+          />
+        ) : null}
 
         <div className={styles.summaryRow}>
           <span>Subtotal magazin</span>
@@ -4080,6 +4615,7 @@ if (me) {
           </div>
         ) : (
           <>
+            {!deliveryEnabled && (
             <div className={styles.summaryRow}>
               <span>
                 Transport estimativ
@@ -4092,6 +4628,7 @@ if (me) {
                 )}
               </strong>
             </div>
+            )}
 
             {shipping.freeShippingThreshold !==
               null && (
@@ -4119,12 +4656,7 @@ if (me) {
               </span>
 
               <strong>
-                {shipping.qualifiesFreeShipping
-                  ? "Gratuit"
-                  : money(
-                      shipping.finalShipping,
-                      currency
-                    )}
+                {priceLabelFor(shipping)}
               </strong>
             </div>
           </>
@@ -4143,15 +4675,57 @@ if (me) {
   })}
 </div>
 
+              {locationPicker ? (
+                <OohLocationPicker
+                  key={`${locationPicker.groupKey}:${locationPicker.method}`}
+                  open
+                  method={locationPicker.method}
+                  availableTypes={availableDeliveryMethods}
+                  initialLocation={
+                    effectiveSelection(
+                      deliverySelections,
+                      locationPicker.groupKey,
+                      availableDeliveryMethods
+                    ).location
+                  }
+                  // zona din adresă = doar ordonare (locațiile din localitate / județ primele), nu filtru
+                  region={{ city: shippingAddress.city || "", county: countyInput || "" }}
+                  storeLabel={locationPicker.storeLabel}
+                  onSelect={(location) =>
+                    chooseDeliveryLocation(locationPicker.groupKey, location)
+                  }
+                  onClose={() => setLocationPicker(null)}
+                />
+              ) : null}
+
+              <AddressDrawer
+                open={addressBookEnabled && Boolean(addressBook.drawer)}
+                view={addressBook.drawer}
+                addresses={addressBook.addresses}
+                selectedId={addressBook.selectedId}
+                counties={shippingCounties}
+                nomenclator={nomenclatorActive}
+                busy={addressBook.busy}
+                error={addressBook.error}
+                fieldErrors={addressBook.fieldErrors}
+                onClose={addressBook.close}
+                onShowForm={addressBook.openForm}
+                onShowList={addressBook.showList}
+                onSelect={addressBook.select}
+                onSave={addressBook.save}
+                onDelete={addressBook.remove}
+                onSetDefault={addressBook.makeDefault}
+              />
+
               <div className={styles.divider} />
               <div className={styles.summaryRow}>
                 <span>Transport total</span>
-                <strong>{money(shippingTotal, currency)}</strong>
+                <strong>{shippingPending ? priceLabelFor({ pending: shippingPending }) : money(shippingTotal, currency)}</strong>
               </div>
             </section>
           </div>
 
-          <aside className={styles.right}>
+          <aside ref={summaryAsideRef} className={`${styles.right} ${stickySummary ? styles.rightSticky : ""}`}>
             <div ref={paymentSectionRef} className={styles.card}>
               <h3 className={styles.cardTitle}>Sumar comandă</h3>
 
@@ -4202,8 +4776,29 @@ if (me) {
 
               <div className={styles.summaryRow}>
                 <span>Transport</span>
-                <strong>{money(shippingTotal, currency)}</strong>
+                <strong>{shippingPending ? priceLabelFor({ pending: shippingPending }) : money(shippingTotal, currency)}</strong>
               </div>
+
+              {!isQuoteCheckout && serviceGroups.length > 1 ? (
+                <ul className={deliveryStyles.transportBreakdown} aria-label="Transport pe magazine">
+                  {serviceGroups.map((group) => {
+                    const groupShipping = shippingForGroup(group);
+                    const groupKey = String(group.serviceId || group.vendorId || "");
+                    const method = deliveryEnabled
+                      ? effectiveSelection(deliverySelections, String(group.serviceId || ""), availableDeliveryMethods).method
+                      : null;
+                    return (
+                      <li key={groupKey}>
+                        <span>
+                          {group.serviceTitle?.trim() || "Magazin"}
+                          {method ? <em> · {DELIVERY_METHOD_LABELS[method]}</em> : null}
+                        </span>
+                        <span>{priceLabelFor(groupShipping)}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
 
               {!isQuoteCheckout && (
                 <div style={{ margin: "10px 0" }}>
@@ -4420,7 +5015,7 @@ if (me) {
 
               <div className={styles.totalRow}>
                 <span>Total de plată</span>
-                <strong>{money(grandTotal, currency)}</strong>
+                <strong>{shippingPending ? priceLabelFor({ pending: shippingPending }) : money(grandTotal, currency)}</strong>
               </div>
 
               <p className={styles.helperText}>
@@ -4434,6 +5029,7 @@ if (me) {
               {/* NU dezactivăm pentru formular invalid: click-ul rulează
                   validarea și duce utilizatorul la câmpul greșit */}
               <button
+                ref={placeButtonRef}
                 className={styles.primaryBtn}
                 onClick={placeOrder}
                 disabled={placing || items.length === 0}
@@ -4540,6 +5136,20 @@ if (me) {
           </div>,
           document.body
         )}
+
+      {/* mobil: totalul + plasarea mereu la îndemână (ascunsă cât butonul real
+          e vizibil sau tastatura e deschisă) */}
+      {showMobileBar && items.length > 0 ? (
+        <div className={styles.mobilePlaceBar} role="region" aria-label="Plasează comanda">
+          <div className={styles.mobilePlaceTotal}>
+            <span>Total</span>
+            <strong>{shippingPending ? priceLabelFor({ pending: shippingPending }) : money(grandTotal, currency)}</strong>
+          </div>
+          <button type="button" className={styles.primaryBtn} onClick={placeOrder} disabled={placing}>
+            {placing ? "Se plasează…" : "Plasează comanda"}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

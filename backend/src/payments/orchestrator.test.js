@@ -66,14 +66,21 @@ const fakeDb = {
 
   order: {
     update: async ({ where: { id }, data }) => ({ id, ...data }),
+    // salvarea condiționată a sesiunii (comandă încă PENDING și neplătită)
+    updateMany: async ({ where: { id } }) => ({ count: fakeDb.__notPayable?.has(id) ? 0 : 1 }),
   },
 };
 
 let lastSessionCreateArgs = null;
+const expiredSessions = [];
 
 const fakeStripe = {
   checkout: {
     sessions: {
+      expire: async (id) => {
+        expiredSessions.push(id);
+        return { id, status: "expired" };
+      },
       create: async (opts) => {
         lastSessionCreateArgs = opts;
         return {
@@ -319,4 +326,33 @@ test("guest, fără niciun token de acces -> guest_access_token_missing (neschim
       return true;
     }
   );
+});
+
+test("salvare condiționată: comanda nu mai e PENDING / neplătită -> sesiunea nouă e expirată imediat, plata refuzată", async () => {
+  fakeDb.__setShipments([{ orderId: "order-gone", vendorId: "vendor-a" }]);
+  fakeDb.__setVendors([readyVendor("vendor-a")]);
+  fakeDb.__notPayable = new Set(["order-gone"]);
+  expiredSessions.length = 0;
+
+  try {
+    await assert.rejects(
+      () => createPaymentForOrder({ id: "order-gone", total: 100, currency: "RON", userId: "user-1" }),
+      (err) => {
+        assert.equal(err.code, "order_not_payable");
+        assert.equal(err.status, 409);
+        return true;
+      }
+    );
+    assert.deepEqual(expiredSessions, ["cs_test_1"]);
+  } finally {
+    fakeDb.__notPayable = null;
+  }
+});
+
+test("regula de expirare inactivă (implicit): sesiunea se creează fără expires_at, ca înainte", async () => {
+  fakeDb.__setShipments([{ orderId: "order-plain", vendorId: "vendor-a" }]);
+  fakeDb.__setVendors([readyVendor("vendor-a")]);
+
+  await createPaymentForOrder({ id: "order-plain", total: 100, currency: "RON", userId: "user-1", paymentMethod: "CARD", createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000) });
+  assert.equal("expires_at" in lastSessionCreateArgs, false);
 });

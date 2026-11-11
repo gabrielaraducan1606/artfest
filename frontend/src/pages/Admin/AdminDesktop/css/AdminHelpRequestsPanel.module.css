@@ -1,0 +1,323 @@
+/* „Ajutor configurare”: doar token-urile globale, deci light / dark vin automat. */
+
+.panel {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.muted {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.empty {
+  margin: 0;
+  padding: 24px 16px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.875rem;
+}
+
+.group {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.groupTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.thumbWrap {
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbEmpty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.headText {
+  flex: 1 1 auto;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.productTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.badges {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.badgeOpen,
+.badgeDone,
+.badgePrivate,
+.badgeTicket {
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badgeOpen {
+  background: var(--color-primary);
+  color: var(--on-primary, #fff);
+}
+
+.badgeDone {
+  border-color: var(--color-border);
+  background: var(--surface-muted);
+  color: var(--color-muted);
+}
+
+.badgePrivate,
+.badgeTicket {
+  border-color: var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+}
+
+/* mesajul e motivul pentru care există cardul: integral și ușor de citit */
+.messageBox {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--color-primary);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--surface-muted);
+  min-width: 0;
+}
+
+.messageLabel {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.message {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.detailList,
+.attachments {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn,
+.primaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.primaryBtn {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--on-primary, #fff);
+}
+
+.btn:disabled,
+.primaryBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.contactBox,
+.confirm {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  min-width: 0;
+}
+
+.contactList {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.contactList li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.confirmText {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 12px;
+  }
+
+  .head {
+    flex-wrap: wrap;
+  }
+
+  .headText {
+    flex-basis: calc(100% - 76px);
+  }
+
+  .badges {
+    flex: 1 1 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .actions > .btn,
+  .actions > .primaryBtn {
+    flex: 1 1 100%;
+  }
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.filters select {
+  flex: 1 1 180px;
+  min-width: 0;
+  max-width: 260px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--surface, #fff);
+  color: var(--color-text);
+  font-size: 0.86rem;
+}

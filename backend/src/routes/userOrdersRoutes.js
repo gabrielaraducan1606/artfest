@@ -11,6 +11,7 @@ import {
   createPaymentForOrder,
 } from "../payments/orchestrator.js";
 import { CardPaymentUnavailableError } from "../payments/vendorStripeStatus.js";
+import { findOrderCancelAwbBlock } from "../couriers/awb/activeAwbGuard.js";
 import {
   restoreStockFromItems,
 } from "../services/stockRestore.js";
@@ -26,8 +27,11 @@ import {
   expirePendingDepositsForOrder,
 } from "../services/depositInvalidation.js";
 import {
-  expireOrderCheckoutSession,
-} from "../services/orderPaymentGuards.js";
+  guardUnpaidCardCancellation,
+  isCardPaymentExpiredOrder,
+  isUnpaidCardOrder,
+  releaseOrderDiscountCodes,
+} from "../services/cardPaymentExpiry.js";
 
 const router = Router();
 
@@ -1907,6 +1911,12 @@ router.get(
             order,
             order.shipments
           ),
+
+        // anulată automat: plata cu cardul nu a fost finalizată la termen
+        cardPaymentExpired:
+          isCardPaymentExpiredOrder(
+            order
+          ),
       });
     } catch (
       error
@@ -2525,8 +2535,11 @@ export async function cancelOwnOrder({
         include: {
           items: {
             select: {
+              id: true,
+              shipmentId: true,
               productId: true,
               qty: true,
+              variantIdSnapshot: true,
             },
           },
         },
@@ -2568,6 +2581,15 @@ export async function cancelOwnOrder({
     };
   }
 
+  /*
+   * Vânzătorul a generat deja AWB-ul (încă activ la curier): clientul nu
+   * poate anula singur - anularea ar ascunde AWB-ul (vezi activeAwbGuard.js).
+   */
+  const awbBlock = await findOrderCancelAwbBlock(prisma, o.shipments, { audience: "client" });
+  if (awbBlock) {
+    return { ok: false, status: awbBlock.status, error: awbBlock.error, message: awbBlock.message };
+  }
+
   const isCardOrder =
     String(o.paymentMethod || "").toUpperCase() === "CARD";
 
@@ -2602,6 +2624,20 @@ export async function cancelOwnOrder({
     };
   }
 
+  /*
+   * CARD încă neplătit: înainte de a elibera stocul, plata nu mai trebuie
+   * să poată fi finalizată - toate sesiunile Stripe ale comenzii se închid;
+   * o plată reușită sau în curs oprește anularea (services/cardPaymentExpiry.js).
+   */
+  const unpaidCard = isUnpaidCardOrder(o);
+
+  if (unpaidCard) {
+    const blocked = await guardUnpaidCardCancellation({ order: o });
+    if (blocked) {
+      return { ok: false, ...blocked };
+    }
+  }
+
   try {
     await prisma.$transaction(
       async (tx) => {
@@ -2613,6 +2649,8 @@ export async function cancelOwnOrder({
           await tx.shipment.updateMany({
             where: {
               orderId: o.id,
+              // doar coletele de vânzare (coletul RETURN are flux separat)
+              direction: "OUTBOUND",
               status: "PENDING",
             },
 
@@ -2653,6 +2691,11 @@ export async function cancelOwnOrder({
           tx,
           allItems
         );
+
+        // comandă neplătită anulată: utilizarea codului de reducere se eliberează (idempotent)
+        if (unpaidCard) {
+          await releaseOrderDiscountCodes(tx, o.id);
+        }
 
         /*
          * Update CONDIȚIONAT de statusul citit la început: dacă webhook-ul
@@ -2722,15 +2765,10 @@ export async function cancelOwnOrder({
   }
 
   /*
-   * Comandă CARD încă neplătită: expirăm sesiunea Stripe Checkout deschisă,
-   * ca plata să nu mai fie posibilă după anulare. Plata târzie rămâne
-   * acoperită de webhook (refund automat).
+   * Sesiunile Stripe ale unei comenzi CARD neplătite au fost închise ÎNAINTE
+   * de anulare (guardUnpaidCardCancellation). O plată pe o sesiune
+   * necunoscută rămâne acoperită de webhook (rambursare automată).
    */
-  if (isCardOrder && !needsCardRefund && o.stripeCheckoutSessionId) {
-    await expireOrderCheckoutSession({
-      sessionId: o.stripeCheckoutSessionId,
-    });
-  }
 
   let refund = { status: "NOT_REQUIRED" };
 

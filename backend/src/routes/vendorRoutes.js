@@ -3,6 +3,7 @@ import { Router } from "express";
 import Stripe from "stripe";
 import crypto from "node:crypto";
 import { prisma } from "../db.js";
+import { publicProductWhere } from "../services/collectionProducts.js";
 import { authRequired, enforceTokenVersion /*, requireRole*/ } from "../api/auth.js";
 import { enforcePolicyGate } from "../middleware/enforcePolicyGate.js";
 import {
@@ -25,6 +26,12 @@ import {
   validateGpsrManufacturerContact,
 } from "../lib/gpsrCompliance.js";
 import { reevaluateVendorGpsrBlockedProducts } from "../services/productAiModeration.js";
+import {
+  isShippingFallbackRequired,
+  productCountsByService,
+  SHIPPING_SETUP_MESSAGES,
+  vendorShippingSetup,
+} from "../services/shipping/vendorShippingSetup.js";
 
 const router = Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
@@ -423,8 +430,16 @@ router.get("/me/services", authRequired, async (req, res) => {
   orderBy: { createdAt: "desc" },
 });
 
+// starea livrării: tariful de rezervă e obligatoriu la magazinele cu produse fizice prin checkout
+const productCounts = await productCountsByService(prisma, list.map((svc) => svc.id));
+
 const items = list.map((svc) => ({
   ...svc,
+  shippingSetup: vendorShippingSetup({
+    typeCode: svc.type?.code,
+    estimatedShippingFeeCents: svc.estimatedShippingFeeCents,
+    ...(productCounts.get(svc.id) || {}),
+  }),
   productsCount: svc._count?.products || 0,
   followersCount: svc._count?.ServiceFollow || 0,
   storeName:
@@ -1186,6 +1201,7 @@ router.patch("/me/services/:id", authRequired, enforceTokenVersion, vendorAccess
 
     const svc = await prisma.vendorService.findUnique({
       where: { id },
+      include: { type: { select: { code: true } } },
     });
 
     if (!svc || svc.vendorId !== meVendor.id) {
@@ -1220,6 +1236,16 @@ router.patch("/me/services/:id", authRequired, enforceTokenVersion, vendorAccess
 
     if (estimatedShippingFeeCents !== undefined) {
       if (estimatedShippingFeeCents === null || estimatedShippingFeeCents === "") {
+        // tariful de rezervă configurat nu se poate șterge la un magazin cu produse livrate prin checkout
+        if (svc.estimatedShippingFeeCents != null) {
+          const counts = (await productCountsByService(prisma, [svc.id])).get(svc.id);
+          if (isShippingFallbackRequired({ typeCode: svc.type?.code, ...counts })) {
+            return res.status(400).json({
+              error: "shipping_fallback_required",
+              message: SHIPPING_SETUP_MESSAGES.fallbackRequired,
+            });
+          }
+        }
         data.estimatedShippingFeeCents = null;
       } else {
         const n = Number(estimatedShippingFeeCents);
@@ -1827,49 +1853,20 @@ router.post(
   }
 );
 
-/* ===================== Debug: products vs servicii ===================== */
-
-router.get("/debug/products", async (req, res, next) => {
-  try {
-    const items = await prisma.product.findMany({
-      take: 50,
-      orderBy: { createdAt: "desc" },
-      include: {
-        service: {
-          include: {
-            type: true,
-            vendor: true,
-            profile: true,
-          },
-        },
-      },
-    });
-
-    res.json(
-      items.map((p) => ({
-        id: p.id,
-        title: p.title,
-        isActive: p.isActive,
-        isHidden: p.isHidden,
-        serviceType: p.service?.type?.code,
-        serviceCity: p.service?.city,
-        storeName:
-          p?.service?.profile?.displayName ||
-          p?.service?.vendor?.displayName ||
-          "",
-      }))
-    );
-  } catch (e) {
-    next(e);
-  }
-});
+/*
+ * GET /debug/products a fost ELIMINAT (2026-11-09): era public (fără
+ * autentificare) și lista ultimele 50 de produse din toată platforma,
+ * inclusiv nepublicate / respinse / ascunse și ale magazinelor inactive.
+ * Nu avea niciun consumator (frontend, backend, teste) - verificat prin
+ * căutare în tot repo-ul. Regresie: src/routes/publicEndpointsSecurity.test.js.
+ */
 
 /* ===================== Favorites ===================== */
 
 router.get("/favorites", authRequired, async (req, res) => {
   try {
     const items = await prisma.favorite.findMany({
-      where: { userId: req.user.sub },
+      where: { userId: req.user.sub, product: publicProductWhere() },
       select: {
         productId: true,
         createdAt: true,
@@ -1888,11 +1885,18 @@ router.post("/favorites/toggle", authRequired, async (req, res) => {
   if (!productId) return error(res, "invalid_product_id", 400);
 
   try {
-    const p = await prisma.product.findUnique({
-      where: { id: productId },
+    const p = await prisma.product.findFirst({
+      where: { id: productId, ...publicProductWhere() },
+      select: { id: true },
     });
 
-    if (!p || !p.isActive) {
+    if (!p) {
+      // o asociere deja existentă se poate șterge și dacă produsul nu mai e public
+      const removed = await prisma.favorite.deleteMany({
+        where: { userId: req.user.sub, productId },
+      });
+      if (removed?.count) return res.json({ ok: true, favored: false });
+
       return res.status(409).json({ error: "product_inactive_or_missing" });
     }
 

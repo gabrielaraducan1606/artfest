@@ -541,3 +541,102 @@
     justify-content: center;
   }
 }
+
+/* ---------- după AWB: pași (generat -> preluat -> livrat) + format etichetă ---------- */
+.progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.progressStep {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+}
+
+.progressDot {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.progress_done {
+  color: var(--color-success);
+}
+
+.progress_done .progressDot {
+  color: var(--color-success);
+  background: var(--success-bg-soft);
+  border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+}
+
+.progress_current {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.progress_current .progressDot {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.labelFormat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.labelFormat select {
+  min-height: 40px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+@media (max-width: 600px) {
+  .labelFormat select {
+    flex: 1 1 100%;
+  }
+}
+
+/* istoricul curierului (status-sync), doar citire */
+.trackingHistory {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 8px 12px;
+  display: block;
+}
+
+.trackingHistory > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.trackingHistory[open] > summary {
+  margin-bottom: 10px;
+}
+
+.trackingHistory[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

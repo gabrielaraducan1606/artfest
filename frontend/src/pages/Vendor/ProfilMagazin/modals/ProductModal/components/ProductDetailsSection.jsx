@@ -532,6 +532,11 @@ export default function ProductDetailsSection({
           placeholder="ex: 20 x 30 cm"
         />
 
+        <div className={styles.tip}>
+          Dimensiunile produsului, afișate clienților. Datele coletului pentru
+          transport se completează la „Livrare și colet”.
+        </div>
+
         <TagComboField
           id="product-care-instructions"
           label="Instrucțiuni de îngrijire"

@@ -7,6 +7,7 @@
 // stocul sau modul de comandă.
 
 import { normalizeAdditionalCategoryKeys } from "../../../../utils/additionalCategories.js";
+import { SHIPPING_PROFILE_FIELDS, shippingFormFromProduct } from "../../../../utils/productShippingForm.js";
 
 const GPSR_KEYS = [
   "isOwnManufacturer",
@@ -49,6 +50,8 @@ export const ADMIN_EDITABLE_KEYS = [
   "leadTimeDays",
   "nextShipDate",
   ...GPSR_KEYS,
+  // profil logistic (produsul ambalat)
+  ...SHIPPING_PROFILE_FIELDS,
 ];
 
 const asArray = (value) => (Array.isArray(value) ? value : []);
@@ -131,6 +134,7 @@ export function productToAdminForm(product) {
     styleTags: joinTags(p.styleTags),
     occasionTags: joinTags(p.occasionTags),
     dimensions: p.dimensions || "",
+    ...shippingFormFromProduct(p),
     careInstructions: p.careInstructions || "",
     specialNotes: p.specialNotes || "",
 

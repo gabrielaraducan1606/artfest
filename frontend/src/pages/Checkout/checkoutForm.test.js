@@ -89,9 +89,10 @@ test("județ: fallback local când API-ul nu a întors nimic", () => {
   assert.equal(matchCounty("Cluj", undefined)?.code, "CJ");
 });
 
-test("județ: lista locală e identică cu cea din backend (geoRoutes.js)", () => {
+test("județ: lista locală e identică cu cea din backend (constants/roCounties.js)", () => {
+  // sursa unică din backend (folosită de /api/geo/ro/counties și de asocierea cu Sameday)
   const source = readFileSync(
-    new URL("../../../../backend/src/routes/geoRoutes.js", import.meta.url),
+    new URL("../../../../backend/src/constants/roCounties.js", import.meta.url),
     "utf8"
   );
   const backend = [...source.matchAll(/\{\s*code:\s*"([A-Z]+)",\s*name:\s*"([^"]+)"\s*\}/g)]

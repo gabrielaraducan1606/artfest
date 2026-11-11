@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
+import { HELP_REQUEST_SUBJECTS, HELP_REQUEST_TYPES, helpTypeOfTicket } from "../lib/supportHelpRequests.js";
 
 // ✅ mailer
 import {
@@ -54,7 +55,40 @@ const mapTicketToUI = (t) => ({
   // guest / fallback info
   requesterName: t.requesterName || null,
   requesterEmail: t.requesterEmail || null,
+
+  // cererile de ajutor ale vânzătorilor (GPSR / adăugare produs); null = tichet obișnuit
+  helpType: helpTypeOfTicket(t),
+  createdAt: t.createdAt || null,
+  vendorId: t.vendorId || t.vendor?.id || null,
+  // necitit de adminul curent: același calcul ca /unread-count
+  ...(Array.isArray(t.reads)
+    ? {
+        unread:
+          !t.reads[0]?.lastReadAt ||
+          (t.lastMessageAt ? new Date(t.lastMessageAt) > new Date(t.reads[0].lastReadAt) : false),
+      }
+    : {}),
 });
+
+/*
+ * Filtrul „Tip solicitare”: categoria nouă (gpsr_help / product_help) SAU subiectul
+ * tichetelor trimise înainte de categorie (aceleași subiecte fixe).
+ */
+function helpTypeWhere(helpType) {
+  const gpsr = {
+    OR: [{ category: HELP_REQUEST_TYPES.GPSR }, { subject: HELP_REQUEST_SUBJECTS.gpsr_help }],
+  };
+  const product = {
+    OR: [
+      { category: HELP_REQUEST_TYPES.PRODUCT },
+      { subject: { startsWith: HELP_REQUEST_SUBJECTS.product_help } },
+    ],
+  };
+  if (helpType === HELP_REQUEST_TYPES.GPSR) return gpsr;
+  if (helpType === HELP_REQUEST_TYPES.PRODUCT) return product;
+  if (helpType === "help") return { OR: [...gpsr.OR, ...product.OR] };
+  return null;
+}
 
 // ======================= Zod Schemas =======================
 
@@ -70,6 +104,7 @@ const qTickets = z.object({
   offset: z.coerce.number().min(0).default(0),
   limit: z.coerce.number().min(1).max(100).default(20),
   priority: z.enum(["all", "low", "medium", "high"]).default("all"),
+  helpType: z.enum(["all", "help", "gpsr_help", "product_help"]).default("all"),
 });
 
 const qMessages = z.object({
@@ -134,6 +169,7 @@ AdminSupportRoutes.get("/tickets", async (req, res) => {
     offset: req.query.offset ?? 0,
     limit: req.query.limit ?? 20,
     priority: req.query.priority ?? "all",
+    helpType: req.query.helpType ?? "all",
   });
 
   if (!parsed.success) {
@@ -153,7 +189,10 @@ AdminSupportRoutes.get("/tickets", async (req, res) => {
     offset,
     limit,
     priority,
+    helpType,
   } = parsed.data;
+  const adminId = req.user?.sub ?? null;
+  const helpWhere = helpTypeWhere(helpType);
 
   const statusWhere =
     status === "open"
@@ -208,6 +247,8 @@ AdminSupportRoutes.get("/tickets", async (req, res) => {
         },
       },
     }),
+
+    ...(helpWhere && { AND: [helpWhere] }),
   };
 
   try {
@@ -224,7 +265,14 @@ AdminSupportRoutes.get("/tickets", async (req, res) => {
           status: true,
           priority: true,
           updatedAt: true,
+          createdAt: true,
+          lastMessageAt: true,
+          category: true,
+          vendorId: true,
           audience: true,
+          ...(adminId
+            ? { reads: { where: { userId: adminId }, select: { lastReadAt: true }, take: 1 } }
+            : {}),
 
           archivedByRequesterAt: true,
           deletedAt: true,

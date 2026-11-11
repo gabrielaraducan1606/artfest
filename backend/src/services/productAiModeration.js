@@ -39,6 +39,38 @@ import {
 } from "../lib/gpsrCompliance.js";
 import { carryReviewRequestOverModeration, getReviewRequest } from "./productReviewRequest.js";
 import { getChangeRequest } from "./productChangeRequest.js";
+import { gpsrDeclarationAllowsPublication } from "../lib/gpsrDeclaration.js";
+
+/*
+ * Declarația GPSR per produs (lib/gpsrDeclaration.js): un produs creat după
+ * intrarea în vigoare nu se aprobă automat fără declarația vânzătorului
+ * pentru versiunea și datele curente. Rămâne PENDING, cu motivul de mai jos.
+ */
+export const GPSR_DECLARATION_REASON = "GPSR_DECLARATION_MISSING";
+
+const VENDOR_GPSR_DECLARATION_MESSAGE =
+  "Produsul a fost salvat, dar pentru publicare trebuie să confirmi informațiile privind siguranța produselor (GPSR). Deschide produsul, bifează confirmarea și salvează.";
+
+export function isBlockedOnlyByGpsrDeclaration(aiModeration) {
+  return Boolean(
+    aiModeration &&
+      aiModeration.decision === DECISIONS.NEEDS_ADMIN_REVIEW &&
+      Array.isArray(aiModeration.reasons) &&
+      aiModeration.reasons.length === 1 &&
+      aiModeration.reasons[0] === GPSR_DECLARATION_REASON
+  );
+}
+
+export async function applyGpsrDeclarationGate({ prisma, product, vendor, aiModeration, env }) {
+  if (aiModeration?.decision !== DECISIONS.AUTO_APPROVE) return aiModeration;
+  const allowed = await gpsrDeclarationAllowsPublication(prisma, { product, vendor, env });
+  if (allowed) return aiModeration;
+  return {
+    ...aiModeration,
+    decision: DECISIONS.NEEDS_ADMIN_REVIEW,
+    reasons: [GPSR_DECLARATION_REASON],
+  };
+}
 
 
 export const MODERATION_VERSION = "product-moderation-v1";
@@ -1084,6 +1116,14 @@ export function buildVendorModerationReport(
         images: [],
       };
     }
+    if (isBlockedOnlyByGpsrDeclaration(aiModeration)) {
+      return {
+        decision: DECISIONS.NEEDS_ADMIN_REVIEW,
+        action: "CONFIRM_GPSR",
+        message: VENDOR_GPSR_DECLARATION_MESSAGE,
+        images: [],
+      };
+    }
 
     return {
       decision: DECISIONS.NEEDS_ADMIN_REVIEW,
@@ -1125,13 +1165,19 @@ export async function moderateSavedProduct({
         .then((row) => row?.service?.vendor ?? null)
         .catch(() => null));
 
-    const aiModeration = await runProductModeration({
+    const aiModeration = await applyGpsrDeclarationGate({
+      prisma,
       product,
-      previous,
-      previouslyRejectedByAdmin,
       vendor,
-      client,
       env,
+      aiModeration: await runProductModeration({
+        product,
+        previous,
+        previouslyRejectedByAdmin,
+        vendor,
+        client,
+        env,
+      }),
     });
 
     // solicitarea de modificări a adminului (services/productChangeRequest.js)
@@ -1259,8 +1305,11 @@ export async function reevaluateVendorGpsrBlockedProducts({ prisma, vendorId, en
   const approved = [];
 
   for (const product of candidates) {
-    const aiModeration = canAutoApproveAfterVendorGpsr(product, vendor);
-    if (!aiModeration) continue;
+    const candidate = canAutoApproveAfterVendorGpsr(product, vendor);
+    if (!candidate) continue;
+    // fără declarația GPSR curentă (datele centrale tocmai s-au schimbat) -> rămâne PENDING
+    const aiModeration = await applyGpsrDeclarationGate({ prisma, product, vendor, aiModeration: candidate, env });
+    if (aiModeration.decision !== DECISIONS.AUTO_APPROVE) continue;
 
     const { count } = await prisma.product.updateMany({
       where: { id: product.id, moderationStatus: "PENDING", updatedAt: product.updatedAt },

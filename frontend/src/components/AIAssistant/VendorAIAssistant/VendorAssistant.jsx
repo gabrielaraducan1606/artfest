@@ -9,6 +9,12 @@ import React, {
 
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { useAuth } from "../../../pages/Auth/Context/context.js";
+import {
+  openSmartListing,
+  smartListingAccessFor,
+} from "../../../features/smartListing/smartListingAccess.js";
+
 import styles from "../AiAssistant.module.css";
 
 import { derivePageContext } from "../derivePageContext.js";
@@ -975,6 +981,7 @@ export default function VendorAssistant({
 } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { me } = useAuth();
 
   const {
     currentEntity: announcedEntity,
@@ -1958,7 +1965,28 @@ const [
      * sesiune de calculator anterioară, abandonată.
      */
     costingLink = null,
+
+    /*
+     * Fluxuri care au deja date în asistent (fotografii încărcate în
+     * conversație, costing, ciornă): rămân în wizard, ca să nu se piardă.
+     */
+    keepInAssistant = false,
   } = {}) {
+    // local (flag activ): crearea simplă trece prin Smart Listing
+    if (
+      import.meta.env.DEV &&
+      !keepInAssistant &&
+      !draftOverrides &&
+      !costingLink &&
+      smartListingAccessFor(me).canSave
+    ) {
+      setShowMenu(false);
+      setIsOpen(false);
+      if (embedded) onClose?.();
+      openSmartListing();
+      return;
+    }
+
     setActiveFlow(
       VENDOR_PRODUCT_FLOWS.ADD_PRODUCT
     );
@@ -3792,7 +3820,7 @@ if (resetBatch) {
           )
         );
 
-        openAddProductWizard();
+        openAddProductWizard({ keepInAssistant: true });
         return;
 
       case "Renunță":

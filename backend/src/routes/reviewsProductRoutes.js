@@ -4,7 +4,12 @@ import multer from "multer";
 import crypto from "crypto";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "../db.js";
+import { publicProductWhere } from "../services/collectionProducts.js";
 import { authRequired, optionalAuth } from "../api/auth.js";
+import {
+  CustomizationImageError,
+  processSafeImage,
+} from "../services/customizationImage.js";
 import {
   notifyVendorOnProductReviewCreated,
   notifyUserOnProductReviewReply, // notifică clientul când vendor răspunde la review produs
@@ -346,6 +351,36 @@ router.post(
         return res.status(400).json({ error: "invalid_rating" });
       }
 
+      /*
+       * Imaginile ajung pe domeniul public R2: doar fotografii reale,
+       * verificate după conținut și re-encodate JPEG (fără HTML/SVG/XML,
+       * fără EXIF/GPS). Înainte se urca fișierul brut cu Content-Type-ul
+       * trimis de client. Validăm ÎNAINTE de a salva recenzia.
+       */
+      const processedImages = [];
+
+      for (const file of req.files || []) {
+        try {
+          processedImages.push({
+            name: file.originalname || "image.jpg",
+            image: await processSafeImage(file.buffer),
+          });
+        } catch (imageError) {
+          if (imageError instanceof CustomizationImageError) {
+            if (imageError.retryAfterSeconds) {
+              res.setHeader("Retry-After", String(imageError.retryAfterSeconds));
+            }
+
+            return res.status(imageError.status).json({
+              error: imageError.code,
+              message: imageError.message,
+            });
+          }
+
+          throw imageError;
+        }
+      }
+
       // mic rate-limit: max 10 recenzii / 24h
       const since = new Date(Date.now() - 24 * 3600 * 1000);
       const count24h = await prisma.review.count({
@@ -394,6 +429,21 @@ router.post(
           createdAt: true,
         },
       });
+
+      /*
+       * Un produs nepublic nu primește recenzii noi prin ID. Excepții: cumpărătorul
+       * verificat, care poate recenza un produs dezactivat între timp, și actualizarea
+       * unei recenzii existente. Același răspuns ca pentru un ID inexistent.
+       */
+      if (!hasCompleted && !existing) {
+        const isPublic = await prisma.product.findFirst({
+          where: { id: productId, ...publicProductWhere() },
+          select: { id: true },
+        });
+        if (!isPublic) {
+          return res.status(404).json({ error: "product_not_found" });
+        }
+      }
 
       const now = new Date();
       let saved;
@@ -494,22 +544,22 @@ router.post(
       }
 
       // gestionare imagini – ștergem vechile și urcăm noile imagini în R2
-      if (req.files && req.files.length) {
+      if (processedImages.length) {
         // ștergem referințele vechi din DB (nu și din R2 – cleanup separat, dacă vrei)
         await prisma.reviewImage.deleteMany({ where: { reviewId: saved.id } });
 
         const uploaded = [];
 
-        for (const file of req.files) {
-          if (!file.buffer || !R2_BUCKET_NAME) continue;
+        for (const { name, image } of processedImages) {
+          if (!R2_BUCKET_NAME) continue;
 
-          const key = makeR2Key(saved.id, file.originalname || "image.jpg");
+          const key = makeR2Key(saved.id, name.replace(/\.[^.]*$/, "") + ".jpg");
 
           const putCmd = new PutObjectCommand({
             Bucket: R2_BUCKET_NAME,
             Key: key,
-            Body: file.buffer,
-            ContentType: file.mimetype || "image/jpeg",
+            Body: image.buffer,
+            ContentType: "image/jpeg",
           });
 
           try {
@@ -879,6 +929,9 @@ router.get("/reviews/my", authRequired, async (req, res) => {
               id: true,
               title: true,
               images: true,
+              isActive: true,
+              isHidden: true,
+              moderationStatus: true,
             },
           },
           images: { select: { url: true } },
@@ -886,18 +939,27 @@ router.get("/reviews/my", authRequired, async (req, res) => {
       }),
     ]);
 
-    const mapped = items.map((r) => ({
-      id: r.id,
-      createdAt: r.createdAt,
-      rating: r.rating,
-      text: r.comment || "",
-      productTitle: r.product?.title || "Produs",
-      productUrl: r.product ? `/produs/${r.product.id}` : null,
-      image:
-        (r.images && r.images[0]?.url) ||
-        (Array.isArray(r.product?.images) ? r.product.images[0] : null) ||
-        null,
-    }));
+    const mapped = items.map((r) => {
+      // recenzia rămâne; datele unui produs nepublic se văd doar dacă a fost cumpărat
+      const product =
+        r.verified ||
+        (r.product?.isActive && !r.product?.isHidden && r.product?.moderationStatus === "APPROVED")
+          ? r.product
+          : null;
+
+      return {
+        id: r.id,
+        createdAt: r.createdAt,
+        rating: r.rating,
+        text: r.comment || "",
+        productTitle: product?.title || "Produs",
+        productUrl: product ? `/produs/${product.id}` : null,
+        image:
+          (r.images && r.images[0]?.url) ||
+          (Array.isArray(product?.images) ? product.images[0] : null) ||
+          null,
+      };
+    });
 
     res.json({ total, page, limit, items: mapped });
   } catch (e) {
@@ -1035,25 +1097,43 @@ router.get("/product-comments/my", authRequired, async (req, res) => {
         skip,
         take: limit,
         include: {
-          product: { select: { id: true, title: true, images: true } },
+          product: {
+            select: {
+              id: true,
+              title: true,
+              images: true,
+              isActive: true,
+              isHidden: true,
+              moderationStatus: true,
+            },
+          },
           images: { select: { url: true } },
         },
       }),
     ]);
 
-    const mapped = items.map((r) => ({
-      id: r.id,
-      createdAt: r.createdAt,
-      rating: r.rating,
-      text: r.comment || "",
-      productTitle: r.product?.title || "Produs",
-      productUrl: r.product ? `/produs/${r.product.id}` : null,
-      image:
-        (r.images && r.images[0]?.url) ||
-        (Array.isArray(r.product?.images) ? r.product.images[0] : null) ||
-        null,
-      kind: "PRODUCT_COMMENT",
-    }));
+    const mapped = items.map((r) => {
+      // ca la /reviews/my: datele unui produs nepublic se văd doar dacă a fost cumpărat
+      const product =
+        r.verified ||
+        (r.product?.isActive && !r.product?.isHidden && r.product?.moderationStatus === "APPROVED")
+          ? r.product
+          : null;
+
+      return {
+        id: r.id,
+        createdAt: r.createdAt,
+        rating: r.rating,
+        text: r.comment || "",
+        productTitle: product?.title || "Produs",
+        productUrl: product ? `/produs/${product.id}` : null,
+        image:
+          (r.images && r.images[0]?.url) ||
+          (Array.isArray(product?.images) ? product.images[0] : null) ||
+          null,
+        kind: "PRODUCT_COMMENT",
+      };
+    });
 
     res.json({ total, page, limit, items: mapped });
   } catch (e) {

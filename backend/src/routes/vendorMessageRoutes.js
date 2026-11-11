@@ -9,6 +9,12 @@ import {
   moderateMarketplaceMessage,
   moderateMarketplaceImage,
 } from "../services/marketplaceMessageModeration.js";
+import {
+  attachmentProxyHeaders,
+  messageAttachmentErrorResponse,
+  messageUploadGuard,
+  prepareMessageAttachments,
+} from "../services/messageAttachmentImage.js";
 import multer from "multer";
 import crypto from "crypto";
 import path from "path";
@@ -21,6 +27,7 @@ import {
   assertChatQuotaOrThrow,
   bumpChatUsage,
 } from "../middleware/chatGuards.js";
+import { attachProductContext, isQuotaExemptThread } from "../lib/productContact.js";
 
 const router = express.Router();
 
@@ -689,6 +696,8 @@ router.get("/threads", async (req, res) => {
       };
     });
 
+    await attachProductContext(prisma, items);
+
     return res.json({ items });
   }
 
@@ -1053,6 +1062,8 @@ const quoteRequest =
     };
   });
 
+ const [productCtx] = await attachProductContext(prisma, [{ id: thread.id }]);
+
  return res.json({
   items,
 
@@ -1062,6 +1073,11 @@ const quoteRequest =
 
   threadMeta: {
     id: thread.id,
+
+    // „Întreabă vânzătorul”: produsul și motivul (doar date publice ale produsului)
+    product: productCtx?.product || null,
+    contactReason: productCtx?.contactReason || null,
+    contactReasonLabel: productCtx?.contactReasonLabel || null,
 
     storeId:
       thread.serviceId ||
@@ -1405,10 +1421,15 @@ if (
     });
 }
 
-    const quotaErr = await assertChatQuotaOrThrow({
-      vendorId,
-      subscription: req.subscription,
-    });
+    // Sesizări de siguranță (Întreabă vânzătorul): răspunsul nu consumă și nu e blocat de cota lunară.
+    const quotaExempt = await isQuotaExemptThread(prisma, { threadId: id, vendorId });
+
+    const quotaErr = quotaExempt
+      ? null
+      : await assertChatQuotaOrThrow({
+          vendorId,
+          subscription: req.subscription,
+        });
 
     if (quotaErr) return res.status(quotaErr.status).json(quotaErr.payload);
 
@@ -1467,7 +1488,9 @@ if (
           },
         });
 
-        await bumpChatUsage({ tx, vendorId, incSent: 1 });
+        if (!quotaExempt) {
+          await bumpChatUsage({ tx, vendorId, incSent: 1 });
+        }
 
         return { thread, msg };
       });
@@ -1885,6 +1908,7 @@ router.post(
   "/threads/:id/attachments",
   requireActiveSubscriptionForChat(),
   requireChatEntitlement({ attachments: true }),
+  messageUploadGuard,
   upload.array("files", 10),
   async (req, res) => {
     const vendorId = await getVendorIdForUser(req);
@@ -1933,12 +1957,26 @@ router.post(
 
     const files = Array.isArray(req.files) ? req.files : [];
     if (!files.length) return res.status(400).json({ error: "no_files" });
-    for (const file of files) {
+    // imagini verificate după conținut, re-encodate JPEG, fără EXIF/GPS -
+    // moderarea și R2 primesc versiunea curată
+    let prepared;
+    try {
+      prepared = await prepareMessageAttachments(files);
+    } catch (error) {
+      const rejected = messageAttachmentErrorResponse(error);
+      if (!rejected) {
+        console.error("message attachment prepare error:", error);
+        return res.status(500).json({ error: "server_error" });
+      }
+      if (rejected.retryAfterSeconds) res.setHeader("Retry-After", String(rejected.retryAfterSeconds));
+      return res.status(rejected.status).json(rejected.body);
+    }
+    for (const file of prepared) {
   const moderation =
     await moderateMarketplaceImage({
       buffer: file.buffer,
-      mimeType: file.mimetype,
-      filename: file.originalname,
+      mimeType: file.mime,
+      filename: file.filename,
       senderType: "VENDOR",
     });
 
@@ -2030,8 +2068,8 @@ if (attachmentQuotaErr) {
 
         const createdAttachments = [];
 
-        for (const f of files) {
-          const originalName = safeFilename(f.originalname || "file");
+        for (const f of prepared) {
+          const originalName = safeFilename(f.filename);
           const ext = extOf(originalName);
           const rnd = crypto.randomBytes(10).toString("hex");
 
@@ -2040,7 +2078,7 @@ if (attachmentQuotaErr) {
           await uploadToR2({
             key,
             buffer: f.buffer,
-            contentType: f.mimetype,
+            contentType: f.mime,
           });
 
           const url = publicUrlForKey(key);
@@ -2051,7 +2089,7 @@ if (attachmentQuotaErr) {
               filename: originalName,
               url,
               size: typeof f.size === "number" ? f.size : null,
-              mime: f.mimetype || null,
+              mime: f.mime,
             },
             select: {
               id: true,
@@ -2175,16 +2213,11 @@ if (!canAccess) {
     if (!upstream.ok || !upstream.body) return res.status(502).json({ error: "upstream_failed" });
 
     const filename = att.filename || "atasament";
-    const contentType =
-      att.mime || upstream.headers.get("content-type") || "application/octet-stream";
-
     const forceDownload = req.query.download === "1" || req.query.download === "true";
 
-    res.setHeader("Content-Type", contentType);
-    res.setHeader(
-      "Content-Disposition",
-      `${forceDownload ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(filename)}`
-    );
+    // inline doar imagini raster; orice alt MIME (atașamente vechi) se descarcă
+    const headers = attachmentProxyHeaders({ mime: att.mime, filename, forceDownload });
+    for (const [name, value] of Object.entries(headers)) res.setHeader(name, value);
 
     const len = upstream.headers.get("content-length");
     if (len) res.setHeader("Content-Length", len);

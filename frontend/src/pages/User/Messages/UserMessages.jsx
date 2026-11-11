@@ -26,6 +26,7 @@ import { useMessageThreads } from "../../../features/messages/hooks/useMessageTh
 import { useThreadMessages } from "../../../features/messages/hooks/useThreadMessages";
 import { useMessageSend } from "../../../features/messages/hooks/useMessageSend";
 import MessageBubble from "../../../features/messages/components/MessageBubble";
+import ProductContactBadge from "../../../features/messages/components/ProductContactBadge.jsx";
 import { quoteRequestTitle } from "../../../features/quotes/conversationOffer.js";
 import {
   nowIso,
@@ -820,6 +821,15 @@ export default function UserMessagesPage() {
                       <span className={styles.threadTime}>{fmtTime(t.lastAt)}</span>
                     </div>
 
+                    {!Array.isArray(t.threads) && (t.product || t.contactReason) ? (
+                      <ProductContactBadge
+                        compact
+                        product={t.product}
+                        contactReason={t.contactReason}
+                        contactReasonLabel={t.contactReasonLabel}
+                      />
+                    ) : null}
+
                     <div className={styles.threadRowBottom}>
                       <span className={styles.threadLastMsg}>{lastMsg}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -873,6 +883,15 @@ export default function UserMessagesPage() {
                             {" · "}Comanda {shortOrderId(activeThread.orderSummary)}
                           </span>
                         )}
+                      {(activeThread?.product || activeThread?.contactReason) ? (
+                        <div>
+                          <ProductContactBadge
+                            product={activeThread.product}
+                            contactReason={activeThread.contactReason}
+                            contactReasonLabel={activeThread.contactReasonLabel}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                     {current.phone && <div className={styles.peerSub}>{current.phone}</div>}
                     <div className={styles.peerSub}>

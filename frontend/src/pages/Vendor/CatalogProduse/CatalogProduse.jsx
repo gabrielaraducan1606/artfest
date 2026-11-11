@@ -12,6 +12,11 @@ import {
 
 import styles from "./CatalogProduse.module.css";
 import CatalogImports from "./imports/CatalogImports.jsx";
+import { useAuth } from "../../Auth/Context/context.js";
+import {
+  openSmartListing,
+  smartListingAccessFor,
+} from "../../../features/smartListing/smartListingAccess.js";
 /*
  * ProductModal (vechiul editor, cu propriul <Modal>) rămâne intact
  * ca fallback - nu mai e montat de mai jos (înlocuit de
@@ -114,6 +119,7 @@ const IMPORT_SOURCES = [
 export default function CatalogProdusePage() {
   const navigate =
     useNavigate();
+  const { me } = useAuth();
 
   /* =======================================================
      TAB
@@ -1214,6 +1220,16 @@ async function duplicateProduct(
     return [];
   }
 async function openNewProduct() {
+  // local (flag activ): crearea trece prin Smart Listing; editarea rămâne neschimbată
+  if (import.meta.env.DEV && smartListingAccessFor(me).canSave) {
+    openSmartListing(
+      defaultStoreSlug ||
+        (productStores.length === 1 ? productStores[0]?.slug : "") ||
+        ""
+    );
+    return;
+  }
+
   try {
     await loadProductCategories();
 

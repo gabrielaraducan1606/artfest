@@ -233,8 +233,20 @@ before(async () => {
   });
 
   const actualMailer = await import("../lib/mailer.js");
+  // mailer simulat complet: toate funcțiile send* sunt no-op, iar makeTransport e blocat -
+  // niciun email (Resend / SMTP) nu poate pleca din test, indiferent de .env
+  const mailerStub = Object.fromEntries(
+    Object.entries(actualMailer).map(([name, value]) => [
+      name,
+      name === "makeTransport"
+        ? () => { throw new Error("mailer transport blocat în test"); }
+        : typeof value === "function" && name.startsWith("send")
+          ? async () => {}
+          : value,
+    ])
+  );
   reg("../lib/mailer.js", {
-    namedExports: { ...actualMailer, sendOrderConfirmationEmail: async () => {}, sendVendorNewOrderEmail: async () => {} },
+    namedExports: { ...mailerStub, sendOrderConfirmationEmail: async () => {}, sendVendorNewOrderEmail: async () => {} },
   });
   const actualNotifications = await import("../services/notifications.js");
   reg("../services/notifications.js", {
@@ -732,4 +744,48 @@ test("earning / ledger: rebooking repetat -> câte un singur SALE per shipment, 
   assert.equal((db.__tables.vendorEarningEntry || []).length, 2);
   assert.equal((db.__tables.influencerEarningEntry || []).length, 0);
   assert.equal((db.__tables.vendorReferralEarningEntry || []).length, 0);
+});
+
+/* ---------- stoc (services/inventory/inventoryService.js) ---------- */
+
+for (const [label, place, paymentMethod] of [
+  ["guest COD", () => placeGuest, "COD"],
+  ["guest CARD", () => placeGuest, "CARD"],
+  ["user COD", () => placeUser, "COD"],
+  ["user CARD", () => placeUser, "CARD"],
+]) {
+  test(`stoc: ${label} -> readyQty scade exact și fiecare linie are un singur ORDER_PLACED`, async () => {
+    const product = () => db.__tables.product.find((p) => p.id === "p-a1");
+    const before = product().readyQty;
+
+    const res = await place()({ items: [{ productId: "p-a1", qty: 2 }], paymentMethod });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(product().readyQty, before - 2);
+
+    const items = (db.__tables.shipmentItem || []).filter((i) => i.productId === "p-a1");
+    const moves = db.__tables.inventoryMovement || [];
+    assert.equal(items.length, 1);
+    const placed = moves.filter((m) => m.shipmentItemId === items[0].id);
+    assert.equal(placed.length, 1);
+    assert.deepEqual(
+      [placed[0].reason, placed[0].target, placed[0].delta, placed[0].variantId, placed[0].qtyBefore, placed[0].qtyAfter],
+      ["ORDER_PLACED", "PRODUCT", -2, null, before, before - 2]
+    );
+    assert.equal(placed[0].idempotencyKey, `order-item:${items[0].id}:placed`);
+    assert.equal(placed[0].shipmentId, items[0].shipmentId);
+    // produsele fără stoc pe variante: linia de comandă rămâne exact ca înainte
+    assert.ok(!("variantIdSnapshot" in items[0]));
+  });
+}
+
+test("stoc: cantitate peste stoc -> 409 insufficient_stock, nimic scăzut, nicio comandă", async () => {
+  const product = db.__tables.product.find((p) => p.id === "p-a1");
+  product.readyQty = 1;
+  const ordersBefore = (db.__tables.order || []).length;
+
+  const res = await placeGuest({ items: [{ productId: "p-a1", qty: 2 }] });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.error, "insufficient_stock");
+  assert.equal(product.readyQty, 1);
+  assert.equal((db.__tables.order || []).length, ordersBefore);
 });

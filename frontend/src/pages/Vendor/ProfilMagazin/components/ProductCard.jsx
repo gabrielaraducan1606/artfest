@@ -27,6 +27,7 @@ import {
 } from "../../../../components/utils/imageFallback";
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { api } from "../../../../lib/api";
+import { useSamedayShipping } from "../../../../utils/useSamedayShipping.js";
 import { addToGuestCart } from "../../../../utils/guestCart";
 import { trackAddToCart } from "../../../../../services/analytics.js";
 import {
@@ -355,6 +356,12 @@ promoLabel:
     safe.repeatedGroups.length > 0;
 
   const isQuoteOnly = safe.orderMode === "QUOTE_ONLY";
+
+  // fără greutatea coletului, transportul Sameday nu se poate calcula
+  // (checkout-ul folosește tariful de rezervă) - doar pentru proprietar
+  const samedayShipping = useSamedayShipping();
+  const showShippingWeightMissing =
+    viewMode === "vendor" && samedayShipping && !isQuoteOnly && p?.shippingWeightMissing === true;
 
   const href = safe.id
   ? `/produs/${safe.id}${linkQuery ? `?${linkQuery}` : ""}`
@@ -954,6 +961,15 @@ const handleCart = useCallback(
           {viewMode === "vendor" && p?.gpsrComplete === false && (
             <span className={`${styles.badge} ${styles.badgeWarning}`}>
               Informații de siguranță incomplete
+            </span>
+          )}
+
+          {showShippingWeightMissing && (
+            <span
+              className={`${styles.badge} ${styles.badgeWarning}`}
+              title="Până completezi greutatea coletului, transportul se calculează cu tariful de rezervă al magazinului."
+            >
+              Lipsește greutatea coletului
             </span>
           )}
         </div>

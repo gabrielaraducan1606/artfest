@@ -48,6 +48,8 @@ import {
   getPriceDisplayMode,
 } from "./hooks/priceDisplayMode.js";
 import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
+import CustomizationPhotoUpload from "./components/CustomizationPhotoUpload.jsx";
+import AskSeller from "./components/AskSeller/AskSeller.jsx";
 /*
  * Helper comun cu feed-ul Google Shopping (backend/src/routes/
  * googleShoppingFeed.js): același color/material/categorie/imagini în
@@ -481,6 +483,17 @@ const [
   setUploadingCustomization,
 ] = useState({});
 
+const isCustomizationUploading = Object.values(
+  uploadingCustomization
+).some(Boolean);
+
+/*
+ * Produsul pentru care rulează un upload de personalizare. Un rezultat
+ * care sosește după ce clientul a trecut pe alt produs este ignorat
+ * (altfel fotografia ar ajunge în personalizarea produsului nou).
+ */
+const customizationProductIdRef = useRef(null);
+
 const [selectedOptions, setSelectedOptions] = useState({});
 const [customAnswers, setCustomAnswers] = useState({});
 const [customizationOpen, setCustomizationOpen] = useState(false);
@@ -666,6 +679,7 @@ setFavorites(new Set());
     setSelectedOptions({});
 setCustomAnswers({});
 setRepeatedGroupAnswers({});
+setUploadingCustomization({});
     setCustomizationOpen(false);
     setValidationErrors({});
   }, [id]);
@@ -1636,6 +1650,10 @@ const { me: sessionMe, loading: sessionLoading } = useAuth() || {};
 const pendingQuoteRequestRef = useRef(false);
 
 const onRequestQuote = useCallback(() => {
+  if (isCustomizationUploading) {
+    return;
+  }
+
   const currentUser = me || sessionMe || null;
 
   if (!currentUser && sessionLoading) {
@@ -1720,6 +1738,7 @@ const onRequestQuote = useCallback(() => {
     )
   );
 }, [
+  isCustomizationUploading,
   product,
   isOwner,
   me,
@@ -1900,7 +1919,8 @@ const onAddToCart = useCallback(async () => {
     !product ||
     isOwner ||
     adding ||
-    isSoldOut
+    isSoldOut ||
+    isCustomizationUploading
   ) {
     return;
   }
@@ -2275,6 +2295,7 @@ alert(
     setAdding(false);
   }
 }, [
+  isCustomizationUploading,
   product,
   isOwner,
   adding,
@@ -2994,6 +3015,9 @@ useEffect(() => {
                 "Ai atins limita de recenzii. Poți trimite maximum 10 recenzii la 24 de ore.";
             } else if (err?.error === "cannot_review_own_product") {
               msg = "Nu poți lăsa recenzie pentru propriul produs.";
+            } else if (typeof err?.message === "string" && err.message) {
+              // ex. fotografie respinsă (format / rezoluție / server ocupat)
+              msg = err.message;
             }
           } catch {
             /* ignore */
@@ -3281,71 +3305,42 @@ const uploadFile = useCallback(async (f) => {
   return data.url;
 }, []);
 
-const uploadCustomizationFile = useCallback(
-  async (file, uploadKey) => {
-    if (!file) {
-      return null;
-    }
+useEffect(() => {
+  customizationProductIdRef.current =
+    product?.id ?? null;
+}, [product?.id]);
 
-    setUploadingCustomization(
-      (current) => ({
-        ...current,
-        [uploadKey]: true,
-      })
-    );
+/*
+ * Legătura dintre CustomizationPhotoUpload și starea paginii. Valoarea
+ * salvată rămâne un singur URL (string), exact ca înainte.
+ */
+const customizationUploadHandlers = useCallback(
+  (uploadKey, applyUrl) => {
+    const productId = product?.id ?? null;
+    const isCurrent = () =>
+      customizationProductIdRef.current === productId;
 
-    try {
-      const fd = new FormData();
+    return {
+      onBusyChange: (busy) => {
+        if (!isCurrent()) return;
 
-      fd.append("file", file);
+        setUploadingCustomization((current) => {
+          if (busy) {
+            return { ...current, [uploadKey]: true };
+          }
 
-      const res = await fetch(
-        "/api/upload/customization",
-        {
-          method: "POST",
-          body: fd,
-          credentials: "include",
-        }
-      );
-
-      if (!res.ok) {
-        let message =
-          "Nu am putut încărca poza.";
-
-        try {
-          const error =
-            await res.json();
-
-          message =
-            error?.message ||
-            message;
-        } catch {
-          // ignore
-        }
-
-        throw new Error(message);
-      }
-
-      const data =
-        await res.json();
-
-      if (!data?.url) {
-        throw new Error(
-          "Upload-ul nu a returnat imaginea."
-        );
-      }
-
-      return data.url;
-    } finally {
-      setUploadingCustomization(
-        (current) => ({
-          ...current,
-          [uploadKey]: false,
-        })
-      );
-    }
+          const next = { ...current };
+          delete next[uploadKey];
+          return next;
+        });
+      },
+      onUploaded: (url) => {
+        if (!isCurrent()) return;
+        applyUrl(url);
+      },
+    };
   },
-  []
+  [product?.id]
 );
 
  const openEditModal = useCallback(async () => {
@@ -4552,130 +4547,36 @@ const isUploading =
                   )}
 
                  {isImageField ? (
-  <div>
-    <input
-      type="file"
-      accept="image/*"
-      className={
-        styles.customizationInput
+  <CustomizationPhotoUpload
+    key={`${product?.id || ""}:${uploadKey}`}
+    label={field.label || "Fotografie"}
+    value={value}
+    required={!!field.required}
+    invalid={!!validationErrors[`custom:${field.key}`]}
+    externalBusy={isUploading}
+    {...customizationUploadHandlers(
+      uploadKey,
+      (url) => {
+        setCustomAnswers((current) => ({
+          ...current,
+          [field.key]: url,
+        }));
+
+        setValidationErrors((current) => {
+          const next = { ...current };
+          delete next[`custom:${field.key}`];
+          return next;
+        });
       }
-      disabled={isUploading}
-      onChange={async (event) => {
-        const file =
-          event.target.files?.[0];
-
-        if (!file) {
-          return;
-        }
-
-        try {
-          const url =
-            await uploadCustomizationFile(
-              file,
-              uploadKey
-            );
-
-          if (!url) {
-            return;
-          }
-
-          setCustomAnswers(
-            (current) => ({
-              ...current,
-              [field.key]: url,
-            })
-          );
-
-          setValidationErrors(
-            (current) => {
-              const next = {
-                ...current,
-              };
-
-              delete next[
-                `custom:${field.key}`
-              ];
-
-              return next;
-            }
-          );
-        } catch (error) {
-          setValidationErrors(
-            (current) => ({
-              ...current,
-              [`custom:${field.key}`]:
-                error?.message ||
-                "Nu am putut încărca poza.",
-            })
-          );
-        }
-      }}
-    />
-
-    {isUploading && (
-      <p
-        className={
-          styles.customizationHint
-        }
-      >
-        Se încarcă poza...
-      </p>
     )}
-
-    {!isUploading &&
-      value && (
-        <div
-          style={{
-            marginTop: 10,
-          }}
-        >
-          <img
-            src={value}
-            alt="Poză pentru personalizare"
-            style={{
-              width: 100,
-              height: 100,
-              objectFit:
-                "cover",
-              borderRadius: 10,
-            }}
-          />
-
-          <p
-            className={
-              styles.customizationHint
-            }
-          >
-            ✓ Poza a fost
-            încărcată
-          </p>
-
-          <button
-            type="button"
-            className={
-              styles.linkBtn
-            }
-            onClick={() => {
-              setCustomAnswers(
-                (current) => {
-                  const next = {
-                    ...current,
-                  };
-
-                  delete next[
-                    field.key
-                  ];
-
-                  return next;
-                }
-              );
-            }}
-          >
-            Schimbă poza
-          </button>
-        </div>
-      )}
-  </div>
+    onRemove={() => {
+      setCustomAnswers((current) => {
+        const next = { ...current };
+        delete next[field.key];
+        return next;
+      });
+    }}
+  />
 ) : fieldType === "textarea" ? (
   <textarea
     value={value}
@@ -4884,6 +4785,7 @@ const isUploading =
                     className={
                       styles.linkBtn
                     }
+                    disabled={isCustomizationUploading}
                     onClick={() =>
                       removeRepeatedItem(
                         group,
@@ -4921,6 +4823,14 @@ const isUploading =
                   const errorKey =
                     `repeated:${groupKey}:${itemIndex}:${field.key}`;
 
+                  const isImageField =
+                    ["image", "photo", "file"].includes(
+                      String(fieldType).toLowerCase()
+                    );
+
+                  const uploadKey =
+                    `repeated:${groupKey}:${itemIndex}:${field.key}`;
+
                   return (
                   <div
   key={`${groupKey}-${field.key || field.label || "field"}-${fieldIndex}`}
@@ -4954,7 +4864,34 @@ const isUploading =
                         )}
                       </label>
 
-                      {values.length >
+                      {isImageField ? (
+                        <CustomizationPhotoUpload
+                          key={`${product?.id || ""}:${uploadKey}`}
+                          label={field.label || "Fotografie"}
+                          value={typeof value === "string" ? value : ""}
+                          required={field.required !== false}
+                          invalid={!!validationErrors[errorKey]}
+                          externalBusy={!!uploadingCustomization[uploadKey]}
+                          {...customizationUploadHandlers(
+                            uploadKey,
+                            (url) =>
+                              updateRepeatedItemField(
+                                group,
+                                itemIndex,
+                                field.key,
+                                url
+                              )
+                          )}
+                          onRemove={() =>
+                            updateRepeatedItemField(
+                              group,
+                              itemIndex,
+                              field.key,
+                              ""
+                            )
+                          }
+                        />
+                      ) : values.length >
                       0 ? (
                         <select
                           className={
@@ -5150,11 +5087,14 @@ const isUploading =
           onClick={addToCartAny}
           disabled={
             adding ||
-            isSoldOut
+            isSoldOut ||
+            isCustomizationUploading
           }
           title={
             isSoldOut
               ? "Stoc epuizat"
+              : isCustomizationUploading
+                ? "Se încarcă fotografia…"
               : adding
                 ? "Se adaugă…"
                 : hasOrderOptions &&
@@ -5167,6 +5107,8 @@ const isUploading =
           <FaShoppingCart />{" "}
           {isSoldOut
             ? "Stoc epuizat"
+            : isCustomizationUploading
+              ? "Se încarcă fotografia…"
             : adding
               ? "Se adaugă…"
               : "Adaugă în coș"}
@@ -5180,10 +5122,30 @@ const isUploading =
             : styles.secondaryQuoteBtn
         }
         onClick={onRequestQuote}
+        disabled={isCustomizationUploading}
         type="button"
       >
         <MagicIcon /> Cere ofertă
       </button>
+
+      {/* „Ai întrebări? Întreabă vânzătorul” - secundar, sub acțiunea principală (cumpărare / ofertă) */}
+      <AskSeller
+        productId={product?.id}
+        productTitle={product?.title}
+        storeName={
+          product?.service?.profile?.displayName ||
+          product?.vendor?.displayName ||
+          ""
+        }
+        isAuthenticated={Boolean(me || sessionMe)}
+        authLoading={!me && !sessionMe && Boolean(sessionLoading)}
+      />
+
+      {isCustomizationUploading && (
+        <p className={styles.quoteHint} role="status">
+          Așteaptă să se termine încărcarea fotografiei.
+        </p>
+      )}
 
       {!isQuoteOnly && (
         <p className={styles.quoteHint}>

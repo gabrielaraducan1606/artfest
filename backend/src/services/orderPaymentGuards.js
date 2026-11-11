@@ -17,6 +17,10 @@
 import { prisma as defaultPrisma } from "../db.js";
 import { stripe as defaultStripe } from "../lib/stripe.js";
 
+// emailul se încarcă la nevoie (modulul e importat de multe rute de comenzi)
+const defaultSendRefundEmail = async (args) =>
+  (await import("../lib/mailer.js")).sendLatePaymentRefundedEmail(args);
+
 const CANCELLED_SHIPMENT_STATUSES = ["REFUSED", "RETURNED"];
 
 /*
@@ -91,6 +95,7 @@ export async function refundBlockedOrderPayment({
   reason,
   prisma = defaultPrisma,
   stripe = defaultStripe,
+  sendRefundEmail = defaultSendRefundEmail,
 }) {
   const orderId = String(order.id);
 
@@ -139,6 +144,8 @@ export async function refundBlockedOrderPayment({
     }, PaymentIntent ${paymentIntent.id}).`,
   });
 
+  await notifyCustomerOfLateRefund({ prisma, orderId, amountCents: remaining, refundId: refund.id, sendRefundEmail });
+
   return {
     refunded: true,
     alreadyRefunded: false,
@@ -148,29 +155,29 @@ export async function refundBlockedOrderPayment({
 }
 
 /*
- * La anularea unei comenzi CARD încă neplătite, sesiunea Stripe Checkout
- * deschisă (Order.stripeCheckoutSessionId) e expirată, ca plata să nu mai
- * fie posibilă. Non-blocant: dacă sesiunea e deja expirată/finalizată,
- * webhook-ul (refundBlockedOrderPayment) acoperă plata târzie.
- * checkout.session.expired pe o sesiune de comandă nu are efecte asupra
- * comenzii în webhook (handleCheckoutSessionExpired ignoră sesiunile fără
- * pendingVendorSubscriptionId).
+ * Email către client: doar după ce rambursarea a fost creată în Stripe
+ * (un apel repetat găsește charge-ul deja rambursat și nu ajunge aici).
+ * Non-blocant: rambursarea e deja făcută.
  */
-export async function expireOrderCheckoutSession({
-  sessionId,
-  stripe = defaultStripe,
-}) {
-  if (!sessionId) return false;
-
+async function notifyCustomerOfLateRefund({ prisma, orderId, amountCents, refundId, sendRefundEmail }) {
   try {
-    await stripe.checkout.sessions.expire(String(sessionId));
-    return true;
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        orderNumber: true,
+        userId: true,
+        currency: true,
+        customerName: true,
+        customerEmail: true,
+        shippingAddress: true,
+        user: { select: { email: true } },
+      },
+    });
+    const to = order?.user?.email || order?.customerEmail || order?.shippingAddress?.email || null;
+    if (!to) return;
+    await sendRefundEmail({ to, order, amountCents, refundId, userId: order.userId || null });
   } catch (error) {
-    console.warn(
-      "[order payment] checkout session expire failed:",
-      sessionId,
-      error?.message || error
-    );
-    return false;
+    console.error("[order payment] late refund email failed:", orderId, error?.message || error);
   }
 }

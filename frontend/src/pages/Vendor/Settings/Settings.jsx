@@ -14,14 +14,18 @@ import {
   Truck,
   PauseCircle,
   PlayCircle,
+  Crown,
 } from "lucide-react";
 import settingsStyles from "./Settings.module.css";
+import EasyboxLogisticsNote from "../../../components/Courier/EasyboxLogisticsNote.jsx";
+import { shippingSetupAfterSave, shippingSetupWarning } from "./shippingSetupView.js";
 
 import onboardingStyles from "../Onboarding/OnBoardingDetails/OnBoardingDetails.module.css";
 import ProfileTab from "../Onboarding/OnBoardingDetails/tabs/ProfileTabBoarding.jsx";
 import BillingTab from "../Onboarding/OnBoardingDetails/tabs/BillingTab.jsx";
 import PaymentTab from "../Onboarding/OnBoardingDetails/tabs/PaymentTab.jsx";
 import ConnectPayoutsTab from "../Onboarding/OnBoardingDetails/tabs/ConnectPayoutsTab.jsx";
+import VendorSubscriptionPlans from "../Subscription/VendorSubscriptionPlans.jsx";
 
 import MarketingPreferences from "../../User/MarketingPreferences/MarketingPreferences.jsx";
 import CourierSettings from "./couriers/CourierSettings.jsx";
@@ -358,10 +362,10 @@ function ShippingSettings() {
     if (!email) return "Completează emailul pentru retururi.";
     if (!isEmail(email)) return "Emailul pentru retururi nu este valid.";
     if (shippingFee === "" || shippingFee === null || shippingFee === undefined) {
-      return "Completează costul estimativ de livrare.";
+      return "Completează tariful de rezervă pentru transport.";
     }
     if (!Number.isFinite(Number(shippingFee)) || Number(shippingFee) < 0) {
-      return "Costul estimativ de livrare trebuie să fie un număr pozitiv sau 0.";
+      return "Tariful de rezervă pentru transport trebuie să fie un număr pozitiv sau 0.";
     }
     if (
       freeThreshold !== "" &&
@@ -422,6 +426,13 @@ function ShippingSettings() {
       });
 
       setSavedId(serviceId);
+      // starea livrării după salvare (tariful de rezervă e validat obligatoriu mai sus)
+      const savedFeeCents = ronToCents(service.estimatedShippingFeeRon);
+      setServices((prev) =>
+        prev.map((s) =>
+          s.id === serviceId ? { ...s, shippingSetup: shippingSetupAfterSave(s.shippingSetup, savedFeeCents) } : s
+        )
+      );
       setTimeout(() => {
         setSavedId((current) => (current === serviceId ? "" : current));
       }, 2500);
@@ -492,6 +503,7 @@ function ShippingSettings() {
         const error = errors[serviceId];
         const storeName =
           service.profile?.displayName || service.name || "Magazinul meu";
+        const setupWarning = shippingSetupWarning(service.shippingSetup);
 
         return (
           <Section
@@ -511,11 +523,18 @@ function ShippingSettings() {
             }
           >
             <div className={settingsStyles.grid1}>
+              <EasyboxLogisticsNote />
+              {setupWarning ? (
+                <div className={settingsStyles.warn} role="status" data-testid="shipping-setup-incomplete">
+                  <strong>{setupWarning.title}</strong>
+                  <div>{setupWarning.message}</div>
+                </div>
+              ) : null}
               <div className={settingsStyles.title}>Informații de livrare</div>
 
               <div className={settingsStyles.grid2}>
                 <label className={settingsStyles.field}>
-                  <span>Cost estimativ livrare (lei) *</span>
+                  <span>Tarif de rezervă pentru transport (lei) *</span>
                   <input
                     className={settingsStyles.input}
                     type="number"
@@ -529,6 +548,9 @@ function ShippingSettings() {
                     }
                     placeholder="Ex: 25"
                   />
+                  <small className={settingsStyles.hint}>
+                    Se folosește doar dacă tariful Sameday nu poate fi calculat temporar.
+                  </small>
                 </label>
 
                 <label className={settingsStyles.field}>
@@ -867,7 +889,7 @@ export default function SettingsPage() {
     { key: "marketing", label: "Marketing", icon: <Megaphone size={16} /> },
     { key: "security", label: "Securitate", icon: <Shield size={16} /> },
     { key: "billing", label: "Date facturare", icon: <UserIcon size={16} /> },
-    { key: "subscription", label: "Abonament", icon: <UserIcon size={16} /> },
+    { key: "subscription", label: "Abonamentul meu", icon: <Crown size={16} /> },
     { key: "payouts", label: "Încasări Stripe", icon: <CreditCard size={16} /> },
     { key: "danger", label: "Ștergere cont", icon: <Trash2 size={16} /> },
   ];
@@ -1318,7 +1340,11 @@ export default function SettingsPage() {
 
         {!loading && active === "billing" && <EmbeddedOnboarding tab="facturare" />}
 
-        {!loading && active === "subscription" && <EmbeddedOnboarding tab="plata" />}
+        {/*
+          Abonamente BASIC / PRO / BUSINESS (etapa 1 - doar interfață).
+          PaymentTab rămâne neschimbat pentru onboarding.
+        */}
+        {!loading && active === "subscription" && <VendorSubscriptionPlans />}
 
         {!loading && active === "payouts" && <ConnectPayoutsTab />}
 

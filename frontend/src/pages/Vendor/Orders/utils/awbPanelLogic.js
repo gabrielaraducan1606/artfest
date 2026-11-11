@@ -52,6 +52,13 @@ const PICKUP_BLOCKER_CODES = new Set([
   "pickup_postal_code_invalid",
 ]);
 
+// AWB real oprit pe server (COURIER_AWB_LIVE_ENABLED): doar UX - serverul refuză oricum
+export const AWB_LIVE_DISABLED_MESSAGE = "Generarea AWB nu este activată momentan.";
+
+export function isAwbLiveDisabled(preview) {
+  return preview?.awbLiveEnabled === false;
+}
+
 export function isPickupBlocker(b) {
   return PICKUP_BLOCKER_CODES.has(b?.code);
 }
@@ -152,11 +159,68 @@ export function isArtfestLabel(shipment) {
   return typeof shipment?.labelUrl === "string" && shipment.labelUrl.startsWith("/api/vendor/shipments/");
 }
 
-// „Anulează AWB”: serverul decide (awbStatus.canCancel: AWB Artfest activ,
-// coletul nepredat); UI-ul îl mai ascunde după expediere / anularea comenzii
-const AWB_NOT_CANCELLABLE_ORDER_STATUSES = new Set(["shipped", "fulfilled", "cancelled"]);
-export function canCancelArtfestAwb({ awbStatus, orderStatus }) {
-  return awbStatus?.canCancel === true && !AWB_NOT_CANCELLABLE_ORDER_STATUSES.has(String(orderStatus || ""));
+/**
+ * ORIGINEA AWB-ului: generat / gestionat de Artfest (etichetă prin ruta
+ * protejată) vs. setat manual. Nu depinde de starea curentă (anulare în curs,
+ * neconfirmată etc.) - un AWB Artfest rămâne Artfest.
+ */
+export function isArtfestManagedAwb({ awbStatus, shipment }) {
+  return awbStatus?.shipment?.artfestLabel ?? isArtfestLabel(shipment);
+}
+
+/**
+ * „Descarcă / Tipărește eticheta” active DOAR pentru un AWB Artfest confirmat
+ * (număr salvat). AWB în curs / neconfirmat (REQUESTED / UNKNOWN) -> inactiv,
+ * fără apel; după recuperare (CREATED + număr) devine activ automat.
+ */
+export function canDownloadArtfestLabel({ awbStatus, shipment }) {
+  const s = awbStatus?.shipment || {};
+  const awb = s.awb || shipment?.awb;
+  if (!awb) return false;
+  if (awbStatus?.active === "REQUESTED" || awbStatus?.active === "UNKNOWN") return false;
+  // anulare în curs / neconfirmată: AWB-ul poate fi deja anulat la Sameday
+  if (awbStatus?.cancel?.state) return false;
+  return isArtfestManagedAwb({ awbStatus, shipment });
+}
+
+// numele fișierului salvat: doar caractere sigure
+export function labelFileName(awb, fallback = "eticheta") {
+  const safe = String(awb || "").replace(/[^A-Za-z0-9-]/g, "").slice(0, 60);
+  return `AWB-${safe || String(fallback).replace(/[^A-Za-z0-9-]/g, "").slice(0, 60) || "eticheta"}.pdf`;
+}
+
+/*
+ * „Anulează AWB”: DOAR serverul decide (awbStatus.canCancel: AWB Artfest
+ * activ, coletul nepredat, fără anulare în curs / neconfirmată). Rămâne
+ * vizibil și pentru o comandă deja anulată cât AWB-ul e activ la Sameday.
+ */
+export function canCancelArtfestAwb({ awbStatus }) {
+  return awbStatus?.canCancel === true && !awbStatus?.cancel?.state;
+}
+
+export const AWB_CANCEL_UNKNOWN_MESSAGE =
+  "Nu putem confirma încă dacă Sameday a anulat AWB-ul. Verifică din nou mai târziu sau contactează suportul.";
+
+/**
+ * Starea anulării pentru UI (fără retry orb):
+ *   null          -> nimic special;
+ *   "in_progress" -> „Se anulează…” (DELETE trimis, fără buton);
+ *   "unknown"     -> mesaj clar, fără „Anulează AWB”; rezolvă Admin / Sameday.
+ */
+export function awbCancelView(awbStatus) {
+  const state = awbStatus?.cancel?.state;
+  if (state === "IN_PROGRESS") {
+    return { state: "in_progress", message: "Se anulează AWB-ul la Sameday…" };
+  }
+  if (state === "UNKNOWN") {
+    return { state: "unknown", message: awbStatus.cancel.message || AWB_CANCEL_UNKNOWN_MESSAGE };
+  }
+  return null;
+}
+
+// răspunsul de eroare la anulare: anularea incertă / în curs se arată ca stare, nu ca refuz
+export function cancelErrorIsState(code) {
+  return code === "awb_cancel_unknown" || code === "awb_cancel_in_progress";
 }
 
 export function initialAwbForm(preview) {
@@ -370,4 +434,72 @@ export function buildManualShipBody(form) {
   if (awb) manualShipping.awb = awb;
   if (trackingUrl) manualShipping.trackingUrl = trackingUrl;
   return { status: "shipped", manualShipping };
+}
+
+/*
+ * „Ce urmează” după generarea AWB-ului (vendor). Sameday NU întoarce o dată
+ * sau un interval de ridicare la crearea AWB-ului (răspunsul POST /api/awb nu
+ * are astfel de câmpuri) și nu există un pas separat de programare: AWB-ul
+ * creat cu thirdPartyPickup = comanda de ridicare. Deci NU afișăm ore / date
+ * de ridicare - doar starea locală a expedierii (actualizată manual sau de
+ * status-sync, dacă e configurat).
+ */
+export const AWB_WAITING_PICKUP_TITLE = "AWB generat — așteaptă preluarea de către curier";
+
+export function awbPickupStage({ awbStatus, shipment } = {}) {
+  const s = awbStatus?.shipment || {};
+  const status = s.status || shipment?.status || null;
+  const deliveredAt = s.deliveredAt || shipment?.deliveredAt || null;
+  const handedOverAt = s.handedOverAt || shipment?.handedOverAt || null;
+
+  if (status === "DELIVERED" || deliveredAt) {
+    return { stage: "delivered", tone: "success", title: "Colet livrat", message: "Curierul a confirmat livrarea către client.", at: deliveredAt };
+  }
+  if (status === "REFUSED") {
+    return { stage: "refused", tone: "warning", title: "Colet refuzat la livrare", message: "Coletul revine la adresa de ridicare. Echipa Artfest te contactează dacă e nevoie.", at: null };
+  }
+  if (status === "RETURNED") {
+    return { stage: "returned", tone: "warning", title: "Colet returnat", message: "Coletul a fost returnat expeditorului.", at: null };
+  }
+  if (status === "IN_TRANSIT" || handedOverAt) {
+    return { stage: "picked_up", tone: "info", title: "Colet preluat de curier", message: "Coletul este în livrare. Poți urmări traseul cu „Vezi tracking”, dacă e disponibil.", at: handedOverAt };
+  }
+  return {
+    stage: "waiting_pickup",
+    tone: "info",
+    title: AWB_WAITING_PICKUP_TITLE,
+    message:
+      "Descarcă și tipărește eticheta, lipește-o pe colet și ține coletul pregătit la adresa de ridicare. " +
+      "Curierul Sameday vine la adresa de pe AWB; ziua și ora exactă nu sunt comunicate de Sameday la generare.",
+    at: null,
+  };
+}
+
+// pașii afișați în panou: generat -> preluat -> livrat (refuz / retur = oprit la „preluat”)
+export function awbProgressSteps(stage) {
+  const order = ["created", "picked_up", "delivered"];
+  const reached = stage === "delivered" ? 2 : stage === "picked_up" || stage === "refused" || stage === "returned" ? 1 : 0;
+  const labels = { created: "AWB generat", picked_up: "Preluat de curier", delivered: "Livrat" };
+  return order.map((key, i) => ({
+    key,
+    label: labels[key],
+    state: i < reached ? "done" : i === reached ? (stage === "delivered" ? "done" : "current") : "todo",
+  }));
+}
+
+// eticheta: format permis (A6 implicit, A4 pentru imprimante de birou)
+export const AWB_LABEL_FORMATS = Object.freeze(["A6", "A4"]);
+export function labelQueryFormat(format) {
+  return String(format || "").toUpperCase() === "A4" ? "A4" : "A6";
+}
+
+// mesaj clar pentru eticheta indisponibilă (codurile rutei /label)
+export function labelErrorMessage(e) {
+  const code = e?.data?.error || null;
+  const status = e?.status || null;
+  if (code === "awb_not_confirmed") return "AWB-ul nu este încă confirmat de Sameday. Eticheta va fi disponibilă după confirmare.";
+  if (code === "awb_missing" || code === "shipment_not_found" || status === 404) return "Eticheta nu este disponibilă pentru această expediere. Verifică din nou starea AWB-ului.";
+  if (code === "courier_integration_disabled" || status === 503) return "Descărcarea etichetei este oprită temporar. Încearcă din nou mai târziu.";
+  if (status === 401 || status === 403) return "Sesiunea a expirat sau nu ai acces la această etichetă. Autentifică-te din nou.";
+  return e?.data?.message || "Nu am putut obține eticheta. Încearcă din nou.";
 }

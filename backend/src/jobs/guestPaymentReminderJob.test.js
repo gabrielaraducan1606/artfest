@@ -12,6 +12,8 @@
 process.env.DATABASE_URL =
   "postgresql://test:test@127.0.0.1:5";
 process.env.JWT_SECRET = "test-secret";
+// cheie Stripe FALSĂ, mereu (niciodată cea din mediu): lib/stripe.js construiește clientul la import
+process.env.STRIPE_SECRET_KEY = "sk_test_dummy_not_real";
 
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
@@ -38,6 +40,8 @@ function seed(order) {
     total: order.total ?? 100,
     currency: order.currency || "RON",
     isGuestOrder: order.isGuestOrder ?? true,
+    userId: order.userId ?? null,
+    user: order.user ?? null,
     paymentMethod: order.paymentMethod ?? "CARD",
     status: order.status ?? "PENDING",
     paidAt: order.paidAt ?? null,
@@ -55,7 +59,13 @@ const fakeDb = {
       return orders
         .filter(
           (o) =>
-            o.isGuestOrder === where.isGuestOrder &&
+            // guest SAU (client cu cont, plasată de la CARD_PAYMENT_REMINDER_USERS_FROM)
+            where.OR.some(
+              (c) =>
+                o.isGuestOrder === c.isGuestOrder &&
+                (!c.userId || o.userId != null) &&
+                (!c.createdAt || o.createdAt.getTime() >= c.createdAt.gte.getTime())
+            ) &&
             o.paymentMethod === where.paymentMethod &&
             o.status === where.status &&
             o.paidAt === where.paidAt &&
@@ -336,4 +346,63 @@ test("comandă fără customerEmail -> job-ul nu crapă, nu marchează guestPaym
 
   const order = orders.find((o) => o.id === "order-no-email");
   assert.equal(order.guestPaymentReminderSentAt, null);
+});
+
+/* =========================================================
+   Clienți cu cont (CARD_PAYMENT_REMINDER_USERS_FROM) și termenul de plată
+========================================================= */
+
+function withEnv(vars, fn) {
+  const old = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, vars);
+  return Promise.resolve(fn()).finally(() => {
+    for (const [k, v] of Object.entries(old)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+}
+
+test("client cu cont: fără CARD_PAYMENT_REMINDER_USERS_FROM -> niciun email (comportamentul vechi)", async () => {
+  reset();
+  seed({ id: "order-user", isGuestOrder: false, userId: "user-1", user: { email: "cont@example.test" }, createdAt: minutesAgo(45) });
+
+  await withEnv({ CARD_PAYMENT_REMINDER_USERS_FROM: "" }, () => runGuestPaymentReminderJob());
+  assert.equal(sendCalls.length, 0);
+});
+
+test("client cu cont plasată după USERS_FROM -> UN reminder pe emailul contului, link spre comanda din cont; a doua rulare nu retrimite", async () => {
+  reset();
+  seed({ id: "order-user", isGuestOrder: false, userId: "user-1", user: { email: "cont@example.test" }, customerEmail: "altul@example.test", createdAt: minutesAgo(45) });
+  // comandă istorică, de dinainte de USERS_FROM: fără email retroactiv
+  seed({ id: "order-user-old", isGuestOrder: false, userId: "user-1", user: { email: "cont@example.test" }, createdAt: minutesAgo(600) });
+
+  const env = { CARD_PAYMENT_REMINDER_USERS_FROM: minutesAgo(120).toISOString() };
+  await withEnv(env, () => runGuestPaymentReminderJob());
+  await withEnv(env, () => runGuestPaymentReminderJob());
+
+  assert.equal(sendCalls.length, 1);
+  assert.equal(sendCalls[0].orderId, "order-user");
+  assert.equal(sendCalls[0].to, "cont@example.test");
+  assert.equal(sendCalls[0].accountOrder, true);
+  assert.equal(sendCalls[0].paymentToken, null);
+  assert.equal(sendCalls[0].payUntil, null, "regula de expirare inactivă -> fără termen în email");
+});
+
+test("regula de expirare activă: emailul arată termenul; după termen nu se mai trimite", async () => {
+  reset();
+  seed({ id: "order-due", createdAt: minutesAgo(45) });
+  seed({ id: "order-late", createdAt: minutesAgo(130) });
+
+  const env = {
+    CARD_PAYMENT_EXPIRY_ENABLED: "true",
+    CARD_PAYMENT_EXPIRY_DRY_RUN: "false",
+    CARD_PAYMENT_EXPIRY_START_AT: minutesAgo(600).toISOString(),
+  };
+  await withEnv(env, () => runGuestPaymentReminderJob());
+
+  assert.deepEqual(sendCalls.map((c) => c.orderId), ["order-due"]);
+  const deadline = orders.find((o) => o.id === "order-due").createdAt.getTime() + 2 * 60 * 60 * 1000;
+  assert.equal(sendCalls[0].payUntil.getTime(), deadline);
+  assert.equal(orders.find((o) => o.id === "order-late").guestPaymentReminderSentAt, null);
 });

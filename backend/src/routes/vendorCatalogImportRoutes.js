@@ -2,10 +2,10 @@
 
 import express from "express";
 import multer from "multer";
-import jwt from "jsonwebtoken";
 import * as XLSX from "xlsx";
 
 import { prisma } from "../db.js";
+import { ownVendorChain } from "../middleware/requireOwnVendor.js";
 import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
 
 import {
@@ -34,11 +34,6 @@ async function createProductWithFeedTitle(args) {
   return product;
 }
 
-
-const JWT_SECRET =
-  process.env.JWT_SECRET || "dev-secret-change-me";
-
-const TOKEN_COOKIE = "token";
 
 const XLSX_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -87,148 +82,8 @@ const upload = multer({
    AUTH
 ========================================================= */
 
-function getTokenFromReq(req) {
-  const fromCookie =
-    req.cookies?.[TOKEN_COOKIE];
-
-  if (fromCookie) {
-    return fromCookie;
-  }
-
-  const authorization =
-    req.headers.authorization;
-
-  if (
-    authorization?.startsWith(
-      "Bearer "
-    )
-  ) {
-    return authorization.slice(7);
-  }
-
-  return null;
-}
-
-async function requireVendor(
-  req,
-  res,
-  next
-) {
-  try {
-    const token =
-      getTokenFromReq(req);
-
-    if (!token) {
-      return res
-        .status(401)
-        .json({
-          error: "unauthenticated",
-        });
-    }
-
-    const payload =
-      jwt.verify(
-        token,
-        JWT_SECRET
-      );
-
-    const userId =
-      payload?.sub;
-
-    if (!userId) {
-      return res
-        .status(401)
-        .json({
-          error: "invalid_token",
-        });
-    }
-
-    const user =
-      await prisma.user.findUnique({
-        where: {
-          id: userId,
-        },
-
-        select: {
-          id: true,
-          role: true,
-          tokenVersion: true,
-
-          vendor: {
-            select: {
-              id: true,
-              isActive: true,
-            },
-          },
-        },
-      });
-
-    if (!user) {
-      return res
-        .status(401)
-        .json({
-          error: "user_not_found",
-        });
-    }
-
-    if (
-      payload.tv !== undefined &&
-      Number(payload.tv) !==
-        Number(user.tokenVersion)
-    ) {
-      return res
-        .status(401)
-        .json({
-          error: "token_revoked",
-        });
-    }
-
-    if (
-      user.role !== "VENDOR" ||
-      !user.vendor
-    ) {
-      return res
-        .status(403)
-        .json({
-          error: "vendor_required",
-        });
-    }
-
-    if (
-      user.vendor.isActive ===
-      false
-    ) {
-      return res
-        .status(403)
-        .json({
-          error: "vendor_inactive",
-        });
-    }
-
-    req.authUser = {
-      id: user.id,
-      role: user.role,
-    };
-
-    req.vendor =
-      user.vendor;
-
-    next();
-  } catch (error) {
-    console.error(
-      "[catalog-import] auth:",
-      error
-    );
-
-    return res
-      .status(401)
-      .json({
-        error: "invalid_token",
-      });
-  }
-}
-
-router.use(requireVendor);
+// autentificarea standard + vânzător propriu, activ (middleware/requireOwnVendor.js)
+router.use(...ownVendorChain);
 
 /* =========================================================
    HELPERS
@@ -1226,6 +1081,23 @@ router.post(
 
             message:
               "Importul nu a fost găsit.",
+          });
+      }
+
+      // importurile din magazine externe se refac din magazin, nu din rândurile fișierului
+      if (
+        !["EXCEL", "CSV"].includes(
+          productImport.source
+        )
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "retry_not_supported_for_source",
+
+            message:
+              "Produsele eșuate dintr-un magazin extern se importă din nou din secțiunea magazinului conectat.",
           });
       }
 

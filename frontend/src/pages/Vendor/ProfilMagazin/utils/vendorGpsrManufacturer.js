@@ -16,6 +16,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "../../../../lib/api";
 import { validateGpsrManufacturerContact } from "../../../../../../backend/src/lib/gpsrCompliance.js";
+import { GPSR_LOCKER_ERROR, isLockerAddress } from "../../../../utils/gpsrAddressHelp.js";
 
 const EMPTY_CONTACT = Object.freeze({ name: "", address: "", email: "" });
 
@@ -148,6 +149,12 @@ export async function saveVendorGpsrDraftIfNeeded() {
   // formular necompletat deloc: nimic de salvat (un produs deja publicat se
   // poate salva cu avertizare; unul nou e oprit de verificarea de publicare)
   if (sameContact(draft, EMPTY_CONTACT)) return { saved: false };
+
+  // doar datele scrise acum: adresele deja salvate nu sunt atinse
+  if (isLockerAddress(draft.address)) {
+    setState({ saveError: GPSR_LOCKER_ERROR });
+    throw new Error(`Datele producătorului: ${GPSR_LOCKER_ERROR}`);
+  }
 
   const check = validateGpsrManufacturerContact(draft);
   if (!check.ok) {

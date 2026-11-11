@@ -25,6 +25,7 @@ let orders;
 let refundCalls;
 let refundBehavior;
 let transactionRan;
+let courierAwbs = [];
 
 function makeFakeDb() {
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -47,6 +48,13 @@ function makeFakeDb() {
     },
     // anularea expiră avansurile COD PENDING (depositInvalidation): aici nu există
     shipment: { findMany: async () => [] },
+    // AWB-uri active prin integrare (activeAwbGuard): implicit niciunul
+    courierAwb: {
+      findFirst: async ({ where }) =>
+        courierAwbs.find(
+          (a) => where.activeShipmentId.in.includes(a.activeShipmentId) && where.status.in.includes(a.status)
+        ) || null,
+    },
 
     $transaction: async (fn) => {
       transactionRan = true;
@@ -70,6 +78,8 @@ function makeFakeDb() {
             Object.assign(orders.get(where.id), data);
           },
         },
+        // anularea CARD neplătit eliberează codurile de reducere: aici nu există
+        discountCodeRedemption: { findMany: async () => [] },
       };
 
       return fn(tx);
@@ -115,7 +125,15 @@ before(async () => {
     }),
     mock.module("../lib/stripe.js", {
       namedExports: {
-        stripe: { checkout: { sessions: { expire: async () => ({}) } } },
+        stripe: {
+          checkout: {
+            sessions: {
+              expire: async () => ({}),
+              // verificarea sesiunilor la anularea CARD neplătit: nicio sesiune deschisă
+              list: async () => ({ data: [], has_more: false }),
+            },
+          },
+        },
       },
     }),
     mock.module("../services/orderRefundService.js", {
@@ -154,6 +172,7 @@ after(async () => {
 beforeEach(() => {
   orders.clear();
   refundCalls = [];
+  courierAwbs = [];
   transactionRan = false;
   refundBehavior = {
     mode: "ok",
@@ -289,4 +308,33 @@ test("COD cu avans plătit: anularea e blocată (avansul nu rămâne încasat f�
   assert.equal(transactionRan, false);
   assert.equal(orders.get("order-1").status, "PENDING");
   assert.equal(refundCalls.length, 0);
+});
+
+test("AWB activ generat de vânzător: clientul nu poate anula comanda (AWB-ul nu e ascuns)", async () => {
+  seedOrder({ paymentMethod: "COD", status: "PENDING", paidAt: null, stripeChargeId: null });
+  courierAwbs = [
+    { id: "awb-1", shipmentId: "ship-1", activeShipmentId: "ship-1", status: "CREATED", awbNumber: "1SDYTEST001", providerMeta: {} },
+  ];
+
+  const { status, body } = await cancel();
+
+  assert.equal(status, 409);
+  assert.equal(body.error, "courier_awb_active");
+  assert.match(body.message, /contactează vânzătorul/);
+  assert.equal(body.awbNumber, undefined, "numărul AWB nu e expus clientului");
+  assert.equal(transactionRan, false);
+  assert.equal(orders.get("order-1").status, "PENDING");
+  assert.equal(orders.get("order-1").shipments[0].status, "PENDING");
+});
+
+test("AWB anulat (CANCELLED, eliberat): clientul poate anula comanda", async () => {
+  seedOrder({ paymentMethod: "COD", status: "PENDING", paidAt: null, stripeChargeId: null });
+  courierAwbs = [
+    { id: "awb-1", shipmentId: "ship-1", activeShipmentId: null, status: "CANCELLED", awbNumber: "1SDYTEST001", providerMeta: {} },
+  ];
+
+  const { status } = await cancel();
+
+  assert.equal(status, 200);
+  assert.equal(orders.get("order-1").status, "CANCELLED");
 });

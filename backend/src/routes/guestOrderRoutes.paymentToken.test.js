@@ -15,6 +15,8 @@
 process.env.DATABASE_URL =
   "postgresql://test:test@127.0.0.1:5";
 process.env.JWT_SECRET = "test-secret";
+// cheie Stripe FALSĂ, mereu (niciodată cea din mediu): lib/stripe.js construiește clientul la import
+process.env.STRIPE_SECRET_KEY = "sk_test_dummy_not_real";
 
 import { test, mock, before, after } from "node:test";
 import assert from "node:assert/strict";

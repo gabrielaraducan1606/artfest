@@ -17,6 +17,7 @@
     "db:seed": "prisma db seed",
     "seed": "node prisma/seed.mjs",
     "test": "echo \"No tests\" && exit 0",
+    "test:ai-image-editing-gate": "node --experimental-test-module-mocks --test src/routes/aiImageEditingGate.routes.test.js",
     "embeddings:backfill": "node ./server/scripts/backfillImageEmbeddings.js",
     "ai:knowledge-check": "node src/scripts/aiKnowledgeCheck.mjs"
   },

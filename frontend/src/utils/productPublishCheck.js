@@ -9,6 +9,10 @@
 //     produsele noi / nepublicate; pentru un produs deja publicat doar
 //     recomandare - nu blocăm salvarea; incoerent = eroare mereu, serverul
 //     îl refuză oricum);
+//   - profilul logistic (greutatea / dimensiunile coletului):
+//     backend/src/lib/productShipping.js (format invalid = eroare mereu;
+//     greutate lipsă = eroare doar la produs NOU cu checkout Sameday, altfel
+//     recomandare - inclusiv QUOTE_ONLY și produsele existente);
 //   - personalizare / grupuri / formular de ofertă:
 //     utils/productConfigurationValidator.js (anti-abandon, existent).
 //
@@ -36,6 +40,13 @@ import {
   validateGpsrManufacturerContact,
   GPSR_PRODUCT_FIELDS,
 } from "../../../backend/src/lib/gpsrCompliance.js";
+import {
+  hasShippingWeight,
+  shippingWeightRequirement,
+  validateShippingProfile,
+  SHIPPING_MESSAGES,
+  SHIPPING_PROFILE_FIELDS,
+} from "../../../backend/src/lib/productShipping.js";
 import { validateProductConfiguration } from "./productConfigurationValidator.js";
 
 export const PUBLISH_ORDER_MODES = ["READY_TO_BUY", "OPTIONS", "QUOTE_ONLY"];
@@ -105,6 +116,14 @@ const TARGETS = {
   custom: { step: "customization", section: "custom", anchors: ["manual-section-custom"] },
   repeated: { step: "customization", section: "repeated", anchors: ["manual-section-repeated"] },
   quote: { step: "customization", section: "quote", anchors: ["manual-section-quote"] },
+  shipping: { step: "customization", section: "delivery", anchors: ["product-shipping-weight", "manual-section-shipping"] },
+};
+
+const SHIPPING_ANCHORS = {
+  shippingWeightGrams: "product-shipping-weight",
+  shippingLengthCm: "product-shipping-length",
+  shippingWidthCm: "product-shipping-width",
+  shippingHeightCm: "product-shipping-height",
 };
 
 export function publishTarget(name, extraAnchors = []) {
@@ -119,7 +138,9 @@ const GPSR_ANCHORS = {
   responsiblePersonName: "gpsr-rp-name",
   responsiblePersonAddress: "gpsr-rp-address",
   responsiblePersonEmail: "gpsr-rp-email",
-  safetyWarnings: "gpsr-safety-warnings",
+  // textarea apare doar după „Da”; altfel, întrebarea
+  safetyWarnings: ["gpsr-safety-warnings", "gpsr-safety-warnings-yes"],
+  isForChildren: "gpsr-children-yes",
 };
 
 // datele publice ale vendorului-producător (sursa centrală) - câmpurile din ProductGpsrSection
@@ -135,7 +156,7 @@ const GPSR_MESSAGES = {
   manufacturerName: "Siguranța produsului (GPSR): completează datele producătorului (nume, adresă, email).",
   manufacturerInEU: "Siguranța produsului (GPSR): precizează dacă producătorul este stabilit în UE.",
   responsiblePersonName: "Siguranța produsului (GPSR): completează persoana responsabilă din UE.",
-  safetyWarnings: "Siguranța produsului (GPSR): scrie avertismentele de siguranță sau confirmă că nu se aplică.",
+  safetyWarnings: "Siguranța produsului (GPSR): scrie avertismentele de siguranță sau alege „Nu” dacă produsul nu are nevoie de ele.",
   isForChildren: "Siguranța produsului (GPSR): precizează dacă produsul este destinat copiilor.",
 };
 
@@ -410,10 +431,31 @@ function checkGpsr(form, errors, recommendations, { existingPublished, vendorGps
       issue(
         `GPSR_${field}`,
         GPSR_MESSAGES[field] || "Completează informațiile de siguranță ale produsului (GPSR).",
-        publishTarget("gpsr", GPSR_ANCHORS[field] ? [GPSR_ANCHORS[field]] : [])
+        publishTarget("gpsr", [].concat(GPSR_ANCHORS[field] || []))
       )
     );
   }
+}
+
+function checkShipping(form, mode, errors, recommendations, { isNewProduct, samedayShipping }) {
+  const body = Object.fromEntries(SHIPPING_PROFILE_FIELDS.map((field) => [field, form[field] ?? null]));
+  const validation = validateShippingProfile(body);
+  if (!validation.ok) {
+    // același mesaj ca serverul (care îl refuză oricum)
+    errors.push(issue(validation.error.toUpperCase(), validation.message, publishTarget("shipping", [SHIPPING_ANCHORS[validation.field]])));
+    return;
+  }
+  const requirement = shippingWeightRequirement({ orderMode: mode, isNew: isNewProduct, samedayEnabled: samedayShipping });
+  if (requirement === "none" || hasShippingWeight(validation.data)) return;
+  if (requirement === "required") {
+    errors.push(issue("SHIPPING_WEIGHT_REQUIRED", SHIPPING_MESSAGES.weightRequired, publishTarget("shipping")));
+    return;
+  }
+  recommendations.push(
+    mode === "QUOTE_ONLY"
+      ? issue("SHIPPING_WEIGHT_RECOMMENDED_QUOTE", SHIPPING_MESSAGES.weightRecommendedQuote, publishTarget("shipping"))
+      : issue("SHIPPING_WEIGHT_MISSING_PUBLISHED", SHIPPING_MESSAGES.weightMissingPublished, publishTarget("shipping"))
+  );
 }
 
 // validatorul de configurare existent: path -> secțiune + câmp
@@ -488,16 +530,18 @@ function dedupeIssues(list) {
 
 /**
  * @param {Object} form - formularul editorului (price în lei, orderMode etc.)
- * @param {{ knownCategories?: Set<string>|string[], existingPublished?: boolean, vendorGpsr?: Object|null }} [options]
+ * @param {{ knownCategories?: Set<string>|string[], existingPublished?: boolean, vendorGpsr?: Object|null, isNewProduct?: boolean, samedayShipping?: boolean }} [options]
  *   existingPublished - produs deja publicat (APPROVED la deschidere): GPSR
  *   incomplet devine recomandare, nu eroare.
  *   vendorGpsr - datele publice ale vendorului-producător (gpsrManufacturer*),
  *   pentru isOwnManufacturer = true; null = necunoscute încă.
+ *   isNewProduct - produs încă nesalvat (fără id): greutatea coletului e
+ *   obligatorie dacă samedayShipping (checkout Sameday activ) și nu e QUOTE_ONLY.
  * @returns {{ ready: boolean, errors: Array, recommendations: Array, errorsByStep: Object }}
  */
 export function checkProductForPublish(
   form = {},
-  { knownCategories = null, existingPublished = false, vendorGpsr = null } = {}
+  { knownCategories = null, existingPublished = false, vendorGpsr = null, isNewProduct = false, samedayShipping = false } = {}
 ) {
   const draft = form && typeof form === "object" ? form : {};
   const categories =
@@ -532,6 +576,7 @@ export function checkProductForPublish(
   }
 
   checkGpsr(draft, errors, recommendations, { existingPublished: !!existingPublished, vendorGpsr });
+  checkShipping(draft, rawMode, errors, recommendations, { isNewProduct: !!isNewProduct, samedayShipping: !!samedayShipping });
 
   const finalErrors = dedupeIssues(errors);
   const errorsByStep = {};

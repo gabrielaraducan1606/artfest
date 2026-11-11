@@ -2,6 +2,8 @@
 
 .importsPage {
   display: grid;
+  /* coloana nu se lărgește după conținut (fără scroll orizontal pe telefon) */
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 
@@ -227,6 +229,7 @@
 .sourceCard {
   position: relative;
   width: 100%;
+  box-sizing: border-box; /* padding-ul inclus în 100% (altfel depășește ecranul pe telefon) */
   border: 1px solid var(--color-border);
   border-radius: 16px;
   background: var(--surface);
@@ -1115,7 +1118,7 @@
 
 @media (max-width: 800px) {
   .sourceGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .summaryGrid {
@@ -1152,7 +1155,8 @@
   }
 
   .sourceCard {
-    grid-template-columns: auto 1fr;
+    /* minmax(0, …): butoanele lungi nu mai lărgesc cardul peste ecran */
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .sourceActions {
@@ -1163,6 +1167,8 @@
   .sourceActions .primaryBtn,
   .sourceActions .secondaryBtn {
     width: 100%;
+    min-height: 44px;
+    white-space: normal;
   }
 
   .importIntro {

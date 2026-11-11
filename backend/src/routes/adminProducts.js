@@ -35,6 +35,8 @@ import {
   getVendorGpsrManufacturer,
   VENDOR_GPSR_SELECT,
 } from "../lib/gpsrCompliance.js";
+import { gpsrDeclarationAllowsPublication } from "../lib/gpsrDeclaration.js";
+import { adminGpsrFilterWhere } from "../services/gpsrAdmin.js";
 import {
   guardedProductDelete,
   guardedProductUpdate,
@@ -164,6 +166,11 @@ function mapProduct(p, vendor = p?.service?.vendor ?? null) {
     occasionTags: Array.isArray(p.occasionTags) ? p.occasionTags : [],
 
     dimensions: p.dimensions || null,
+    // profil logistic (produsul ambalat) - editabil din Admin
+    shippingWeightGrams: p.shippingWeightGrams ?? null,
+    shippingLengthCm: p.shippingLengthCm ?? null,
+    shippingWidthCm: p.shippingWidthCm ?? null,
+    shippingHeightCm: p.shippingHeightCm ?? null,
     careInstructions: p.careInstructions || null,
     specialNotes: p.specialNotes || null,
 
@@ -1100,6 +1107,12 @@ async function adminListProducts(req, res) {
       where.AND = [...(where.AND || []), OPEN_REVIEW_REQUEST_WHERE];
     }
 
+    // filtrul GPSR: incomplet / confirmare lipsă / reconfirmare / confirmare înregistrată / ajutor
+    const gpsrFilterWhere = await adminGpsrFilterWhere(prisma, req.query?.gpsr);
+    if (gpsrFilterWhere) {
+      where.AND = [...(where.AND || []), gpsrFilterWhere];
+    }
+
     if (serviceId) {
       where.serviceId = String(serviceId).trim();
     }
@@ -1218,6 +1231,54 @@ function closeOpenRequests(product, resolution, adminUserId, now) {
   return resolveReviewRequestPatch(base, { resolution, adminUserId, now }) || afterChangeRequest;
 }
 
+/*
+ * „Marchează ajutorul finalizat”: închide DOAR solicitarea. Nu atinge moderarea,
+ * vizibilitatea, prețul sau variantele și nu trimite notificări; produsul urmează
+ * apoi fluxul normal de publicare. Blocare optimistă pe updatedAt, ca la vendor.
+ */
+async function adminResolveReviewRequest(req, res) {
+  try {
+    const id = String(req.params.id);
+    const product = await prisma.product.findUnique({ where: { id } });
+
+    if (!product) return res.status(404).json({ error: "not_found" });
+
+    if (!getReviewRequest(product) || getReviewRequest(product).status !== "OPEN") {
+      return res.status(409).json({
+        error: "review_request_not_open",
+        message: "Solicitarea nu mai este deschisă.",
+      });
+    }
+
+    const aiModeration = resolveReviewRequestPatch(product.aiModeration, {
+      resolution: "HANDLED",
+      adminUserId: req.user.sub,
+    });
+
+    const { count } = await prisma.product.updateMany({
+      where: { id, updatedAt: product.updatedAt },
+      data: { aiModeration },
+    });
+
+    if (count !== 1) {
+      return res.status(409).json({
+        error: "product_busy",
+        message: "Produsul tocmai a fost modificat. Încearcă din nou.",
+      });
+    }
+
+    const updated = await prisma.product.findUnique({
+      where: { id },
+      include: { service: { include: { vendor: true, profile: true, type: true } } },
+    });
+
+    return res.json({ ok: true, product: mapAdminProduct(updated) });
+  } catch (e) {
+    console.error("PATCH /admin/products/:id/review-request/resolve error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
 async function adminApproveProduct(req, res) {
   try {
     const id = String(req.params.id || "").trim();
@@ -1230,6 +1291,20 @@ async function adminApproveProduct(req, res) {
     if (!product) return res.status(404).json({ error: "not_found" });
     if (product.service?.type?.code !== "products") {
       return res.status(400).json({ error: "not_a_products_store" });
+    }
+
+    // Declarația GPSR a vânzătorului (produse create după intrarea în vigoare):
+    // Adminul nu poate publica în locul vânzătorului fără confirmarea acestuia.
+    const gpsrVendor = await prisma.vendor.findUnique({
+      where: { id: product.service?.vendorId || "" },
+      select: { id: true, ...VENDOR_GPSR_SELECT },
+    });
+    if (!(await gpsrDeclarationAllowsPublication(prisma, { product, vendor: gpsrVendor }))) {
+      return res.status(409).json({
+        error: "gpsr_declaration_missing",
+        message:
+          "Vânzătorul nu a confirmat încă informațiile GPSR pentru datele actuale ale produsului. Cere-i să deschidă produsul, să bifeze confirmarea și să salveze.",
+      });
     }
 
     const now = new Date();
@@ -1576,6 +1651,13 @@ router.get(
   authRequired,
   adminRequired,
   adminGetProductChangeHistory
+);
+
+router.patch(
+  "/products/:id/review-request/resolve",
+  authRequired,
+  adminRequired,
+  adminResolveReviewRequest
 );
 
 router.patch(
