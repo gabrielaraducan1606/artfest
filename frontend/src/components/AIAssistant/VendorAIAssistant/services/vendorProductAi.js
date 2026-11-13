@@ -108,9 +108,12 @@ async function uploadProductImage(
       kind = null;
     }
 
-    const prepared = kind
-      ? (await prepareProductImage(image.file, { kind }).catch(() => null))?.file || image.file
-      : image.file;
+    const preparedResult = kind ? await prepareProductImage(image.file, { kind }).catch(() => null) : null;
+    // nu poate fi procesată nicăieri (ex. HEIC deteriorat): mesaj clar, fără upload
+    if (preparedResult?.fatalMessage) {
+      throw new Error(preparedResult.fatalMessage);
+    }
+    const prepared = preparedResult?.file || image.file;
 
     // limita serverului (40 MB) se aplică fișierului optimizat
     const sizeCheck = checkUploadSize(prepared, image.file.name);

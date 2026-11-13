@@ -1248,12 +1248,16 @@ quoteSchema: [],
    * convertit dacă browserul poate (altfel pe server). Eșec -> originalul.
    */
   async function compressImageBeforeUpload(file, kind) {
+    let result = null;
     try {
-      const result = await prepareProductImage(file, { kind });
-      return result?.file || file;
+      // HEIC în Chrome / Edge / Firefox: convertit local (pe tile-uri), ca în Smart Listing
+      result = await prepareProductImage(file, { kind });
     } catch {
       return file;
     }
+    // nu poate fi procesată nicăieri (ex. HEIC deteriorat): mesaj clar, fără upload
+    if (result?.fatalMessage) throw new Error(result.fatalMessage);
+    return result?.file || file;
   }
 
   const onFilesPicked =

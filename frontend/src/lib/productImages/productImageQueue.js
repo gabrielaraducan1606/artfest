@@ -29,6 +29,7 @@ import {
   checkProductImageFile,
   checkUploadSize,
   fileFingerprint,
+  isPermanentUploadError,
   isPersistentImageUrl,
   isRetryableUploadError,
   readFileHead,
@@ -164,17 +165,33 @@ export function createProductImageQueue({
   async function runPrepare(id) {
     const internal = internals.get(id);
     if (!internal) return;
-    update(id, { status: "processing", progress: null, error: "" });
+    update(id, { status: "processing", stage: "preparing", progress: null, error: "" });
 
     let prepared = internal.file;
+    let fatalMessage = "";
     try {
-      const result = await prepare(internal.file, { kind: internal.kind });
+      const result = await prepare(internal.file, {
+        kind: internal.kind,
+        // etapa vizibilă: „Se optimizează fotografia…” (ex. conversie HEIC în browser)
+        onStage: (stage) => internals.has(id) && update(id, { stage }),
+        onProgress: (done, total) =>
+          internals.has(id) && total > 0 && update(id, { progress: Math.max(0, Math.min(1, done / total)) }),
+      });
       if (result?.file) prepared = result.file;
+      fatalMessage = result?.fatalMessage || "";
     } catch {
       prepared = internal.file; // serverul procesează originalul
     }
 
     if (!internals.has(id) || destroyed) return; // eliminată între timp
+
+    // nu poate fi procesată nicăieri (ex. HEIC deteriorat): eroare clară, fără upload / retry
+    if (fatalMessage) {
+      internal.fatal = true;
+      update(id, { status: "error", stage: null, error: fatalMessage, progress: null, retryable: false });
+      pump();
+      return;
+    }
 
     // limita serverului (40 MB) se aplică fișierului TRIMIS, după optimizare
     const sizeCheck = checkUploadSize(prepared, internal.file?.name);
@@ -186,7 +203,7 @@ export function createProductImageQueue({
     }
 
     internal.prepared = prepared;
-    update(id, { status: "queued" });
+    update(id, { status: "queued", stage: null, progress: null });
     pump();
   }
 
@@ -196,7 +213,7 @@ export function createProductImageQueue({
 
     const controller = new AbortController();
     internal.controller = controller;
-    update(id, { status: "uploading", progress: 0, error: "" });
+    update(id, { status: "uploading", stage: null, progress: 0, error: "" });
 
     let attempt = 0;
     for (;;) {
@@ -240,7 +257,9 @@ export function createProductImageQueue({
         update(id, {
           status: "error",
           progress: null,
-          retryable: true,
+          // refuz definitiv (413 / 415 / 422: format, mărime, rezoluție) -> fără „Reîncearcă”,
+          // mesajul spune ce trebuie schimbat la fotografie
+          retryable: !isPermanentUploadError(error),
           error: error?.message || "Nu am putut încărca fotografia. Încearcă din nou.",
         });
         break;
@@ -337,7 +356,7 @@ export function createProductImageQueue({
   function retry(id) {
     const item = find(id);
     const internal = internals.get(id);
-    if (!item || item.status !== "error" || !internal?.file || internal.fatal) return false;
+    if (!item || item.status !== "error" || !internal?.file || internal.fatal || item.retryable === false) return false;
     update(id, { status: "queued", error: "", progress: null });
     pump();
     return true;

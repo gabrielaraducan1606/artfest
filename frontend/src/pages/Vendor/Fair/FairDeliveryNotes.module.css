@@ -1,0 +1,547 @@
+/* Avize de însoțire a mărfii - completează FairInventory.module.css */
+
+.modalWide {
+  width: min(760px, 100%);
+}
+
+/* deasupra barei de navigare de jos (z ~1290); pe mobil, subsolul ferestrei
+   rămâne deasupra barei și a butonului asistentului */
+.backdropTop {
+  z-index: 1400;
+}
+
+@media (max-width: 900px) {
+  .backdropTop {
+    align-items: start;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 96px);
+  }
+
+  .backdropTop .modalWide {
+    max-height: calc(100dvh - 112px - env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.modalWide h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* De la / Către / Livrare la - date precompletate */
+.route {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.route > div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 12px;
+}
+
+.route > div + div {
+  border-top: 1px solid var(--color-border);
+}
+
+.route dt {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.route dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.route dd span {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.destText {
+  display: inline;
+}
+
+.route dd .destText {
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.linkBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.destEdit {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.destEdit textarea {
+  width: 100%;
+}
+
+.firstSeries {
+  display: grid;
+  gap: 4px;
+}
+
+/* tabelul produselor: Produs | Cantitate | Preț artizan | Valoare */
+/* fără overflow: hidden - în corpul ferestrei (grid cu derulare) tabelul s-ar comprima pe mobil */
+.table {
+  display: grid;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.tr:first-child {
+  border-radius: 11px 11px 0 0;
+}
+
+.tr:last-child {
+  border-radius: 0 0 11px 11px;
+}
+
+.tr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 130px 110px;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+
+.tr + .tr {
+  border-top: 1px solid var(--color-border);
+}
+
+.noValues .tr {
+  grid-template-columns: minmax(0, 1fr) 96px;
+}
+
+.th {
+  padding-block: 8px;
+  background: var(--surface-muted);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.th span:nth-child(n + 2) {
+  text-align: left;
+}
+
+.rowOff {
+  opacity: 0.6;
+}
+
+.cellProduct {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.cellProduct input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: none;
+}
+
+.cellProduct > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.cellProduct small {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cell input {
+  width: 100%;
+  min-width: 0;
+}
+
+.cellLabel {
+  display: none;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.cellValue {
+  align-self: center;
+  text-align: right;
+  font-size: 14px;
+}
+
+.totalRow {
+  align-items: center;
+  background: var(--surface-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.priceNote {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.priceNote p {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.priceNote p strong {
+  color: var(--color-text);
+}
+
+/* Opțiuni suplimentare */
+.more {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.more > summary {
+  padding: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.moreBody {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+
+.static {
+  display: block;
+  padding: 10px 0;
+  font-weight: 600;
+}
+
+.fieldset {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  min-width: 0;
+}
+
+.check {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.check {
+  font-size: 14px;
+}
+
+.check small {
+  display: block;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.check input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: none;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.blockers {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-warning, var(--color-danger));
+  color: var(--color-text);
+  background: var(--surface-muted);
+}
+
+.blockers svg {
+  flex: none;
+  color: var(--color-warning, var(--color-danger));
+}
+
+.blockers ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.billingPanel > div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.billingPanel ul {
+  margin: 0;
+}
+
+.billingText {
+  margin: 0;
+  font-size: 14px;
+}
+
+.billingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.billingActions > a,
+.billingActions > button {
+  white-space: normal;
+  text-align: center;
+  text-decoration: none;
+}
+
+@media (max-width: 640px) {
+  .billingActions > a,
+  .billingActions > button {
+    flex: 1 1 100%;
+  }
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.summary dt {
+  color: var(--color-muted);
+}
+
+.summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.previewBtn,
+.downloadMain {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.downloadMain {
+  min-height: 48px;
+  padding-inline: 22px;
+  font-size: 15px;
+}
+
+.pdfStep {
+  display: grid;
+  gap: 10px;
+}
+
+.previewNotice {
+  padding: 10px 12px;
+  border: 1px dashed var(--color-primary);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  font-size: 14px;
+}
+
+.pdfFrame {
+  width: 100%;
+  height: min(70vh, 900px);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.openPdf {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  justify-self: start;
+  text-decoration: none;
+}
+
+.done {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.history {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.historyTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+}
+
+.historyList {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.historyItem {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.historyHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badgeIssued,
+.badgeCancelled {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badgeIssued {
+  color: var(--color-success);
+  background: var(--success-bg-soft);
+}
+
+.badgeCancelled {
+  color: var(--color-danger);
+  background: var(--surface-muted);
+}
+
+.details {
+  font-size: 13px;
+}
+
+.details summary {
+  cursor: pointer;
+  color: var(--color-primary);
+}
+
+.details ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.inlineActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.cancelForm {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+@media (max-width: 640px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .route > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  /* tabelul devine carduri: produs pe tot rândul, apoi cantitate + preț, apoi valoarea */
+  .th {
+    display: none;
+  }
+
+  .tr,
+  .noValues .tr {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .cellProduct {
+    grid-column: 1 / -1;
+  }
+
+  .cellLabel {
+    display: block;
+  }
+
+  .cellValue {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .totalRow > .cellValue {
+    justify-content: flex-end;
+  }
+
+  .hideMobile {
+    display: none;
+  }
+
+  .inlineActions > button {
+    flex: 1 1 auto;
+  }
+}

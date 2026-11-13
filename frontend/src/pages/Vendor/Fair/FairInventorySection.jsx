@@ -9,7 +9,7 @@
 // pentru citire: situația fiecărui produs și starea rezervării online.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, BadgeCheck, Camera, Package, Pencil, Plus, Send, Tag, Trash2, X } from "lucide-react";
+import { AlertTriangle, BadgeCheck, Camera, FileText, Package, Pencil, Plus, Send, Tag, Trash2, X } from "lucide-react";
 import { api } from "../../../lib/api";
 import { uploadFile } from "../../../lib/uploadFile";
 import {
@@ -27,6 +27,7 @@ import {
 } from "./fairInventory.js";
 import { SITUATION_LABEL, SITUATION_TONE, onlineStateText } from "./fairReturns.js";
 import styles from "./FairInventory.module.css";
+import { DeliveryNoteModal, DeliveryNotesHistory } from "./FairDeliveryNotes.jsx";
 
 const EMPTY_FORM = {
   productId: "",
@@ -734,6 +735,9 @@ export default function FairInventorySection() {
   const [modal, setModal] = useState(null); // { mode: "add" } | { mode: "edit", item }
   const [products, setProducts] = useState(null);
   const [busy, setBusy] = useState("");
+  // aviz de însoțire: { replaceNote } (null = aviz nou); doar documente, fără efect pe inventar
+  const [noteModal, setNoteModal] = useState(null);
+  const [notesRefresh, setNotesRefresh] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -867,6 +871,11 @@ export default function FairInventorySection() {
           {data.canEdit && (
             <button type="button" className={styles.btnGhost} onClick={openAdd}>
               <Plus size={16} aria-hidden="true" /> Adaugă produs
+            </button>
+          )}
+          {data.approved && items.length > 0 && (
+            <button type="button" className={styles.btnGhost} onClick={() => setNoteModal({ replaceNote: null })}>
+              <FileText size={16} aria-hidden="true" /> Generează aviz
             </button>
           )}
           {data.canEdit && summary.draftLines > 0 && (
@@ -1016,6 +1025,21 @@ export default function FairInventorySection() {
             </li>
           ))}
         </ul>
+      )}
+
+      {(data.approved || readOnly) && (
+        <DeliveryNotesHistory
+          refreshKey={notesRefresh}
+          onReplace={data.approved ? (note) => setNoteModal({ replaceNote: note }) : undefined}
+        />
+      )}
+
+      {noteModal && (
+        <DeliveryNoteModal
+          replaceNote={noteModal.replaceNote}
+          onClose={() => setNoteModal(null)}
+          onIssued={() => setNotesRefresh((x) => x + 1)}
+        />
       )}
 
       {modal &&

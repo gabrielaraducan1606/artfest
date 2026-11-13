@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Licențe terțe - Artfest</title>
+    <style>
+      :root { color-scheme: light dark; --text: #1f1f1f; --muted: #5c5c5c; --bg: #ffffff; --line: #e3e3e3; --link: #8a3b12; }
+      @media (prefers-color-scheme: dark) { :root { --text: #ececec; --muted: #a8a8a8; --bg: #161616; --line: #333; --link: #f0a070; } }
+      body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+      h1 { font-size: 1.6rem; margin: 0 0 8px; }
+      h2 { font-size: 1.2rem; margin: 32px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+      p, li { overflow-wrap: anywhere; }
+      .muted { color: var(--muted); }
+      a { color: var(--link); }
+      table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 0.95rem; }
+      th, td { text-align: left; vertical-align: top; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); }
+      th { width: 34%; font-weight: 600; }
+      code { font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Licențe pentru componente terțe</h1>
+      <p class="muted">
+        Această pagină enumeră bibliotecile open-source distribuite de Artfest către browserul vizitatorilor
+        și care au obligații de mențiune sau de furnizare a sursei.
+      </p>
+
+      <h2>Conversia fotografiilor HEIC/HEIF (libheif, libde265, libheif-js)</h2>
+      <p>
+        Când un vânzător încarcă o fotografie HEIC/HEIF într-un browser care nu o poate afișa singur, Artfest o convertește în JPEG
+        direct pe dispozitivul lui, cu ajutorul bibliotecilor de mai jos (compilate în WebAssembly). Fotografia nu este trimisă
+        nicăieri pentru conversie.
+      </p>
+      <table>
+        <tr><th>libheif 1.23.5</th><td>GNU LGPL versiunea 3<br />Copyright © 2017-2020 Struktur AG; Copyright © 2017-2026 Dirk Farin<br />Sursa: <a href="https://github.com/strukturag/libheif/tree/v1.23.5">github.com/strukturag/libheif (v1.23.5)</a></td></tr>
+        <tr><th>libde265 1.0.15<br /><span class="muted">(decodor HEVC inclus în libheif)</span></th><td>GNU LGPL versiunea 3<br />Copyright © 2013-2014 Struktur AG; Copyright © 2013-2026 Dirk Farin<br />Sursa: <a href="https://github.com/strukturag/libde265/tree/v1.0.15">github.com/strukturag/libde265 (v1.0.15)</a></td></tr>
+        <tr><th>libheif-js 1.23.5</th><td>GNU LGPL versiunea 3<br />Pachetul npm care conține build-ul WebAssembly<br />Sursa: <a href="https://github.com/catdad-experiments/libheif-js/tree/1.23.5">github.com/catdad-experiments/libheif-js (1.23.5)</a></td></tr>
+        <tr><th>Build WebAssembly</th><td>Compilat din sursele de mai sus, fără modificări, de proiectul
+          <a href="https://github.com/catdad-experiments/libheif-emscripten/releases/tag/v1.23.5">libheif-emscripten v1.23.5</a>
+          (scriptul <code>build-emscripten.sh</code> din libheif).</td></tr>
+      </table>
+
+      <p><strong>Artfest nu a modificat aceste biblioteci.</strong></p>
+
+      <p>
+        <strong>Înlocuirea bibliotecii.</strong> Biblioteca este livrată ca fișier separat, identic cu cel din pachetul npm
+        <code>libheif-js@1.23.5</code> (<code>libheif-wasm/libheif-bundle.mjs</code>), publicat în <code>/assets/</code> sub numele
+        <code>libheif-bundle-&lt;cod&gt;.mjs</code>. Codul Artfest îl încarcă la rulare, doar când convertește o fotografie, și folosește
+        exclusiv interfața publică libheif. Puteți înlocui fișierul cu o versiune modificată sau mai nouă, compatibilă, a bibliotecii
+        (de exemplu prin funcția de suprascriere locală a fișierelor din instrumentele pentru dezvoltatori ale browserului),
+        fără să fie nevoie de codul sursă Artfest.
+      </p>
+
+      <p>
+        <strong>Textul licențelor:</strong>
+        <a href="./libheif-LGPL-3.0.txt">GNU Lesser General Public License v3 și GNU General Public License v3 (text complet)</a>.
+      </p>
+      <p class="muted">Întrebări despre aceste componente: <a href="mailto:support@artfest.ro">support@artfest.ro</a>.</p>
+    </main>
+  </body>
+</html>

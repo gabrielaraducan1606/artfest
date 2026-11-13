@@ -151,34 +151,80 @@ test("40 MB per fotografie: 39,9 MB trece; 40 MB + 1 octet -> 413 cu mesaj expli
   assert.equal(sent.length, 1, "fișierul prea mare nu ajunge pe R2");
 });
 
-test("memorie insuficientă -> 503 server_busy + Retry-After 10 (frontend-ul reîncearcă), nimic pe R2", async () => {
-  process.env.UPLOAD_MEMORY_LIMIT_MB = "1"; // simulează un proces deja aproape de limită
+// containerul (cgroup simulat) aproape plin: 440 din 512 MB -> o fotografie de ~100 MB nu încape ACUM
+async function withFullContainer(fn) {
+  const { __setContainerMemoryReaderForTests } = await import("../services/uploadMemoryGuard.js");
+  __setContainerMemoryReaderForTests(async () => ({
+    ok: true,
+    version: "v2",
+    usageBytes: 440 * 1024 * 1024,
+    inactiveFileBytes: 0,
+    workingSetBytes: 440 * 1024 * 1024,
+    limitBytes: 512 * 1024 * 1024,
+  }));
   try {
+    return await fn();
+  } finally {
+    __setContainerMemoryReaderForTests(null);
+  }
+}
+
+test("memorie insuficientă ACUM -> 503 server_busy, reason memory, mesaj propriu (nu „multe fișiere”), nimic pe R2", async () => {
+  await withFullContainer(async () => {
     const res = await post(await image("jpeg"), "a.jpg");
     assert.equal(res.status, 503);
     assert.equal(res.body.error, "server_busy");
-    assert.ok(res.body.message);
+    assert.equal(res.body.reason, "memory");
+    assert.match(res.body.message, /prea puțină memorie liberă/);
+    assert.doesNotMatch(res.body.message, /multe fișiere/);
     assert.equal(sent.length, 0);
-  } finally {
-    delete process.env.UPLOAD_MEMORY_LIMIT_MB;
-  }
+  });
 
   const after = await post(await image("jpeg"), "a.jpg");
   assert.equal(after.status, 200, "după eliberarea memoriei, upload-ul merge");
 });
 
 test("Retry-After e trimis la 503 de memorie", async () => {
-  process.env.UPLOAD_MEMORY_LIMIT_MB = "1";
-  try {
+  await withFullContainer(async () => {
     const body = new FormData();
     body.append("file", new Blob([await image("jpeg")], { type: "image/jpeg" }), "a.jpg");
     const res = await fetch(`${baseUrl}/api/upload/products`, { method: "POST", body });
     assert.equal(res.status, 503);
     assert.equal(res.headers.get("retry-after"), "10");
     await res.text();
-  } finally {
-    delete process.env.UPLOAD_MEMORY_LIMIT_MB;
+  });
+});
+
+test(
+  "HEIC REAL de 45 MP (HEIC_TEST_FIXTURE) cu memoria plină -> 422 definitiv cu MP real, NU 503 „ocupat”",
+  { skip: process.env.HEIC_TEST_FIXTURE ? false : "setează HEIC_TEST_FIXTURE=<cale .heic mare>" },
+  async () => {
+    const { readFileSync } = await import("node:fs");
+    const heic = readFileSync(process.env.HEIC_TEST_FIXTURE);
+    const meta = await sharp(heic).metadata();
+    await withFullContainer(async () => {
+      const res = await post(heic, "20261112_091459.heic", "image/heic");
+      assert.equal(res.status, 422, JSON.stringify(res.body));
+      assert.equal(res.body.error, "image_too_many_pixels");
+      assert.equal(res.body.format, "heic");
+      assert.equal(res.body.megapixels, Math.round((meta.width * meta.height) / 1_000_000));
+      assert.equal(res.body.maxMegapixels, 16);
+      assert.match(res.body.message, /Samsung/);
+      assert.equal(sent.length, 0);
+    });
   }
+);
+
+test("limitatorul / discul păstrează mesajul lor de coadă (reason queue / disk)", async () => {
+  const { sendUploadBusy } = await import("../middleware/uploadLoadGuards.js");
+  const headers = {};
+  let body;
+  const res = { setHeader: (k, v) => (headers[k] = v), status: () => ({ json: (b) => (body = b) }) };
+  sendUploadBusy(res, 5, { reason: "disk" });
+  assert.equal(body.reason, "disk");
+  assert.match(body.message, /multe fișiere/);
+  sendUploadBusy(res);
+  assert.equal(body.reason, "queue");
 });
 
 test("două uploaduri simultane de fotografii mari: procesate pe rând, memoria monitorizată rămâne sub pragul de 512 MB", async () => {

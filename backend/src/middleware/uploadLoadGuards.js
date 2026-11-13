@@ -43,9 +43,13 @@ export class UploadBusyError extends Error {
   }
 }
 
-export function sendUploadBusy(res, retryAfterSeconds = 5) {
+/**
+ * 503 temporar + Retry-After. `message` / `reason` opționale (ex. protecția de
+ * memorie), ca vânzătorul să vadă cauza reală; implicit mesajul de coadă plină.
+ */
+export function sendUploadBusy(res, retryAfterSeconds = 5, { message = UPLOAD_BUSY_MESSAGE, reason = "queue" } = {}) {
   res.setHeader("Retry-After", String(retryAfterSeconds));
-  return res.status(503).json({ error: "server_busy", message: UPLOAD_BUSY_MESSAGE });
+  return res.status(503).json({ error: "server_busy", reason, message });
 }
 
 export function envMegabytes(name, fallbackMb) {
@@ -120,7 +124,7 @@ export function createByteBudget({ name, budgetBytes, freeBytes = null, freeMarg
           budgetMb: Math.round(budgetBytes / MB),
         });
         res.setHeader("Connection", "close");
-        return sendUploadBusy(res);
+        return sendUploadBusy(res, 5, { reason: "disk" });
       }
 
       // spațiul real: ce e rezervat încă nu e neapărat scris, deci îl
@@ -135,7 +139,7 @@ export function createByteBudget({ name, budgetBytes, freeBytes = null, freeMarg
           marginMb: Math.round(freeMarginBytes / MB),
         });
         res.setHeader("Connection", "close");
-        return sendUploadBusy(res);
+        return sendUploadBusy(res, 5, { reason: "disk" });
       }
 
       reserved += bytes;

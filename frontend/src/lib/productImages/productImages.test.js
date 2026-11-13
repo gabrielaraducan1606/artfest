@@ -262,6 +262,7 @@ test("eșecul uneia nu le oprește pe celelalte; cele încărcate rămân; retry
   let prepared = 0;
   const { queue } = newQueue({
     upload,
+    maxAutoRetries: 0, // eroarea trecătoare rămâne „error” -> retry manual
     prepare: async (file) => {
       prepared += 1;
       return { file };
@@ -271,14 +272,15 @@ test("eșecul uneia nu le oprește pe celelalte; cele încărcate rămân; retry
   await queue.addFiles([makeFile("ok1.jpg"), makeFile("rau.jpg"), makeFile("ok2.jpg")]);
   await settle(40);
   calls[0].resolve({ url: "https://cdn/ok1.jpg" });
-  calls[1].reject(new ProductImageUploadError({ kind: "http", status: 415, code: "invalid_file_type" }));
+  calls[1].reject(new ProductImageUploadError({ kind: "http", status: 503, code: "server_busy" }));
   await settle(40);
   calls[2].resolve({ url: "https://cdn/ok2.jpg" });
   await settle(40);
 
   let snap = queue.getSnapshot();
   assert.deepEqual(snap.items.map((i) => i.status), ["done", "error", "done"]);
-  assert.match(snap.items[1].error, /Formatul nu este acceptat/);
+  assert.match(snap.items[1].error, /ocupat/);
+  assert.equal(snap.items[1].retryable, true);
   assert.deepEqual(snap.urls, ["https://cdn/ok1.jpg", "https://cdn/ok2.jpg"], "cele reușite nu se pierd");
   assert.equal(snap.failedCount, 1);
 
@@ -314,6 +316,37 @@ test("conexiune instabilă: erorile trecătoare se reîncearcă automat (cu Retr
   await settle(40);
   assert.equal(q2.getSnapshot().items[0].status, "error");
   assert.match(q2.getSnapshot().items[0].error, /conexiune lentă/);
+});
+
+test("refuz DEFINITIV (422: HEIC de 50 MP) -> fără reîncercări automate, fără „Reîncearcă”, mesajul exact al serverului", async () => {
+  const serverMessage =
+    "Fotografia HEIC are 50 MP, iar pentru conversie acceptăm maximum 16 MP. Fă poza la 12 MP sau ca JPG (Samsung: ...).";
+  let attempts = 0;
+  const delays = [];
+  const { queue } = newQueue({
+    upload: async () => {
+      attempts += 1;
+      throw new ProductImageUploadError({ kind: "http", status: 422, code: "image_too_many_pixels", message: serverMessage });
+    },
+    sleep: async (ms) => delays.push(ms),
+  });
+  await queue.addFiles([makeFile("20261112_091459.heic", "heic")]);
+  await settle(40);
+
+  const [item] = queue.getSnapshot().items;
+  assert.equal(attempts, 1, "o singură încercare - reîncercarea nu ar schimba nimic");
+  assert.deepEqual(delays, []);
+  assert.equal(item.status, "error");
+  assert.equal(item.retryable, false);
+  assert.equal(item.error, serverMessage, "mesajul corespunde cauzei reale (rezoluție), nu „server ocupat”");
+  assert.equal(queue.retry(item.id), false);
+});
+
+test("413 / 415 / 422 sunt definitive; 503 / 429 / rețea nu", async () => {
+  const { isPermanentUploadError } = await import("./productImageRules.js");
+  for (const status of [413, 415, 422]) assert.equal(isPermanentUploadError(new ProductImageUploadError({ kind: "http", status })), true, String(status));
+  for (const status of [429, 500, 503]) assert.equal(isPermanentUploadError(new ProductImageUploadError({ kind: "http", status })), false, String(status));
+  assert.equal(isPermanentUploadError(new ProductImageUploadError({ kind: "network" })), false);
 });
 
 test("refuz temporar de memorie (503 server_busy, Retry-After 10): reîncercare automată după 10 s, apoi încărcată", async () => {

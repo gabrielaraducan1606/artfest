@@ -119,3 +119,81 @@ test("HEIC: peste 16 MP -> refuzat înainte de decodare; o singură conversie od
   await Promise.all([1, 2, 3].map(() => decodeHeic(Buffer.alloc(8), { width: 4032, height: 3024 })));
   assert.equal(maxActive, 1, "conversiile HEIC simultane așteaptă la rând");
 });
+
+/* ---------- refuzuri DEFINITIVE (422) înaintea celor temporare (503) ---------- */
+
+test("HEIC Samsung 50 MP -> refuz DEFINITIV image_too_many_pixels (nu 503), cu MP real și limita de 16 MP", async () => {
+  const { assertImageProcessable, UploadImageRejectedError } = await import("./uploadMemoryGuard.js");
+  const { pixelLimitForHeader } = await import("./r2Storage.js");
+  const header = { format: "heif", compression: "hevc", width: 8160, height: 6120 };
+  const costBytes = estimateImageProcessingBytes({ header, fileBytes: 9 * MB });
+  assert.ok(costBytes > 460 * MB, "estimarea singură depășește pragul - înainte producea 503 „ocupat” la nesfârșit");
+
+  assert.throws(
+    () =>
+      assertImageProcessable({ header, costBytes, productMaxPixels: 100_000_000, heicMaxPixels: 16_000_000, pixelLimit: pixelLimitForHeader, limitBytes: 460 * MB }),
+    (err) =>
+      err instanceof UploadImageRejectedError &&
+      err.code === "image_too_many_pixels" &&
+      err.format === "heic" &&
+      err.pixels === 8160 * 6120 &&
+      err.maxPixels === 16_000_000
+  );
+});
+
+test("fotografii permise trec verificarea definitivă: HEIC 12 MP, JPEG 100 MP, JPEG progresiv 36 MP", async () => {
+  const { assertImageProcessable } = await import("./uploadMemoryGuard.js");
+  const { pixelLimitForHeader } = await import("./r2Storage.js");
+  const check = (header, fileBytes = 5 * MB) =>
+    assertImageProcessable({
+      header,
+      costBytes: estimateImageProcessingBytes({ header, fileBytes }),
+      productMaxPixels: 100_000_000,
+      heicMaxPixels: 16_000_000,
+      pixelLimit: pixelLimitForHeader,
+      limitBytes: 460 * MB,
+    });
+  assert.doesNotThrow(() => check({ format: "heif", compression: "hevc", width: 4000, height: 3000 }));
+  assert.doesNotThrow(() => check({ format: "jpeg", width: 12247, height: 8165 }, 30 * MB));
+  assert.doesNotThrow(() => check({ format: "jpeg", width: 7348, height: 4899, isProgressive: true }, 22 * MB));
+  // JPEG progresiv peste plafonul lui (36 MP) -> definitiv
+  assert.throws(() => check({ format: "jpeg", width: 8000, height: 6000, isProgressive: true }), (err) => err.code === "image_too_many_pixels" && err.maxPixels === 36_000_000);
+  // header necunoscut: decizia rămâne la procesarea existentă
+  assert.doesNotThrow(() => check(null));
+});
+
+test("cost care nu încape nici cu serverul gol (prag coborât din env) -> image_too_heavy definitiv", async () => {
+  const { assertImageProcessable } = await import("./uploadMemoryGuard.js");
+  const { pixelLimitForHeader } = await import("./r2Storage.js");
+  assert.throws(
+    () =>
+      assertImageProcessable({
+        header: { format: "jpeg", width: 4000, height: 3000 },
+        costBytes: 200 * MB,
+        productMaxPixels: 100_000_000,
+        heicMaxPixels: 16_000_000,
+        pixelLimit: pixelLimitForHeader,
+        limitBytes: 300 * MB,
+      }),
+    (err) => err.code === "image_too_heavy"
+  );
+});
+
+test("ordinea: refuzul definitiv are prioritate chiar când memoria e plină; mesajul 503 de memorie e propriu", async () => {
+  const { ensureUploadMemory, assertImageProcessable } = await import("./uploadMemoryGuard.js");
+  const { pixelLimitForHeader } = await import("./r2Storage.js");
+  const header = { format: "heif", compression: "hevc", width: 8160, height: 6120 };
+  const costBytes = estimateImageProcessingBytes({ header, fileBytes: 9 * MB });
+  const precheck = (state) =>
+    assertImageProcessable({ header, costBytes, productMaxPixels: 100_000_000, heicMaxPixels: 16_000_000, pixelLimit: pixelLimitForHeader, limitBytes: state.limitBytes });
+
+  await assert.rejects(
+    ensureUploadMemory(costBytes, { env: { UPLOAD_MEMORY_SOURCE: "process" }, rss: () => 440 * MB, logger: silent, precheck }),
+    (err) => err.code === "image_too_many_pixels"
+  );
+
+  await assert.rejects(
+    ensureUploadMemory(100 * MB, { env: { UPLOAD_MEMORY_SOURCE: "process" }, rss: () => 440 * MB, logger: silent, precheck: () => {} }),
+    (err) => err instanceof UploadMemoryBusyError && /prea puțină memorie liberă/.test(err.message) && !/multe fișiere/.test(err.message)
+  );
+});

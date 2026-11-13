@@ -183,6 +183,14 @@ export function isRetryableUploadError(error) {
   return [408, 429, 500, 502, 503, 504].includes(Number(error.status));
 }
 
+/**
+ * Refuz DEFINITIV al serverului pentru ACEST fișier (format, mărime, rezoluție):
+ * reîncercarea cu același fișier dă același rezultat.
+ */
+export function isPermanentUploadError(error) {
+  return error?.kind === "http" && [413, 415, 422].includes(Number(error.status));
+}
+
 /** Pauza înainte de reîncercarea automată: Retry-After de la server sau 1,5 s / 4 s / 8 s. */
 export function retryDelayMs(attempt, retryAfterSeconds = 0) {
   if (retryAfterSeconds > 0) return Math.min(30_000, retryAfterSeconds * 1000);

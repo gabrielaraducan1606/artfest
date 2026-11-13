@@ -16,6 +16,7 @@ import AdminFairLabelsPanel from "./AdminFairLabelsPanel.jsx";
 import ActivationInvitePanel from "./AdminFairActivationInvite.jsx";
 import AdminFairPosPanel from "./AdminFairPosPanel.jsx";
 import AdminFairSettlementsPanel from "./AdminFairSettlementsPanel.jsx";
+import AdminFairDeliveryNotesPanel from "./AdminFairDeliveryNotesPanel.jsx";
 import { CancelParticipationModal, Modal, RegistrationHistory, RegistrationReturns } from "./AdminFairCancellation.jsx";
 import { CAUSE_LABEL } from "./adminFairCancellation.js";
 import { TERMS_NOT_ACCEPTED_TEXT, termsAcceptanceView } from "./adminFairTerms.js";
@@ -605,6 +606,7 @@ function RegistrationsSection() {
 const SECTIONS = [
   { id: "registrations", label: "Înscrieri și invitație" },
   { id: "reception", label: "Recepție produse" },
+  { id: "delivery-notes", label: "Avize" },
   { id: "labels", label: "Etichete" },
   { id: "pos", label: "POS / Vânzare" },
   { id: "settlements", label: "Deconturi" },
@@ -639,6 +641,8 @@ export default function AdminArtfestFairTab() {
       </div>
       {section === "reception" ? (
         <AdminFairReceptionPanel />
+      ) : section === "delivery-notes" ? (
+        <AdminFairDeliveryNotesPanel />
       ) : section === "labels" ? (
         <AdminFairLabelsPanel />
       ) : section === "pos" ? (

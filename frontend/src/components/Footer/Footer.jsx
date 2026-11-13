@@ -365,6 +365,15 @@ const vendorTermsUrl = absLegalUrl("/acord-vanzatori");
 >
   Acord vânzători
 </a>
+
+<a
+  href="/third-party-licenses/index.html"
+  className={styles.link}
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  Licențe terțe
+</a>
         </div>
       </div>
     </footer>

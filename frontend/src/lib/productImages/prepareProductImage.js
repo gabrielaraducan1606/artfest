@@ -105,14 +105,59 @@ function canvasToJpeg(canvas) {
   return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY));
 }
 
+/** Mesajele (RO) pentru HEIC care nu poate fi convertit nicăieri - nu are rost upload-ul. */
+export function heicFatalMessage(error, fileName = "") {
+  const name = String(fileName || "").trim() || "Fotografia";
+  if (error?.code === "heic_corrupt") {
+    return `„${name}” pare deteriorată și nu poate fi deschisă. Alege din nou fotografia din galerie.`;
+  }
+  if (error?.code === "too_large_for_device") {
+    const mp = error.sourceWidth && error.sourceHeight ? Math.round((error.sourceWidth * error.sourceHeight) / 1e6) : null;
+    return `„${name}”${mp ? ` (${mp} MP)` : ""} este prea mare pentru memoria acestui dispozitiv. Încarc-o de pe un calculator sau alege o variantă JPG a fotografiei.`;
+  }
+  return "";
+}
+
 /**
  * @param {File} file
- * @param {{ kind: string }} info tipul real (sniffImageKind)
- * @returns {Promise<{ file: File|Blob, processed: boolean, width?: number, height?: number }>}
+ * @param {{ kind: string, onStage?: (stage: "optimizing") => void, onProgress?: Function,
+ *           convertHeic?: Function }} info tipul real (sniffImageKind) + notificări de etapă
+ * @returns {Promise<{ file: File|Blob, processed: boolean, width?: number, height?: number,
+ *                     via?: string, fatalMessage?: string }>}
+ *   fatalMessage: fotografia NU poate fi procesată nici în browser, nici pe server
+ *   (ex. HEIC deteriorat) - apelantul o marchează cu eroare, fără upload.
  */
-export async function prepareProductImage(file, { kind } = {}) {
+export async function prepareProductImage(file, options = {}) {
+  const { kind } = options;
   if (!file || NEVER_PROCESS_KINDS.has(kind)) return { file, processed: false };
 
+  const native = await prepareWithNativeDecoder(file, kind);
+  if (native.processed || native.decoded || kind !== "heic") return native;
+
+  /*
+   * HEIC/HEIF pe care browserul NU îl decodează nativ (Chrome, Edge, Firefox):
+   * conversie locală pe tile-uri (WebAssembly, într-un worker). Fără ea,
+   * fotografiile de 24-50 MP de pe telefon nu ar avea nicio cale: serverul de
+   * 512 MB convertește în siguranță doar până la 16 MP.
+   */
+  const { convertHeicInBrowser, heicBrowserSupport } = await import("./heic/convertHeicInBrowser.js");
+  const convert = options.convertHeic || convertHeicInBrowser;
+  if (!options.convertHeic && !heicBrowserSupport()) return { file, processed: false, via: "server" };
+
+  options.onStage?.("optimizing");
+  try {
+    const result = await convert(file, { onProgress: options.onProgress });
+    return { file: result.file, processed: true, width: result.width, height: result.height, via: "heic-browser" };
+  } catch (error) {
+    const fatalMessage = heicFatalMessage(error, file.name);
+    if (fatalMessage) return { file, processed: false, via: "none", fatalMessage };
+    // browser nesuportat / eșec neprevăzut: serverul (doar până la 16 MP, altfel mesaj clar)
+    return { file, processed: false, via: "server" };
+  }
+}
+
+/** Decodorul NATIV al browserului (JPEG/PNG/WEBP peste tot, HEIC în Safari). */
+async function prepareWithNativeDecoder(file, kind) {
   let bitmap = null;
   let canvas = null;
   try {
@@ -120,13 +165,13 @@ export async function prepareProductImage(file, { kind } = {}) {
 
     // mică, format nativ și sub 2400 px: originalul (serverul o codează o singură dată)
     if (!shouldProcessInBrowser({ kind, size: file.size, width: bitmap.width, height: bitmap.height })) {
-      return { file, processed: false, width: bitmap.width, height: bitmap.height };
+      return { file, processed: false, decoded: true, width: bitmap.width, height: bitmap.height };
     }
 
     const { width, height } = targetDimensions(bitmap.width, bitmap.height);
     canvas = createCanvas(width, height);
     const context = canvas.getContext("2d");
-    if (!context) return { file, processed: false };
+    if (!context) return { file, processed: false, decoded: true };
 
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, width, height);
@@ -135,20 +180,20 @@ export async function prepareProductImage(file, { kind } = {}) {
     context.drawImage(bitmap.source || bitmap, 0, 0, width, height);
 
     const blob = await withTimeout(canvasToJpeg(canvas), DECODE_TIMEOUT_MS, "ENCODE_TIMEOUT");
-    if (!blob || !blob.size) return { file, processed: false };
+    if (!blob || !blob.size) return { file, processed: false, decoded: true };
 
     // JPEG/PNG/WEBP deja în limită și mai mici decât rezultatul: originalul e mai bun
     const sameSize = width === bitmap.width && height === bitmap.height;
     if (PASSTHROUGH_KINDS.has(kind) && sameSize && blob.size >= file.size) {
-      return { file, processed: false, width, height };
+      return { file, processed: false, decoded: true, width, height };
     }
 
     const name = jpegFileName(file.name);
     const out = typeof File === "function" ? new File([blob], name, { type: "image/jpeg" }) : blob;
-    return { file: out, processed: true, width, height };
+    return { file: out, processed: true, decoded: true, width, height, via: "browser" };
   } catch {
-    // HEIC în Chrome, memorie insuficientă, timp depășit: serverul procesează originalul
-    return { file, processed: false };
+    // decodare nativă imposibilă (ex. HEIC în Chrome) / memorie / timp: apelantul decide
+    return { file, processed: false, decoded: false };
   } finally {
     bitmap?.close?.();
     if (canvas) {

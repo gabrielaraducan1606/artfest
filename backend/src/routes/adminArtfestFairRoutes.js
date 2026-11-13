@@ -61,6 +61,11 @@
 //   GET  /settlements, GET /settlements/:id(.csv)
 //   POST /settlements/:id/recalculate|adjustments|finalize|mark-paid|cancel
 //
+// Avizele de însoțire emise de participanți (DOAR citire; nu înseamnă recepție):
+//   GET  /delivery-notes?q=&status=ISSUED|CANCELLED&page=   listă paginată (20 / pagină)
+//   GET  /delivery-notes/:id                                 detaliu
+//   GET  /delivery-notes/:id/pdf[?download=1]                PDF-ul din datele înghețate
+//
 // Invitația pornește DOAR de aici (acțiune manuală a adminului).
 
 import { Router } from "express";
@@ -116,6 +121,13 @@ import {
 } from "../services/artfestFairSettlementService.js";
 import { LABEL_COPY_MODES, applyLabelCopies, renderLabelSheetPdf, renderSingleLabelPdf } from "../lib/fairLabels.js";
 import { FairError } from "../services/artfestFairService.js";
+import {
+  getDeliveryNoteForAdmin,
+  listDeliveryNotesForAdmin,
+  serializeNote,
+  serializeNoteForAdmin,
+} from "../services/artfestFairDeliveryNoteService.js";
+import { renderDeliveryNotePdf } from "../lib/fairDeliveryNotePdf.js";
 import { handleFair, sendFairRulesDraft } from "./artfestFairHttp.js";
 
 const router = Router();
@@ -190,6 +202,45 @@ router.post(
 
 // draftul regulamentului, doar pentru citire (nu e versiunea oficială)
 router.get("/rules-draft", sendFairRulesDraft);
+
+/* ===================== Avize de însoțire (doar citire) ===================== */
+// Avizul emis de participant NU înseamnă recepție: nimic de aici nu scrie.
+
+router.get(
+  "/delivery-notes",
+  handle(async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json(
+      await listDeliveryNotesForAdmin({
+        q: req.query.q ? String(req.query.q) : null,
+        status: req.query.status ? String(req.query.status) : null,
+        page: req.query.page,
+      })
+    );
+  })
+);
+
+router.get(
+  "/delivery-notes/:id",
+  handle(async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json({ note: serializeNoteForAdmin(await getDeliveryNoteForAdmin({ id: req.params.id })) });
+  })
+);
+
+// același generator ca la vânzător, din datele înghețate (anulat => „ANULAT”)
+router.get(
+  "/delivery-notes/:id/pdf",
+  handle(async (req, res) => {
+    const note = serializeNote(await getDeliveryNoteForAdmin({ id: req.params.id }));
+    const pdf = await renderDeliveryNotePdf(note);
+    const name = `aviz-${note.series}-${note.number}${note.status === "CANCELLED" ? "-ANULAT" : ""}.pdf`.replace(/[^A-Za-z0-9._-]/g, "_");
+    res.set("Content-Type", "application/pdf");
+    res.set("Content-Disposition", `${req.query.download === "1" ? "attachment" : "inline"}; filename="${name}"`);
+    res.set("Cache-Control", "private, no-store");
+    res.send(Buffer.from(pdf));
+  })
+);
 
 /* ===================== POS (vânzare la stand) ===================== */
 

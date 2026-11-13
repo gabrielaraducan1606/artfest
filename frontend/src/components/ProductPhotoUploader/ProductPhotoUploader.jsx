@@ -18,16 +18,22 @@ import styles from "./ProductPhotoUploader.module.css";
 
 const STATUS_TEXT = {
   queued: "În așteptare",
-  processing: "Se pregătește…",
+  processing: "Se pregătește fotografia…",
   uploading: "Se încarcă…",
 };
 
 function statusLabel(item) {
+  if (item.status === "processing" && item.stage === "optimizing") return "Se optimizează fotografia…";
   if (item.status === "uploading" && Number.isFinite(item.progress) && item.progress > 0 && item.progress < 1) {
     return `Se încarcă ${Math.round(item.progress * 100)}%`;
   }
-  if (item.status === "uploading" && item.progress === 1) return "Se procesează pe server…";
+  if (item.status === "uploading" && item.progress === 1) return "Se finalizează…";
   return STATUS_TEXT[item.status] || "";
+}
+
+/* bara de progres: la încărcare și la optimizarea pe tile-uri (când se poate măsura) */
+function showProgress(item) {
+  return Number.isFinite(item.progress) && (item.status === "uploading" || (item.status === "processing" && item.stage === "optimizing"));
 }
 
 function Thumb({ item, resolveUrl }) {
@@ -186,7 +192,7 @@ export default function ProductPhotoUploader({
                       <span className={styles.overlay} role="status">
                         <span className={styles.spinner} aria-hidden="true" />
                         {statusLabel(item)}
-                        {item.status === "uploading" && Number.isFinite(item.progress) ? (
+                        {showProgress(item) ? (
                           <span className={styles.progress} aria-hidden="true">
                             <span style={{ width: `${Math.round(item.progress * 100)}%` }} />
                           </span>
@@ -211,6 +217,8 @@ export default function ProductPhotoUploader({
                     </div>
                   ) : busy && item.error ? (
                     <p className={styles.note}>{item.error}</p>
+                  ) : item.status === "done" && item.source === "local" ? (
+                    <p className={styles.doneNote}>✓ Fotografie încărcată</p>
                   ) : null}
 
                   <div className={styles.toolbar}>

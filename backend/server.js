@@ -112,6 +112,7 @@ import adminVendorCampaignsRoutes from "./src/routes/adminVendorCampaignsRoutes.
 import adminArtfestFairRoutes from "./src/routes/adminArtfestFairRoutes.js";
 import vendorArtfestFairRoutes from "./src/routes/vendorArtfestFairRoutes.js";
 import vendorArtfestFairInventoryRoutes from "./src/routes/vendorArtfestFairInventoryRoutes.js";
+import vendorArtfestFairDeliveryNoteRoutes from "./src/routes/vendorArtfestFairDeliveryNoteRoutes.js";
 import vendorsStripeConnectRoutes from "./src/routes/vendors.stripeConnect.js";
 import adminProductsRoutes from "./src/routes/adminProducts.js";
 import adminGpsrRoutes from "./src/routes/adminGpsrRoutes.js";
@@ -645,6 +646,8 @@ app.use("/api/me", userAddressesRoutes);
 app.use("/api/vendor/artfest-fair", vendorArtfestFairRoutes);
 // inventarul vendorului pentru târg (etichete PDF, rezervarea stocului online)
 app.use("/api/vendor/fair/inventory", vendorArtfestFairInventoryRoutes);
+// avize de însoțire a mărfii (doar documente; nu modifică inventarul / stocurile)
+app.use("/api/vendor/fair/delivery-notes", vendorArtfestFairDeliveryNoteRoutes);
 
 // Conturi de curier + adrese de ridicare ale vendorului (/api/vendor/couriers, /api/vendor/pickup-addresses)
 app.use("/api/vendor", vendorCourierRoutes);

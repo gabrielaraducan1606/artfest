@@ -7,7 +7,10 @@
 //     (SRL / PFA / II / IF) și datele de identificare complete; creatorii
 //     independenți (persoane fizice) NU primesc aviz fiscal;
 //   - destinatar: Artfest (PlatformBilling, id "platform");
-//   - destinație: ArtfestFair.deliveryAddress, setată de Admin (fără ea nu se emite);
+//   - destinație: precompletată din ARTFEST_FAIR_RECEIVING_ADDRESS (adresa de
+//     recepție Artfest, doar din mediul backend); emitentul o poate schimba (ex.
+//     predare direct la târg); adresa finală se îngheață în aviz. Fără variabilă
+//     nu se emite (409 cu mesaj, nu 500);
 //   - liniile vin din inventarul târgului (catalog + produse manuale), cu
 //     cantitatea efectiv expediată (transporturi parțiale: suma pe avizele
 //     emise <= cantitatea declarată);
@@ -23,7 +26,7 @@
 // stocurile, vânzările, comenzile, facturile sau deconturile.
 
 import { prisma } from "../db.js";
-import { FAIR_TX_OPTIONS } from "../config/artfestFair.js";
+import { ARTFEST_FAIR_KEY, FAIR_TX_OPTIONS } from "../config/artfestFair.js";
 import { FairError, ensureFair } from "./artfestFairService.js";
 import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { isManualFairItem } from "../lib/artfestFairManualItem.js";
@@ -47,10 +50,23 @@ const LIMITS = Object.freeze({
   vehicle: 80,
   cancelReason: 1000,
   unit: 16,
+  destination: 500,
 });
 
-export function defaultReason(fairTitle) {
-  return `Predare bunuri spre comercializare în regim de comision/consignație la ${fairTitle || "Târgul Artfest"}, fără transferul dreptului de proprietate.`;
+// adresa de recepție a coletelor (variabilă de mediu în Render); fără fallback inventat
+export function receivingAddress() {
+  const value = String(process.env.ARTFEST_FAIR_RECEIVING_ADDRESS || "").replace(/\s+/g, " ").trim();
+  return value || null;
+}
+
+const RECEIVING_ADDRESS_MISSING = Object.freeze({
+  code: "receiving_address_missing",
+  message:
+    "Adresa de recepție Artfest nu este încă configurată, așa că avizul nu poate fi emis acum. Revino mai târziu sau contactează Artfest.",
+});
+
+export function defaultReason() {
+  return "Predare de bunuri în regim de comision/consignație, în vederea comercializării prin Artfest. Bunurile rămân în proprietatea expeditorului până la vânzare. Facturarea bunurilor vândute se realizează ulterior, conform contractului și legislației aplicabile.";
 }
 
 const clean = (value, max) => {
@@ -62,37 +78,81 @@ const clean = (value, max) => {
 
 /* ===================== Emitent / destinatar ===================== */
 
-// datele emitentului din VendorBilling; blockers = ce lipsește pentru un aviz fiscal
+// câmpurile din VendorBilling cerute pe aviz, cu denumiri pe înțelesul participantului
+const ISSUER_FIELD_LABELS = Object.freeze({
+  legalType: "Forma juridică (SRL, PFA, II sau IF)",
+  companyName: "Denumirea firmei",
+  cui: "Codul de identificare fiscală (CUI)",
+  regCom: "Numărul de înregistrare la Registrul Comerțului",
+  address: "Adresa sediului",
+});
+const missingField = (field) => ({ field, label: ISSUER_FIELD_LABELS[field] });
+
+/*
+ * Regimul TVA al emitentului, DOAR informativ (nu se calculează TVA, nu se aplică vatRate):
+ * status = VendorBilling.vatStatus ("payer" / "non_payer" / null = necunoscut);
+ * anafMismatch = ultima verificare ANAF (tvaActive) contrazice statutul declarat.
+ */
+export function issuerVatInfo(billing) {
+  if (!billing) return null;
+  const raw = String(billing.vatStatus || "");
+  const status = raw === "payer" || raw === "non_payer" ? raw : null;
+  const anaf = typeof billing.tvaActive === "boolean" ? billing.tvaActive : null;
+  return {
+    status,
+    anafMismatch: Boolean(status && anaf !== null && anaf !== (status === "payer")),
+  };
+}
+
+// datele emitentului din VendorBilling; blockers = ce lipsește pentru un aviz fiscal.
+// billingAction: "complete" (nu există date de facturare) / "update" (există, dar nu ajung);
+// missing: câmpurile concrete de completat în pagina de facturare existentă.
 export function buildIssuer(billing) {
   if (!billing) {
+    const missing = Object.keys(ISSUER_FIELD_LABELS).map(missingField);
     return {
       eligible: false,
       kind: "missing",
       snapshot: null,
-      blockers: [{ code: "issuer_billing_missing", message: "Completează datele de facturare ale magazinului." }],
+      billingAction: "complete",
+      missing,
+      blockers: [
+        { code: "issuer_billing_missing", message: "Completează datele de facturare ale magazinului.", billing: true },
+      ],
     };
   }
   const legalType = clean(billing.legalType)?.toUpperCase() || null;
-  if (String(billing.sellerType || "") === "independent_creator" || !legalType) {
+  if (String(billing.sellerType || "") === "independent_creator") {
     return {
       eligible: false,
       kind: "independent_creator",
       snapshot: null,
+      billingAction: "update",
+      missing: [missingField("legalType")],
       blockers: [
         {
           code: "issuer_not_legal_entity",
           message:
             "Avizul de însoțire a mărfii se emite de participanții cu formă juridică (SRL, PFA, II, IF). Ca persoană fizică fără formă juridică, nu poți emite acest document fiscal.",
+          billing: true,
         },
       ],
     };
   }
-  if (!DELIVERY_NOTE_ISSUER_LEGAL_TYPES.includes(legalType)) {
+  if (legalType && !DELIVERY_NOTE_ISSUER_LEGAL_TYPES.includes(legalType)) {
     return {
       eligible: false,
       kind: "unsupported",
       snapshot: null,
-      blockers: [{ code: "issuer_legal_type_unsupported", message: "Forma juridică a magazinului nu permite emiterea avizului din Artfest." }],
+      billingAction: "update",
+      missing: [missingField("legalType")],
+      blockers: [
+        {
+          code: "issuer_legal_type_unsupported",
+          message: "Forma juridică a magazinului nu permite emiterea avizului din Artfest.",
+          billing: true,
+        },
+      ],
     };
   }
   const snapshot = {
@@ -105,14 +165,28 @@ export function buildIssuer(billing) {
     phone: clean(billing.phone),
   };
   const missing = [];
-  if (!snapshot.name) missing.push("denumirea");
-  if (!snapshot.cui) missing.push("codul de identificare fiscală (CUI)");
-  if (!snapshot.regCom) missing.push("numărul de înmatriculare în Registrul Comerțului");
-  if (!snapshot.address) missing.push("sediul");
+  if (!snapshot.legalType) missing.push(missingField("legalType"));
+  if (!snapshot.name) missing.push(missingField("companyName"));
+  if (!snapshot.cui) missing.push(missingField("cui"));
+  if (!snapshot.regCom) missing.push(missingField("regCom"));
+  if (!snapshot.address) missing.push(missingField("address"));
   const blockers = missing.length
-    ? [{ code: "issuer_incomplete", message: `Completează în datele de facturare: ${missing.join(", ")}.`, fields: missing }]
+    ? [
+        {
+          code: "issuer_incomplete",
+          message: `Completează în datele de facturare: ${missing.map((m) => m.label).join("; ")}.`,
+          billing: true,
+        },
+      ]
     : [];
-  return { eligible: !missing.length, kind: "business", snapshot, blockers };
+  return {
+    eligible: !missing.length,
+    kind: "business",
+    snapshot,
+    billingAction: missing.length ? "update" : null,
+    missing,
+    blockers,
+  };
 }
 
 export function buildRecipient(platform) {
@@ -139,7 +213,7 @@ async function loadNoteContext(db, vendorId) {
   const fair = await ensureFair(db);
   const fullFair = await db.artfestFair.findUnique({
     where: { id: fair.id },
-    select: { id: true, key: true, title: true, city: true, venue: true, deliveryAddress: true },
+    select: { id: true, key: true, title: true, city: true, venue: true },
   });
   const registration = await db.artfestFairRegistration.findUnique({
     where: { fairId_vendorId: { fairId: fair.id, vendorId } },
@@ -194,7 +268,10 @@ async function loadCandidates(db, ctx, vendorId) {
       declaredQty: item.declaredQty,
       issuedQty: alreadyIssued,
       remainingQty: Math.max(0, item.declaredQty - alreadyIssued),
-      // DOAR sugestie (preț de vânzare la târg, cu TVA inclus dacă e cazul) - nu e prețul contabil
+      // priceSnapshotCents = prețul de vânzare la târg (cel de pe etichetă, plătit de client; pentru
+      // produsele din catalog e Product.priceCents la sincronizare, pentru cele manuale e prețul
+      // introdus de vânzător). Doar REFERINȚĂ în formular: pe aviz se trece prețul artizanului,
+      // care nu există separat în inventar și se completează de vânzător.
       fairPriceCents: item.priceSnapshotCents,
       currency: item.currency || "RON",
     };
@@ -206,7 +283,7 @@ async function loadParties(db, vendorId) {
     db.vendorBilling.findUnique({ where: { vendorId } }),
     db.platformBilling.findUnique({ where: { id: "platform" } }),
   ]);
-  return { issuer: buildIssuer(billing), recipient: buildRecipient(platform) };
+  return { issuer: { ...buildIssuer(billing), vat: issuerVatInfo(billing) }, recipient: buildRecipient(platform) };
 }
 
 /* ===================== Serializare ===================== */
@@ -283,12 +360,8 @@ export async function getDeliveryNotePreview({ vendorId, db = prisma }) {
   if (ctx.registration.status !== "APPROVED") {
     blockers.push({ code: "registration_not_approved", message: "Avizele se emit doar pentru înscrierile aprobate." });
   }
-  if (!ctx.fair.deliveryAddress) {
-    blockers.push({
-      code: "delivery_address_missing",
-      message: "Artfest nu a comunicat încă adresa de livrare a târgului. Avizul se poate emite după ce adresa este disponibilă.",
-    });
-  }
+  const receiving = receivingAddress();
+  if (!receiving) blockers.push(RECEIVING_ADDRESS_MISSING);
   if (!candidates.some((c) => c.remainingQty > 0)) {
     blockers.push({
       code: "no_items",
@@ -301,10 +374,15 @@ export async function getDeliveryNotePreview({ vendorId, db = prisma }) {
     blockers,
     issuerKind: issuer.kind,
     issuer: issuer.snapshot,
+    // ce lipsește din datele de facturare (VendorBilling) pentru aviz; null = complete
+    billing: issuer.billingAction ? { action: issuer.billingAction, missing: issuer.missing } : null,
+    // regimul TVA declarat de emitent (informativ; avizul nu calculează TVA)
+    issuerVat: issuer.vat,
     recipient: recipient.snapshot,
     fair: { title: ctx.fair.title, city: ctx.fair.city || null, venue: ctx.fair.venue || null },
-    destination: ctx.fair.deliveryAddress || null,
-    defaults: { reason: defaultReason(ctx.fair.title), unit: DEFAULT_UNIT, currency: "RON" },
+    // adresa de recepție doar pentru participanții aprobați (fluxul de emitere)
+    destination: ctx.registration.status === "APPROVED" ? receiving : null,
+    defaults: { reason: defaultReason(), unit: DEFAULT_UNIT, currency: "RON" },
     series,
     items: candidates,
   };
@@ -325,6 +403,126 @@ export async function getDeliveryNote({ vendorId, id, db = prisma }) {
   const note = await db.artfestFairDeliveryNote.findFirst({ where: { id: String(id || ""), vendorId }, include: NOTE_INCLUDE });
   if (!note) throw new FairError(404, "delivery_note_not_found", "Avizul nu a fost găsit.");
   return note;
+}
+
+/* ===================== Admin (doar citire) ===================== */
+//
+// Avizele tuturor participanților la târgul curent. Nimic de aici nu scrie:
+// avizul NU înseamnă recepție (receivedQty / stocul rămân neatinse).
+
+export const ADMIN_NOTES_PAGE_SIZE = 20;
+
+// târgul curent, doar citire (fără ensureFair, care îl poate crea)
+async function currentFairReadOnly(db) {
+  return db.artfestFair.findUnique({ where: { key: ARTFEST_FAIR_KEY }, select: { id: true, title: true } });
+}
+const ADMIN_STATUS_FILTERS = { ISSUED: "ISSUED", CANCELLED: "CANCELLED" };
+
+// „AV 12”, „AV-12”, „AV nr. 12”, „12” -> { series?, number? }
+function parseNoteNumberQuery(q) {
+  const text = q.toUpperCase().replace(/\s+/g, " ").trim();
+  if (/^\d{1,9}$/.test(text)) return { number: Number(text) };
+  const m = text.match(/^([A-Z0-9][A-Z0-9-]*?)[\s.-]*(?:NR\.?\s*)?(\d{1,9})$/);
+  if (m && /[A-Z]/.test(m[1])) return { series: m[1].replace(/-+$/, ""), number: Number(m[2]) };
+  return null;
+}
+
+function adminNotesWhere(fairId, { q, status }) {
+  const where = { fairId };
+  if (status) {
+    const s = ADMIN_STATUS_FILTERS[String(status).toUpperCase()];
+    if (!s) throw new FairError(400, "invalid_status", "Status invalid.");
+    where.status = s;
+  }
+  const text = clean(q, 120);
+  if (text) {
+    const or = [
+      { vendor: { displayName: { contains: text, mode: "insensitive" } } },
+      { vendor: { billing: { is: { companyName: { contains: text, mode: "insensitive" } } } } },
+      { series: { contains: text.toUpperCase() } },
+    ];
+    const num = parseNoteNumberQuery(text);
+    if (num?.series) or.push({ series: num.series, number: num.number });
+    else if (num) or.push({ number: num.number });
+    where.OR = or;
+  }
+  return where;
+}
+
+function adminVendor(vendor) {
+  return vendor ? { id: vendor.id, displayName: vendor.displayName || null } : null;
+}
+
+export async function listDeliveryNotesForAdmin({ q = null, status = null, page = 1, db = prisma } = {}) {
+  const pageNum = Math.max(1, Math.min(10_000, Number.parseInt(page, 10) || 1));
+  const fair = await currentFairReadOnly(db);
+  if (!fair) return { fair: null, page: 1, pageSize: ADMIN_NOTES_PAGE_SIZE, total: 0, pages: 1, notes: [] };
+  const where = adminNotesWhere(fair.id, { q, status });
+  const [total, notes] = await Promise.all([
+    db.artfestFairDeliveryNote.count({ where }),
+    db.artfestFairDeliveryNote.findMany({
+      where,
+      orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
+      skip: (pageNum - 1) * ADMIN_NOTES_PAGE_SIZE,
+      take: ADMIN_NOTES_PAGE_SIZE,
+      select: {
+        id: true,
+        series: true,
+        number: true,
+        status: true,
+        issuedAt: true,
+        destination: true,
+        withoutValues: true,
+        totalValueCents: true,
+        currency: true,
+        issuerSnapshot: true,
+        cancelledAt: true,
+        vendor: { select: { id: true, displayName: true } },
+        lines: { select: { quantity: true } },
+      },
+    }),
+  ]);
+  return {
+    fair: { id: fair.id, title: fair.title || null },
+    page: pageNum,
+    pageSize: ADMIN_NOTES_PAGE_SIZE,
+    total,
+    pages: Math.max(1, Math.ceil(total / ADMIN_NOTES_PAGE_SIZE)),
+    notes: notes.map((n) => ({
+      id: n.id,
+      series: n.series,
+      number: n.number,
+      displayNumber: `${n.series} nr. ${n.number}`,
+      status: n.status,
+      issuedAt: n.issuedAt,
+      // numele înghețat pe aviz (emitentul la data emiterii) + magazinul
+      issuerName: n.issuerSnapshot?.name || null,
+      vendor: adminVendor(n.vendor),
+      linesCount: n.lines.length,
+      totalQuantity: n.lines.reduce((s, l) => s + l.quantity, 0),
+      withoutValues: n.withoutValues,
+      totalValueCents: n.withoutValues ? null : n.totalValueCents ?? null,
+      currency: n.currency,
+      destination: n.destination,
+      cancelledAt: n.cancelledAt || null,
+    })),
+  };
+}
+
+// orice aviz al târgului curent (Admin); avizul altui târg => 404
+export async function getDeliveryNoteForAdmin({ id, db = prisma }) {
+  const fair = await currentFairReadOnly(db);
+  if (!fair) throw new FairError(404, "delivery_note_not_found", "Avizul nu a fost găsit.");
+  const note = await db.artfestFairDeliveryNote.findFirst({
+    where: { id: String(id || ""), fairId: fair.id },
+    include: { ...NOTE_INCLUDE, vendor: { select: { id: true, displayName: true } } },
+  });
+  if (!note) throw new FairError(404, "delivery_note_not_found", "Avizul nu a fost găsit.");
+  return note;
+}
+
+export function serializeNoteForAdmin(note) {
+  return { ...serializeNote(note), vendor: adminVendor(note.vendor) };
 }
 
 /* ===================== Validare ===================== */
@@ -358,6 +556,10 @@ export function normalizeIssueInput(body = {}) {
 
   const reason = clean(body.reason, LIMITS.reason);
   if (!reason) fields.reason = "Completează motivul expedierii.";
+
+  // gol => adresa de recepție Artfest; altfel adresa efectivă (ex. predare la târg)
+  const destination = clean(body.destination, LIMITS.destination);
+  if (destination && destination.length < 10) fields.destination = "Scrie adresa completă de livrare.";
 
   const withoutValues = body.withoutValues === true;
   const withoutInvoice = body.withoutInvoice === true;
@@ -412,11 +614,117 @@ export function normalizeIssueInput(body = {}) {
     vehicle: clean(body.vehicle, LIMITS.vehicle)?.toUpperCase() || null,
     shippedAt,
     replacesNoteId: body.replacesNoteId ? String(body.replacesNoteId) : null,
+    destination,
     lines,
   };
 }
 
 /* ===================== Emitere ===================== */
+
+/*
+ * Validare + datele avizului, FĂRĂ scrieri (folosit de emitere, în tranzacție,
+ * și de previzualizare). Aruncă FairError cu mesaj clar la orice blocaj.
+ */
+async function prepareNoteData(db, vendorId, input) {
+  const ctx = await loadNoteContext(db, vendorId);
+  requireRegistration(ctx);
+  if (ctx.registration.status !== "APPROVED") {
+    throw new FairError(403, "registration_not_approved", "Avizele se emit doar pentru înscrierile aprobate.");
+  }
+  const receiving = receivingAddress();
+  if (!receiving) throw new FairError(409, RECEIVING_ADDRESS_MISSING.code, RECEIVING_ADDRESS_MISSING.message);
+  // adresa aleasă de emitent (implicit: recepția Artfest), înghețată în aviz
+  const destination = input.destination || receiving;
+  const { issuer, recipient } = await loadParties(db, vendorId);
+  const blockers = [...issuer.blockers, ...recipient.blockers];
+  if (blockers.length) throw new FairError(409, blockers[0].code, blockers[0].message);
+
+  let replaces = null;
+  if (input.replacesNoteId) {
+    const old = await db.artfestFairDeliveryNote.findFirst({
+      where: { id: input.replacesNoteId, vendorId },
+      select: { id: true, series: true, number: true, status: true, replacedBy: { select: { id: true } } },
+    });
+    if (!old) throw new FairError(404, "delivery_note_not_found", "Avizul înlocuit nu a fost găsit.");
+    if (old.status !== "CANCELLED") {
+      throw new FairError(409, "replaced_note_not_cancelled", "Anulează mai întâi avizul pe care vrei să îl înlocuiești.");
+    }
+    if (old.replacedBy) throw new FairError(409, "note_already_replaced", "Avizul anulat are deja un aviz înlocuitor.");
+    replaces = { id: old.id, series: old.series, number: old.number };
+  }
+
+  // doar produsele proprii, cu cantitatea rămasă după avizele emise
+  const candidates = new Map((await loadCandidates(db, ctx, vendorId)).map((c) => [c.inventoryItemId, c]));
+  const fields = {};
+  input.lines.forEach((line, index) => {
+    const c = candidates.get(line.inventoryItemId);
+    if (!c) fields[`lines.${index}`] = "Produsul nu este în inventarul tău trimis pentru târg.";
+    else if (line.quantity > c.remainingQty) {
+      fields[`lines.${index}.quantity`] = `Cantitate prea mare: mai poți trece pe aviz ${c.remainingQty} buc. din ${c.declaredQty} declarate.`;
+    }
+  });
+  if (Object.keys(fields).length) {
+    throw new FairError(409, "delivery_note_quantity_invalid", "Verifică produsele și cantitățile.", { fields });
+  }
+
+  const lines = input.lines.map((line, index) => {
+    const c = candidates.get(line.inventoryItemId);
+    const valueCents = line.unitPriceCents === null ? null : line.unitPriceCents * line.quantity;
+    return {
+      inventoryItemId: line.inventoryItemId,
+      position: index + 1,
+      titleSnapshot: String(c.title || "").slice(0, 200),
+      variantLabel: c.variantLabel ? String(c.variantLabel).slice(0, 200) : null,
+      internalCode: c.internalCode,
+      isManual: c.isManual,
+      unit: line.unit,
+      quantity: line.quantity,
+      unitPriceCents: input.withoutValues ? null : line.unitPriceCents,
+      valueCents: input.withoutValues ? null : valueCents,
+    };
+  });
+  const totalValueCents = input.withoutValues ? null : lines.reduce((sum, l) => sum + (l.valueCents || 0), 0);
+  return { ctx, issuer, recipient, destination, lines, totalValueCents, replaces };
+}
+
+/*
+ * Previzualizare: același conținut ca avizul final, fără serie / număr definitiv
+ * și fără NICIO scriere (nu creează aviz, nu consumă număr, nu atinge inventarul).
+ */
+export async function previewDeliveryNoteDraft({ vendorId, body, db = prisma, now = new Date() }) {
+  const input = normalizeIssueInput(body);
+  const { issuer, recipient, destination, lines, totalValueCents, replaces } = await prepareNoteData(db, vendorId, input);
+  return {
+    ...serializeNote({
+      id: null,
+      series: null,
+      number: null,
+      status: "ISSUED",
+      issuedAt: now,
+      issuerSnapshot: issuer.snapshot,
+      recipientSnapshot: recipient.snapshot,
+      destination,
+      reason: input.reason,
+      withoutInvoice: input.withoutInvoice,
+      withoutValues: input.withoutValues,
+      notes: input.notes,
+      delegateName: input.delegateName,
+      delegateIdSeries: input.delegateIdSeries,
+      delegateIdNumber: input.delegateIdNumber,
+      delegateIdIssuedBy: input.delegateIdIssuedBy,
+      vehicle: input.vehicle,
+      shippedAt: input.shippedAt,
+      totalValueCents,
+      currency: "RON",
+      replacesNoteId: replaces?.id || null,
+      replaces,
+      replacedBy: null,
+      lines,
+    }),
+    displayNumber: null,
+    preview: true,
+  };
+}
 
 export async function issueDeliveryNote({ vendorId, userId, idempotencyKey, body, db = prisma }) {
   const key = String(idempotencyKey || "").trim();
@@ -443,43 +751,8 @@ export async function issueDeliveryNote({ vendorId, userId, idempotencyKey, body
     });
     if (again) return { note: serializeNote(again), duplicate: true };
 
-    const ctx = await loadNoteContext(tx, vendorId);
-    requireRegistration(ctx);
-    if (ctx.registration.status !== "APPROVED") {
-      throw new FairError(403, "registration_not_approved", "Avizele se emit doar pentru înscrierile aprobate.");
-    }
-    if (!ctx.fair.deliveryAddress) {
-      throw new FairError(409, "delivery_address_missing", "Artfest nu a comunicat încă adresa de livrare a târgului.");
-    }
-    const { issuer, recipient } = await loadParties(tx, vendorId);
-    const blockers = [...issuer.blockers, ...recipient.blockers];
-    if (blockers.length) throw new FairError(409, blockers[0].code, blockers[0].message);
-
-    if (input.replacesNoteId) {
-      const old = await tx.artfestFairDeliveryNote.findFirst({
-        where: { id: input.replacesNoteId, vendorId },
-        select: { id: true, status: true, replacedBy: { select: { id: true } } },
-      });
-      if (!old) throw new FairError(404, "delivery_note_not_found", "Avizul înlocuit nu a fost găsit.");
-      if (old.status !== "CANCELLED") {
-        throw new FairError(409, "replaced_note_not_cancelled", "Anulează mai întâi avizul pe care vrei să îl înlocuiești.");
-      }
-      if (old.replacedBy) throw new FairError(409, "note_already_replaced", "Avizul anulat are deja un aviz înlocuitor.");
-    }
-
-    // cantitățile se verifică pe datele din tranzacție (doar produsele proprii)
-    const candidates = new Map((await loadCandidates(tx, ctx, vendorId)).map((c) => [c.inventoryItemId, c]));
-    const fields = {};
-    input.lines.forEach((line, index) => {
-      const c = candidates.get(line.inventoryItemId);
-      if (!c) fields[`lines.${index}`] = "Produsul nu este în inventarul tău trimis pentru târg.";
-      else if (line.quantity > c.remainingQty) {
-        fields[`lines.${index}.quantity`] = `Cantitate prea mare: mai poți trece pe aviz ${c.remainingQty} buc. din ${c.declaredQty} declarate.`;
-      }
-    });
-    if (Object.keys(fields).length) {
-      throw new FairError(409, "delivery_note_quantity_invalid", "Verifică produsele și cantitățile.", { fields });
-    }
+    // validare + date înghețate, pe datele din tranzacție
+    const { ctx, issuer, recipient, destination, lines, totalValueCents } = await prepareNoteData(tx, vendorId, input);
 
     let seriesRow = await tx.artfestDeliveryNoteSeries.findUnique({
       where: { vendorId_series: { vendorId, series: input.series } },
@@ -492,24 +765,6 @@ export async function issueDeliveryNote({ vendorId, userId, idempotencyKey, body
     const number = seriesRow.nextNumber;
     await tx.artfestDeliveryNoteSeries.update({ where: { id: seriesRow.id }, data: { nextNumber: number + 1 } });
 
-    const lines = input.lines.map((line, index) => {
-      const c = candidates.get(line.inventoryItemId);
-      const valueCents = line.unitPriceCents === null ? null : line.unitPriceCents * line.quantity;
-      return {
-        inventoryItemId: line.inventoryItemId,
-        position: index + 1,
-        titleSnapshot: String(c.title || "").slice(0, 200),
-        variantLabel: c.variantLabel ? String(c.variantLabel).slice(0, 200) : null,
-        internalCode: c.internalCode,
-        isManual: c.isManual,
-        unit: line.unit,
-        quantity: line.quantity,
-        unitPriceCents: input.withoutValues ? null : line.unitPriceCents,
-        valueCents: input.withoutValues ? null : valueCents,
-      };
-    });
-    const totalValueCents = input.withoutValues ? null : lines.reduce((sum, l) => sum + (l.valueCents || 0), 0);
-
     const note = await tx.artfestFairDeliveryNote.create({
       data: {
         fairId: ctx.fair.id,
@@ -521,7 +776,7 @@ export async function issueDeliveryNote({ vendorId, userId, idempotencyKey, body
         idempotencyKey: key,
         issuerSnapshot: issuer.snapshot,
         recipientSnapshot: recipient.snapshot,
-        destination: ctx.fair.deliveryAddress,
+        destination,
         reason: input.reason,
         withoutInvoice: input.withoutInvoice,
         withoutValues: input.withoutValues,

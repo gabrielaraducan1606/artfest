@@ -45,11 +45,14 @@ import {
   uploadToR2,
   detectRealFileKind,
   getFileExtension as getRealFileExtension,
+  pixelLimitForHeader,
 } from "../services/r2Storage.js";
 import sharp from "sharp";
+import { heicDecodeMaxPixels } from "../services/heicDecoder.js";
 import {
   PRODUCT_IMAGE_MAX_BYTES,
   UploadMemoryBusyError,
+  assertImageProcessable,
   currentUploadMemoryState,
   ensureUploadMemory,
   estimateImageProcessingBytes,
@@ -261,8 +264,20 @@ function getUserId(req) {
 }
 
 function handleUploadError(err, res, context = "upload") {
-  if (err instanceof UploadBusyError || err instanceof UploadMemoryBusyError) {
+  if (err instanceof UploadMemoryBusyError) {
+    return sendUploadBusy(res, err.retryAfterSeconds, { message: err.message, reason: "memory" });
+  }
+
+  if (err instanceof UploadBusyError) {
     return sendUploadBusy(res, err.retryAfterSeconds);
+  }
+
+  if (err?.code === "image_too_heavy") {
+    return res.status(422).json({
+      error: "image_too_heavy",
+      message:
+        "Fotografia este prea mare pentru a fi procesată pe server. Trimite o variantă JPG mai mică (sau o captură de ecran).",
+    });
   }
 
   // disc plin în timpul scrierii fișierului temporar - temporar, nu eroare de server
@@ -334,11 +349,15 @@ function handleUploadError(err, res, context = "upload") {
 
   if (err?.code === "image_too_many_pixels") {
     const mp = err.maxPixels ? Math.round(err.maxPixels / 1_000_000) : null;
+    const actualMp = err.pixels ? Math.round(err.pixels / 1_000_000) : null;
 
     if (err.format === "heic") {
       return res.status(422).json({
         error: "image_too_many_pixels",
-        message: `Fotografia HEIC are o rezoluție prea mare pentru conversie (maxim ${mp || "?"} MP). Încarc-o din Safari (se convertește automat) sau trimite-o ca JPG (pe iPhone: Setări > Cameră > Formate > Cel mai compatibil).`,
+        format: "heic",
+        ...(actualMp ? { megapixels: actualMp } : {}),
+        maxMegapixels: mp,
+        message: `Fotografia HEIC ${actualMp ? `are ${actualMp} MP, iar ` : "are o rezoluție prea mare: "}pentru conversie acceptăm maximum ${mp || "?"} MP. Fă poza la 12 MP sau ca JPG (Samsung: Cameră > Setări > Format imagine / rezoluție 12 MP; iPhone: Setări > Cameră > Formate > Cel mai compatibil) ori încarc-o din Safari, unde se convertește automat.`,
       });
     }
 
@@ -547,8 +566,22 @@ router.post(
           const header = await sharp(files[i].path || files[i].buffer, { limitInputPixels: false })
             .metadata()
             .catch(() => null);
-          // memoria CONTAINERULUI (inclusiv Chrome) când e confirmată; altfel procesul Node
-          await ensureUploadMemory(estimateImageProcessingBytes({ header, fileBytes: files[i].size }));
+          // 1) refuz DEFINITIV (422, fără reîncercări): rezoluție peste limită (ex. HEIC > 16 MP)
+          //    sau cost care nu încape nici cu serverul gol;
+          // 2) refuz TEMPORAR (503 + Retry-After): memoria CONTAINERULUI (inclusiv Chrome)
+          //    sau a procesului Node nu permite procesarea ACUM.
+          const costBytes = estimateImageProcessingBytes({ header, fileBytes: files[i].size });
+          await ensureUploadMemory(costBytes, {
+            precheck: (state) =>
+              assertImageProcessable({
+                header,
+                costBytes,
+                productMaxPixels: PRODUCT_IMAGE_MAX_PIXELS,
+                heicMaxPixels: heicDecodeMaxPixels(),
+                pixelLimit: pixelLimitForHeader,
+                limitBytes: state.limitBytes,
+              }),
+          });
 
           items.push(
             await withBufferedFile(files[i], (file) =>

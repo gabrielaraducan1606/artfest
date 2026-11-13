@@ -204,9 +204,56 @@ export function estimateImageProcessingBytes({ header, fileBytes }) {
   return Math.round(bytes + FIXED_OVERHEAD_BYTES + decode);
 }
 
+/* =========================================================
+   Refuzuri DEFINITIVE (422), înaintea verificării memoriei (503)
+========================================================= */
+
+/** Fotografia nu poate fi procesată niciodată pe această instanță - reîncercarea nu ajută. */
+export class UploadImageRejectedError extends Error {
+  constructor(code, details = {}) {
+    super(code);
+    this.name = "UploadImageRejectedError";
+    this.code = code;
+    Object.assign(this, details);
+  }
+}
+
+/**
+ * Verificări din header care NU depind de încărcarea serverului. Trebuie
+ * făcute ÎNAINTE de verificarea memoriei: altfel o fotografie imposibilă
+ * (ex. HEIC Samsung de 50 MP) primea 503 „serverul e ocupat”, era
+ * reîncercată degeaba și vânzătorul vedea un mesaj fals.
+ *
+ * @param {{ header: object|null, costBytes: number, productMaxPixels: number,
+ *           heicMaxPixels: number, pixelLimit: (header, max) => number, limitBytes: number }} input
+ * @throws {UploadImageRejectedError}
+ */
+export function assertImageProcessable({ header, costBytes, productMaxPixels, heicMaxPixels, pixelLimit, limitBytes }) {
+  const width = Number(header?.width) || 0;
+  const height = Number(header?.height) || 0;
+  const pixels = width * height;
+
+  if (pixels) {
+    const isHeic = header.format === "heif" && header.compression === "hevc";
+    const max = isHeic ? Math.min(heicMaxPixels, productMaxPixels) : pixelLimit(header, productMaxPixels);
+    if (pixels > max) {
+      throw new UploadImageRejectedError("image_too_many_pixels", {
+        maxPixels: max,
+        pixels,
+        format: isHeic ? "heic" : header.format,
+      });
+    }
+  }
+
+  // nu încape nici cu serverul gol (praguri mai mici setate din env) -> definitiv
+  if (limitBytes && costBytes > limitBytes * 0.6) {
+    throw new UploadImageRejectedError("image_too_heavy", { costBytes, limitBytes });
+  }
+}
+
 export class UploadMemoryBusyError extends Error {
   constructor({ rssBytes, costBytes, limitBytes }) {
-    super("Serverul procesează acum alte fotografii. Reîncercăm automat în câteva secunde.");
+    super("Serverul are momentan prea puțină memorie liberă pentru această fotografie. Reîncercăm automat în câteva secunde.");
     this.name = "UploadMemoryBusyError";
     this.code = "server_busy";
     this.status = 503;
@@ -247,6 +294,8 @@ export function assertUploadMemoryAvailable(
  */
 export async function ensureUploadMemory(costBytes, options = {}) {
   const state = await currentUploadMemoryState(options);
+  // refuzurile DEFINITIVE (422) înaintea celor temporare (503)
+  options.precheck?.(state);
   assertUploadMemoryAvailable(costBytes, {
     rss: () => state.usedBytes,
     limitBytes: state.limitBytes,
