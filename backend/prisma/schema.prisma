@@ -153,6 +153,8 @@ model User {
   fairReturnsShipped         ArtfestFairReturn[]            @relation("ArtfestFairReturnShippedBy")
   fairReturnsConfirmed       ArtfestFairReturn[]            @relation("ArtfestFairReturnConfirmedBy")
   fairReturnsCancelled       ArtfestFairReturn[]            @relation("ArtfestFairReturnCancelledBy")
+  fairDeliveryNotesIssued    ArtfestFairDeliveryNote[]      @relation("ArtfestFairDeliveryNoteIssuedBy")
+  fairDeliveryNotesCancelled ArtfestFairDeliveryNote[]      @relation("ArtfestFairDeliveryNoteCancelledBy")
 
   @@index([vendorDeactivateToken])
   @@index([emailChangeToken])
@@ -466,6 +468,8 @@ model Vendor {
   fairDiscounts           ArtfestFairDiscount[]
   fairSettlements         ArtfestFairSettlement[]
   fairReturns             ArtfestFairReturn[]
+  fairDeliveryNotes       ArtfestFairDeliveryNote[]
+  deliveryNoteSeries      ArtfestDeliveryNoteSeries[]
 
   externalStoreConnections ExternalStoreConnection[]
 
@@ -846,6 +850,11 @@ enum ArtfestFairReturnMethod {
   PICKUP
   COURIER_BY_ARTFEST
   COURIER_BY_VENDOR
+}
+
+enum ArtfestFairDeliveryNoteStatus {
+  ISSUED
+  CANCELLED
 }
 
 enum ArtfestFairReturnStatus {
@@ -5430,6 +5439,10 @@ model ArtfestFair {
   saleReturns            ArtfestFairSaleReturn[]
   settlements            ArtfestFairSettlement[]
 
+  // adresa reală de livrare a mărfii (setată de Admin); fără ea nu se emit avize
+  deliveryAddress String?                   @db.VarChar(500)
+  deliveryNotes   ArtfestFairDeliveryNote[]
+
   @@index([registrationOpen])
   @@index([startsAt, endsAt])
 }
@@ -5475,6 +5488,7 @@ model ArtfestFairRegistration {
   inventoryItems ArtfestFairInventoryItem[]
   events         ArtfestFairRegistrationEvent[]
   returns        ArtfestFairReturn[]
+  deliveryNotes  ArtfestFairDeliveryNote[]
 
   @@unique([fairId, vendorId])
   @@index([fairId, status, submittedAt])
@@ -5720,6 +5734,7 @@ model ArtfestFairInventoryItem {
   saleReturnLines ArtfestFairSaleReturnLine[]
   discounts       ArtfestFairDiscount[]
   returnLines     ArtfestFairReturnLine[]
+  deliveryNoteLines ArtfestFairDeliveryNoteLine[]
 
   @@unique([registrationId, productId, variantKey])
   @@index([fairId, status])
@@ -6217,4 +6232,112 @@ model ProductGpsrDeclaration {
   @@unique([productId, noticeVersion, manufacturerHash, safetyHash], map: "ProductGpsrDeclaration_product_version_hashes_key")
   @@index([productId, createdAt])
   @@index([vendorId, createdAt])
+}
+
+// ==================== Târg Artfest - avize de însoțire a mărfii ====================
+//
+// Aviz de însoțire a mărfii (cod 14-3-6A, OMFP 2634/2015) emis de participant
+// (emitent) către Artfest (PlatformBilling) pentru bunurile trimise la târg.
+// Documentul NU modifică inventarul, stocurile, vânzările, facturile sau deconturile.
+// Un aviz emis nu se editează; corecția = anulare cu motiv + aviz înlocuitor
+// (replacesNoteId), cu număr nou. Numărul anulat nu se reutilizează.
+
+// numerotare per emitent (vendor) și serie
+model ArtfestDeliveryNoteSeries {
+  id         String   @id @default(cuid())
+  vendorId   String
+  series     String   @db.VarChar(16)
+  // următorul număr de alocat (poate porni de la numărul carnetului propriu)
+  nextNumber Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  @@unique([vendorId, series])
+}
+
+model ArtfestFairDeliveryNote {
+  id             String                        @id @default(cuid())
+  fairId         String
+  registrationId String
+  vendorId       String
+  series         String                        @db.VarChar(16)
+  number         Int
+  status         ArtfestFairDeliveryNoteStatus @default(ISSUED)
+
+  issuedAt       DateTime @default(now())
+  issuedById     String?
+  // cheia trimisă de client la confirmare: o retrimitere întoarce același aviz
+  idempotencyKey String   @db.VarChar(80)
+
+  // date înghețate la emitere (emitent = VendorBilling, destinatar = PlatformBilling)
+  issuerSnapshot    Json
+  recipientSnapshot Json
+  destination       String  @db.VarChar(500)
+  reason            String  @db.VarChar(500)
+  withoutInvoice    Boolean @default(false)
+  // emis fără prețuri / valori (document justificativ separat)
+  withoutValues     Boolean @default(false)
+  notes             String? @db.Text
+
+  delegateName       String?   @db.VarChar(160)
+  delegateIdSeries   String?   @db.VarChar(10)
+  delegateIdNumber   String?   @db.VarChar(20)
+  delegateIdIssuedBy String?   @db.VarChar(120)
+  vehicle            String?   @db.VarChar(80)
+  shippedAt          DateTime?
+
+  totalValueCents Int?
+  currency        String @default("RON") @db.VarChar(3)
+
+  cancelledAt    DateTime?
+  cancelledById  String?
+  cancelReason   String?   @db.Text
+  // avizul anulat pe care acesta îl înlocuiește (lanț de corecții)
+  replacesNoteId String?   @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fair         ArtfestFair              @relation(fields: [fairId], references: [id], onDelete: Restrict)
+  registration ArtfestFairRegistration  @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  vendor       Vendor                   @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  issuedBy     User?                    @relation("ArtfestFairDeliveryNoteIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
+  cancelledBy  User?                    @relation("ArtfestFairDeliveryNoteCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  replaces     ArtfestFairDeliveryNote? @relation("ArtfestFairDeliveryNoteReplacement", fields: [replacesNoteId], references: [id], onDelete: Restrict)
+  replacedBy   ArtfestFairDeliveryNote? @relation("ArtfestFairDeliveryNoteReplacement")
+
+  lines ArtfestFairDeliveryNoteLine[]
+
+  @@unique([vendorId, series, number])
+  @@unique([vendorId, idempotencyKey])
+  @@index([registrationId, status, issuedAt])
+  @@index([fairId, issuedAt])
+  @@index([issuedById])
+  @@index([cancelledById])
+}
+
+model ArtfestFairDeliveryNoteLine {
+  id              String  @id @default(cuid())
+  noteId          String
+  inventoryItemId String
+  position        Int
+  titleSnapshot   String  @db.VarChar(200)
+  variantLabel    String? @db.VarChar(200)
+  // codul intern Artfest al liniei (barcode)
+  internalCode    String  @db.VarChar(20)
+  isManual        Boolean @default(false)
+  unit            String  @default("buc") @db.VarChar(16)
+  quantity        Int
+  // preț unitar fără TVA, confirmat de emitent (NU derivat automat din prețul de vânzare)
+  unitPriceCents  Int?
+  valueCents      Int?
+
+  note          ArtfestFairDeliveryNote  @relation(fields: [noteId], references: [id], onDelete: Restrict)
+  inventoryItem ArtfestFairInventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+
+  @@unique([noteId, position])
+  @@unique([noteId, inventoryItemId])
+  @@index([inventoryItemId])
 }

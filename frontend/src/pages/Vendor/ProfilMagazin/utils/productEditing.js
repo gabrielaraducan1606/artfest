@@ -17,6 +17,7 @@
  */
 
 import { api } from "../../../../lib/api";
+import { uploadProductImageWithRetry } from "../../../../lib/productImages/uploadProductImage.js";
 import { buildProductPayload } from "./productPayload";
 import { extractCode, extractHttpStatus } from "./activationErrors";
 import { showContactInfoFix } from "../../../../components/AIAssistant/contactInfo/contactInfoFixToast.jsx";
@@ -27,17 +28,14 @@ export async function fetchVendorProduct(id) {
   return api(`/api/vendors/products/${encodeURIComponent(id)}`, { method: "GET" });
 }
 
-export async function uploadProductFile(file) {
-  const fd = new FormData();
-  fd.append("file", file);
-
-  const res = await fetch("/api/upload", {
-    method: "POST",
-    body: fd,
-  });
-
-  const { url } = await res.json();
-  return url;
+/*
+ * Upload-ul unei fotografii de produs (ProductModal, Modificări cerute):
+ * ruta de PRODUSE (/api/upload/products - 40 MB după optimizare, conversie HEIC), cu
+ * reîncercări automate. Înainte: /api/upload (avatar, 10 MB) și, la eroare,
+ * întorcea `undefined` în loc să arunce - fotografia „dispărea” din formular.
+ */
+export function uploadProductFile(file) {
+  return uploadProductImageWithRetry(file);
 }
 
 export async function updateVendorProduct(id, form) {

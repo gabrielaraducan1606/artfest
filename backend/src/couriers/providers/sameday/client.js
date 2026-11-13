@@ -8,6 +8,19 @@ import {
   CourierValidationError,
 } from "../../errors.js";
 import { assertSamedayEnvironment, SAMEDAY_BASE_URLS } from "../../samedayEnvironment.js";
+import { isSamedayLocalSimulationEnabled, SamedaySimulationBlockedError, simulatedSamedayResponse } from "./localSimulation.js";
+
+/*
+ * Simulare locală (localSimulation.js): cu simularea activă NICIO cerere nu
+ * pleacă spre Sameday, pentru niciun cont; contextul simulat primește doar
+ * răspunsuri fictive. Un context simulat fără simulare activă -> blocat.
+ */
+function simulationGate(ctx, operation) {
+  const simulationOn = isSamedayLocalSimulationEnabled();
+  if (ctx?.simulated && simulationOn) return true;
+  if (ctx?.simulated || simulationOn) throw new SamedaySimulationBlockedError(operation);
+  return false;
+}
 
 /*
  * Client HTTP Sameday, PER CONT (CourierAccount) - fără credentiale
@@ -165,6 +178,8 @@ async function authenticate(credentials, baseUrl) {
  * @param {{ forceRefresh?: boolean }} [opts]
  */
 export async function getSamedaySession(ctx, { forceRefresh = false } = {}) {
+  // simulare: nicio autentificare reală (nici pentru conturile din DB)
+  if (simulationGate(ctx, "autentificarea")) throw new SamedaySimulationBlockedError("autentificarea");
   const baseUrl = resolveBaseUrl(ctx.publicConfig);
   const fingerprint = fingerprintOf(ctx.credentials, baseUrl);
 
@@ -258,6 +273,11 @@ export function collectSamedayErrorFields(body) {
  *   allowEmpty: răspuns 2xx fără corp (ex. DELETE) -> null, nu eroare
  */
 export async function samedayRequest(ctx, { method = "GET", path, form, binary = false, allowEmpty = false }) {
+  // simulare: răspuns fictiv (citiri + estimare) sau blocare; fără rețea
+  if (simulationGate(ctx, `${method} ${String(path || "").split("?")[0]}`)) {
+    if (binary) throw new SamedaySimulationBlockedError("descărcarea etichetei");
+    return simulatedSamedayResponse({ method, path, form });
+  }
   let session = await getSamedaySession(ctx);
 
   for (let attempt = 0; attempt < 2; attempt++) {

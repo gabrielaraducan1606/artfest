@@ -15,10 +15,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CATEGORIES_DETAILED, CATEGORY_LABELS } from "../../../../backend/src/constants/categories.js";
 import GpsrConfirmation from "../../components/GpsrConfirmation.jsx";
+import ProductPhotoUploader from "../../components/ProductPhotoUploader/ProductPhotoUploader.jsx";
+import { prepareProductImage } from "../../lib/productImages/prepareProductImage.js";
+import { useProductImageQueue } from "../../lib/productImages/useProductImageQueue.js";
 import ProductGpsrSection from "../../pages/Vendor/ProfilMagazin/modals/ProductModal/components/ProductGpsrSection.jsx";
 import { dispatchProductSaved } from "../../pages/Vendor/ProfilMagazin/utils/productEditing.js";
 import { gpsrConfirmationRule } from "../../utils/gpsrConfirmationRule.js";
-import { createDefaultServices } from "./smartListingServices.js";
+import { createDefaultServices, uploadWithServices } from "./smartListingServices.js";
 import { analyzeProductPhotos } from "./smartListingAiClient.js";
 import { describeSaveError } from "./smartListingSave.js";
 import SmartListingCollections from "./SmartListingCollections.jsx";
@@ -121,9 +124,21 @@ export default function SmartListingEditPage({
   const [conflict, setConflict] = useState(false);
   const [ai, setAi] = useState({ status: "idle", suggestions: [], error: "" });
   const [confirmLeave, setConfirmLeave] = useState(null); // "close" | "advanced" | null
-  const [uploading, setUploading] = useState(0);
   const saveLockRef = useRef(false);
-  const fileRef = useRef(null);
+
+  /*
+   * Fotografiile: coada COMUNĂ (lib/productImages). Pornește cu imaginile
+   * produsului (păstrate exact, chiar dacă vânzătorul nu le atinge); doar
+   * URL-urile definitive ajung în form.images, în ordinea afișată.
+   */
+  const servicesRef = useRef(services);
+  servicesRef.current = services;
+  const { queue: photoQueue, state: photoState } = useProductImageQueue({
+    upload: (file, ctx) => uploadWithServices(servicesRef.current, file, ctx),
+    prepare: (file, info) => (servicesRef.current.prepareImage || prepareProductImage)(file, info),
+  });
+  const uploading = photoState.pendingCount;
+  const photosReadyRef = useRef(false); // coada a primit imaginile produsului
 
   const vendorGpsrState = services.gpsr.useState({ enabled: true });
 
@@ -136,6 +151,8 @@ export default function SmartListingEditPage({
       const original = editFormFromProduct(product);
       setLoad({ status: "ready", product, original, error: "" });
       setForm({ ...original, gpsrConfirmed: false });
+      photoQueue.reset(original.images || []);
+      photosReadyRef.current = true;
       setConflict(false);
       setSaveError(null);
       const membership = await loadProductCollectionMembership({ api, productId: product.id || productId });
@@ -150,11 +167,23 @@ export default function SmartListingEditPage({
     } catch (error) {
       setLoad({ status: "error", product: null, original: null, error: error?.status === 404 || error?.status === 403 ? "Produsul nu există sau nu îți aparține." : "Nu am putut încărca produsul." });
     }
-  }, [api, productId]);
+  }, [api, productId, photoQueue]);
 
   useEffect(() => {
     loadProduct();
   }, [loadProduct]);
+
+  // coada -> form.images (doar URL-uri definitive, în ordinea afișată)
+  const photoUrlsKey = photoState.urls.join("\n");
+  useEffect(() => {
+    if (!photosReadyRef.current) return;
+    const urls = photoUrlsKey ? photoUrlsKey.split("\n") : [];
+    setForm((current) => {
+      if (!current) return current;
+      if ((current.images || []).join("\n") === photoUrlsKey) return current;
+      return { ...current, images: urls };
+    });
+  }, [photoUrlsKey]);
 
   /* ---------------- stare derivată ---------------- */
 
@@ -165,7 +194,8 @@ export default function SmartListingEditPage({
     return a !== b;
   }, [collections.initial, collections.selected]);
   const productDirty = Boolean(form && original && hasEditChanges(original, form));
-  const dirty = productDirty || collectionChanges;
+  // fotografiile încă în lucru / cu eroare contează ca modificări nesalvate (confirmare la închidere)
+  const dirty = productDirty || collectionChanges || photoState.pendingCount > 0 || photoState.failedCount > 0;
 
   // aceeași regulă ca ProductModal: produsul inițial + starea declarației de pe server (GET /:id)
   const gpsrRule =
@@ -205,44 +235,7 @@ export default function SmartListingEditPage({
     onOpenAdvanced?.(productId);
   };
 
-  /* ---------------- fotografii ---------------- */
-
-  const moveImage = (index, delta) =>
-    setForm((current) => {
-      const images = [...current.images];
-      const target = index + delta;
-      if (target < 0 || target >= images.length) return current;
-      [images[index], images[target]] = [images[target], images[index]];
-      return { ...current, images };
-    });
-
-  const makeMain = (index) =>
-    setForm((current) => {
-      const images = [...current.images];
-      const [picked] = images.splice(index, 1);
-      return { ...current, images: [picked, ...images] };
-    });
-
-  const removeImage = (index) =>
-    setForm((current) => (current.images.length <= 1 ? current : { ...current, images: current.images.filter((_, i) => i !== index) }));
-
-  const addFiles = async (files) => {
-    const list = [...(files || [])].filter((file) => file && /^image\//.test(file.type));
-    if (!list.length) return;
-    setUploading((count) => count + list.length);
-    for (const file of list) {
-      try {
-        const prepared = services.compressImage ? await services.compressImage(file) : file;
-        const result = await services.uploadImage(prepared);
-        const url = typeof result === "string" ? result : result?.url;
-        if (url) setForm((current) => ({ ...current, images: [...current.images, url] }));
-      } catch {
-        setSaveError({ message: "O fotografie nu s-a putut încărca. Celelalte modificări au rămas." });
-      } finally {
-        setUploading((count) => count - 1);
-      }
-    }
-  };
+  /* fotografii: adăugare / ordine / principală / eliminare / retry -> photoQueue (ProductPhotoUploader) */
 
   /* ---------------- AI: doar propuneri ---------------- */
 
@@ -272,6 +265,12 @@ export default function SmartListingEditPage({
     if (saveLockRef.current || saving || !form || !original) return;
     if (uploading) {
       setSaveError({ message: "Așteaptă să se încarce fotografiile." });
+      return;
+    }
+    if (photoState.failedCount) {
+      setSaveError({
+        message: `${photoState.failedCount === 1 ? "O fotografie nu s-a încărcat" : `${photoState.failedCount} fotografii nu s-au încărcat`}. Apasă „Reîncearcă” sau elimin-o; celelalte fotografii sunt păstrate.`,
+      });
       return;
     }
     if (!form.images?.length) {
@@ -421,55 +420,14 @@ export default function SmartListingEditPage({
             <h2 id="sle-photos-title" className={styles.cardTitle}>
               Fotografii
             </h2>
-            <ul className={styles.thumbs}>
-              {form.images.map((url, index) => (
-                <li key={`${url}-${index}`} className={styles.thumb} data-image={url}>
-                  <img src={resolveUrl(url)} alt={`Fotografia ${index + 1}`} />
-                  {index === 0 ? (
-                    <span className={styles.thumbMain}>Principală</span>
-                  ) : (
-                    <button type="button" className={styles.thumbAction} onClick={() => makeMain(index)}>
-                      Fă principală
-                    </button>
-                  )}
-                  <div className={styles.thumbMove}>
-                    <button type="button" onClick={() => moveImage(index, -1)} disabled={index === 0} aria-label={`Mută fotografia ${index + 1} spre stânga`}>
-                      ‹
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveImage(index, 1)}
-                      disabled={index === form.images.length - 1}
-                      aria-label={`Mută fotografia ${index + 1} spre dreapta`}
-                    >
-                      ›
-                    </button>
-                  </div>
-                  {form.images.length > 1 && (
-                    <button type="button" className={styles.thumbRemove} onClick={() => removeImage(index)} aria-label={`Șterge fotografia ${index + 1}`}>
-                      ×
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-            <div className={styles.rowActions}>
-              <button type="button" className={styles.secondaryBtn} onClick={() => fileRef.current?.click()} disabled={uploading > 0}>
-                {uploading ? "Se încarcă…" : "+ Adaugă fotografii"}
-              </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                multiple
-                hidden
-                onChange={(event) => {
-                  addFiles(event.target.files);
-                  event.target.value = "";
-                }}
-              />
-            </div>
-            <p className={styles.hint}>Prima fotografie apare pe card și în căutări. Produsul păstrează cel puțin o fotografie.</p>
+            {/* selectorul COMUN: imaginile existente rămân până le elimini; cel puțin o fotografie */}
+            <ProductPhotoUploader
+              queue={photoQueue}
+              state={photoState}
+              resolveUrl={resolveUrl}
+              minPhotos={1}
+              idPrefix="sle-photos"
+            />
           </section>
 
           {/* ---------- detalii + AI ---------- */}

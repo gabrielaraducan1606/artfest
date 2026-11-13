@@ -1,8 +1,8 @@
 // src/components/AIAssistant/Vendor/services/vendorProductAI.js
 
-import {
-  uploadFile,
-} from "../../../../lib/uploadFile.js";
+import { prepareProductImage } from "../../../../lib/productImages/prepareProductImage.js";
+import { checkUploadSize, readFileHead, sniffImageKind } from "../../../../lib/productImages/productImageRules.js";
+import { uploadProductImageWithRetry } from "../../../../lib/productImages/uploadProductImage.js";
 
 /* =========================================================
    Helpers imagini
@@ -60,20 +60,21 @@ function makeAbsoluteUrl(
 function getExistingImageUrl(
   image
 ) {
-  if (
-    typeof image ===
-    "string"
-  ) {
-    return makeAbsoluteUrl(
-      image
-    );
+  const raw =
+    typeof image === "string"
+      ? image
+      : image?.url ||
+        image?.src ||
+        image?.imageUrl ||
+        "";
+
+  // o previzualizare locală (blob:) nu e niciodată o imagine definitivă
+  if (/^blob:/i.test(String(raw).trim())) {
+    return null;
   }
 
   return makeAbsoluteUrl(
-    image?.url ||
-      image?.src ||
-      image?.imageUrl ||
-      ""
+    raw
   );
 }
 
@@ -95,9 +96,31 @@ async function uploadProductImage(
     image?.file instanceof
       File
   ) {
+    /*
+     * Același flux ca celelalte formulare de produs (lib/productImages):
+     * pregătire în browser + /api/upload/products (40 MB după optimizare, HEIC convertit)
+     * + reîncercări automate pentru erorile trecătoare.
+     */
+    let kind = null;
+    try {
+      kind = sniffImageKind(await readFileHead(image.file));
+    } catch {
+      kind = null;
+    }
+
+    const prepared = kind
+      ? (await prepareProductImage(image.file, { kind }).catch(() => null))?.file || image.file
+      : image.file;
+
+    // limita serverului (40 MB) se aplică fișierului optimizat
+    const sizeCheck = checkUploadSize(prepared, image.file.name);
+    if (!sizeCheck.ok) {
+      throw new Error(sizeCheck.message);
+    }
+
     const uploadedUrl =
-      await uploadFile(
-        image.file
+      await uploadProductImageWithRetry(
+        prepared
       );
 
     const absoluteUrl =

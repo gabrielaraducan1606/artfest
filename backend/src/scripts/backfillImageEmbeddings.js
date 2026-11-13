@@ -1,7 +1,17 @@
 import crypto from "crypto";
 import { prisma } from "../db.js";
-import { imageToEmbedding, toPgVectorLiteral } from "../lib/embeddings.js";
+import { clipModelEnabled, imageToEmbedding, toPgVectorLiteral } from "../lib/embeddings.js";
 import fetch from "node-fetch";
+
+// Modelul CLIP (~650 MB RAM) e oprit implicit (lib/embeddings.js). Scriptul se
+// rulează DOAR manual, pe o mașină cu memorie suficientă, cu CLIP_MODEL_ENABLED=1.
+// Fără activare se oprește imediat - altfel ar „sări” toate imaginile în tăcere.
+if (!clipModelEnabled()) {
+  console.error(
+    "[backfill] Modelul CLIP e dezactivat. Rulează cu CLIP_MODEL_ENABLED=1, doar manual, NU pe instanța Render de 512 MB."
+  );
+  process.exit(1);
+}
 
 const IMAGE_BASE_URL = process.env.IMAGE_BASE_URL || "";
 const FETCH_TIMEOUT_MS = Number(process.env.IMAGE_FETCH_TIMEOUT_MS || 15000);

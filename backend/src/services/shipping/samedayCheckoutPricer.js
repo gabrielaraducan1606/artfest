@@ -23,6 +23,11 @@ import { findPlatformCourierAccount, platformConfig } from "../../couriers/platf
 import { getCourierProvider } from "../../couriers/registry.js";
 import { openCredentials } from "../../couriers/credentials/store.js";
 import { buildPickupParty } from "../../couriers/awb/addresses.js";
+import {
+  isSamedayLocalSimulationEnabled,
+  simulatedPickupParty,
+  simulatedPlatformContext,
+} from "../../couriers/providers/sameday/localSimulation.js";
 import { buildSamedayAwbForm } from "../../couriers/providers/sameday/awbMapper.js";
 import { buildShipmentParcels } from "../../lib/productShipping.js";
 import {
@@ -158,6 +163,11 @@ export function createSamedayCheckoutPricer({
 
   async function context() {
     if (loadContext) return loadContext();
+    // simulare locală (doar non-producție): cont fictiv, fără DB / credentiale
+    if (isSamedayLocalSimulationEnabled()) {
+      const ctx = simulatedPlatformContext();
+      return { ctx, config: platformConfig({ publicConfig: ctx.publicConfig }) };
+    }
     if (ctxCache.value !== undefined && now() - ctxCache.at < CONTEXT_TTL_MS) return ctxCache.value;
     let value = null;
     try {
@@ -183,7 +193,12 @@ export function createSamedayCheckoutPricer({
       db.vendorBilling.findUnique({ where: { vendorId }, select: { legalType: true, companyName: true, cui: true, regCom: true } }),
       db.vendorPickupAddress.findFirst({ where: { vendorId }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] }),
     ]);
-    return buildPickupParty({ vendor, billing, pickup });
+    const result = buildPickupParty({ vendor, billing, pickup });
+    // simulare locală: vendor fără adresă de ridicare -> adresă FICTIVĂ (doar pentru tariful simulat)
+    if (isSamedayLocalSimulationEnabled() && (!result?.party || result.blockers?.length)) {
+      return { party: simulatedPickupParty(vendorId), blockers: [] };
+    }
+    return result;
   }
 
   async function withPlaceIds(ctx, party) {

@@ -1279,3 +1279,298 @@ test("attach-product: produs privat (ajutor Artfest) sau în verificare NU apare
   const after = await publicPage();
   assert.deepEqual(after.collection.products.map((p) => p.id).sort(), ["a-verificare", "a1"]);
 });
+
+/* =========================================================
+   Selecție MANUALĂ vs includere automată (allOwnProducts)
+   Cauza reparată: frontend-ul trimitea allOwnProducts=true la creare, deci
+   toate produsele magazinului intrau automat. Backend-ul trebuie să păstreze
+   semantica: manual = doar VendorCollectionItem; automat = doar la cerere.
+========================================================= */
+
+function seedOwnProducts() {
+  tables.product.push(
+    product("a2", vendors.a, "Cană A2"),
+    product("a3", vendors.a, "Farfurie A3")
+  );
+}
+
+const publicIds = async (slug = "colectia-a") => {
+  const prev = currentUserId;
+  currentUserId = null;
+  const res = await call("GET", `/api/public/vendor-collections/${slug}`);
+  currentUserId = prev;
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res.body.collection.products.map((p) => p.id).sort();
+};
+
+test("selecție manuală: creare fără allOwnProducts -> manuală; public apar DOAR produsele bifate", async () => {
+  seedOwnProducts();
+  const created = await call("POST", "/api/vendor/collections", { title: "Cadouri alese" });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const c = created.body.collection;
+  assert.equal(c.allOwnProducts, false, "implicit manual");
+
+  assert.deepEqual(await publicIds(c.slug), [], "colecție nouă = goală, nu tot magazinul");
+
+  // în selector, produsele proprii sunt bifabile (nu sunt „incluse automat”)
+  const search = await call("GET", `/api/vendor/collections/${c.id}/product-search?scope=own`);
+  assert.deepEqual(search.body.products.map((p) => p.id).sort(), ["a1", "a2", "a3"]);
+  assert.equal(search.body.selectableTotal, 3);
+  assert.ok(search.body.products.every((p) => p.inCollection === false));
+
+  await call("POST", `/api/vendor/collections/${c.id}/products`, { productIds: ["a1", "a3"] });
+  assert.deepEqual(await publicIds(c.slug), ["a1", "a3"], "a2 nebifat nu apare");
+});
+
+test("selecție manuală: produsul publicat ULTERIOR nu intră automat", async () => {
+  tables.vendorCollection[0].allOwnProducts = false;
+  await call("POST", "/api/vendor/collections/col-a/products", { productIds: ["a1"] });
+
+  tables.product.push(product("a-nou-ulterior", vendors.a, "Produs publicat după"));
+  assert.deepEqual(await publicIds(), ["a1"]);
+
+  const detail = await call("GET", "/api/vendor/collections/col-a");
+  assert.deepEqual(detail.body.collection.items.map((i) => i.productId), ["a1"]);
+});
+
+test("editare: produsele selectate apar în detaliu și pot fi eliminate; public se actualizează", async () => {
+  seedOwnProducts();
+  await call("POST", "/api/vendor/collections/col-a/products", { productIds: ["a1", "a2", "b1"] });
+
+  const detail = await call("GET", "/api/vendor/collections/col-a");
+  assert.equal(detail.status, 200);
+  assert.deepEqual(detail.body.collection.items.map((i) => i.productId).sort(), ["a1", "a2", "b1"]);
+  const own = Object.fromEntries(detail.body.collection.items.map((i) => [i.productId, i.isOwn]));
+  assert.deepEqual(own, { a1: true, a2: true, b1: false });
+
+  // în căutare apar marcate „în colecție”
+  const search = await call("GET", "/api/vendor/collections/col-a/product-search?scope=own");
+  const inCol = Object.fromEntries(search.body.products.map((p) => [p.id, p.inCollection]));
+  assert.deepEqual(inCol, { a1: true, a2: true, a3: false });
+
+  await call("POST", "/api/vendor/collections/col-a/products/remove", { productIds: ["a2"] });
+  await call("DELETE", "/api/vendor/collections/col-a/products/b1");
+  assert.deepEqual(await publicIds(), ["a1"]);
+
+  // salvarea setărilor (titlu) nu atinge selecția
+  const saved = await call("PATCH", "/api/vendor/collections/col-a", { title: "Colecția A redenumită", allOwnProducts: false });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(tables.vendorCollectionItem.map((i) => i.productId), ["a1"]);
+});
+
+test("același produs în mai multe colecții (proprii și ale altui vânzător), fără blocări", async () => {
+  tables.vendorCollection.push(
+    { id: "col-a2", vendorId: "vendor-a", title: "A2", slug: "colectia-a2", isActive: true, sort: "curated", allOwnProducts: false, visits: 0, clicks: 0, createdAt: new Date(), updatedAt: new Date() },
+    { id: "col-b", vendorId: "vendor-b", title: "B", slug: "colectia-b", isActive: true, sort: "curated", allOwnProducts: false, visits: 0, clicks: 0, createdAt: new Date(), updatedAt: new Date() }
+  );
+
+  for (const [user, col] of [["user-a", "col-a"], ["user-a", "col-a2"], ["user-b", "col-b"]]) {
+    currentUserId = user;
+    const res = await call("POST", `/api/vendor/collections/${col}/products`, { productIds: ["a1", "b1"] });
+    assert.equal(res.status, 200, `${col}: ${JSON.stringify(res.body)}`);
+    assert.equal(res.body.added, 2, col);
+  }
+
+  assert.deepEqual(await publicIds("colectia-a"), ["a1", "b1"]);
+  assert.deepEqual(await publicIds("colectia-a2"), ["a1", "b1"]);
+  assert.deepEqual(await publicIds("colectia-b"), ["a1", "b1"]);
+
+  // scoaterea dintr-o colecție nu afectează celelalte
+  currentUserId = "user-a";
+  await call("DELETE", "/api/vendor/collections/col-a2/products/a1");
+  assert.deepEqual(await publicIds("colectia-a2"), ["b1"]);
+  assert.deepEqual(await publicIds("colectia-a"), ["a1", "b1"]);
+});
+
+test("includere automată explicită: toate produsele proprii (inclusiv viitoare) + selecțiile cross-vendor", async () => {
+  seedOwnProducts();
+  const created = await call("POST", "/api/vendor/collections", { title: "Tot magazinul", allOwnProducts: true });
+  const c = created.body.collection;
+  assert.equal(c.allOwnProducts, true);
+
+  await call("POST", `/api/vendor/collections/${c.id}/products`, { productIds: ["b1"] });
+  tables.product.push(product("a-viitor", vendors.a, "Produs viitor"));
+  assert.deepEqual(await publicIds(c.slug), ["a-viitor", "a1", "a2", "a3", "b1"]);
+});
+
+test("automat -> manual cu „păstrează”: produsele proprii incluse acum devin selecții fixe, removable", async () => {
+  seedOwnProducts();
+  tables.vendorCollection[0].allOwnProducts = true;
+  tables.vendorCollectionItem.push({ collectionId: "col-a", productId: "b1", position: 0 });
+
+  const res = await call("PATCH", "/api/vendor/collections/col-a", { allOwnProducts: false, keepOwnProductsAsSelection: true });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.collection.allOwnProducts, false);
+  assert.equal(res.body.keptOwnProducts, 3);
+  assert.deepEqual(tables.vendorCollectionItem.map((i) => i.productId).sort(), ["a1", "a2", "a3", "b1"]);
+  assert.deepEqual(await publicIds(), ["a1", "a2", "a3", "b1"], "pagina publică arată la fel după conversie");
+
+  // de acum e manual: produsul nou nu intră, iar unul păstrat se poate scoate
+  tables.product.push(product("a-dupa", vendors.a, "Publicat după conversie"));
+  await call("DELETE", "/api/vendor/collections/col-a/products/a2");
+  assert.deepEqual(await publicIds(), ["a1", "a3", "b1"]);
+});
+
+test("automat -> manual fără „păstrează”: rămân doar selecțiile explicite; nimic adăugat", async () => {
+  seedOwnProducts();
+  tables.vendorCollection[0].allOwnProducts = true;
+  tables.vendorCollectionItem.push({ collectionId: "col-a", productId: "b1", position: 0 });
+
+  const res = await call("PATCH", "/api/vendor/collections/col-a", { allOwnProducts: false });
+  assert.equal(res.status, 200);
+  assert.ok(!("keptOwnProducts" in res.body));
+  assert.deepEqual(await publicIds(), ["b1"]);
+});
+
+test("keepOwnProductsAsSelection e ignorat dacă nu e trecere automat -> manual (colecțiile existente nu se modifică)", async () => {
+  seedOwnProducts();
+  // deja manuală
+  tables.vendorCollection[0].allOwnProducts = false;
+  let res = await call("PATCH", "/api/vendor/collections/col-a", { allOwnProducts: false, keepOwnProductsAsSelection: true });
+  assert.equal(res.status, 200);
+  assert.equal(tables.vendorCollectionItem.length, 0);
+
+  // automată care rămâne automată
+  tables.vendorCollection[0].allOwnProducts = true;
+  res = await call("PATCH", "/api/vendor/collections/col-a", { title: "Alt titlu", keepOwnProductsAsSelection: true });
+  assert.equal(res.status, 200);
+  assert.equal(tables.vendorCollectionItem.length, 0);
+  assert.equal(tables.vendorCollection[0].allOwnProducts, true);
+});
+
+/* ---------- colecție EXISTENTĂ pe modul automat, 20 de produse proprii ---------- */
+
+function seedTwentyOwnAuto() {
+  const ids = [];
+  for (let i = 1; i <= 20; i += 1) {
+    const id = `own${String(i).padStart(2, "0")}`;
+    ids.push(id);
+  }
+  // a1 din seed-ul de bază se înlocuiește, ca magazinul să aibă exact 20 de produse publice
+  tables.product = tables.product.filter((p) => p.id !== "a1");
+  ids.forEach((id) => tables.product.push(product(id, vendors.a, `Produs ${id}`)));
+  tables.vendorCollection[0].allOwnProducts = true;
+  // un produs al altui magazin adăugat manual
+  tables.vendorCollectionItem.push({ collectionId: "col-a", productId: "b1", position: 0 });
+  return ids;
+}
+
+test("20 de produse pe modul automat: căutarea „Din magazinul meu” le marchează membership=auto (nu manual)", async () => {
+  const ids = seedTwentyOwnAuto();
+  const res = await call("GET", "/api/vendor/collections/col-a/product-search?scope=own&limit=50");
+  assert.equal(res.status, 200);
+  assert.equal(res.body.selectionMode, "auto");
+  assert.equal(res.body.total, 20);
+  assert.deepEqual(res.body.products.map((p) => p.id).sort(), ids);
+  assert.ok(res.body.products.every((p) => p.membership === "auto" && p.autoIncluded === true && p.inCollection === false));
+
+  // „Din magazinul meu” e doar un filtru: în „Tot Artfest” b1 e manual, ale mele tot auto
+  const all = await call("GET", "/api/vendor/collections/col-a/product-search?scope=marketplace&limit=50");
+  const b1 = all.body.products.find((p) => p.id === "b1");
+  assert.equal(b1.membership, "manual");
+  assert.equal(b1.autoIncluded, false);
+});
+
+test("20 pe automat: debifarea unui produs inclus automat e refuzată (409 auto_included), nimic scris", async () => {
+  seedTwentyOwnAuto();
+  const snapshot = JSON.stringify(tables.vendorCollectionItem);
+  const res = await call("POST", "/api/vendor/collections/col-a/products/sync", { remove: ["own03"] });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.error, "auto_included");
+  assert.deepEqual(res.body.productIds, ["own03"]);
+  assert.match(res.body.message, /Aleg eu produsele/);
+  assert.equal(JSON.stringify(tables.vendorCollectionItem), snapshot);
+  assert.equal(tables.vendorCollection[0].allOwnProducts, true);
+});
+
+test("20 pe automat -> manual (păstrează) -> debifez 5 -> salvez -> public apar doar cele 15 + b1", async () => {
+  const ids = seedTwentyOwnAuto();
+  const productsBefore = JSON.stringify(tables.product);
+
+  assert.equal((await publicIds()).length, 21, "înainte: 20 automat + b1");
+
+  // 1) conversia
+  const conv = await call("PATCH", "/api/vendor/collections/col-a", { allOwnProducts: false, keepOwnProductsAsSelection: true });
+  assert.equal(conv.status, 200, JSON.stringify(conv.body));
+  assert.equal(conv.body.keptOwnProducts, 20);
+  assert.equal(conv.body.collection.allOwnProducts, false);
+  assert.deepEqual(await publicIds(), [...ids, "b1"].sort(), "nimic pierdut la conversie");
+
+  // 2) după conversie, toate 20 sunt selecții manuale, debifabile
+  const search = await call("GET", "/api/vendor/collections/col-a/product-search?scope=own&limit=50");
+  assert.equal(search.body.selectionMode, "manual");
+  assert.ok(search.body.products.every((p) => p.membership === "manual" && p.inCollection === true));
+  const detail = await call("GET", "/api/vendor/collections/col-a");
+  assert.equal(detail.body.collection.items.length, 21);
+
+  // 3) debifez 5 și salvez
+  const removed = ["own02", "own05", "own11", "own17", "own20"];
+  const sync = await call("POST", "/api/vendor/collections/col-a/products/sync", { remove: removed });
+  assert.equal(sync.status, 200, JSON.stringify(sync.body));
+  assert.equal(sync.body.removed, 5);
+  assert.equal(sync.body.added, 0);
+
+  // 4) public: doar cele 15 rămase + b1
+  const expected = [...ids.filter((id) => !removed.includes(id)), "b1"].sort();
+  assert.deepEqual(await publicIds(), expected);
+
+  // 5) produs publicat ulterior NU intră; produsele nu au fost modificate
+  tables.product.push(product("own-nou", vendors.a, "Publicat după"));
+  assert.deepEqual(await publicIds(), expected);
+  assert.equal(JSON.stringify(tables.product.slice(0, -1)), productsBefore, "tabelul de produse neatins");
+});
+
+test("sync: bifări + debifări într-o singură salvare; neeligibilele raportate; ambele liste -> scoatere", async () => {
+  seedOwnProducts();
+  tables.vendorCollectionItem.push(
+    { collectionId: "col-a", productId: "a1", position: 0 },
+    { collectionId: "col-a", productId: "a2", position: 1 }
+  );
+
+  const res = await call("POST", "/api/vendor/collections/col-a/products/sync", {
+    add: ["a3", "b1", "b-hidden", "a2"],
+    remove: ["a1", "a2"],
+  });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(res.body.addedIds.sort(), ["a3", "b1"]);
+  assert.deepEqual(res.body.removedIds.sort(), ["a1", "a2"]);
+  assert.equal(res.body.ineligible, 1);
+  assert.deepEqual(await publicIds(), ["a3", "b1"]);
+});
+
+test("sync: limita de 300 se calculează după debifări; peste limită nu se scrie nimic", async () => {
+  for (let i = 0; i < 300; i += 1) tables.vendorCollectionItem.push({ collectionId: "col-a", productId: `x${i}`, position: i });
+
+  let res = await call("POST", "/api/vendor/collections/col-a/products/sync", { add: ["a1"] });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error, "collection_product_limit");
+  assert.equal(tables.vendorCollectionItem.length, 300);
+
+  res = await call("POST", "/api/vendor/collections/col-a/products/sync", { add: ["a1"], remove: ["x0"] });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(tables.vendorCollectionItem.length, 300);
+  assert.ok(tables.vendorCollectionItem.some((i) => i.productId === "a1"));
+});
+
+test("sync: permisiuni și validare - colecția altuia 404, neautentificat 401, fără modificări 400", async () => {
+  tables.vendorCollection.push({ id: "col-b", vendorId: "vendor-b", title: "B", slug: "colectia-b", isActive: true, sort: "curated", visits: 0, clicks: 0, createdAt: new Date(), updatedAt: new Date() });
+  tables.vendorCollectionItem.push({ collectionId: "col-b", productId: "b1", position: 0 });
+
+  assert.equal((await call("POST", "/api/vendor/collections/col-b/products/sync", { remove: ["b1"] })).status, 404);
+  assert.equal((await call("POST", "/api/vendor/collections/col-a/products/sync", {})).status, 400);
+  currentUserId = null;
+  assert.equal((await call("POST", "/api/vendor/collections/col-a/products/sync", { add: ["a1"] })).status, 401);
+  assert.equal(tables.vendorCollectionItem.length, 1);
+});
+
+test("automat -> manual peste limita de 300: 400, colecția rămâne automată și neatinsă", async () => {
+  tables.vendorCollection[0].allOwnProducts = true;
+  for (let i = 0; i < 300; i += 1) tables.vendorCollectionItem.push({ collectionId: "col-a", productId: `x${i}`, position: i });
+  const snapshot = JSON.stringify(tables.vendorCollectionItem);
+
+  const res = await call("PATCH", "/api/vendor/collections/col-a", { allOwnProducts: false, keepOwnProductsAsSelection: true });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error, "collection_product_limit");
+  assert.equal(tables.vendorCollection[0].allOwnProducts, true);
+  assert.equal(JSON.stringify(tables.vendorCollectionItem), snapshot);
+});

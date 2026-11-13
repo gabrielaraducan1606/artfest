@@ -101,7 +101,7 @@
 }
 
 /* inputuri, select-uri, textarea - același aspect peste tot în tab */
-.wrap input:not([type="checkbox"]):not([type="file"]),
+.wrap input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 .wrap select,
 .wrap textarea {
   width: 100%;
@@ -127,7 +127,7 @@
   color: var(--text-disabled);
 }
 
-.wrap input:not([type="checkbox"]):not([type="file"]):focus-visible,
+.wrap input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus-visible,
 .wrap select:focus-visible,
 .wrap textarea:focus-visible {
   outline: none;
@@ -1531,5 +1531,77 @@
 
   .stepText h3 {
     font-size: 1.22rem;
+  }
+}
+
+/* modul de selecție a produselor proprii (manual implicit / automat la alegere) */
+.selectionMode {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.selectionModeLegend {
+  padding: 0 4px;
+  color: var(--color-text);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.selectionMode .check > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.selectionMode .check .hint {
+  margin: 0;
+  font-weight: 400;
+}
+
+.selectionMode > .hint {
+  margin: 0 2px;
+}
+
+.check input[type="radio"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--color-primary);
+}
+
+/* schimbarea modului, NESALVATĂ: explicație + un singur pas (Salvează) */
+.modePending {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--surface));
+  color: var(--color-text);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.modePending > span {
+  color: var(--color-muted);
+}
+
+.modePendingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+@media (max-width: 560px) {
+  .modePendingActions > button {
+    flex: 1 1 100%;
   }
 }

@@ -38,7 +38,10 @@ import {
   previewFinalPrices,
   splitValueList,
 } from "./smartListingConfig.js";
-import { MAX_PHOTOS, checkImageFile } from "./smartListingMedia.js";
+import ProductPhotoUploader from "../../components/ProductPhotoUploader/ProductPhotoUploader.jsx";
+import { prepareProductImage } from "../../lib/productImages/prepareProductImage.js";
+import { MAX_PRODUCT_PHOTOS as MAX_PHOTOS } from "../../lib/productImages/productImageRules.js";
+import { useProductImageQueue } from "../../lib/productImages/useProductImageQueue.js";
 import {
   PRODUCER_KINDS,
   centralGpsrWillChange,
@@ -83,7 +86,7 @@ import {
   needsAdvancedEditor,
 } from "./smartListingSave.js";
 import { smartListingAccessFor } from "./smartListingAccess.js";
-import { createDefaultServices } from "./smartListingServices.js";
+import { createDefaultServices, uploadWithServices } from "./smartListingServices.js";
 import { createPreviewServices, installPreviewNetworkGuard } from "./smartListingPreview.js";
 import SmartListingPreviewEditor from "./SmartListingPreviewEditor.jsx";
 import SmartListingCollections from "./SmartListingCollections.jsx";
@@ -217,8 +220,35 @@ export default function SmartListingPage({
   const [storeSlug, setStoreSlug] = useState(initialStoreSlug);
   const [declaration, setDeclaration] = useState({ status: "loading", blocked: false });
 
-  const [photos, setPhotos] = useState([]); // { id, previewUrl, uploadedUrl, status, name, error }
-  const [photoErrors, setPhotoErrors] = useState([]);
+  /*
+   * Fotografiile: coada COMUNĂ (lib/productImages) - procesare câte una,
+   * maximum 2 uploaduri simultane spre /api/upload/products, status și retry
+   * per fotografie. `photos` păstrează forma folosită de ciornă / AI / rezumat:
+   * { id, previewUrl, uploadedUrl, status: "uploading" | "done" | "error", name, error }.
+   */
+  const servicesRef = useRef(services);
+  servicesRef.current = services;
+  const { queue: photoQueue, state: photoState } = useProductImageQueue({
+    upload: (file, ctx) =>
+      isPreview
+        ? // previzualizare: fotografia rămâne doar în browser, fără upload
+          Promise.resolve({ url: ctx.item?.previewUrl || "" })
+        : uploadWithServices(servicesRef.current, file, ctx),
+    prepare: (file, info) =>
+      isPreview ? Promise.resolve({ file }) : (servicesRef.current.prepareImage || prepareProductImage)(file, info),
+  });
+  const photos = useMemo(
+    () =>
+      photoState.items.map((item) => ({
+        id: item.id,
+        previewUrl: item.previewUrl,
+        uploadedUrl: item.url && !String(item.url).startsWith("blob:") ? item.url : "",
+        status: item.status === "done" ? "done" : item.status === "error" ? "error" : "uploading",
+        name: item.name,
+        error: item.error,
+      })),
+    [photoState.items]
+  );
   const [video, setVideo] = useState(null); // { url, muted }
   const [ai, setAi] = useState({ status: "idle", proposal: null, error: "", dropped: [] });
 
@@ -337,15 +367,7 @@ export default function SmartListingPage({
   const restoreDraft = (entry) => {
     const snapshot = entry?.snapshot;
     if (!snapshot) return;
-    setPhotos(
-      (snapshot.photos || []).map((photo) => ({
-        id: nextId("photo"),
-        previewUrl: "",
-        uploadedUrl: photo.uploadedUrl,
-        status: "done",
-        name: photo.name || "",
-      }))
-    );
+    photoQueue.reset((snapshot.photos || []).map((photo) => photo.uploadedUrl));
     if (snapshot.video) setVideo(snapshot.video);
     if (snapshot.details) setDetails({ ...EMPTY_DETAILS, ...snapshot.details });
     if (snapshot.commerce) setCommerce({ ...EMPTY_COMMERCE, ...snapshot.commerce });
@@ -497,94 +519,7 @@ export default function SmartListingPage({
     setFocusId(anchor);
   };
 
-  /* ---------------- fotografii (upload real) ---------------- */
-
-  const uploadOne = useCallback(
-    async (id, file) => {
-      try {
-        let url;
-        try {
-          url = await services.uploadImage(await services.compressImage(file));
-        } catch {
-          // ca editorul actual: dacă varianta procesată eșuează, încearcă originalul
-          url = await services.uploadImage(file);
-        }
-        setPhotos((current) =>
-          current.map((photo) => (photo.id === id ? { ...photo, uploadedUrl: url, status: "done", error: "" } : photo))
-        );
-      } catch (error) {
-        setPhotos((current) =>
-          current.map((photo) =>
-            photo.id === id
-              ? { ...photo, status: "error", error: error?.message || "Nu am putut încărca fotografia." }
-              : photo
-          )
-        );
-      }
-    },
-    [services]
-  );
-
-  const addFiles = useCallback(
-    (fileList) => {
-      const files = Array.from(fileList || []);
-      const errors = [];
-      const accepted = [];
-      for (const file of files) {
-        const check = checkImageFile(file);
-        if (check.ok) accepted.push(file);
-        else errors.push(check.message);
-      }
-      setPhotos((current) => {
-        const room = Math.max(0, MAX_PHOTOS - current.length);
-        if (accepted.length > room) errors.push(`Poți adăuga cel mult ${MAX_PHOTOS} fotografii.`);
-        const added = accepted.slice(0, room).map((file) => {
-          const photo = {
-            id: nextId("photo"),
-            previewUrl: URL.createObjectURL(file),
-            uploadedUrl: "",
-            // previzualizare: fotografia rămâne doar în browser, fără upload
-            status: isPreview ? "done" : "uploading",
-            name: file.name,
-            error: "",
-          };
-          if (!isPreview) window.setTimeout(() => uploadOne(photo.id, file), 0);
-          return photo;
-        });
-        return [...current, ...added];
-      });
-      setPhotoErrors(errors);
-    },
-    [uploadOne, isPreview]
-  );
-
-  const removePhoto = (id) =>
-    setPhotos((current) => {
-      const photo = current.find((item) => item.id === id);
-      if (photo?.previewUrl) URL.revokeObjectURL(photo.previewUrl);
-      return current.filter((item) => item.id !== id);
-    });
-
-  const movePhoto = (id, delta) =>
-    setPhotos((current) => {
-      const from = current.findIndex((item) => item.id === id);
-      const to = from + delta;
-      if (from < 0 || to < 0 || to >= current.length) return current;
-      const next = [...current];
-      const [item] = next.splice(from, 1);
-      next.splice(to, 0, item);
-      return next;
-    });
-
-  const makeMain = (id) =>
-    setPhotos((current) => {
-      const photo = current.find((item) => item.id === id);
-      return photo ? [photo, ...current.filter((item) => item.id !== id)] : current;
-    });
-
-  const photosRef = useRef(photos);
-  photosRef.current = photos;
-  useEffect(() => () => photosRef.current.forEach((photo) => photo.previewUrl && URL.revokeObjectURL(photo.previewUrl)), []);
+  /* fotografii: adăugare / eliminare / ordine / retry -> photoQueue (ProductPhotoUploader) */
 
   const uploadedUrls = photos
     .filter((photo) => photo.status === "done" && (photo.uploadedUrl || (isPreview && photo.previewUrl)))
@@ -1319,15 +1254,12 @@ export default function SmartListingPage({
         {step === "photos" && (
           <PhotosStep
             photos={photos}
-            photoErrors={photoErrors}
+            photoQueue={photoQueue}
+            photoState={photoState}
             resolveUrl={services.resolveUrl}
             video={video}
             ai={ai}
             isPreview={isPreview}
-            onFiles={addFiles}
-            onRemove={removePhoto}
-            onMove={movePhoto}
-            onMakeMain={makeMain}
             onVideoChange={(url) => setVideo(url ? { url, muted: false } : null)}
             onVideoMuted={(muted) => setVideo((current) => (current ? { ...current, muted } : current))}
             onAnalyze={runAnalysis}
@@ -1677,21 +1609,17 @@ function SaveResultView({ result, storeSlug, onNavigate, embedded = false, onClo
 
 function PhotosStep({
   photos,
-  photoErrors,
+  photoQueue,
+  photoState,
   resolveUrl,
   video,
   ai,
   isPreview = false,
-  onFiles,
-  onRemove,
-  onMove,
-  onMakeMain,
   onVideoChange,
   onVideoMuted,
   onAnalyze,
   onManual,
 }) {
-  const [dragging, setDragging] = useState(false);
   const uploading = photos.some((photo) => photo.status === "uploading");
 
   return (
@@ -1704,111 +1632,8 @@ function PhotosStep({
         caracteristicile - tu doar verifici.
       </p>
 
-      <div className={styles.photoButtons}>
-        <label className={`${styles.dropzone} ${dragging ? styles.dropzoneActive : ""}`}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(event) => {
-            event.preventDefault();
-            setDragging(false);
-            onFiles(event.dataTransfer.files);
-          }}
-        >
-          <input
-            type="file"
-            accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.heic,.heif,.bmp,.tif,.tiff,.avif"
-            multiple
-            className={styles.visuallyHidden}
-            onChange={(event) => {
-              onFiles(event.target.files);
-              event.target.value = "";
-            }}
-          />
-          <span className={styles.dropIcon} aria-hidden="true">
-            🖼️
-          </span>
-          <strong>{photos.length ? "Adaugă încă o fotografie" : "Alege fotografii din galerie"}</strong>
-          <span className={styles.muted}>sau trage fotografiile aici</span>
-        </label>
-        {/* pe telefon deschide direct camera (ca editorul actual) */}
-        <label className={styles.cameraBtn}>
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className={styles.visuallyHidden}
-            onChange={(event) => {
-              onFiles(event.target.files);
-              event.target.value = "";
-            }}
-          />
-          📷 Fă o poză
-        </label>
-      </div>
-
-      {photoErrors.length > 0 && (
-        <ul className={styles.inlineErrors} role="alert">
-          {photoErrors.map((message) => (
-            <li key={message}>{message}</li>
-          ))}
-        </ul>
-      )}
-
-      {photos.length > 0 && (
-        <ul className={styles.thumbs}>
-          {photos.map((photo, index) => (
-            <li key={photo.id} className={styles.thumb}>
-              <img src={photo.uploadedUrl ? resolveUrl(photo.uploadedUrl) : photo.previewUrl} alt={`Fotografia ${index + 1}`} />
-              {photo.status === "uploading" && (
-                <span className={styles.thumbStatus} role="status">
-                  Se încarcă…
-                </span>
-              )}
-              {photo.status === "error" && (
-                <span className={styles.thumbStatusError} role="alert" title={photo.error}>
-                  Eroare la încărcare
-                </span>
-              )}
-              {index === 0 ? (
-                <span className={styles.thumbMain}>Principală</span>
-              ) : (
-                <button type="button" className={styles.thumbAction} onClick={() => onMakeMain(photo.id)}>
-                  Fă principală
-                </button>
-              )}
-              <div className={styles.thumbMove}>
-                <button
-                  type="button"
-                  onClick={() => onMove(photo.id, -1)}
-                  disabled={index === 0}
-                  aria-label={`Mută fotografia ${index + 1} spre stânga`}
-                >
-                  ‹
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onMove(photo.id, 1)}
-                  disabled={index === photos.length - 1}
-                  aria-label={`Mută fotografia ${index + 1} spre dreapta`}
-                >
-                  ›
-                </button>
-              </div>
-              <button
-                type="button"
-                className={styles.thumbRemove}
-                onClick={() => onRemove(photo.id)}
-                aria-label={`Șterge fotografia ${index + 1}`}
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* selectorul COMUN de fotografii (coadă, status, retry, ordine, principală) */}
+      <ProductPhotoUploader queue={photoQueue} state={photoState} resolveUrl={resolveUrl} idPrefix="sl-photos" />
 
       {isPreview && (
         <p className={styles.hint}>Previzualizare: fotografiile rămân doar în browser, iar încărcarea video este dezactivată.</p>

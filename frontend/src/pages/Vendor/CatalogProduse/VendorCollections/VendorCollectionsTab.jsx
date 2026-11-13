@@ -4,6 +4,15 @@ import { api } from "../../../../lib/api.js";
 import { uploadFile } from "../../../../lib/uploadFile.js";
 import CollectionItemsManager from "./CollectionItemsManager.jsx";
 import CollectionProductPicker from "./CollectionProductPicker.jsx";
+import {
+  MAX_DISCOUNT_PERCENT,
+  NEW_COLLECTION_SETTINGS,
+  isSwitchingToAuto,
+  isSwitchingToManual,
+  pendingModeChange,
+  settingsFromCollection,
+  settingsPayload,
+} from "./collectionSettings.js";
 import styles from "./VendorCollectionsTab.module.css";
 
 /*
@@ -11,7 +20,9 @@ import styles from "./VendorCollectionsTab.module.css";
  * VendorCampaign în UI):
  *  - titlu, descriere, cover, activ/inactiv, perioadă opțională;
  *  - reducere opțională DOAR pe produsele proprii, finanțată de vendor;
- *  - „Include automat toate produsele mele” (allOwnProducts);
+ *  - selecție MANUALĂ (implicit): doar produsele bifate intră în colecție;
+ *    „Include automat toate produsele mele” (allOwnProducts) doar la alegere
+ *    explicită (vezi collectionSettings.js);
  *  - produse ale altor magazine, adăugate manual din tot marketplace-ul
  *    (remunerație din recomandare pentru comenzile eligibile, fără reducere pe ele);
  *  - link public /colectie-vendor/:slug.
@@ -26,7 +37,6 @@ import styles from "./VendorCollectionsTab.module.css";
  */
 
 const PAGE_SIZE = 24;
-const MAX_DISCOUNT_PERCENT = 50;
 
 const STATUS_LABELS = {
   LIVE: "Activă",
@@ -55,62 +65,6 @@ function errorMessage(err, fallback) {
   return err?.data?.message || err?.message || fallback;
 }
 
-// ISO -> valoare pentru <input type="datetime-local"> (ora locală)
-function toLocalInput(value) {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-// valoare datetime-local (ora locală) -> ISO sau null (fără perioadă)
-function fromLocalInput(value) {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
-
-// valorile implicite ale unei colecții noi
-const NEW_COLLECTION_SETTINGS = {
-  title: "",
-  description: "",
-  coverImage: "",
-  isActive: true,
-  allOwnProducts: true,
-  discountPercent: 0,
-  startsAt: "",
-  endsAt: "",
-};
-
-function settingsFromCollection(collection) {
-  if (!collection) return { ...NEW_COLLECTION_SETTINGS };
-  return {
-    title: collection.title || "",
-    description: collection.description || "",
-    coverImage: collection.coverImage || "",
-    isActive: collection.isActive !== false,
-    allOwnProducts: Boolean(collection.allOwnProducts),
-    discountPercent: Number(collection.discountPercent || 0),
-    startsAt: toLocalInput(collection.startsAt),
-    endsAt: toLocalInput(collection.endsAt),
-  };
-}
-
-// câmpurile trimise la API (aceleași pentru creare și editare)
-function settingsPayload(settings) {
-  return {
-    title: settings.title.trim(),
-    description: settings.description.trim() || null,
-    coverImage: settings.coverImage || null,
-    isActive: settings.isActive,
-    allOwnProducts: settings.allOwnProducts,
-    discountPercent: Math.max(0, Math.min(MAX_DISCOUNT_PERCENT, Math.round(Number(settings.discountPercent) || 0))),
-    startsAt: fromLocalInput(settings.startsAt),
-    endsAt: fromLocalInput(settings.endsAt),
-  };
-}
-
 /* titlu de pas (01 / 02): doar structură vizuală, fără wizard - secțiunile rămân vizibile */
 function StepHeading({ number, title, subtitle, id }) {
   return (
@@ -136,6 +90,9 @@ export default function VendorCollectionsTab() {
   const [selectedId, setSelectedId] = useState(null);
   const [selected, setSelected] = useState(null);
   const [settings, setSettings] = useState({ ...NEW_COLLECTION_SETTINGS });
+  // automat -> manual: păstrează produsele incluse acum ca selecții bifate (alegerea vânzătorului)
+  // alegerea modului (radio): selectorul de produse trimite aici vânzătorul
+  const modeChoiceRef = useRef(null);
   // accordion „Perioadă și reducere”: deschis implicit doar dacă există valori
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -262,14 +219,26 @@ export default function VendorCollectionsTab() {
         });
         await loadCollections();
         if (data?.collection?.id) setSelectedId(data.collection.id);
-        setNotice("Colecția a fost creată. Acum poți adăuga produse de la alte magazine.");
+        setNotice(
+          settings.allOwnProducts
+            ? "Colecția a fost creată. Produsele tale sunt incluse automat; poți adăuga și produse de la alte magazine."
+            : "Colecția a fost creată. Acum bifează produsele care intră în colecție."
+        );
       } else {
-        await api(`/api/vendor/collections/${encodeURIComponent(selectedId)}`, {
+        const toManual = isSwitchingToManual(selected, settings);
+        const toAuto = isSwitchingToAuto(selected, settings);
+        const data = await api(`/api/vendor/collections/${encodeURIComponent(selectedId)}`, {
           method: "PATCH",
-          body: settingsPayload(settings),
+          body: settingsPayload(settings, { previous: selected }),
         });
         await Promise.all([loadSelected(selectedId), loadCollections()]);
-        setNotice("Colecția a fost salvată.");
+        setNotice(
+          toManual
+            ? `Colecția e acum pe „Aleg eu produsele”. ${Number(data?.keptOwnProducts || 0)} produse ale tale au rămas bifate - debifează-le pe cele pe care nu le vrei.`
+            : toAuto
+              ? "Colecția include acum automat toate produsele tale publice, inclusiv cele pe care le vei publica."
+              : "Colecția a fost salvată."
+        );
       }
     } catch (err) {
       setError(errorMessage(err, isCreating ? "Nu am putut crea colecția." : "Nu am putut salva colecția."));
@@ -314,10 +283,31 @@ export default function VendorCollectionsTab() {
 
   /* ---------- produse: reîncarcă colecția + lista după adăugare / scoatere ---------- */
 
-  const reloadAfterProductsChange = useCallback(
-    () => Promise.all([loadSelected(selectedId), loadCollections()]),
-    [loadSelected, loadCollections, selectedId]
-  );
+  /*
+   * Selectorul de produse NU schimbă modul colecției (o singură alegere, în
+   * formular): la click pe un produs inclus automat, vânzătorul e dus la
+   * alegerea „Aleg eu produsele”.
+   */
+  const focusModeChoice = useCallback(() => {
+    const node = modeChoiceRef.current;
+    if (!node) return;
+    node.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => node.querySelector("input[type=radio]")?.focus({ preventScroll: true }), 250);
+  }, []);
+
+  /*
+   * După adăugarea / scoaterea de produse se reîncarcă DOAR datele colecției
+   * (itemi, contor), nu și formularul: editările nesalvate (titlu, mod de
+   * selecție etc.) nu se pierd.
+   */
+  const reloadAfterProductsChange = useCallback(async () => {
+    if (!selectedId) return;
+    const [data] = await Promise.all([
+      api(`/api/vendor/collections/${encodeURIComponent(selectedId)}`),
+      loadCollections(),
+    ]);
+    setSelected(data?.collection || null);
+  }, [loadCollections, selectedId]);
 
   /* ---------- render ---------- */
 
@@ -328,51 +318,78 @@ export default function VendorCollectionsTab() {
   const items = Array.isArray(selected?.items) ? selected.items : [];
 
   /*
-   * Opțional: includerea automată a produselor proprii (inclusiv cele viitoare).
+   * Modul de selecție a produselor proprii - alegere EXPLICITĂ, vizibilă:
+   *  - „Aleg eu produsele” (implicit): doar produsele bifate intră în colecție;
+   *  - „Toate produsele mele, automat” (allOwnProducts), inclusiv cele viitoare.
    * Aceeași stare din formular (settings.allOwnProducts) și aceeași salvare
    * (submit pe collection-settings-form) - nu e o a doua setare.
    */
-  function autoOwnOption() {
-    const unsaved = !isCreating && selected && Boolean(selected.allOwnProducts) !== Boolean(settings.allOwnProducts);
+  function selectionModeOption() {
+    const pending = isCreating ? null : pendingModeChange(selected, settings);
+    const setMode = (auto) => setSettings((s) => ({ ...s, allOwnProducts: auto }));
+
     return (
-      <details className={styles.autoOwn} open={unsaved || undefined}>
-        <summary className={styles.autoOwnSummary}>
-          <span className={styles.autoOwnLabel}>
-            <span className={styles.optionalTag}>Opțional</span>
-            Include automat produsele tale viitoare
+      <fieldset className={styles.selectionMode} ref={modeChoiceRef} id="collection-selection-mode">
+        <legend className={styles.selectionModeLegend}>Cum intră produsele tale în colecție</legend>
+
+        <label className={styles.check}>
+          <input
+            type="radio"
+            name="collection-selection-mode"
+            checked={!settings.allOwnProducts}
+            onChange={() => setMode(false)}
+          />
+          <span>
+            <strong>Aleg eu produsele</strong>
+            <span className={styles.hint}>
+              Intră doar produsele pe care le bifezi. Produsele publicate ulterior nu se adaugă singure.
+            </span>
           </span>
-          <span className={settings.allOwnProducts ? styles.autoOwnOn : styles.autoOwnOff}>
-            {settings.allOwnProducts ? "Activă" : "Inactivă"}
+        </label>
+
+        <label className={styles.check}>
+          <input
+            type="radio"
+            name="collection-selection-mode"
+            checked={settings.allOwnProducts}
+            onChange={() => setMode(true)}
+          />
+          <span>
+            <strong>Include automat toate produsele mele</strong>
+            <span className={styles.hint}>
+              Toate produsele tale publice eligibile intră singure, inclusiv cele pe care le publici de acum înainte.
+            </span>
           </span>
-        </summary>
-        <div className={styles.autoOwnBody}>
-          <label className={styles.check}>
-            <input
-              type="checkbox"
-              checked={settings.allOwnProducts}
-              onChange={(e) => setSettings((s) => ({ ...s, allOwnProducts: e.target.checked }))}
-            />
-            Include automat toate produsele mele
-          </label>
-          <p className={styles.hint}>
-            Toate produsele tale publice intră singure în colecție, inclusiv cele pe care le publici de
-            acum înainte. Produsele altor creatori le alegi tu, manual.
-          </p>
-          {unsaved ? (
-            <div className={styles.autoOwnSave}>
-              <span>Modificare nesalvată</span>
+        </label>
+
+        <p className={styles.hint}>Produsele altor creatori le alegi manual și rămân în colecție în ambele variante.</p>
+
+        {/* schimbarea modului se aplică DOAR la salvare - un singur pas, explicat clar */}
+        {pending ? (
+          <div className={styles.modePending} role="status">
+            <strong>{pending.title}</strong>
+            <span>{pending.text}</span>
+            <div className={styles.modePendingActions}>
               <button
                 type="submit"
                 form="collection-settings-form"
                 className={styles.primary}
                 disabled={saving || settings.title.trim().length < 2}
               >
-                {saving ? "Se salvează…" : "Salvează"}
+                {saving ? "Se salvează…" : pending.saveLabel}
+              </button>
+              <button
+                type="button"
+                className={styles.secondary}
+                disabled={saving}
+                onClick={() => setMode(Boolean(selected?.allOwnProducts))}
+              >
+                Renunță
               </button>
             </div>
-          ) : null}
-        </div>
-      </details>
+          </div>
+        ) : null}
+      </fieldset>
     );
   }
   const allOwnActive = Boolean(selected?.allOwnProducts);
@@ -614,8 +631,8 @@ export default function VendorCollectionsTab() {
                 </div>
               </fieldset>
 
-              {/* colecție nouă: opțiunea secundară stă în formular (după creare, în „Produsele din colecție”) */}
-              {isCreating ? autoOwnOption() : null}
+              {/* colecție nouă: modul de selecție stă în formular (după creare, în „Produsele din colecție”) */}
+              {isCreating ? selectionModeOption() : null}
 
               {/* ---------- 2. Perioadă și reducere (accordion) ---------- */}
               <details
@@ -688,7 +705,7 @@ export default function VendorCollectionsTab() {
                     </a>
                   </span>
                 ) : (
-                  <span className={styles.muted}>După creare poți adăuga produse de la alte magazine.</span>
+                  <span className={styles.muted}>După creare alegi produsele: ale tale și, opțional, de la alte magazine.</span>
                 )}
               </div>
             </form>
@@ -724,6 +741,9 @@ export default function VendorCollectionsTab() {
                   </p>
                 </header>
 
+                {/* modul de selecție: manual (implicit) sau automat, la alegere explicită */}
+                {selectionModeOption()}
+
                 <CollectionProductPicker
                   key={`picker-${selectedId}-${allOwnActive ? "auto" : "manual"}`}
                   collectionId={selectedId}
@@ -733,10 +753,10 @@ export default function VendorCollectionsTab() {
                   focusSignal={pickerFocusSignal}
                   inputRef={searchInputRef}
                   onChanged={reloadAfterProductsChange}
+                  onRequestModeChange={focusModeChoice}
+                  pendingMode={pendingModeChange(selected, settings)?.to || null}
                 />
 
-                {/* secundar, opțional: după alegerea manuală */}
-                {autoOwnOption()}
               </section>
 
               {/* ---------- 4. Deja în colecție (selecție fixă, eliminare în masă) ---------- */}

@@ -21,6 +21,7 @@ import {
   listOohLocationsCached,
 } from "../../couriers/providers/sameday/catalog.js";
 import { publicOoh } from "./oohPublic.js";
+import { isSamedayLocalSimulationEnabled, simulatedPlatformContext } from "../../couriers/providers/sameday/localSimulation.js";
 
 export const MAX_OOH_RESULTS = 300;
 
@@ -90,6 +91,8 @@ export function createDeliveryCatalog({
 
   async function context() {
     if (loadContext) return loadContext();
+    // simulare locală (doar non-producție): cont fictiv, fără DB / credentiale
+    if (isSamedayLocalSimulationEnabled()) return simulatedPlatformContext();
     if (ctxCache.value !== undefined && Date.now() - ctxCache.at < 60_000) return ctxCache.value;
     let value = null;
     try {

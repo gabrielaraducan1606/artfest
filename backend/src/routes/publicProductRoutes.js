@@ -6,8 +6,6 @@ import {
   productCategoryWhere,
 } from "../constants/categories.js";
 import { smartSearchFromQueryBackend } from "../constants/smartSrc.js";
-import { uploadSearchImage } from "../middleware/imageSearchUpload.js";
-import { imageToEmbedding, toPgVectorLiteral } from "../lib/embeddings.js";
 import {
   getActiveCollectionPromotionsForProducts,
   getActiveHomepagePromotionsForProducts,
@@ -687,64 +685,23 @@ discount:
 /* -----------------------------------------
    SEARCH BY IMAGE (similaritate vizuală)
 ------------------------------------------*/
-router.post("/products/search-by-image", uploadSearchImage, async (req, res) => {
-  try {
-    const file = req.file;
-    if (!file) {
-      return res.status(400).json({
-        error: "IMAGE_REQUIRED",
-        message: "Te rugăm să încarci o imagine pentru a căuta produse similare.",
-      });
-    }
+/*
+ * RETRASĂ (2026-11-13): căutarea după imagine cu modelul CLIP (~650 MB RAM,
+ * peste instanța Render de 512 MB). Căutarea vizuală din aplicație se face
+ * prin Asistentul AI: POST /api/assistant/products/search-by-image.
+ * Răspunde 410 ÎNAINTE de a citi fișierul: fără upload în memorie, fără
+ * decodare și fără model. Handler-ul vechi e păstrat, nemontat, în
+ * routes/legacy/clipImageSearchHandler.js (instrucțiuni de reactivare acolo).
+ */
+export const CLIP_IMAGE_SEARCH_RETIRED = Object.freeze({
+  error: "IMAGE_SEARCH_RETIRED",
+  message: "Căutarea după imagine se face acum din Asistentul Artfest: deschide asistentul și trimite fotografia.",
+  replacement: "/api/assistant/products/search-by-image",
+});
 
-    const emb = await imageToEmbedding(file.buffer);
-
-    let allZero = true;
-    for (let i = 0; i < emb.length; i++) {
-      if (emb[i] !== 0) {
-        allZero = false;
-        break;
-      }
-    }
-
-    if (allZero) {
-      return res.status(500).json({
-        error: "EMBEDDING_FAILED",
-        message: "Nu am putut calcula embedding pentru imagine.",
-      });
-    }
-
-    const pgVec = toPgVectorLiteral(emb);
-    const k = 100;
-
-    const rows = await prisma.$queryRawUnsafe(
-      `
-      SELECT "productId", MIN(embedding <=> CAST($1 AS vector)) AS score
-      FROM public.product_image_embeddings
-      GROUP BY "productId"
-      ORDER BY score ASC
-      LIMIT $2
-      `,
-      pgVec,
-      k
-    );
-
-    const ids = (rows || []).map((r) => String(r.productId));
-
-    return res.json({
-      ids,
-      count: ids.length,
-      message: ids.length
-        ? "Rezultatele sunt ordonate după similaritate vizuală."
-        : "Nu am găsit produse similare pentru imaginea trimisă.",
-    });
-  } catch (e) {
-    console.error("ERROR /api/public/products/search-by-image", e);
-    return res.status(500).json({
-      error: "IMAGE_SEARCH_ERROR",
-      message: "A apărut o eroare la căutarea după imagine.",
-    });
-  }
+router.post("/products/search-by-image", (req, res) => {
+  res.set("Connection", "close"); // nu mai citim corpul cererii (fotografia)
+  return res.status(410).json(CLIP_IMAGE_SEARCH_RETIRED);
 });
 
 /* -----------------------------------------

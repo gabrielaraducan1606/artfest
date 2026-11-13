@@ -6,12 +6,16 @@ import {
   EMPTY_FILTERS,
   activeFilterCount,
   buildSearchParams,
+  isAutoIncluded,
   isSelectable,
   limitMessage,
   mergeResults,
   remainingCapacity,
+  rowState,
   selectVisible,
+  selectionChanges,
   serverFilters,
+  toggleRemoval,
   toggleSelection,
 } from "./collectionPicker.js";
 
@@ -93,4 +97,42 @@ test("serverFilters: magazinul se ignoră pentru sursa „Magazinul meu”", () 
 test("mergeResults: pagina următoare fără duplicate", () => {
   const merged = mergeResults([{ id: "a" }, { id: "b" }], [{ id: "b" }, { id: "c" }, { id: "c" }]);
   assert.deepEqual(merged.map((p) => p.id), ["a", "b", "c"]);
+});
+
+/* ---------- selecție manuală: bifa = apartenența după salvare ---------- */
+
+test("isAutoIncluded: serverul (membership) are prioritate; fallback isOwn + allOwnActive", () => {
+  assert.equal(isAutoIncluded({ id: "a", membership: "auto" }), true);
+  assert.equal(isAutoIncluded({ id: "a", isOwn: true, membership: "manual" }, { allOwnActive: true }), false);
+  assert.equal(isAutoIncluded({ id: "a", isOwn: true }, { allOwnActive: true }), true);
+  assert.equal(isAutoIncluded({ id: "a", isOwn: true }, { allOwnActive: false }), false);
+});
+
+test("rowState: produs deja în colecție (manual) e bifat și se poate debifa -> „de scos”", () => {
+  const product = { id: "a1", isOwn: true, inCollection: true, membership: "manual" };
+  assert.deepEqual(rowState(product), { kind: "member", checked: true, pending: null });
+
+  const toRemove = toggleRemoval(new Set(), "a1");
+  assert.deepEqual(rowState(product, { toRemove }), { kind: "member", checked: false, pending: "remove" });
+
+  // rebifarea anulează scoaterea
+  assert.equal(toggleRemoval(toRemove, "a1").size, 0);
+});
+
+test("rowState: produs inclus automat rămâne bifat (nu se debifează local)", () => {
+  const product = { id: "a1", isOwn: true, membership: "auto" };
+  const state = rowState(product, { allOwnActive: true, toRemove: new Set(["a1"]) });
+  assert.equal(state.kind, "auto");
+  assert.equal(state.checked, true);
+});
+
+test("rowState: candidat bifat -> „de adăugat”", () => {
+  const product = { id: "b1", isOwn: false, inCollection: false };
+  assert.deepEqual(rowState(product), { kind: "candidate", checked: false, pending: null });
+  assert.deepEqual(rowState(product, { selected: new Set(["b1"]) }), { kind: "candidate", checked: true, pending: "add" });
+});
+
+test("selectionChanges: corpul pentru products/sync", () => {
+  assert.deepEqual(selectionChanges(new Set(["b1"]), new Set(["a1", "a2"])), { add: ["b1"], remove: ["a1", "a2"] });
+  assert.deepEqual(selectionChanges(new Set(), new Set()), { add: [], remove: [] });
 });

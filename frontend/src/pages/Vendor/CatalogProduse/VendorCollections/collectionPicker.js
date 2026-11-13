@@ -89,8 +89,50 @@ export function activeFilterCount(filters = EMPTY_FILTERS) {
 export function isSelectable(product, { allOwnActive = false } = {}) {
   if (!product) return false;
   if (product.inCollection) return false;
-  if (product.isOwn && allOwnActive) return false;
+  if (isAutoIncluded(product, { allOwnActive })) return false;
   return true;
+}
+
+/**
+ * Produs inclus prin modul automat (allOwnProducts) - nu se poate scoate
+ * individual. Sursa principală e serverul (`membership`), cu fallback.
+ */
+export function isAutoIncluded(product, { allOwnActive = false } = {}) {
+  if (!product) return false;
+  if (product.membership === "auto" || product.autoIncluded === true) return true;
+  if (product.membership === "manual") return false;
+  return Boolean(product.isOwn && allOwnActive);
+}
+
+/**
+ * Starea unui rând din selector (bifa reflectă apartenența DORITĂ după salvare):
+ *  - kind "auto":     inclus automat; bifat; click => explicație + schimbarea modului;
+ *  - kind "member":   deja în colecție (selecție manuală); debifarea îl marchează de scos;
+ *  - kind "candidate": nu e în colecție; bifarea îl marchează de adăugat.
+ */
+export function rowState(product, { allOwnActive = false, selected = new Set(), toRemove = new Set() } = {}) {
+  if (isAutoIncluded(product, { allOwnActive })) {
+    return { kind: "auto", checked: true, pending: null };
+  }
+  if (product?.inCollection) {
+    const removing = toRemove.has(product.id);
+    return { kind: "member", checked: !removing, pending: removing ? "remove" : null };
+  }
+  const adding = selected.has(product?.id);
+  return { kind: "candidate", checked: adding, pending: adding ? "add" : null };
+}
+
+/** Debifează / rebifează un produs deja în colecție (de scos la salvare). */
+export function toggleRemoval(toRemove, productId) {
+  const next = new Set(toRemove);
+  if (next.has(productId)) next.delete(productId);
+  else next.add(productId);
+  return next;
+}
+
+/** Corpul pentru POST /:id/products/sync. */
+export function selectionChanges(selected, toRemove) {
+  return { add: [...(selected || [])], remove: [...(toRemove || [])] };
 }
 
 /** Câte produse mai încap în colecție. */

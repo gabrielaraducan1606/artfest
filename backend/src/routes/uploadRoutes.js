@@ -46,6 +46,14 @@ import {
   detectRealFileKind,
   getFileExtension as getRealFileExtension,
 } from "../services/r2Storage.js";
+import sharp from "sharp";
+import {
+  PRODUCT_IMAGE_MAX_BYTES,
+  UploadMemoryBusyError,
+  currentUploadMemoryState,
+  ensureUploadMemory,
+  estimateImageProcessingBytes,
+} from "../services/uploadMemoryGuard.js";
 
 const router = Router();
 
@@ -152,11 +160,14 @@ const uploadImage = multer({
 /*
  * /products și /support: fișierele merg pe disc (nu în RAM) și sunt citite
  * câte unul, abia când le vine rândul la procesare - vezi
- * middleware/uploadLoadGuards.js. Limitele per fișier rămân aceleași.
+ * middleware/uploadLoadGuards.js.
+ * /products: 40 MB per fotografie (instanța Render de 512 MB - vezi
+ * services/uploadMemoryGuard.js); frontend-ul micșorează oricum fotografiile
+ * mari înainte de upload. /support rămâne neschimbat.
  */
 const uploadProductImages = multer({
   storage: tempDiskStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 },
+  limits: { fileSize: PRODUCT_IMAGE_MAX_BYTES },
   fileFilter: imageFileFilter,
 });
 
@@ -198,7 +209,7 @@ const IMAGE_MAX_PIXELS = 60_000_000;
 const PRODUCT_IMAGE_MAX_PIXELS = 100_000_000;
 
 const MB = 1024 * 1024;
-const PRODUCT_MAX_REQUEST_BYTES = 12 * 100 * MB + MB; // 12 fișiere x 100 MB + câmpuri
+const PRODUCT_MAX_REQUEST_BYTES = 12 * PRODUCT_IMAGE_MAX_BYTES + MB; // 12 fișiere x 40 MB + câmpuri
 const SUPPORT_MAX_REQUEST_BYTES = 10 * 20 * MB + MB; // 10 fișiere x 20 MB + câmpuri
 
 /*
@@ -226,6 +237,17 @@ const uploadDiskBudget = createByteBudget({
   freeMarginBytes: envMegabytes("UPLOAD_DISK_FREE_MARGIN_MB", 512),
 });
 
+/*
+ * Diagnostic la pornire (o singură linie în log, fără date sensibile): ce
+ * sursă de memorie folosește protecția uploadurilor de produs - „cgroup-v2” /
+ * „cgroup-v1” cu limita containerului, sau „process” + motivul. Pe Render,
+ * linia confirmă imediat după deploy dacă monitorizarea containerului merge.
+ */
+const startupMemoryDiagnostic = setTimeout(() => {
+  currentUploadMemoryState().catch(() => {});
+}, 0);
+startupMemoryDiagnostic.unref?.();
+
 /* starea protecțiilor (diagnostic / teste) */
 export function uploadLoadStats() {
   return {
@@ -239,7 +261,7 @@ function getUserId(req) {
 }
 
 function handleUploadError(err, res, context = "upload") {
-  if (err instanceof UploadBusyError) {
+  if (err instanceof UploadBusyError || err instanceof UploadMemoryBusyError) {
     return sendUploadBusy(res, err.retryAfterSeconds);
   }
 
@@ -256,7 +278,7 @@ function handleUploadError(err, res, context = "upload") {
         context === "support"
           ? "Fișierul este prea mare (max 20MB)."
           : context === "products"
-          ? "Imaginea este prea mare (max 100MB)."
+          ? "Fotografia este prea mare (maximum 40 MB). Încarc-o din nou din formular: fotografiile mari sunt micșorate automat."
           : context === "video"
           ? "Videoul este prea mare (max 50MB)."
           : "Fișierul este prea mare (max 10MB).",
@@ -294,8 +316,31 @@ function handleUploadError(err, res, context = "upload") {
     });
   }
 
+  if (err?.code === "heic_unsupported") {
+    return res.status(415).json({
+      error: "heic_unsupported",
+      message:
+        "Nu am putut converti fotografia HEIC/HEIF. Încearcă din nou din Safari sau trimite-o ca JPG (pe iPhone: Setări > Cameră > Formate > Cel mai compatibil).",
+    });
+  }
+
+  if (err?.code === "heic_decode_timeout") {
+    return res.status(422).json({
+      error: "heic_decode_timeout",
+      message:
+        "Fotografia HEIC este prea mare pentru conversie. Încearcă din nou din Safari sau trimite-o ca JPG (pe iPhone: Setări > Cameră > Formate > Cel mai compatibil).",
+    });
+  }
+
   if (err?.code === "image_too_many_pixels") {
     const mp = err.maxPixels ? Math.round(err.maxPixels / 1_000_000) : null;
+
+    if (err.format === "heic") {
+      return res.status(422).json({
+        error: "image_too_many_pixels",
+        message: `Fotografia HEIC are o rezoluție prea mare pentru conversie (maxim ${mp || "?"} MP). Încarc-o din Safari (se convertește automat) sau trimite-o ca JPG (pe iPhone: Setări > Cameră > Formate > Cel mai compatibil).`,
+      });
+    }
 
     return res.status(422).json({
       error: "image_too_many_pixels",
@@ -497,6 +542,14 @@ router.post(
 
         for (let i = 0; i < files.length; i += 1) {
           signal.throwIfAborted(); // anulat peste termen -> nu mai citim fișierul următor
+
+          // 512 MB: costul estimat din header (citit de pe disc) trebuie să încapă ACUM, altfel 503
+          const header = await sharp(files[i].path || files[i].buffer, { limitInputPixels: false })
+            .metadata()
+            .catch(() => null);
+          // memoria CONTAINERULUI (inclusiv Chrome) când e confirmată; altfel procesul Node
+          await ensureUploadMemory(estimateImageProcessingBytes({ header, fileBytes: files[i].size }));
+
           items.push(
             await withBufferedFile(files[i], (file) =>
               uploadToR2({

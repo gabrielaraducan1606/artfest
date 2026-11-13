@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   __setPdfBrowserLauncher,
   closePdfBrowser,
+  getPdfBrowserLimits,
   getPdfBrowserStats,
   renderPdfWithSharedBrowser,
 } from "./pdfBrowser.js";
@@ -89,7 +90,8 @@ afterEach(async () => {
   __setPdfBrowserLauncher(null);
 });
 
-test("cereri simultane: un singur Chrome, pagini închise, max 3 pagini deodată", async () => {
+test("cereri simultane: un singur Chrome, pagini închise, max PDF_MAX_CONCURRENT_PAGES (implicit 2) deodată", async () => {
+  assert.equal(getPdfBrowserLimits().maxConcurrentPages, 2, "implicit pentru instanța de 512 MB");
   const results = await Promise.all(
     Array.from({ length: 7 }, (_, i) =>
       renderPdfWithSharedBrowser(`<p>${i}</p>`, { width: "70mm", height: "37mm", margin: {} })
@@ -98,7 +100,7 @@ test("cereri simultane: un singur Chrome, pagini închise, max 3 pagini deodată
   assert.equal(results.length, 7);
   assert.ok(results.every((buf) => buf.toString().startsWith("%PDF 70mm")));
   assert.equal(launches, 1);
-  assert.ok(maxConcurrentPages <= 3, `max pages ${maxConcurrentPages}`);
+  assert.ok(maxConcurrentPages <= 2, `max pages ${maxConcurrentPages}`);
   assert.equal(openPages, 0);
 
   // a doua rundă refolosește același browser

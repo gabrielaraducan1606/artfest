@@ -328,3 +328,39 @@ test("editorul salvează prin PUT /api/vendors/products/:id (nu prin creare) și
   assert.match(catalog, /!options\.advanced && smartListingAccessFor\(me\)\.canSave/, "Catalog: editare prin Smart Listing doar cu flag");
   assert.match(catalog, /openEditProduct\(\{ id: productId \}, \{ advanced: true \}\)/, "Catalog: editorul avansat rămâne VendorProductWizard");
 });
+
+/* ---------------- fotografiile existente prin coada comună (lib/productImages) ---------------- */
+
+test("editare: fotografiile existente trec prin coada comună și NU apar în payload fără acțiunea vânzătorului", async () => {
+  const { createProductImageQueue } = await import("../../lib/productImages/productImageQueue.js");
+  const weird = {
+    ...PRODUCTS.manyPhotos,
+    id: "p-legacy",
+    images: ["https://m.test/1.jpg", "products/fara-slash.jpg", " https://m.test/spatii.jpg ", "", "data:image/png;base64,AAAA", "https://m.test/4.jpg"],
+  };
+
+  for (const product of [PRODUCTS.oneImage, PRODUCTS.manyPhotos, weird]) {
+    const original = editFormFromProduct(product);
+    // exact ce face SmartListingEditPage: reset(original.images) -> form.images = urls
+    const queue = createProductImageQueue({ upload: async () => ({ url: "https://m.test/nou.jpg" }) });
+    queue.reset(original.images);
+    const form = { ...original, images: queue.getSnapshot().urls };
+    queue.destroy();
+
+    assert.deepEqual(form.images, product.images, `${product.id}: aceeași listă, aceeași ordine`);
+    const { changed } = buildEditPayload(original, form);
+    assert.ok(!changed.includes("images"), `${product.id}: imaginile nu sunt trimise`);
+    assert.deepEqual(changed, [], `${product.id}: nimic de salvat`);
+    assert.equal(hasEditChanges(original, form), false);
+  }
+
+  // doar o acțiune explicită (aici: mutarea primei fotografii) trimite imaginile
+  const original = editFormFromProduct(PRODUCTS.manyPhotos);
+  const queue = createProductImageQueue({ upload: async () => ({ url: "x" }) });
+  queue.reset(original.images);
+  queue.makeMain(queue.getSnapshot().items[2].id);
+  const { payload, changed } = buildEditPayload(original, { ...original, images: queue.getSnapshot().urls });
+  queue.destroy();
+  assert.deepEqual(changed, ["images"]);
+  assert.deepEqual(payload.images, ["https://m.test/3.jpg", "https://m.test/1.jpg", "https://m.test/2.jpg", "https://m.test/4.jpg"]);
+});

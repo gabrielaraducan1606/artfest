@@ -3,13 +3,22 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   useCallback,
 } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
-import { uploadFile as uploadFileHelper } from "../../../../lib/uploadFile";
+import { prepareProductImage } from "../../../../lib/productImages/prepareProductImage.js";
+import {
+  MAX_PRODUCT_PHOTOS,
+  checkProductImageFile,
+  checkUploadSize,
+  fileFingerprint,
+  readFileHead,
+} from "../../../../lib/productImages/productImageRules.js";
+import { uploadProductImageWithRetry } from "../../../../lib/productImages/uploadProductImage.js";
 import { api } from "../../../../lib/api";
 import { AI_IMAGE_EDITING_ENABLED } from "../../../../config/features.js";
 import { saveVendorGpsrDraftIfNeeded } from "../utils/vendorGpsrManufacturer.js";
@@ -44,11 +53,8 @@ export function useProductEditorController({
   const doUpload = useMemo(() => {
     return (
       uploadFile ||
-      ((file) =>
-        uploadFileHelper(
-          file,
-          "/api/upload"
-        ))
+      // ruta de PRODUSE (40 MB după optimizare, conversie HEIC), cu reîncercări automate
+      ((file) => uploadProductImageWithRetry(file))
     );
   }, [uploadFile]);
 
@@ -180,8 +186,11 @@ const [
     setUploadingImages,
   ] = useState(0);
 
+  // blocaj sincron contra salvării duble (handleSubmit)
+  const submitLockRef = useRef(false);
+
   const [uploadInfo] = useState(
-    "Poți alege până la 12 poze deodată, fiecare de maximum 100MB."
+    "Poți alege până la 12 poze deodată (maximum 100 MB fiecare); pozele mari sunt micșorate automat înainte de încărcare."
   );
 
   const draftKey = useMemo(() => {
@@ -1232,181 +1241,17 @@ quoteSchema: [],
     ]
   );
 
-  async function compressImageBeforeUpload(
-    file
-  ) {
+  /*
+   * Pregătirea COMUNĂ tuturor formularelor de produs
+   * (lib/productImages/prepareProductImage.js): micșorare la 2400 px doar
+   * pentru fotografiile mari, orientare corectă, fără metadate, HEIC
+   * convertit dacă browserul poate (altfel pe server). Eșec -> originalul.
+   */
+  async function compressImageBeforeUpload(file, kind) {
     try {
-      const fileType = String(
-        file.type || ""
-      ).toLowerCase();
-
-      const fileName = String(
-        file.name || ""
-      ).toLowerCase();
-
-      if (
-        !/^image\//i.test(fileType)
-      ) {
-        return file;
-      }
-
-      if (
-        /image\/gif/i.test(
-          fileType
-        ) ||
-        /heic|heif|avif|tiff|bmp/i.test(
-          fileType
-        ) ||
-        /\.(heic|heif|avif|tiff?|bmp|gif)$/i.test(
-          fileName
-        )
-      ) {
-        return file;
-      }
-
-      const imageUrl =
-        URL.createObjectURL(file);
-
-      try {
-        const image =
-          await Promise.race([
-            new Promise(
-              (
-                resolve,
-                reject
-              ) => {
-                const element =
-                  new Image();
-
-                element.onload =
-                  () =>
-                    resolve(
-                      element
-                    );
-
-                element.onerror =
-                  reject;
-
-                element.src =
-                  imageUrl;
-              }
-            ),
-
-            new Promise(
-              (_, reject) =>
-                setTimeout(
-                  () =>
-                    reject(
-                      new Error(
-                        "IMAGE_COMPRESSION_TIMEOUT"
-                      )
-                    ),
-                  4000
-                )
-            ),
-          ]);
-
-        const maxSize = 1800;
-
-        const ratio = Math.min(
-          1,
-          maxSize /
-            Math.max(
-              image.width,
-              image.height
-            )
-        );
-
-        const canvas =
-          document.createElement(
-            "canvas"
-          );
-
-        canvas.width = Math.round(
-          image.width * ratio
-        );
-
-        canvas.height = Math.round(
-          image.height * ratio
-        );
-
-        const context =
-          canvas.getContext("2d");
-
-        if (!context) {
-          return file;
-        }
-
-        context.drawImage(
-          image,
-          0,
-          0,
-          canvas.width,
-          canvas.height
-        );
-
-        const blob =
-          await Promise.race([
-            new Promise(
-              (resolve) => {
-                canvas.toBlob(
-                  resolve,
-                  "image/jpeg",
-                  0.82
-                );
-              }
-            ),
-
-            new Promise(
-              (_, reject) =>
-                setTimeout(
-                  () =>
-                    reject(
-                      new Error(
-                        "CANVAS_COMPRESSION_TIMEOUT"
-                      )
-                    ),
-                  4000
-                )
-            ),
-          ]);
-
-        if (!blob) {
-          return file;
-        }
-
-        if (
-          blob.size >=
-          file.size * 0.95
-        ) {
-          return file;
-        }
-
-        return new File(
-          [blob],
-
-          `${
-            file.name.replace(
-              /\.[^.]+$/,
-              ""
-            ) || "imagine"
-          }.jpg`,
-
-          {
-            type: "image/jpeg",
-          }
-        );
-      } finally {
-        URL.revokeObjectURL(
-          imageUrl
-        );
-      }
-    } catch (error) {
-      console.warn(
-        "Compresia imaginii a fost ignorată:",
-        error
-      );
-
+      const result = await prepareProductImage(file, { kind });
+      return result?.file || file;
+    } catch {
       return file;
     }
   }
@@ -1418,43 +1263,45 @@ quoteSchema: [],
           return;
         }
 
-        for (const file of files) {
+        const problems = [];
+        const seen = new Set();
+        let room = Math.max(0, MAX_PRODUCT_PHOTOS - (form?.images?.length || 0));
+
+        /*
+         * Fotografiile se procesează și se încarcă pe rând (memorie pe
+         * telefon); eșecul uneia NU le oprește pe celelalte, iar cele
+         * încărcate rămân în formular.
+         */
+        for (const file of Array.from(files)) {
           const fileName =
-            file.name || "imagine";
+            file?.name || "imagine";
 
-          const fileType =
-            String(
-              file.type || ""
-            ).toLowerCase();
+          const fingerprint = fileFingerprint(file);
+          if (seen.has(fingerprint)) {
+            continue; // același fișier ales de două ori în aceeași selecție
+          }
+          seen.add(fingerprint);
 
-          const isImage =
-            /^image\//i.test(
-              fileType
-            ) ||
-            fileType ===
-              "application/octet-stream" ||
-            /\.(jpe?g|jfif|png|webp|gif|heic|heif|bmp|tiff?|avif)$/i.test(
-              fileName
+          if (room <= 0) {
+            problems.push(
+              `Un produs poate avea cel mult ${MAX_PRODUCT_PHOTOS} fotografii - „${fileName}” nu a fost adăugată.`
             );
-
-          if (!isImage) {
-            alert(
-              `Fișier ignorat: ${fileName}. Acceptăm JPG, PNG, WEBP, GIF, HEIC, HEIF, BMP, TIFF sau AVIF.`
-            );
-
             continue;
           }
 
-          if (
-            file.size >
-            100 * 1024 * 1024
-          ) {
-            alert(
-              `Fișierul ${fileName} este prea mare. Maxim 100MB.`
-            );
+          let check;
+          try {
+            check = checkProductImageFile(file, await readFileHead(file));
+          } catch {
+            check = { ok: false, message: `„${fileName}” nu a putut fi citită. Alege fotografia din nou.` };
+          }
 
+          if (!check.ok) {
+            problems.push(check.message);
             continue;
           }
+
+          room -= 1;
 
           const previewUrl =
             URL.createObjectURL(
@@ -1477,28 +1324,25 @@ quoteSchema: [],
                 count + 1
             );
 
-            let finalUrl = "";
-
-            try {
-              const fileToUpload =
-                await compressImageBeforeUpload(
-                  file
-                );
-
-              finalUrl =
-                await doUpload(
-                  fileToUpload
-                );
-            } catch (firstError) {
-              console.warn(
-                "Upload cu imagine procesată a eșuat, încerc originalul:",
-                firstError
+            const fileToUpload =
+              await compressImageBeforeUpload(
+                file,
+                check.kind
               );
 
-              finalUrl =
-                await doUpload(
-                  file
-                );
+            // limita serverului (40 MB) se aplică fișierului optimizat
+            const sizeCheck = checkUploadSize(fileToUpload, fileName);
+            if (!sizeCheck.ok) {
+              throw new Error(sizeCheck.message);
+            }
+
+            const finalUrl =
+              await doUpload(
+                fileToUpload
+              );
+
+            if (!finalUrl || /^(blob|data):/i.test(String(finalUrl))) {
+              throw new Error("Serverul nu a confirmat fotografia. Încearcă din nou.");
             }
 
             setForm((current) => ({
@@ -1518,10 +1362,6 @@ quoteSchema: [],
                   ? true
                   : current.aiManuallyEdited,
             }));
-
-            URL.revokeObjectURL(
-              previewUrl
-            );
           } catch (error) {
             console.error(error);
 
@@ -1537,15 +1377,15 @@ quoteSchema: [],
               ),
             }));
 
+            room += 1;
+            problems.push(
+              `„${fileName}”: ${error?.message || "nu am putut încărca fotografia. Încearcă din nou."}`
+            );
+          } finally {
             URL.revokeObjectURL(
               previewUrl
             );
 
-            alert(
-              error?.message ||
-                "Nu am putut încărca poza. Încearcă din nou sau fă screenshot la imagine și încarcă screenshot-ul."
-            );
-          } finally {
             setUploadingImages(
               (count) =>
                 Math.max(
@@ -1555,9 +1395,14 @@ quoteSchema: [],
             );
           }
         }
+
+        if (problems.length) {
+          alert(problems.join("\n"));
+        }
       },
       [
         doUpload,
+        form?.images?.length,
         setForm,
       ]
     );
@@ -1764,6 +1609,15 @@ quoteSchema: [],
       async (event) => {
         event.preventDefault();
 
+        /*
+         * Dublu-click / Enter repetat: starea React ajunge prea târziu, deci
+         * blocajul e sincron (ref). Fără el, două cereri POST puteau crea
+         * același produs de două ori.
+         */
+        if (submitLockRef.current) {
+          return false;
+        }
+
         if (
           uploadingImages > 0
         ) {
@@ -1794,10 +1648,13 @@ quoteSchema: [],
          * modificate acum se salvează ÎNAINTE de produs (o singură dată,
          * pentru toate produsele). Dacă eșuează, produsul nu se salvează.
          */
+        submitLockRef.current = true;
+
         if (form.isOwnManufacturer === true) {
           try {
             await saveVendorGpsrDraftIfNeeded();
           } catch (gpsrError) {
+            submitLockRef.current = false;
             alert(gpsrError?.message || "Nu am putut salva datele producătorului.");
             return false;
           }
@@ -1890,6 +1747,8 @@ quoteSchema: [],
           console.error(error);
 
           return false;
+        } finally {
+          submitLockRef.current = false;
         }
       },
       [

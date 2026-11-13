@@ -260,6 +260,14 @@ const UpdateCollectionSchema = z.object({
   coverImage: z.string().trim().optional().nullable(),
   isActive: z.boolean().optional(),
   sort: z.string().trim().max(32).optional(),
+  /*
+   * Trecere „automat” -> „manual” (allOwnProducts true -> false): la cererea
+   * EXPLICITĂ a vânzătorului, produsele proprii incluse acum automat devin
+   * selecții fixe (VendorCollectionItem), ca să le vadă bifate și să le
+   * poată scoate. Fără acest câmp, colecția rămâne doar cu selecțiile fixe.
+   * Ignorat în orice altă situație.
+   */
+  keepOwnProductsAsSelection: z.boolean().optional(),
 });
 
 const AddProductsSchema = z.object({
@@ -705,15 +713,79 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
-    const collection = await prisma.vendorCollection.update({
-      where: { id: existing.id },
-      data,
-      include: { _count: { select: { items: true } } },
+    const switchingToManual =
+      existing.allOwnProducts === true && data.allOwnProducts === false;
+    const materialize = switchingToManual && parsed.data.keepOwnProductsAsSelection === true;
+
+    let ownIdsToAdd = [];
+
+    if (materialize) {
+      // exact produsele proprii afișate acum public de includerea automată
+      const [ownProducts, currentItems] = await Promise.all([
+        prisma.product.findMany({
+          where: {
+            ...PUBLIC_COLLECTION_PRODUCT_WHERE,
+            service: {
+              is: { ...PUBLIC_COLLECTION_PRODUCT_WHERE.service.is, vendorId: vendor.id },
+            },
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+          select: { id: true },
+        }),
+        prisma.vendorCollectionItem.findMany({
+          where: { collectionId: existing.id },
+          select: { productId: true },
+        }),
+      ]);
+
+      const existingIds = new Set(currentItems.map((item) => item.productId));
+      ownIdsToAdd = ownProducts.map((p) => p.id).filter((id) => !existingIds.has(id));
+
+      // aceeași limită ca la orice adăugare: nimic parțial, colecția rămâne neschimbată
+      const remaining = MAX_COLLECTION_PRODUCTS - existingIds.size;
+      if (ownIdsToAdd.length > remaining) {
+        return res.status(400).json({
+          ok: false,
+          error: "collection_product_limit",
+          maxProducts: MAX_COLLECTION_PRODUCTS,
+          remaining: Math.max(0, remaining),
+          requested: ownIdsToAdd.length,
+          message: `Ai ${ownIdsToAdd.length} produse incluse automat, dar colecția mai are loc pentru ${Math.max(0, remaining)} (maximum ${MAX_COLLECTION_PRODUCTS}). Păstrează includerea automată sau pornește de la o selecție goală.`,
+        });
+      }
+    }
+
+    // setările și selecțiile păstrate se scriu împreună (totul sau nimic)
+    const collection = await prisma.$transaction(async (tx) => {
+      if (ownIdsToAdd.length) {
+        const lastItem = await tx.vendorCollectionItem.findFirst({
+          where: { collectionId: existing.id },
+          orderBy: { position: "desc" },
+          select: { position: true },
+        });
+        const startPosition = Number(lastItem?.position ?? -1) + 1;
+
+        await tx.vendorCollectionItem.createMany({
+          data: ownIdsToAdd.map((productId, index) => ({
+            collectionId: existing.id,
+            productId,
+            position: startPosition + index,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      return tx.vendorCollection.update({
+        where: { id: existing.id },
+        data,
+        include: { _count: { select: { items: true } } },
+      });
     });
 
     return res.json({
       ok: true,
       collection: formatVendorCollection(collection),
+      ...(materialize ? { keptOwnProducts: ownIdsToAdd.length } : {}),
     });
   } catch (error) {
     console.error("[vendorCollections] PATCH /:id error:", error);
@@ -1032,6 +1104,20 @@ router.get("/:id/product-search", async (req, res) => {
 
         isOwn: String(sellerVendorId) === String(vendor.id),
         inCollection: inCollection.has(product.id),
+        /*
+         * De ce e (sau nu) produsul în colecție - sursa unică pentru UI:
+         *  - "auto"   = produs propriu + allOwnProducts (nu se poate scoate
+         *               individual cât timp colecția e pe modul automat);
+         *  - "manual" = rând VendorCollectionItem (se poate scoate);
+         *  - null     = nu e în colecție.
+         */
+        autoIncluded: Boolean(collection.allOwnProducts) && String(sellerVendorId) === String(vendor.id),
+        membership:
+          Boolean(collection.allOwnProducts) && String(sellerVendorId) === String(vendor.id)
+            ? "auto"
+            : inCollection.has(product.id)
+              ? "manual"
+              : null,
         availability: product.availability || null,
         soldOut: collectionItemAvailability(product) === "sold_out",
         personalizable: product.acceptsCustom === true,
@@ -1045,6 +1131,7 @@ router.get("/:id/product-search", async (req, res) => {
       hasMore,
       total,
       selectableTotal,
+      selectionMode: collection.allOwnProducts ? "auto" : "manual",
       collectionCount: inCollection.size,
       maxProducts: MAX_COLLECTION_PRODUCTS,
       products,
@@ -1735,6 +1822,132 @@ router.post("/:id/products/remove", async (req, res) => {
       ok: false,
       error: "vendor_collection_remove_products_failed",
     });
+  }
+});
+
+/* =========================================================
+   POST /api/vendor/collections/:id/products/sync
+   Body: { add: [productId], remove: [productId] }
+   „Salvează selecția” din selector: bifele noi + debifările, ATOMIC.
+   - add: aceeași revalidare ca POST /products (produs public, orice vendor);
+     limita de 300 se calculează DUPĂ eliminări; peste limită nu se scrie nimic;
+   - remove: doar rânduri VendorCollectionItem ale acestei colecții;
+   - colecție pe modul automat (allOwnProducts): produsele proprii NU se pot
+     scoate individual -> 409 auto_included, nimic scris (UI-ul oferă
+     trecerea pe selecție manuală). Produsele / comenzile nu sunt atinse.
+========================================================= */
+
+const SyncProductsSchema = z
+  .object({
+    add: z.array(z.string().trim().min(1)).max(MAX_COLLECTION_PRODUCTS).optional().default([]),
+    remove: z.array(z.string().trim().min(1)).max(MAX_COLLECTION_PRODUCTS).optional().default([]),
+  })
+  .refine((v) => v.add.length + v.remove.length > 0, "Nicio modificare.");
+
+router.post("/:id/products/sync", async (req, res) => {
+  try {
+    const vendor = await requireVendor(req, res);
+    if (!vendor) return;
+
+    const collection = await getOwnedCollection(normalizeString(req.params.id), vendor.id);
+    if (!collection) {
+      return res.status(404).json({ ok: false, error: "collection_not_found" });
+    }
+
+    const parsed = SyncProductsSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: "invalid_payload", details: parsed.error.flatten() });
+    }
+
+    const removeIds = [...new Set(parsed.data.remove.map(normalizeString).filter(Boolean))];
+    const removeSet = new Set(removeIds);
+    // un id cerut în ambele liste: eliminarea câștigă (ultima intenție din UI = debifat)
+    const addIds = [...new Set(parsed.data.add.map(normalizeString).filter(Boolean))].filter(
+      (id) => !removeSet.has(id)
+    );
+
+    if (collection.allOwnProducts && removeIds.length) {
+      const ownToRemove = await prisma.product.findMany({
+        where: { id: { in: removeIds }, service: { is: { vendorId: vendor.id } } },
+        select: { id: true },
+      });
+      if (ownToRemove.length) {
+        return res.status(409).json({
+          ok: false,
+          error: "auto_included",
+          productIds: ownToRemove.map((p) => p.id),
+          message:
+            "Colecția include automat toate produsele tale, deci nu le poți scoate pe rând. Treci întâi colecția pe „Aleg eu produsele”.",
+        });
+      }
+    }
+
+    const [currentItems, eligible] = await Promise.all([
+      prisma.vendorCollectionItem.findMany({
+        where: { collectionId: collection.id },
+        select: { productId: true },
+      }),
+      addIds.length
+        ? prisma.product.findMany({
+            where: { id: { in: addIds }, ...PUBLIC_COLLECTION_PRODUCT_WHERE },
+            select: { id: true },
+          })
+        : [],
+    ]);
+
+    const existingIds = new Set(currentItems.map((item) => item.productId));
+    const eligibleSet = new Set(eligible.map((p) => p.id));
+    const idsToAdd = addIds.filter((id) => eligibleSet.has(id) && !existingIds.has(id));
+    const idsToRemove = removeIds.filter((id) => existingIds.has(id));
+    const ineligible = addIds.filter((id) => !eligibleSet.has(id)).length;
+
+    const remaining = MAX_COLLECTION_PRODUCTS - (existingIds.size - idsToRemove.length);
+    if (idsToAdd.length > remaining) {
+      return res.status(400).json({
+        ok: false,
+        error: "collection_product_limit",
+        maxProducts: MAX_COLLECTION_PRODUCTS,
+        remaining: Math.max(0, remaining),
+        requested: idsToAdd.length,
+        message: `O colecție poate avea maximum ${MAX_COLLECTION_PRODUCTS} produse. Mai poți adăuga ${Math.max(0, remaining)}.`,
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (idsToRemove.length) {
+        await tx.vendorCollectionItem.deleteMany({
+          where: { collectionId: collection.id, productId: { in: idsToRemove } },
+        });
+      }
+      if (idsToAdd.length) {
+        const lastItem = await tx.vendorCollectionItem.findFirst({
+          where: { collectionId: collection.id },
+          orderBy: { position: "desc" },
+          select: { position: true },
+        });
+        const startPosition = Number(lastItem?.position ?? -1) + 1;
+        await tx.vendorCollectionItem.createMany({
+          data: idsToAdd.map((productId, index) => ({
+            collectionId: collection.id,
+            productId,
+            position: startPosition + index,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    });
+
+    return res.json({
+      ok: true,
+      added: idsToAdd.length,
+      removed: idsToRemove.length,
+      ineligible,
+      addedIds: idsToAdd,
+      removedIds: idsToRemove,
+    });
+  } catch (error) {
+    console.error("[vendorCollections] POST /:id/products/sync error:", error);
+    return res.status(500).json({ ok: false, error: "vendor_collection_sync_products_failed" });
   }
 });
 

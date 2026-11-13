@@ -1436,3 +1436,78 @@
   border-color: var(--color-primary);
   background: radial-gradient(circle, var(--color-primary) 0 4px, var(--surface) 5px);
 }
+
+/* =========================================================
+   Selecție manuală (bifă = apartenența după salvare) + modul automat
+========================================================= */
+
+.rowAuto,
+.rowRemoving {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
+  border-radius: 16px;
+  background: var(--surface-muted, var(--surface));
+}
+
+.rowRemoving {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-danger, #b42318) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-danger, #b42318) 4%, var(--surface));
+}
+
+.stateRemoving {
+  color: var(--color-danger, #b42318);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+:is(.picker, .manager) .stateAutoButton {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px dashed var(--color-border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+:is(.picker, .manager) .stateAutoButton:hover {
+  color: var(--color-text);
+  border-color: var(--border-strong, var(--color-border));
+}
+
+.autoBanner {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--surface));
+  color: var(--color-text);
+}
+
+.autoBannerAlert {
+  border-width: 2px;
+  border-color: var(--color-primary);
+}
+
+.autoBanner p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.autoBanner .autoBannerNote {
+  font-size: 0.78rem;
+}

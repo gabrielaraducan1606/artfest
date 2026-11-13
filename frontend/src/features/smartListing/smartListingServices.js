@@ -2,15 +2,17 @@
 //
 // Serviciile REALE folosite de SmartListingPage - toate EXISTENTE în platformă:
 //   api            lib/api.js
-//   uploadImage    lib/uploadFile.js -> POST /api/upload (ca editorul actual)
-//   compressImage  aceeași comprimare ca editorul actual (smartListingMedia.js)
+//   uploadImage    lib/productImages -> POST /api/upload/products (rută de produse:
+//                  40 MB după optimizare, conversie HEIC, progres); (file, { onProgress, signal }) -> url
+//   prepareImage   lib/productImages/prepareProductImage.js (micșorare / orientare / JPEG)
 //   resolveUrl     resolveFileUrl (URL-uri relative -> absolute, pentru AI)
 //   gpsr           utils/vendorGpsrManufacturer.js (Vendor.gpsrManufacturer*)
 //   onProductSaved evenimentul vendor:productCreated (listele se reîmprospătează)
 // Testele pot injecta alte implementări; fluxul real nu conține date demonstrative.
 
 import { api as defaultApi } from "../../lib/api.js";
-import { uploadFile } from "../../lib/uploadFile.js";
+import { prepareProductImage } from "../../lib/productImages/prepareProductImage.js";
+import { uploadProductImage } from "../../lib/productImages/uploadProductImage.js";
 import { resolveFileUrl } from "../../pages/Vendor/ProfilMagazin/hooks/useProfilMagazin.js";
 import { dispatchProductSaved } from "../../pages/Vendor/ProfilMagazin/utils/productEditing.js";
 import {
@@ -21,7 +23,15 @@ import {
   useVendorGpsrManufacturer,
   vendorGpsrForCheck,
 } from "../../pages/Vendor/ProfilMagazin/utils/vendorGpsrManufacturer.js";
-import { compressImageForUpload } from "./smartListingMedia.js";
+
+/**
+ * Upload prin serviciile curente (reale sau injectate în teste): `uploadImage`
+ * poate întoarce URL-ul (string) sau { url }.
+ */
+export async function uploadWithServices(services, file, ctx = {}) {
+  const result = await services.uploadImage(file, ctx);
+  return { url: typeof result === "string" ? result : result?.url || "" };
+}
 
 function safeStorage() {
   try {
@@ -35,8 +45,9 @@ function safeStorage() {
 export function createDefaultServices() {
   return {
     api: defaultApi,
-    uploadImage: (file) => uploadFile(file, "/api/upload"),
-    compressImage: compressImageForUpload,
+    uploadImage: (file, { onProgress, signal } = {}) =>
+      uploadProductImage(file, { onProgress, signal }).then((result) => result.url),
+    prepareImage: prepareProductImage,
     resolveUrl: resolveFileUrl,
     gpsr: {
       useState: useVendorGpsrManufacturer,

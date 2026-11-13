@@ -8,7 +8,14 @@
 //    (rezolvate pe server, aceleași filtre) și adăugare rapidă pe un rând;
 //  - bară de selecție fixă jos, cu contorul și limita colecției.
 // Nimic nu intră automat: produsele publicate ulterior NU se adaugă singure.
-// Backend: vendorCollectionsRoutes.js (product-search, products, products/select-all).
+// Bifa = apartenența DORITĂ după salvare: în selecția manuală poți bifa produse
+// noi ȘI debifa produse deja în colecție; „Salvează selecția” le aplică atomic
+// (POST /:id/products/sync). Pe modul automat (allOwnProducts), produsele
+// proprii nu se pot debifa: click => explicație + trimitere la alegerea
+// modului din formular („Aleg eu produsele” + Salvează) - selectorul NU schimbă
+// singur modul colecției (o singură alegere, fără acțiuni duplicate).
+// „Din magazinul meu” / „Din tot Artfest” e doar FILTRUL căutării.
+// Backend: vendorCollectionsRoutes.js (product-search, products/sync, products/select-all).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Globe, Plus, Search, SlidersHorizontal, Sparkles, Store, X } from "lucide-react";
 
@@ -27,8 +34,11 @@ import {
   limitMessage,
   mergeResults,
   remainingCapacity,
+  rowState,
   selectVisible,
+  selectionChanges,
   serverFilters,
+  toggleRemoval,
   toggleSelection,
 } from "./collectionPicker.js";
 import styles from "./CollectionProducts.module.css";
@@ -55,6 +65,10 @@ export default function CollectionProductPicker({
   focusSignal = 0,
   inputRef,
   onChanged,
+  // duce vânzătorul la alegerea modului din formular (VendorCollectionsTab)
+  onRequestModeChange,
+  // modul ales în formular și încă NESALVAT: "manual" | "auto" | null
+  pendingMode = null,
 }) {
   const [scope, setScope] = useState(allOwnActive ? "marketplace" : "own");
   const [draft, setDraft] = useState({ ...EMPTY_FILTERS });
@@ -71,6 +85,10 @@ export default function CollectionProductPicker({
   const [searched, setSearched] = useState(false);
 
   const [selected, setSelected] = useState(() => new Set());
+  // produse DEJA în colecție, debifate - se scot la „Salvează selecția”
+  const [toRemove, setToRemove] = useState(() => new Set());
+  // produsul inclus automat pe care vânzătorul a încercat să-l debifeze
+  const [autoExplain, setAutoExplain] = useState(null);
   // lista bifelor deschisă în bara de jos („Vezi selecția”)
   const [reviewOpen, setReviewOpen] = useState(false);
   // produsele văzute în căutări (titlu, imagine) - ca bifele din alte căutări
@@ -104,7 +122,8 @@ export default function CollectionProductPicker({
   const busyRef = useRef(false);
   const rootRef = useRef(null);
   const inView = useInView(rootRef);
-  const remaining = remainingCapacity(collectionCount, maxProducts);
+  // debifările eliberează locuri înainte de salvare
+  const remaining = remainingCapacity(collectionCount - toRemove.size, maxProducts);
   const filterCount = activeFilterCount(filters);
 
   const runSearch = useCallback(
@@ -312,24 +331,84 @@ export default function CollectionProductPicker({
   function clearSelection() {
     setReviewOpen(false);
     setSelected(new Set());
+    setToRemove(new Set());
     setAllFiltered(false);
     setNotice("");
   }
 
-  async function afterAdd(added, extra = "", addedIds = []) {
-    if (addedIds.length) {
+  async function afterAdd(added, extra = "", addedIds = [], removed = 0, removedIds = []) {
+    if (addedIds.length || removedIds.length) {
       const addedSet = new Set(addedIds);
-      setAiResults((list) => (list ? list.map((p) => (addedSet.has(p.id) ? { ...p, inCollection: true } : p)) : list));
+      const removedSet = new Set(removedIds);
+      setAiResults((list) =>
+        list
+          ? list.map((p) =>
+              addedSet.has(p.id)
+                ? { ...p, inCollection: true }
+                : removedSet.has(p.id)
+                  ? { ...p, inCollection: false }
+                  : p
+            )
+          : list
+      );
     }
     setSelected(new Set());
+    setToRemove(new Set());
     setReviewOpen(false);
     setAllFiltered(false);
+    const parts = [];
+    if (added) parts.push(added === 1 ? "un produs adăugat" : `${added} produse adăugate`);
+    if (removed) parts.push(removed === 1 ? "un produs scos" : `${removed} produse scoase`);
     setNotice(
-      added
-        ? `${added === 1 ? "Un produs adăugat" : `${added} produse adăugate`} în colecție.${extra}`
-        : `Produsele erau deja în colecție.${extra}`
+      parts.length
+        ? `Selecția a fost salvată: ${parts.join(", ")}.${extra}`
+        : `Nicio modificare: produsele erau deja în această stare.${extra}`
     );
     await Promise.all([onChanged?.(), runSearch(1)]);
+  }
+
+  /* „Salvează selecția”: bifele noi + debifările, într-o singură operație atomică */
+  async function saveSelection() {
+    if (busyRef.current) return;
+    const changes = selectionChanges(selected, toRemove);
+    if (!changes.add.length && !changes.remove.length) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+
+    try {
+      const data = await api(`/api/vendor/collections/${encodeURIComponent(collectionId)}/products/sync`, {
+        method: "POST",
+        body: changes,
+      });
+      const extra = data?.ineligible ? ` ${data.ineligible} nu mai erau disponibile și nu au fost adăugate.` : "";
+      await afterAdd(
+        Number(data?.added || 0),
+        extra,
+        Array.isArray(data?.addedIds) ? data.addedIds : [],
+        Number(data?.removed || 0),
+        Array.isArray(data?.removedIds) ? data.removedIds : []
+      );
+    } catch (err) {
+      if (err?.data?.error === "auto_included") explainAuto(null);
+      setError(errorText(err, "Selecția nu a putut fi salvată."));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  // debifează / rebifează un produs deja în colecție (selecție manuală)
+  function toggleMember(productId) {
+    setAllFiltered(false);
+    setNotice("");
+    setToRemove((current) => toggleRemoval(current, productId));
+  }
+
+  // încercare de a debifa un produs inclus automat: explicație + trimitere la alegerea modului
+  function explainAuto(product) {
+    setAutoExplain(product || { title: "" });
+    onRequestModeChange?.();
   }
 
   async function addIds(productIds) {
@@ -366,6 +445,16 @@ export default function CollectionProductPicker({
     setError("");
 
     try {
+      // debifările se aplică întâi (eliberează locuri în limită)
+      let removed = 0;
+      if (toRemove.size) {
+        const sync = await api(`/api/vendor/collections/${encodeURIComponent(collectionId)}/products/sync`, {
+          method: "POST",
+          body: { remove: [...toRemove] },
+        });
+        removed = Number(sync?.removed || 0);
+      }
+
       const data = await api(
         `/api/vendor/collections/${encodeURIComponent(collectionId)}/products/select-all`,
         { method: "POST", body: { filters: serverFilters(scope, filters) } }
@@ -380,7 +469,7 @@ export default function CollectionProductPicker({
         added += Number(extra?.added || 0);
       }
 
-      await afterAdd(added);
+      await afterAdd(added, "", [], removed);
     } catch (err) {
       setError(errorText(err, "Rezultatele nu au putut fi adăugate."));
       // ce s-a adăugat deja rămâne vizibil corect
@@ -391,7 +480,7 @@ export default function CollectionProductPicker({
     }
   }
 
-  const barVisible = allFiltered || selected.size > 0;
+  const barVisible = allFiltered || selected.size > 0 || toRemove.size > 0;
 
   return (
     <div ref={rootRef} className={barVisible ? `${styles.picker} ${styles.withBar}` : styles.picker}>
@@ -426,10 +515,38 @@ export default function CollectionProductPicker({
       <p className={styles.sourceHint}>
         {scope === "own"
           ? allOwnActive
-            ? "Produsele tale sunt deja incluse automat (opțiunea de mai sus). Aici le vezi doar pentru referință."
-            : "Alege produsele tale care intră în colecție."
+            ? "Aici vezi produsele magazinului tău. Pe modul automat sunt toate incluse."
+            : "Aici vezi produsele magazinului tău. Bifează-le pe cele care intră în colecție și debifează-le pe cele pe care vrei să le scoți, apoi salvează."
           : "Produse publice de la toți creatorii Artfest, inclusiv ale tale. Produsele altor magazine rămân ale lor: preț, stoc și comandă."}
       </p>
+
+      {/* modul automat: doar explicația - modul se schimbă dintr-un singur loc (formularul de mai sus) */}
+      {allOwnActive ? (
+        <div
+          id="collection-auto-mode-banner"
+          className={autoExplain ? `${styles.autoBanner} ${styles.autoBannerAlert}` : styles.autoBanner}
+          role={autoExplain ? "alert" : "note"}
+        >
+          <strong>
+            {pendingMode === "manual"
+              ? "Ai ales „Aleg eu produsele”. Salvează alegerea de mai sus ca să poți debifa produsele pe rând."
+              : autoExplain?.title
+                ? `„${autoExplain.title}” e inclus automat și nu poate fi debifat pe rând.`
+                : "Colecția include automat toate produsele tale."}
+          </strong>
+          {pendingMode !== "manual" ? (
+            <p>
+              Ca să le alegi pe rând, bifează mai sus „Aleg eu produsele” și salvează. Produsele incluse acum rămân
+              bifate, iar apoi le poți debifa pe cele pe care nu le vrei.
+            </p>
+          ) : null}
+          <p className={styles.autoBannerNote}>Produsele altor magazine deja adăugate rămân în colecție în ambele variante.</p>
+        </div>
+      ) : pendingMode === "auto" ? (
+        <div className={styles.autoBanner} role="note" id="collection-auto-mode-banner">
+          <strong>Ai ales „Include automat toate produsele mele”. Salvează alegerea de mai sus ca să se aplice.</strong>
+        </div>
+      ) : null}
 
       {/* ---------- căutare + filtre ---------- */}
       <form className={styles.searchRow} onSubmit={applyFilters} role="search">
@@ -713,19 +830,42 @@ export default function CollectionProductPicker({
         >
           {listItems.map((p) => {
             const selectable = isSelectable(p, { allOwnActive });
-            const checked = allFiltered ? selectable : selected.has(p.id);
-            const autoIncluded = p.isOwn && allOwnActive;
+            const state = rowState(p, { allOwnActive, selected, toRemove });
+            const autoIncluded = state.kind === "auto";
+            const checked = state.kind === "candidate" && allFiltered ? selectable : state.checked;
+            const onToggle =
+              state.kind === "auto"
+                ? () => explainAuto(p)
+                : state.kind === "member"
+                  ? () => toggleMember(p.id)
+                  : () => toggle(p.id);
+            const rowClass =
+              state.pending === "remove"
+                ? styles.rowRemoving
+                : autoIncluded
+                  ? styles.rowAuto
+                  : state.kind === "candidate" && checked
+                    ? styles.rowChecked
+                    : styles.row;
 
             return (
-              <li key={p.id} className={checked ? styles.rowChecked : styles.row}>
+              <li key={p.id} className={rowClass}>
                 <label className={styles.rowMain}>
+                  {/* produsele incluse automat NU sunt `disabled`: click-ul explică de ce și oferă schimbarea modului */}
                   <input
                     type="checkbox"
                     className={styles.checkbox}
-                    checked={checked || p.inCollection || autoIncluded}
-                    disabled={!selectable || allFiltered}
-                    onChange={() => toggle(p.id)}
-                    aria-label={`Selectează ${p.title}`}
+                    checked={checked}
+                    disabled={state.kind === "candidate" && allFiltered}
+                    onChange={onToggle}
+                    aria-describedby={autoIncluded ? "collection-auto-mode-banner" : undefined}
+                    aria-label={
+                      autoIncluded
+                        ? `${p.title}: inclus automat. Pentru a-l scoate, treci colecția pe selecție manuală.`
+                        : state.kind === "member"
+                          ? `${p.title}: în colecție. Debifează pentru a-l scoate.`
+                          : `Selectează ${p.title}`
+                    }
                   />
                   {p.image ? (
                     <img src={p.image} alt="" className={styles.thumb} loading="lazy" />
@@ -753,12 +893,16 @@ export default function CollectionProductPicker({
                 </label>
 
                 <div className={styles.rowAction}>
-                  {p.inCollection ? (
+                  {autoIncluded ? (
+                    <button type="button" className={styles.stateAutoButton} onClick={() => explainAuto(p)}>
+                      Inclus automat
+                    </button>
+                  ) : state.pending === "remove" ? (
+                    <span className={styles.stateRemoving}>Se scoate la salvare</span>
+                  ) : p.inCollection ? (
                     <span className={styles.stateAdded}>
                       <Check size={15} aria-hidden="true" /> În colecție
                     </span>
-                  ) : autoIncluded ? (
-                    <span className={styles.stateAuto}>Inclus automat</span>
                   ) : (
                     <button
                       type="button"
@@ -863,7 +1007,10 @@ export default function CollectionProductPicker({
             <strong>
               {allFiltered
                 ? `Toate cele ${selectableTotal} rezultate${selected.size ? ` + ${selected.size} bifate` : ""}`
-                : `${selected.size} ${selected.size === 1 ? "produs selectat" : "produse selectate"}`}
+                : [selected.size ? `${selected.size} de adăugat` : "", toRemove.size ? `${toRemove.size} de scos` : ""]
+                    .filter(Boolean)
+                    .join(" · ")}
+              {allFiltered && toRemove.size ? ` · ${toRemove.size} de scos` : ""}
             </strong>
             <span>
               {selectedElsewhere && !allFiltered ? `${selectedElsewhere} din alte căutări · ` : ""}
@@ -888,9 +1035,9 @@ export default function CollectionProductPicker({
               type="button"
               className={styles.primary}
               disabled={busy}
-              onClick={() => (allFiltered ? addAllFiltered() : addIds([...selected]))}
+              onClick={() => (allFiltered ? addAllFiltered() : saveSelection())}
             >
-              {busy ? "Se adaugă…" : "Adaugă în colecție"}
+              {busy ? "Se salvează…" : "Salvează selecția"}
             </button>
           </div>
         </div>

@@ -7,7 +7,8 @@
  * indiferent de formă, endpoint-urile primite aici ("/api/upload", ...)
  * nu trebuie să ducă la un "/api/api/...".
  */
-const RAW_BASE = import.meta.env.VITE_API_URL || "";
+// `?.`: modulul se poate importa și în testele Node (fără import.meta.env)
+const RAW_BASE = import.meta.env?.VITE_API_URL || "";
 const DOMAIN = RAW_BASE.replace(/\/+$/, "");
 const API_BASE = DOMAIN
   ? /\/api$/i.test(DOMAIN)
@@ -15,7 +16,7 @@ const API_BASE = DOMAIN
     : `${DOMAIN}/api`
   : "";
 
-function buildUploadUrl(endpoint) {
+export function buildUploadUrl(endpoint) {
   if (/^https?:\/\//i.test(endpoint)) return endpoint;
 
   let path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;

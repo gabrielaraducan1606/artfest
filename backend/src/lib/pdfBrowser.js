@@ -1,8 +1,12 @@
 // backend/src/lib/pdfBrowser.js
 //
-// Browser Puppeteer PARTAJAT pentru PDF-uri generate des (etichetele
-// Târgului Artfest). Facturile rămân pe htmlToPdfBuffer (o instanță per PDF),
-// neatinse.
+// Browser Puppeteer PARTAJAT pentru PDF-uri: etichetele Târgului Artfest și,
+// din 2026-11-13, facturile (htmlToPdfBuffer - vezi htmlToPdf.js).
+//
+// Instanța Render de 512 MB (2026-11-13): paginile simultane sunt limitate
+// (PDF_MAX_CONCURRENT_PAGES), cererile în plus așteaptă la rând cel mult
+// PDF_QUEUE_TIMEOUT_MS, iar coada are maximum PDF_MAX_QUEUE locuri - fără
+// așteptări nelimitate și fără Chrome-uri multiple.
 //
 //   - o singură instanță Chrome, pornită la prima cerere (fără pornire la
 //     startup); cererile simultane așteaptă aceeași pornire;
@@ -10,17 +14,40 @@
 //   - dacă browserul moare (crash / disconnect), următoarea cerere îl
 //     recreează; o cerere eșuată din cauza asta e reîncercată o dată;
 //   - fiecare PDF folosește o pagină nouă, închisă ÎNTOTDEAUNA (finally);
-//   - maximum MAX_CONCURRENT_PAGES pagini simultan (memorie controlată);
-//   - după IDLE_CLOSE_MS fără cereri browserul se închide (fără leak);
+//   - maximum MAX_CONCURRENT_PAGES pagini simultan (memorie controlată;
+//     implicit 2, PDF_MAX_CONCURRENT_PAGES);
+//   - după IDLE_CLOSE_MS fără cereri browserul se închide (implicit 2 minute,
+//     ca Chrome să nu țină memorie degeaba pe instanța de 512 MB);
 //   - la SIGINT / SIGTERM browserul se închide înaintea ieșirii procesului.
 
 import puppeteer from "puppeteer";
-import { resolvePdfOptions } from "./htmlToPdf.js";
+import { resolvePdfOptions } from "./pdfOptions.js";
 
-const LAUNCH_TIMEOUT_MS = Number(process.env.PDF_BROWSER_LAUNCH_TIMEOUT_MS) || 120_000;
-const RENDER_TIMEOUT_MS = Number(process.env.PDF_BROWSER_RENDER_TIMEOUT_MS) || 60_000;
-const IDLE_CLOSE_MS = Number(process.env.PDF_BROWSER_IDLE_CLOSE_MS) || 10 * 60_000;
-const MAX_CONCURRENT_PAGES = 3;
+function envPositive(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+const LAUNCH_TIMEOUT_MS = envPositive("PDF_BROWSER_LAUNCH_TIMEOUT_MS", 120_000);
+const RENDER_TIMEOUT_MS = envPositive("PDF_BROWSER_RENDER_TIMEOUT_MS", 60_000);
+const IDLE_CLOSE_MS = envPositive("PDF_BROWSER_IDLE_CLOSE_MS", 2 * 60_000);
+const MAX_CONCURRENT_PAGES = Math.floor(envPositive("PDF_MAX_CONCURRENT_PAGES", 2));
+const QUEUE_TIMEOUT_MS = envPositive("PDF_QUEUE_TIMEOUT_MS", 90_000);
+const MAX_QUEUE = Math.floor(envPositive("PDF_MAX_QUEUE", 20));
+
+/** Coada de PDF-uri e plină / așteptarea a depășit termenul - fără Chrome în plus. */
+export class PdfBusyError extends Error {
+  constructor(message = "Generarea PDF este ocupată momentan. Încearcă din nou în câteva secunde.") {
+    super(message);
+    this.name = "PdfBusyError";
+    this.code = "pdf_busy";
+    this.status = 503;
+  }
+}
+
+export function getPdfBrowserLimits() {
+  return { maxConcurrentPages: MAX_CONCURRENT_PAGES, queueTimeoutMs: QUEUE_TIMEOUT_MS, maxQueue: MAX_QUEUE, idleCloseMs: IDLE_CLOSE_MS };
+}
 
 let launcher = puppeteer;
 let browser = null;
@@ -89,7 +116,21 @@ async function acquireSlot() {
     active += 1;
     return;
   }
-  await new Promise((resolve) => waiting.push(resolve));
+  if (waiting.length >= MAX_QUEUE) throw new PdfBusyError();
+
+  await new Promise((resolve, reject) => {
+    const entry = () => {
+      clearTimeout(entry.timer);
+      resolve();
+    };
+    entry.timer = setTimeout(() => {
+      const index = waiting.indexOf(entry);
+      if (index >= 0) waiting.splice(index, 1);
+      reject(new PdfBusyError());
+    }, QUEUE_TIMEOUT_MS);
+    entry.timer.unref?.();
+    waiting.push(entry);
+  });
   active += 1;
 }
 
@@ -120,7 +161,16 @@ async function renderOnce(html, options) {
   try {
     page.setDefaultTimeout?.(RENDER_TIMEOUT_MS);
     await page.emulateMediaType("print");
-    await page.setContent(html, { waitUntil: "load", timeout: RENDER_TIMEOUT_MS });
+    // "load" + fonturile gata. NU "networkidle0": cu pagini simultane, la
+    // pornirea la rece a Chrome, prima pagină rămânea uneori blocată până la
+    // termen (măsurat 2026-11-13); HTML-ul facturilor/etichetelor nu face
+    // cereri de rețea, iar PDF-ul iese identic octet cu octet.
+    await page.setContent(html, { waitUntil: options.waitUntil || "load", timeout: RENDER_TIMEOUT_MS });
+    try {
+      await page.evaluate(() => document.fonts?.ready);
+    } catch {
+      /* fără document.fonts: PDF-ul se generează oricum */
+    }
     return await page.pdf({ ...resolvePdfOptions(options), timeout: RENDER_TIMEOUT_MS });
   } finally {
     await page.close().catch(() => {});

@@ -7,6 +7,20 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import sharp from "sharp";
+import { decodeHeic } from "./heicDecoder.js";
+
+/*
+ * Firele libvips: implicit sharp folosește TOATE nucleele pe care le vede
+ * mașina (pe Render, ale gazdei - nu cele 0,5 CPU alocate), iar fiecare fir
+ * are bufferele lui. Măsurat (2026-11-13): 1 fir vs 4 -> vârf mai mic cu
+ * 15-40 MB la PNG / TIFF / GIF / JPEG, aceeași calitate, timp similar.
+ * Configurabil: SHARP_CONCURRENCY (sau VIPS_CONCURRENCY, citit direct de sharp).
+ */
+if (!process.env.VIPS_CONCURRENCY) {
+  const threads = Number.parseInt(process.env.SHARP_CONCURRENCY, 10);
+  sharp.concurrency(Number.isFinite(threads) && threads > 0 ? threads : 1);
+}
+import { sharpInputForDecoded } from "./iccTaggedRaw.js";
 
 const {
   R2_ACCOUNT_ID,
@@ -442,10 +456,9 @@ export async function uploadToR2({
   }
 
   let pixelLimit = false;
+  let header = null;
 
   if (maxPixels) {
-    let header = null;
-
     try {
       header = await sharp(file.buffer, { limitInputPixels: false }).metadata();
     } catch {
@@ -465,26 +478,36 @@ export async function uploadToR2({
     // facturile nu sunt imagini: nu le convertim, trec direct la verificarea semnăturii
     if (policy === "invoice") throw new Error("invoice: fără conversie sharp");
 
-    body = await sharp(file.buffer, {
+    body = await encodeWebJpeg(file.buffer, {
       failOn: "none",
       animated: false,
       limitInputPixels: pixelLimit,
-    })
-      .rotate()
-      .resize({
-        width: 2400,
-        height: 2400,
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .jpeg({
-        quality: 88,
-        mozjpeg: true,
-      })
-      .toBuffer();
+    });
 
     mime = "image/jpeg";
   } catch (err) {
+    /*
+     * HEIC / HEIF (HEVC): sharp-ul nostru nu îl decodează. Îl convertim în
+     * JPEG prin decodorul opțional (heicDecoder.js). Pentru politica
+     * "image" NU mai urcăm HEIC brut (invizibil în Chrome / Firefox /
+     * Android): fără decodor -> refuz clar (heic_unsupported).
+     */
+    const heicResult = await convertHeicIfPossible(file, { policy, header });
+
+    if (heicResult) {
+      return putOnR2({
+        body: heicResult,
+        mime: "image/jpeg",
+        safeOriginalName,
+        folder,
+        userId,
+        index,
+        file,
+        originalMime,
+        abortSignal,
+      });
+    }
+
     if (policy !== "invoice") {
       console.error("[UPLOAD] Sharp convert failed, checking real file signature:", {
         originalname: file.originalname,
@@ -525,6 +548,100 @@ export async function uploadToR2({
     }
   }
 
+  return putOnR2({
+    body,
+    mime,
+    contentDisposition,
+    safeOriginalName,
+    folder,
+    userId,
+    index,
+    file,
+    originalMime,
+    abortSignal,
+  });
+}
+
+/*
+ * Codarea comună pentru web: orientarea din EXIF aplicată (rotate), latura
+ * lungă max. 2400 px (fără mărire), transparența pe ALB (înainte: negru la
+ * PNG-uri transparente), JPEG mozjpeg q88. Metadatele (EXIF / GPS / ICC
+ * neesențial) NU se copiază în rezultat.
+ */
+function encodeWebJpeg(input, sharpOptions) {
+  return sharp(input, sharpOptions)
+    .rotate()
+    .resize({
+      width: 2400,
+      height: 2400,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .flatten({ background: "#ffffff" })
+    .jpeg({
+      quality: 88,
+      mozjpeg: true,
+    })
+    .toBuffer();
+}
+
+/**
+ * HEIC/HEIF -> JPEG (Buffer) sau null când fișierul nu e HEIC ori politica
+ * permite fallback-ul vechi (document / apelanți fără politică) fără decodor.
+ * Politica "image": aruncă heic_unsupported / image_too_many_pixels /
+ * upload_content_mismatch (corupt) - niciodată HEIC brut.
+ */
+async function convertHeicIfPossible(file, { policy, header }) {
+  if (policy === "invoice") return null;
+
+  const detected = detectRealFileKind(file.buffer);
+  if (detected?.kind !== "heic") return null;
+
+  // dimensiunile + profilul de culoare din container (sharp citește header-ul HEIC fără să-l decodeze)
+  const meta = header || (await sharp(file.buffer, { limitInputPixels: false }).metadata().catch(() => null));
+
+  let decoded;
+  try {
+    decoded = await decodeHeic(file.buffer, { width: meta?.width, height: meta?.height });
+  } catch (error) {
+    if (error?.code === "image_too_many_pixels") {
+      const rejected = uploadRejected("image_too_many_pixels");
+      rejected.maxPixels = error.maxPixels;
+      rejected.format = "heic";
+      throw rejected;
+    }
+    if (error?.code === "heic_decode_timeout") {
+      console.warn("[UPLOAD] HEIC decode timeout:", { originalname: file.originalname, size: file.size });
+      if (policy === "image") throw uploadRejected("heic_decode_timeout");
+      return null;
+    }
+    console.warn("[UPLOAD] HEIC decode failed:", { originalname: file.originalname, error: error?.message });
+    if (policy === "image") throw uploadRejected();
+    return null;
+  }
+
+  if (!decoded) {
+    if (policy === "image") throw uploadRejected("heic_unsupported");
+    return null; // fallback-ul vechi (HEIC brut) pentru documente / apelanți fără politică
+  }
+
+  // profil non-sRGB (iPhone: Display P3) -> păstrat la intrare, convertit corect în sRGB la ieșire
+  const { input, options } = await sharpInputForDecoded(decoded, meta?.icc);
+  return encodeWebJpeg(input, options);
+}
+
+async function putOnR2({
+  body,
+  mime,
+  contentDisposition,
+  safeOriginalName,
+  folder,
+  userId,
+  index,
+  file,
+  originalMime,
+  abortSignal,
+}) {
   const timestamp = Date.now();
   const indexPart =
     index === null || index === undefined ? "" : `${index}-`;
