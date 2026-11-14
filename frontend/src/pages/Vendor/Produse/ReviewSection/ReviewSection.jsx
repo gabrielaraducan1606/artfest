@@ -15,6 +15,10 @@ import {
 } from "react-icons/fa";
 import styles from "./ReviewSection.module.css";
 import { api } from "../../../../lib/api.js";
+import { fileFingerprint, selectPhotos, selectionMessage } from "../../../../lib/photoSelection.js";
+
+// fotografiile unei recenzii (limita secțiunii; ruta și validările rămân pe server)
+const MAX_REVIEW_PHOTOS = 5;
 
 function formatDate(dateString) {
   if (!dateString) return "";
@@ -70,6 +74,20 @@ export default function ReviewSection({
     }))
   );
   const [files, setFiles] = useState([]);
+  const [filesError, setFilesError] = useState("");
+  // previzualizări locale (eliberate când lista se schimbă / la demontare)
+  const [filePreviews, setFilePreviews] = useState([]);
+  useEffect(() => {
+    const urls = files.map((file) => {
+      try {
+        return URL.createObjectURL(file);
+      } catch {
+        return "";
+      }
+    });
+    setFilePreviews(urls);
+    return () => urls.forEach((url) => url && URL.revokeObjectURL(url));
+  }, [files]);
 
   // raportare
   const [reportingReview, setReportingReview] = useState(null);
@@ -189,9 +207,24 @@ export default function ReviewSection({
   };
 
   // ===== Upload imagini review =====
+  // o nouă selecție se ADAUGĂ la fotografiile alese deja (nu le înlocuiește), fără duplicate
   const handleFilesChange = (e) => {
-    const list = Array.from(e.target.files || []).slice(0, 5);
-    setFiles(list);
+    const incoming = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!incoming.length) return;
+    const { accepted, rejected } = selectPhotos({
+      existingCount: files.length,
+      existingFingerprints: files.map(fileFingerprint),
+      incoming,
+      max: MAX_REVIEW_PHOTOS,
+    });
+    if (accepted.length) setFiles((current) => [...current, ...accepted].slice(0, MAX_REVIEW_PHOTOS));
+    setFilesError(selectionMessage(rejected));
+  };
+
+  const removeFile = (index) => {
+    setFiles((current) => current.filter((_, i) => i !== index));
+    setFilesError("");
   };
 
   const handleSubmit = async (e) => {
@@ -626,20 +659,51 @@ export default function ReviewSection({
               </div>
 
               <div className={styles.fieldGroup}>
-                <label className={styles.label}>
-                  Fotografii (opțional, max. 5)
-                </label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleFilesChange}
-                />
+                <span className={styles.label} id="review-photos-label">
+                  Fotografii (opțional, max. {MAX_REVIEW_PHOTOS})
+                </span>
+                {files.length < MAX_REVIEW_PHOTOS && (
+                  <label className={styles.photoPickBtn}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className={styles.visuallyHidden}
+                      aria-labelledby="review-photos-label"
+                      onChange={handleFilesChange}
+                    />
+                    {files.length ? "Adaugă mai multe fotografii" : "Alege fotografii"}
+                  </label>
+                )}
+                {files.length > 0 && (
+                  <ul className={styles.photoList} aria-label="Fotografii alese">
+                    {files.map((file, index) => (
+                      <li key={fileFingerprint(file)} className={styles.photoItem}>
+                        {filePreviews[index] ? (
+                          <img src={filePreviews[index]} alt="" className={styles.photoThumb} />
+                        ) : (
+                          <span className={styles.photoThumb} aria-hidden="true" />
+                        )}
+                        <button
+                          type="button"
+                          className={styles.photoRemove}
+                          onClick={() => removeFile(index)}
+                          aria-label={`Elimină fotografia ${index + 1} (${file.name})`}
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {files.length > 0 && (
                   <p className={styles.filesHint}>
-                    {files.length} imagine
-                    {files.length === 1 ? "" : "i"} selectată
-                    {files.length > 1 ? "e" : ""}.
+                    {files.length} din {MAX_REVIEW_PHOTOS} fotografii alese · se trimit împreună cu recenzia.
+                  </p>
+                )}
+                {filesError && (
+                  <p className={styles.filesError} role="alert">
+                    {filesError}
                   </p>
                 )}
               </div>

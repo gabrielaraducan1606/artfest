@@ -390,3 +390,120 @@
     right: 6px;
   }
 }
+
+/* ---------- grilă cu mai multe fotografii ---------- */
+
+.grid {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 8px;
+}
+
+.tile {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--cpu-border);
+  background: var(--surface-muted, #f2f2f3);
+}
+
+.tileBusy .thumbImg {
+  opacity: 0.55;
+}
+
+.tileError {
+  border-color: rgba(220, 38, 38, 0.6);
+}
+
+.tileError .thumbImg {
+  opacity: 0.35;
+}
+
+.tileProgress {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.tileRemove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.62);
+  color: #fff;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tileRemove:hover:not(:disabled) {
+  background: var(--cpu-danger);
+}
+
+.tileRemove:focus-visible,
+.tileRetry:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--cpu-accent-ring);
+}
+
+.tileRemove:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.tileRetry {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  min-height: 28px;
+  margin: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--cpu-danger);
+  color: #fff;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--cpu-muted);
+}
+
+.summaryError {
+  color: var(--cpu-danger);
+  font-weight: 600;
+}
+
+.notice {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--cpu-danger);
+  overflow-wrap: anywhere;
+}

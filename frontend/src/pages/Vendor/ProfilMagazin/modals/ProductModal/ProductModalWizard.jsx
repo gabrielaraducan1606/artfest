@@ -143,6 +143,7 @@ export default function ProductModalWizard({
   colorOptions,
 
   uploadingImages,
+  photos,
   hasPriceWarning,
   priceSuggestion,
   priceWarningConfirmed,
@@ -592,6 +593,7 @@ quoteSchema: [],
           discardAiImagePreview={
             discardAiImagePreview
           }
+          photos={photos}
         />
         </div>
       )}

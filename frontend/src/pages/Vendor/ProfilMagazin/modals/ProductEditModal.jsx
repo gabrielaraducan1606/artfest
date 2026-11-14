@@ -21,8 +21,9 @@ import React, {
 } from "react";
 import Modal from "../ui/Modal";
 import { api } from "../../../../lib/api";
-import { uploadFile } from "../../../../lib/uploadFile";
 import ProductVideoField from "../../../../components/ProductVideoField";
+import ProductPhotoUploader from "../../../../components/ProductPhotoUploader/ProductPhotoUploader.jsx";
+import { useProductImageQueue, useQueueFormImagesSync } from "../../../../lib/productImages/useProductImageQueue.js";
 import styles from "../components/css/ProductModal.module.css";
 import ProductGpsrSection from "./ProductModal/components/ProductGpsrSection.jsx";
 
@@ -575,7 +576,6 @@ export default function ProductEditModal({ open, onClose, productId, onSaved }) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [cats, setCats] = useState([]);
-const [uploadInfo, setUploadInfo] = useState("Niciun fișier ales");
   const [initial, setInitial] = useState(null);
   const [form, setForm] = useState({
     title: "",
@@ -638,96 +638,36 @@ const [uploadInfo, setUploadInfo] = useState("Niciun fișier ales");
     setSectionsOpen((s) => ({ ...s, [key]: !s[key] }));
   }, []);
 
-  // ===== DnD state =====
-  const dragIndexRef = useRef(-1);
+  /*
+   * Fotografii: coada COMUNĂ (lib/productImages, ca în ProductModal / Smart
+   * Listing): mai multe deodată, adăugate la cele existente, fără duplicate,
+   * HEIC / fotografii mari optimizate, progres + „Reîncearcă” per fotografie,
+   * ordine și fotografia principală. În form.images ajung doar URL-uri definitive.
+   */
+  const { queue: photoQueue, state: photoState } = useProductImageQueue();
+  useQueueFormImagesSync({
+    queue: photoQueue,
+    state: photoState,
+    images: form.images,
+    onQueueUrls: (urls) => setForm((current) => ({ ...current, images: urls })),
+  });
 
-  const setMainImage = useCallback((idx) => {
-    setForm((s) => {
-      if (!Array.isArray(s.images) || idx < 0 || idx >= s.images.length)
-        return s;
-      if (idx === 0) return s;
-      const arr = [...s.images];
-      const [it] = arr.splice(idx, 1);
-      arr.unshift(it);
-      return { ...s, images: arr };
-    });
-  }, []);
-
-  const removeImage = useCallback((idx) => {
-    setForm((f) => ({ ...f, images: f.images.filter((_, i) => i !== idx) }));
-  }, []);
-
-  const moveImage = useCallback((from, to) => {
-    setForm((f) => {
-      const arr = [...f.images];
-      if (from === to || to < 0 || to >= arr.length) return f;
-      const [it] = arr.splice(from, 1);
-      arr.splice(to, 0, it);
-      return { ...f, images: arr };
-    });
-  }, []);
-
-  const onDragStart = useCallback(
-    (idx) => (e) => {
-      dragIndexRef.current = idx;
-      e.dataTransfer.effectAllowed = "move";
-      try {
-        e.dataTransfer.setData("text/plain", String(idx));
-      } catch {
-        /* noop */
-      }
+  // fișiere lipite (paste) -> aceeași coadă
+  const onFilesPicked = useCallback(
+    async (files) => {
+      if (!files?.length) return;
+      const result = await photoQueue.addFiles(files);
+      if (result.rejected.length) alert(result.rejected.map((entry) => entry.message).join("\n"));
     },
-    []
+    [photoQueue]
   );
 
-  const onDragOver = useCallback((e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  }, []);
-
-  const onDrop = useCallback(
-    (idx) => (e) => {
-      e.preventDefault();
-      const from =
-        dragIndexRef.current >= 0
-          ? dragIndexRef.current
-          : Number(e.dataTransfer.getData("text/plain"));
-      dragIndexRef.current = -1;
-      if (!Number.isFinite(from)) return;
-      moveImage(from, idx);
-    },
-    [moveImage]
-  );
-const onFilesPicked = useCallback(async (files) => {
-  if (!files?.length) return;
-
-  for (const f of files) {
-    if (!isAllowedImageFile(f)) {
-      alert(
-        `Fișier ignorat: ${f.name}. Acceptăm JPG, PNG, WEBP, GIF, HEIC sau HEIF.`
-      );
-      continue;
-    }
-
-    try {
-      const url = await uploadFile(f, "/api/upload/products");
-
-      setForm((s) => ({
-        ...s,
-        images: [...(s.images || []), url].slice(0, 12),
-      }));
-    } catch (er) {
-      console.error(er);
-      alert(er?.message || "Upload eșuat.");
-    }
-  }
-}, []);
   // Reset local state când închizi modalul
   useEffect(() => {
     if (!open) {
       setError(null);
       setInitial(null);
-      setUploadInfo("Niciun fișier ales");
+      photoQueue.reset([]); // oprește încărcările în curs ale formularului închis
       setForm({
         title: "",
         description: "",
@@ -777,7 +717,7 @@ const onFilesPicked = useCallback(async (files) => {
         images: false,
       });
     }
-  }, [open]);
+  }, [open, photoQueue]);
 
   // Load produs + categorii
   useEffect(() => {
@@ -1101,13 +1041,16 @@ const onFilesPicked = useCallback(async (files) => {
         errs.push("Data de expediere este invalidă.");
     }
 
+    if (photoState.pendingCount > 0) errs.push("Așteaptă să se încarce fotografiile.");
+    if (photoState.failedCount > 0)
+      errs.push("Unele fotografii nu s-au încărcat: apasă „Reîncearcă” sau elimină-le (celelalte sunt păstrate).");
     if (form.images.length > 12) errs.push("Maxim 12 imagini.");
     if (errs.length) {
       alert(errs.join("\n"));
       return false;
     }
     return true;
-  }, [form]);
+  }, [form, photoState.pendingCount, photoState.failedCount]);
 
   // SAVE
   const save = useCallback(async () => {
@@ -1726,38 +1669,11 @@ const onFilesPicked = useCallback(async (files) => {
             >
               <label className={styles.label}>Imagini produs (max 12)</label>
               <div className={styles.imagesRow} onPaste={onPaste}>
-                <div className={styles.fileUploadWrapper}>
-  <input
-    id="edit-product-images-input"
-    type="file"
-    accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif"
-    multiple
-    className={styles.fileInputHidden}
-    onChange={async (e) => {
-      const files = Array.from(e.target.files || []);
-
-      if (files.length === 0) {
-        setUploadInfo("Niciun fișier ales");
-      } else if (files.length === 1) {
-        setUploadInfo(files[0].name);
-      } else {
-        setUploadInfo(`${files.length} fișiere selectate`);
-      }
-
-      e.target.value = "";
-      await onFilesPicked(files);
-    }}
-  />
-
-  <label
-    htmlFor="edit-product-images-input"
-    className={styles.fileUploadButton}
-  >
-    Alege imagini
-  </label>
-
-  <span className={styles.fileUploadInfo}>{uploadInfo}</span>
-</div>
+                <ProductPhotoUploader
+                  queue={photoQueue}
+                  state={photoState}
+                  idPrefix="edit-product-photos"
+                />
                 <button
                   type="button"
                   className={styles.smallBtn}
@@ -1766,67 +1682,10 @@ const onFilesPicked = useCallback(async (files) => {
                   + Adaugă URL imagine
                 </button>
 
-                {!!form.images?.length && (
-                  <div className={styles.thumbGrid}>
-                    {form.images.map((img, idx) => (
-                      <div
-                        key={`${img}-${idx}`}
-                        className={styles.thumbItem}
-                        draggable
-                        onDragStart={onDragStart(idx)}
-                        onDragOver={onDragOver}
-                        onDrop={onDrop(idx)}
-                        title={
-                          idx === 0
-                            ? "Imagine principală"
-                            : "Trage pentru a reordona"
-                        }
-                      >
-                        <img
-                          src={img}
-                          alt={`Imagine produs ${idx + 1}`}
-                          className={styles.thumbImg}
-                        />
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: 6,
-                            marginTop: 6,
-                          }}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => setMainImage(idx)}
-                            title={
-                              idx === 0
-                                ? "Deja principală"
-                                : "Setează ca principală"
-                            }
-                            className={styles.smallBtn}
-                            style={{
-                              fontWeight: idx === 0 ? 800 : 500,
-                            }}
-                          >
-                            {idx === 0 ? "★ Cover" : "☆ Cover"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeImage(idx)}
-                            title="Șterge imagine"
-                            className={styles.smallBtn}
-                          >
-                            Șterge
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
                 <div className={styles.tip}>
                   • Poți lipi (paste) un URL de imagine direct aici.<br />
-                  • Reordonează cu drag &amp; drop. ★ marchează imaginea
-                  principală (prima în listă).
+                  • Prima fotografie este imaginea principală; ordinea se schimbă
+                  cu săgețile sau cu butonul „Principală”.
                 </div>
 
                 <div style={{ marginTop: 18 }}>

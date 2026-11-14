@@ -513,3 +513,47 @@
     font-size: 15px;
   }
 }
+
+/* ===== butonul AI per fotografie (în cardul din ProductPhotoUploader) ===== */
+.photoAiRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.photoAiBtn {
+  min-height: 36px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.photoAiBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface) 90%, var(--color-primary) 10%);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border) 60%);
+}
+
+.photoAiBtn:disabled {
+  cursor: not-allowed;
+}
+
+.photoAiBtn.aiEditUnavailable {
+  background: var(--surface-muted, #f2f2f3);
+  color: var(--text-disabled, #9ca3af);
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+.photoAiBusy {
+  font-size: 0.8rem;
+  color: var(--color-text);
+}

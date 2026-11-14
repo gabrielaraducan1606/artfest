@@ -586,3 +586,106 @@ test("uploadProductImageWithRetry (ProductModal / asistent): reîncearcă 503, n
   );
   assert.equal(m, 1);
 });
+
+/* ============ selectare multiplă în toate formularele de produs (ProductModal, Admin, asistent) ============ */
+
+test("selectare multiplă: 8 fotografii deodată, apoi încă 3 -> adăugate la cele existente (nu le înlocuiesc), ordinea păstrată", async () => {
+  const { calls, upload } = controlledUpload();
+  const { queue } = newQueue({ upload, initialUrls: ["https://cdn/vechi.jpg"] });
+
+  const first = await queue.addFiles(Array.from({ length: 8 }, (_, i) => makeFile(`p${i + 1}.jpg`)));
+  assert.equal(first.added, 8);
+  const second = await queue.addFiles([makeFile("q1.png", "png"), makeFile("q2.webp", "webp"), makeFile("q3.heic", "heic")]);
+  assert.equal(second.added, 3, "a doua selecție se adaugă");
+  assert.deepEqual(
+    queue.getSnapshot().items.map((i) => i.url || i.name),
+    ["https://cdn/vechi.jpg", ...Array.from({ length: 8 }, (_, i) => `p${i + 1}.jpg`), "q1.png", "q2.webp", "q3.heic"]
+  );
+
+  for (let round = 0; round < 12 && queue.getSnapshot().pendingCount; round += 1) {
+    await settle();
+    for (const call of calls.splice(0)) call.resolve({ url: `https://cdn/${call.file.name}` });
+  }
+  await settle();
+  const snap = queue.getSnapshot();
+  assert.equal(snap.pendingCount, 0);
+  assert.equal(snap.urls.length, 12);
+  assert.equal(snap.urls[0], "https://cdn/vechi.jpg", "fotografia principală existentă rămâne principală");
+  assert.ok(snap.urls.every((u) => !/^(blob|data):/.test(u)), "doar URL-uri definitive");
+  queue.destroy();
+});
+
+test("syncUrls (formularul schimbă lista): ordinea / înlocuirea / URL lipit ajung în coadă fără să oprească fotografiile în lucru", async () => {
+  const { calls, upload } = controlledUpload();
+  const { queue } = newQueue({ upload, initialUrls: ["https://cdn/a.jpg", "https://cdn/b.jpg"] });
+  const local = makeFile("nou.jpg", "jpeg", { lastModified: 7 });
+  await queue.addFiles([local]);
+  await settle();
+  assert.equal(calls.length, 1, "upload în curs");
+
+  // formularul: b devine principală, a e înlocuită de AI, se lipește un URL
+  queue.syncUrls(["https://cdn/b.jpg", "https://cdn/a-ai.jpg", "https://cdn/lipit.jpg"]);
+  let snap = queue.getSnapshot();
+  assert.deepEqual(snap.urls, ["https://cdn/b.jpg", "https://cdn/a-ai.jpg", "https://cdn/lipit.jpg"]);
+  assert.equal(snap.pendingCount, 1, "fotografia în lucru NU a fost oprită");
+  assert.equal(calls[0].ctx.signal.aborted, false);
+
+  calls[0].resolve({ url: "https://cdn/nou.jpg" });
+  await settle();
+  snap = queue.getSnapshot();
+  assert.deepEqual(snap.urls, ["https://cdn/b.jpg", "https://cdn/a-ai.jpg", "https://cdn/lipit.jpg", "https://cdn/nou.jpg"]);
+
+  // aceeași fotografie aleasă din nou (după sincronizare) -> refuzată, nu salvată de două ori
+  queue.syncUrls(snap.urls);
+  const again = await queue.addFiles([makeFile("nou.jpg", "jpeg", { lastModified: 7 })]);
+  assert.equal(again.added, 0);
+  assert.match(again.rejected[0].message, /este deja adăugată/);
+  queue.destroy();
+});
+
+test("sincronizare coadă <-> formular: coada are prioritate; schimbările din formular ajung în coadă; fără bucle", async () => {
+  const { decideImagesSync } = await import("./useProductImageQueue.js");
+  // deschidere: formularul primește imaginile produsului -> coadă
+  assert.deepEqual(decideImagesSync("", "", "u1\nu2"), { action: "toQueue", syncedKey: "u1\nu2" });
+  // coada le-a preluat (aceeași listă) -> nimic de făcut
+  assert.deepEqual(decideImagesSync("u1\nu2", "u1\nu2", "u1\nu2"), { action: null, syncedKey: "u1\nu2" });
+  // fotografie nouă încărcată -> formular
+  assert.deepEqual(decideImagesSync("u1\nu2", "u1\nu2\nu3", "u1\nu2"), { action: "toForm", syncedKey: "u1\nu2\nu3" });
+  // formularul a primit lista (fără buclă)
+  assert.deepEqual(decideImagesSync("u1\nu2\nu3", "u1\nu2\nu3", "u1\nu2\nu3"), { action: null, syncedKey: "u1\nu2\nu3" });
+  // URL lipit / AI în formular -> coadă
+  assert.deepEqual(decideImagesSync("u1", "u1", "u1\nlipit"), { action: "toQueue", syncedKey: "u1\nlipit" });
+  // ambele s-au schimbat: coada câștigă (fotografia încărcată nu se pierde)
+  assert.equal(decideImagesSync("u1", "u1\nu2", "u9").action, "toForm");
+});
+
+test("eșec parțial: 6 fotografii, una eșuează -> celelalte 5 se salvează; „Reîncearcă” o încarcă fără duplicat", async () => {
+  const { calls, upload } = controlledUpload();
+  const { queue } = newQueue({ upload, maxAutoRetries: 0 });
+  await queue.addFiles(Array.from({ length: 6 }, (_, i) => makeFile(`f${i + 1}.jpg`)));
+
+  for (let round = 0; round < 10 && queue.getSnapshot().pendingCount; round += 1) {
+    await settle();
+    for (const call of calls.splice(0)) {
+      if (call.file.name === "f3.jpg") call.reject(new ProductImageUploadError({ kind: "network" }));
+      else call.resolve({ url: `https://cdn/${call.file.name}` });
+    }
+  }
+  await settle();
+  let snap = queue.getSnapshot();
+  assert.equal(snap.failedCount, 1);
+  assert.equal(snap.urls.length, 5, "celelalte sunt păstrate");
+  assert.ok(!snap.urls.includes("https://cdn/f3.jpg"));
+
+  const failed = snap.items.find((i) => i.status === "error");
+  assert.equal(queue.retry(failed.id), true);
+  await settle();
+  calls.splice(0).forEach((call) => call.resolve({ url: `https://cdn/${call.file.name}` }));
+  await settle();
+  snap = queue.getSnapshot();
+  assert.equal(snap.failedCount, 0);
+  assert.equal(snap.urls.length, 6);
+  assert.equal(new Set(snap.urls).size, 6, "fără duplicate");
+  assert.equal(snap.urls[2], "https://cdn/f3.jpg", "poziția aleasă de vânzător se păstrează");
+  queue.destroy();
+});

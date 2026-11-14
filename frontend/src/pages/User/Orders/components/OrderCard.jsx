@@ -696,9 +696,14 @@ const hasPaidDeposit =
                                 )}
                                 :
                               </strong>{" "}
-                              {readableValue(
-                                value
-                              )}
+                              {/* mai multe fotografii de personalizare -> doar numărul */}
+                              {Array.isArray(value) &&
+                              value.length > 1 &&
+                              value.every((v) => /^https?:\/\//i.test(String(v)))
+                                ? `${value.length} fotografii`
+                                : readableValue(
+                                    value
+                                  )}
                             </div>
                           )
                         )}

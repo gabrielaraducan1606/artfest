@@ -23,6 +23,37 @@ export const CUSTOMIZATION_ACCEPTED_EXTENSIONS = [
 
 export const CUSTOMIZATION_FORMATS_LABEL = "JPG, PNG, WEBP sau AVIF";
 
+/*
+ * Câte fotografii poate primi un câmp de personalizare. Încărcarea e
+ * secvențială, iar backend-ul permite implicit 60 de încărcări / 10 min
+ * per cont (RATE_CUSTOMIZATION_UPLOAD_USER_MAX) - 50 lasă loc reîncercărilor.
+ */
+export const CUSTOMIZATION_MAX_PHOTOS = 50;
+
+/* Fotografiile dintr-o valoare de personalizare (string sau listă). */
+export function toPhotoList(value) {
+  const list = Array.isArray(value) ? value : [value];
+  return list.filter((item) => typeof item === "string" && item.trim());
+}
+
+/*
+ * Valoarea salvată: 1 fotografie -> URL (string, exact ca înainte), mai
+ * multe -> listă de URL-uri, niciuna -> undefined (câmpul se șterge).
+ */
+function photosToValue(list) {
+  if (!list.length) return undefined;
+  return list.length === 1 ? list[0] : list;
+}
+
+export function addCustomizationPhoto(currentValue, url) {
+  const list = toPhotoList(currentValue);
+  return photosToValue(list.includes(url) ? list : [...list, url]);
+}
+
+export function removeCustomizationPhoto(currentValue, url) {
+  return photosToValue(toPhotoList(currentValue).filter((item) => item !== url));
+}
+
 /* Același text ca backend-ul (heic_not_supported). */
 export const HEIC_NOT_SUPPORTED_MESSAGE =
   "Fotografiile HEIC/HEIF nu pot fi procesate momentan. Salvează fotografia ca JPG sau PNG și încearcă din nou.";

@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../../lib/api";
+import { selectPhotos, selectionMessage } from "../../../../lib/photoSelection.js";
 import shared from "../AdminDesktop.module.css";
 import styles from "./AdminFairReception.module.css";
 import FairCameraScanner from "./FairCameraScanner.jsx";
@@ -82,23 +83,49 @@ function errorMessage(err, fallback) {
 
 /* ===================== Fotografii ===================== */
 
+const MAX_RECEPTION_PHOTOS = 10;
+const PHOTOS_PER_REQUEST = 6; // limita rutei POST /inventory/photos
+
 function PhotoPicker({ urls, onChange, disabled }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const fingerprintsRef = useRef(new Map()); // URL încărcat -> amprenta fișierului (fără duplicate)
 
+  /*
+   * Selecție multiplă: se adaugă la fotografiile existente (max 10 per recepție),
+   * fără duplicate; trimise câte 6 per cerere (limita rutei), deci o selecție de
+   * 7-10 fotografii NU mai pierde nimic în tăcere. Un lot eșuat nu le anulează
+   * pe cele deja încărcate.
+   */
   async function onFiles(event) {
     const files = [...(event.target.files || [])];
     event.target.value = "";
     if (!files.length) return;
+    const { accepted, rejected, fingerprints } = selectPhotos({
+      existingCount: urls.length,
+      existingFingerprints: fingerprintsRef.current.values(),
+      incoming: files,
+      max: MAX_RECEPTION_PHOTOS,
+    });
+    setError(selectionMessage(rejected));
+    if (!accepted.length) return;
     setUploading(true);
-    setError("");
+    let current = urls;
     try {
-      const form = new FormData();
-      for (const file of files.slice(0, 6)) form.append("files", file);
-      const res = await api(`${API}/photos`, { method: "POST", body: form });
-      onChange([...urls, ...(res?.urls || [])].slice(0, 10));
+      for (let start = 0; start < accepted.length; start += PHOTOS_PER_REQUEST) {
+        const form = new FormData();
+        for (const file of accepted.slice(start, start + PHOTOS_PER_REQUEST)) form.append("files", file);
+        const res = await api(`${API}/photos`, { method: "POST", body: form });
+        const batchUrls = res?.urls || [];
+        const batchPrints = fingerprints.slice(start, start + PHOTOS_PER_REQUEST);
+        batchUrls.forEach((url, i) => batchPrints[i] && fingerprintsRef.current.set(url, batchPrints[i]));
+        current = [...current, ...batchUrls].slice(0, MAX_RECEPTION_PHOTOS);
+        onChange(current);
+      }
     } catch (err) {
-      setError(errorMessage(err, "Nu am putut încărca fotografiile."));
+      setError(
+        [selectionMessage(rejected), errorMessage(err, "Nu am putut încărca fotografiile.")].filter(Boolean).join("\n")
+      );
     } finally {
       setUploading(false);
     }
@@ -109,16 +136,19 @@ function PhotoPicker({ urls, onChange, disabled }) {
       {urls.map((url) => (
         <span key={url} className={styles.photo}>
           <img src={url} alt="" />
-          <button type="button" onClick={() => onChange(urls.filter((u) => u !== url))} aria-label="Elimină fotografia" disabled={disabled}>
+          <button type="button" onClick={() => {
+              fingerprintsRef.current.delete(url);
+              onChange(urls.filter((u) => u !== url));
+            }} aria-label="Elimină fotografia" disabled={disabled}>
             ×
           </button>
         </span>
       ))}
       <label className={styles.photoAdd}>
         <input type="file" accept="image/*" multiple onChange={onFiles} disabled={disabled || uploading} />
-        {uploading ? "Se încarcă…" : "+ Fotografii"}
+        {uploading ? "Se încarcă…" : urls.length ? "+ Adaugă mai multe fotografii" : "+ Fotografii"}
       </label>
-      {error && <span className={styles.fieldError}>{error}</span>}
+      {error && <span className={styles.fieldError} role="alert" style={{ whiteSpace: "pre-line" }}>{error}</span>}
     </div>
   );
 }

@@ -419,6 +419,34 @@ export function createProductImageQueue({
     emit();
   }
 
+  /**
+   * Aliniază fotografiile ÎNCĂRCATE (status "done") cu o listă venită din
+   * formular (ex. imagine înlocuită, reordonare, URL lipit), FĂRĂ să oprească
+   * fotografiile încă în lucru sau cele cu eroare (rămân după cele încărcate).
+   * Fotografiile cu același URL își păstrează identitatea (amprenta -> fără
+   * duplicate la o nouă selecție a aceluiași fișier). Valorile se păstrează
+   * exact, ca la reset().
+   */
+  function syncUrls(urls = []) {
+    const list = (Array.isArray(urls) ? urls : []).filter((url) => typeof url === "string");
+    const pool = new Map();
+    for (const item of items) {
+      if (item.status !== "done") continue;
+      if (!pool.has(item.url)) pool.set(item.url, []);
+      pool.get(item.url).push(item);
+    }
+    const done = list.map((url) => pool.get(url)?.shift() || existingItem(url));
+    const kept = new Set(done);
+    for (const item of items) {
+      if (item.status === "done" && !kept.has(item)) {
+        internals.delete(item.id);
+        if (item.previewUrl) revokePreview(item.previewUrl);
+      }
+    }
+    items = [...done, ...items.filter((item) => item.status !== "done")];
+    emit();
+  }
+
   function destroy() {
     destroyed = true;
     for (const [, internal] of internals) internal.controller?.abort();
@@ -434,5 +462,5 @@ export function createProductImageQueue({
 
   reset(initialUrls);
 
-  return { addFiles, retry, retryAll, remove, move, moveTo, makeMain, reset, destroy, subscribe, getSnapshot };
+  return { addFiles, retry, retryAll, remove, move, moveTo, makeMain, reset, syncUrls, destroy, subscribe, getSnapshot };
 }

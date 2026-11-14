@@ -3,6 +3,7 @@ import { useState } from "react";
 import styles from "../../../components/css/ProductModal.module.css";
 import localStyles from "./ProductImagesSection.module.css";
 import ProductVideoField from "../../../../../../components/ProductVideoField";
+import ProductPhotoUploader from "../../../../../../components/ProductPhotoUploader/ProductPhotoUploader.jsx";
 import {
   AI_IMAGE_EDITING_ENABLED,
   AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE,
@@ -22,22 +23,16 @@ export default function ProductImagesSection({
   aiImageLoading,
   aiImageTargetIndex,
   aiLoading,
-  uploadInfo,
   allImagesReadyForAi,
   mainImageReadyForAi,
   isUploadedImage,
   resolveProductImageUrl,
   onPasteImages,
-  onFilesPicked,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  setMainImage,
-  removeImage,
   handleAiAnalyze,
   handleAiEnhanceImage,
   useAiImage,
   discardAiImagePreview,
+  photos, // coada comună: { queue, state } (useProductEditorController)
 }) {
   /*
    * Poza-sursă a preview-ului AI curent (pentru comparație
@@ -54,6 +49,45 @@ export default function ProductImagesSection({
     form.images?.[
       aiPreviewSourceIndex
     ];
+
+  /*
+   * Butonul AI per fotografie (în cardul din selectorul comun) - doar pentru
+   * fotografiile deja încărcate; indexul e cel din form.images (ținta AI).
+   */
+  const renderAiPhotoAction = (item) => {
+    if (item.status !== "done" || !item.url) return null;
+    const idx = (form.images || []).indexOf(item.url);
+    if (idx < 0) return null;
+    const processingThis = aiImageLoading && aiImageTargetIndex === idx;
+    return (
+      <div className={localStyles.photoAiRow}>
+        <button
+          type="button"
+          onClick={imageEditingOff ? undefined : () => handleAiEnhanceImage(idx)}
+          disabled={imageEditingOff || aiImageLoading || !isUploadedImage?.(item.url)}
+          aria-disabled={imageEditingOff || undefined}
+          title={
+            imageEditingOff
+              ? `Îmbunătățește fotografia - ${AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE.toLowerCase()}`
+              : "Fotografie profesională - îmbunătățește fundalul, lumina și claritatea acestei poze, fără să modifice produsul"
+          }
+          aria-label={
+            imageEditingOff
+              ? `Îmbunătățește fotografia ${idx + 1} cu AI - ${AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE.toLowerCase()}`
+              : `Îmbunătățește fotografia ${idx + 1} cu AI`
+          }
+          className={`${localStyles.photoAiBtn} ${imageEditingOff ? localStyles.aiEditUnavailable : ""}`}
+        >
+          ✨ Îmbunătățește cu AI
+        </button>
+        {processingThis ? (
+          <span className={localStyles.photoAiBusy} role="status">
+            Retușez fotografia…
+          </span>
+        ) : null}
+      </div>
+    );
+  };
 
   const [
     imagesHelpOpen,
@@ -422,288 +456,23 @@ export default function ProductImagesSection({
           onPasteImages
         }
       >
-        <div
-          className={
-            styles.fileUploadWrapper
-          }
-        >
-          <input
-            id="product-camera-input"
-            type="file"
-            accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.heic,.heif,.bmp,.tif,.tiff,.avif"
-            capture="environment"
-            className={
-              styles.fileInputHidden
-            }
-            onChange={async (
-              e
-            ) => {
-              const files =
-                Array.from(
-                  e.target.files ||
-                    []
-                );
-
-              e.target.value =
-                "";
-
-              await onFilesPicked(
-                files
-              );
-            }}
-          />
-
-          <input
-            id="product-gallery-input"
-            type="file"
-            accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.heic,.heif,.bmp,.tif,.tiff,.avif"
-            multiple
-            className={
-              styles.fileInputHidden
-            }
-            onChange={async (
-              e
-            ) => {
-              const files =
-                Array.from(
-                  e.target.files ||
-                    []
-                );
-
-              e.target.value =
-                "";
-
-              await onFilesPicked(
-                files
-              );
-            }}
-          />
-
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              flexWrap:
-                "wrap",
-            }}
-          >
-            <label
-              htmlFor="product-camera-input"
-              className={
-                styles.fileUploadButton
-              }
-            >
-              📷 Fă poză
-            </label>
-
-            <label
-              htmlFor="product-gallery-input"
-              className={
-                styles.fileUploadButton
-              }
-            >
-              🖼️ Alege din galerie
-            </label>
-          </div>
-
-          <span
-            className={
-              styles.fileUploadInfo
-            }
-          >
-            {uploadInfo}
-          </span>
-        </div>
+        {/*
+          Selectorul COMUN de fotografii (același ca în Smart Listing):
+          mai multe deodată din galerie sau cameră, adăugate la cele
+          existente, fără duplicate, progres per fotografie, „Reîncearcă”,
+          ordine (săgeți - merge și pe telefon) și fotografia principală.
+        */}
+        <ProductPhotoUploader
+          queue={photos.queue}
+          state={photos.state}
+          resolveUrl={resolveProductImageUrl}
+          idPrefix="product-photos"
+          renderItemExtra={renderAiPhotoAction}
+        />
 
         {!!form.images
           ?.length && (
           <>
-            <div
-              className={
-                styles.thumbGrid
-              }
-            >
-              {form.images.map(
-                (
-                  img,
-                  idx
-                ) => {
-                  const isMain =
-                    idx === 0;
-
-                  const isProcessingThis =
-                    aiImageLoading &&
-                    aiImageTargetIndex ===
-                      idx;
-
-                  return (
-                    <div
-                      key={`${img}-${idx}`}
-                      className={
-                        styles.thumbItem
-                      }
-                      draggable
-                      onDragStart={
-                        onDragStart(
-                          idx
-                        )
-                      }
-                      onDragOver={
-                        onDragOver
-                      }
-                      onDrop={
-                        onDrop(
-                          idx
-                        )
-                      }
-                      title={
-                        isMain
-                          ? "Imagine principală"
-                          : "Trage pentru a reordona"
-                      }
-                    >
-                      <div
-                        className={
-                          localStyles.thumbImageWrap
-                        }
-                      >
-                        {isMain && (
-                          <span
-                            className={
-                              localStyles.mainBadge
-                            }
-                          >
-                            Principală
-                          </span>
-                        )}
-
-                        <img
-                          src={
-                            resolveProductImageUrl(
-                              img
-                            )
-                          }
-                          alt={`Imagine produs ${
-                            idx +
-                            1
-                          }`}
-                          className={
-                            styles.thumbImg
-                          }
-                        />
-
-                        {isProcessingThis && (
-                          <div
-                            className={
-                              localStyles.thumbLoadingOverlay
-                            }
-                          >
-                            <div
-                              className={
-                                localStyles.spinner
-                              }
-                              aria-hidden="true"
-                            />
-
-                            <span
-                              className={
-                                localStyles.thumbLoadingText
-                              }
-                            >
-                              Retușez
-                              fotografia…
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div
-                        className={
-                          localStyles.thumbControls
-                        }
-                      >
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setMainImage(
-                              idx
-                            )
-                          }
-                          title={
-                            isMain
-                              ? "Imagine principală"
-                              : "Setează ca imagine principală"
-                          }
-                          className={`${localStyles.thumbControlBtn} ${
-                            isMain
-                              ? localStyles.thumbControlMain
-                              : ""
-                          }`}
-                        >
-                          {isMain
-                            ? "★"
-                            : "☆"}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={
-                            imageEditingOff
-                              ? undefined
-                              : () =>
-                                  handleAiEnhanceImage(
-                                    idx
-                                  )
-                          }
-                          disabled={
-                            imageEditingOff ||
-                            aiImageLoading ||
-                            !isUploadedImage?.(
-                              img
-                            )
-                          }
-                          aria-disabled={
-                            imageEditingOff ||
-                            undefined
-                          }
-                          title={
-                            imageEditingOff
-                              ? `Îmbunătățește fotografia - ${AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE.toLowerCase()}`
-                              : "Fotografie profesională - îmbunătățește fundalul, lumina și claritatea acestei poze, fără să modifice produsul"
-                          }
-                          aria-label={
-                            imageEditingOff
-                              ? `Îmbunătățește această fotografie cu AI - ${AI_IMAGE_EDITING_UNAVAILABLE_MESSAGE.toLowerCase()}`
-                              : "Îmbunătățește această fotografie cu AI"
-                          }
-                          className={`${localStyles.thumbControlBtn} ${
-                            imageEditingOff
-                              ? localStyles.aiEditUnavailable
-                              : ""
-                          }`}
-                        >
-                          ✨
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            removeImage(
-                              idx
-                            )
-                          }
-                          title="Șterge fotografia"
-                          aria-label="Șterge fotografia"
-                          className={`${localStyles.thumbControlBtn} ${localStyles.thumbControlDanger}`}
-                        >
-                          🗑
-                        </button>
-                      </div>
-                    </div>
-                  );
-                }
-              )}
-            </div>
 
             {/* =============================================
                 CELE DOUĂ FUNCȚII AI - separate vizual, ca să
@@ -884,9 +653,9 @@ export default function ProductImagesSection({
             styles.tip
           }
         >
-          Trage o fotografie pentru a schimba
-          ordinea. Prima fotografie (★) este
-          imaginea principală a produsului.
+          Prima fotografie este imaginea principală
+          a produsului. Schimbi ordinea cu săgețile
+          sau cu butonul „Principală”.
         </div>
       </div>
 

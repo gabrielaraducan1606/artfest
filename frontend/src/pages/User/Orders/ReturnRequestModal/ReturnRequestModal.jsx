@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./ReturnRequestModal.module.css";
 import { api } from "../../../../lib/api.js";
+import { fileFingerprint, selectPhotos, selectionMessage } from "../../../../lib/photoSelection.js";
 import { ReturnPickupFields } from "../../../../components/Returns/ReturnPickupForm.jsx";
 import {
   EMPTY_PICKUP_FORM,
@@ -139,6 +140,8 @@ export default function ReturnRequestModal({
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
+  // URL încărcat -> amprenta fișierului (fără duplicate la o nouă selecție)
+  const photoFingerprintsRef = useRef(new Map());
 
   const [submitted, setSubmitted] = useState(false);
   const [createdRequest, setCreatedRequest] = useState(null);
@@ -339,28 +342,41 @@ export default function ReturnRequestModal({
     ? `/api/guest/orders/${encodeURIComponent(orderId)}/returns/photos?${guestQuery}`
     : "/api/upload";
 
+  /*
+   * Selecție multiplă: fotografiile alese se ADAUGĂ celor încărcate (max 6),
+   * duplicatele sunt sărite, iar o fotografie refuzată / eșuată NU le oprește
+   * pe celelalte (motivul fiecăreia apare în formular). Formatele și limita de
+   * 3 MB ale secțiunii rămân aceleași.
+   */
   async function addPhotos(fileList) {
     const files = Array.from(fileList || []);
     if (!files.length) return;
 
+    const { accepted, rejected } = selectPhotos({
+      existingCount: photoUrls.length,
+      existingFingerprints: photoFingerprintsRef.current.values(),
+      incoming: files,
+      max: MAX_PHOTOS,
+      accept: (f) => /^image\/(png|jpe?g|webp)$/i.test(f.type),
+      acceptMessage: "nu este acceptată: folosim doar PNG / JPG / WebP",
+      maxBytes: 3 * 1024 * 1024,
+    });
+    const problems = rejected.map((entry) => entry.message);
+
     try {
       setUploading(true);
-      setErr("");
+      setErr(selectionMessage(rejected));
 
-      const limited = files.slice(0, Math.max(0, MAX_PHOTOS - photoUrls.length));
-      for (const f of limited) {
-        if (!/^image\/(png|jpe?g|webp)$/i.test(f.type)) {
-          throw new Error("Acceptăm doar PNG / JPG / WebP.");
+      for (const f of accepted) {
+        try {
+          const url = await uploadPhoto(f, uploadEndpoint);
+          photoFingerprintsRef.current.set(url, fileFingerprint(f));
+          setPhotoUrls((prev) => [...prev, url].slice(0, MAX_PHOTOS));
+        } catch (e2) {
+          problems.push(`„${f.name}”: ${e2?.message || "nu am putut încărca fotografia. Încearc-o din nou."}`);
+          setErr(problems.join("\n"));
         }
-        if (f.size > 3 * 1024 * 1024) {
-          throw new Error("Maxim 3 MB per poză.");
-        }
-
-        const url = await uploadPhoto(f, uploadEndpoint);
-        setPhotoUrls((prev) => [...prev, url].slice(0, MAX_PHOTOS));
       }
-    } catch (e2) {
-      setErr(e2?.message || "Nu am putut încărca pozele.");
     } finally {
       setUploading(false);
     }
@@ -380,6 +396,7 @@ export default function ReturnRequestModal({
   }
 
   function removePhoto(url) {
+    photoFingerprintsRef.current.delete(url); // aceeași fotografie poate fi aleasă din nou
     setPhotoUrls((prev) => prev.filter((x) => x !== url));
   }
 

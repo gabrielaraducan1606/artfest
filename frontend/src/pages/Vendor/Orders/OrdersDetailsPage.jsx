@@ -172,6 +172,12 @@ function isCustomizationImage(value) {
   );
 }
 
+/* URL-urile fotografiilor dintr-o valoare: string sau listă (toate imagini). */
+function customizationImageList(value) {
+  const list = Array.isArray(value) ? value : [value];
+  return list.length > 0 && list.every(isCustomizationImage) ? list : [];
+}
+
 function ProductConfiguration({
   item,
   onPreviewImage,
@@ -243,8 +249,11 @@ function ProductConfiguration({
 
           {customEntries.map(
             ([key, value]) => {
+              // o fotografie (string) sau mai multe (listă de URL-uri)
+              const imageUrls =
+                customizationImageList(value);
               const imageValue =
-                isCustomizationImage(value);
+                imageUrls.length > 0;
 
               return (
                 <div
@@ -253,6 +262,7 @@ function ProductConfiguration({
                     imageValue
                       ? {
                           display: "flex",
+                          flexWrap: "wrap",
                           alignItems: "center",
                           gap: 8,
                           marginTop: 4,
@@ -264,13 +274,18 @@ function ProductConfiguration({
                     {readableLabel(key)}:
                   </span>
 
-                  {imageValue ? (
+                  {imageValue && imageUrls.length > 1 && (
+                    <span>{imageUrls.length} fotografii</span>
+                  )}
+
+                  {imageValue ? imageUrls.map((url, photoIndex) => (
                     <button
+                      key={url}
                       type="button"
                       onClick={() =>
-                        onPreviewImage?.(value)
+                        onPreviewImage?.(url)
                       }
-                      aria-label={`Deschide poza pentru ${readableLabel(
+                      aria-label={`Deschide poza ${photoIndex + 1} pentru ${readableLabel(
                         key
                       )}`}
                       title="Deschide poza"
@@ -286,10 +301,12 @@ function ProductConfiguration({
                       }}
                     >
                       <img
-                        src={value}
+                        src={url}
                         alt={`Personalizare ${readableLabel(
                           key
-                        )}`}
+                        )} ${photoIndex + 1}`}
+                        loading="lazy"
+                        decoding="async"
                         style={{
                           width: 54,
                           height: 54,
@@ -301,7 +318,7 @@ function ProductConfiguration({
                         }}
                       />
                     </button>
-                  ) : (
+                  )) : (
                     <>
                       {" "}
                       {readableValue(value)}

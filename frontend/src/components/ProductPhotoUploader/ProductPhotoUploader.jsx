@@ -61,6 +61,7 @@ function Thumb({ item, resolveUrl }) {
  *   disabled?: boolean,
  *   showCamera?: boolean,
  *   idPrefix?: string,
+ *   renderItemExtra?: (item: object, index: number) => import("react").ReactNode,
  * }} props
  */
 export default function ProductPhotoUploader({
@@ -71,6 +72,7 @@ export default function ProductPhotoUploader({
   disabled = false,
   showCamera = true,
   idPrefix = "photos",
+  renderItemExtra = null, // acțiuni suplimentare per fotografie (ex. AI în editorul de produs)
 }) {
   const [dragging, setDragging] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -220,6 +222,8 @@ export default function ProductPhotoUploader({
                   ) : item.status === "done" && item.source === "local" ? (
                     <p className={styles.doneNote}>✓ Fotografie încărcată</p>
                   ) : null}
+
+                  {renderItemExtra ? renderItemExtra(item, index) : null}
 
                   <div className={styles.toolbar}>
                     <button

@@ -828,3 +828,14 @@
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* nota „N fotografii pentru M produse” (doar informativă) */
+.quantityNote {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--color-text, #2d2d2d);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}

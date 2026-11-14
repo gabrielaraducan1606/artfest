@@ -49,6 +49,18 @@ import {
 } from "./hooks/priceDisplayMode.js";
 import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
 import CustomizationPhotoUpload from "./components/CustomizationPhotoUpload.jsx";
+import {
+  CUSTOMIZATION_MAX_PHOTOS,
+  addCustomizationPhoto,
+  removeCustomizationPhoto,
+} from "./hooks/customizationUpload.js";
+import CustomizationQuantityPrompt from "./components/CustomizationQuantityPrompt.jsx";
+import {
+  classifyQuantityLocally,
+  countCustomizationPhotos,
+  decideQuantityCheck,
+  fetchQuantityKind,
+} from "./hooks/customizationQuantity.js";
 import AskSeller from "./components/AskSeller/AskSeller.jsx";
 /*
  * Helper comun cu feed-ul Google Shopping (backend/src/routes/
@@ -477,15 +489,29 @@ export default function ProductDetails() {
 
  const [qty, setQty] = useState(1);
 const [adding, setAdding] = useState(false);
+/* fereastra „Ai încărcat N fotografii, dar ai selectat M produse” */
+const [quantityPrompt, setQuantityPrompt] = useState(null);
+/* rezultatul AI per produs (în sesiunea paginii), ca să nu-l cerem din nou */
+const quantityAiKindRef = useRef({});
 
 const [
   uploadingCustomization,
   setUploadingCustomization,
 ] = useState({});
 
-const isCustomizationUploading = Object.values(
+/*
+ * Valori: "uploading" (fotografii în lucru) sau "failed" (fotografii
+ * neîncărcate, de reîncercat sau eliminat). Ambele blochează coșul și
+ * cererea de ofertă - altfel comanda ar pleca fără o parte din fotografii.
+ */
+const customizationUploadValues = Object.values(
   uploadingCustomization
-).some(Boolean);
+);
+const isCustomizationUploading =
+  customizationUploadValues.some(Boolean);
+const customizationUploadFailed =
+  isCustomizationUploading &&
+  !customizationUploadValues.includes("uploading");
 
 /*
  * Produsul pentru care rulează un upload de personalizare. Un rezultat
@@ -640,6 +666,7 @@ const trackedViewContentRef =
   useEffect(() => {
     setActiveIdx(0);
     setQty(1);
+    setQuantityPrompt(null);
     /*
      * BUGFIX (flash produs PENDING la navigare): `me` NU e legat de
      * produs - e identitatea utilizatorului autentificat, aceeași
@@ -1914,7 +1941,12 @@ const onStartPersonalizationAssistant =
     repeatedGroupAnswers,
   ]);
 
-const onAddToCart = useCallback(async () => {
+const onAddToCart = useCallback(async (request) => {
+  // cantitatea confirmată în fereastra „fotografii vs. bucăți” (fără o nouă verificare)
+  const confirmedQty =
+    typeof request?.confirmedQty === "number" ? request.confirmedQty : null;
+  const orderQty = confirmedQty ?? qty;
+
   if (
     !product ||
     isOwner ||
@@ -2073,6 +2105,46 @@ const onAddToCart = useCallback(async () => {
     setValidationErrors({});
   }
 
+  /*
+   * Mai multe fotografii decât bucăți: reguli simple, apoi (doar dacă
+   * produsul e ambiguu) AI-ul de pe server; la nevoie întrebăm clientul.
+   * Nu schimbăm cantitatea singuri.
+   */
+  if (confirmedQty === null) {
+    const photoCount = countCustomizationPhotos(
+      topLevelCustomSchema,
+      customAnswers
+    );
+    const localKind = classifyQuantityLocally({
+      title: product.title,
+      description: product.description,
+      category: product.category,
+      customSchema: topLevelCustomSchema,
+    });
+    let decision = decideQuantityCheck({ photoCount, qty, localKind });
+
+    if (decision === "need_ai") {
+      let aiKind = quantityAiKindRef.current[product.id];
+
+      if (!aiKind) {
+        setAdding(true);
+        aiKind = await fetchQuantityKind(product.id);
+        setAdding(false);
+        // „neclar” nu se reține: poate fi doar o problemă temporară
+        if (aiKind !== "unclear") {
+          quantityAiKindRef.current[product.id] = aiKind;
+        }
+      }
+
+      decision = decideQuantityCheck({ photoCount, qty, localKind, aiKind });
+    }
+
+    if (decision === "ask") {
+      setQuantityPrompt({ photoCount, qty });
+      return;
+    }
+  }
+
   setAdding(true);
 
   try {
@@ -2092,7 +2164,7 @@ const onAddToCart = useCallback(async () => {
 
             body: {
               productId: product.id,
-              qty,
+              qty: orderQty,
 
               ...configuration,
             },
@@ -2109,7 +2181,7 @@ const onAddToCart = useCallback(async () => {
         ) {
           addToGuestCart(
             product.id,
-            qty,
+            orderQty,
             configuration
           );
 
@@ -2149,7 +2221,7 @@ const onAddToCart = useCallback(async () => {
         ) {
           addToGuestCart(
             product.id,
-            qty,
+            orderQty,
             configuration
           );
 
@@ -2160,7 +2232,7 @@ const onAddToCart = useCallback(async () => {
     } else {
       addToGuestCart(
         product.id,
-        qty,
+        orderQty,
         configuration
       );
 
@@ -2203,7 +2275,7 @@ trackAddToCart({
     "RON",
 
   quantity:
-    qty,
+    orderQty,
 
   /*
    * Produs personalizat -> item_variant „personalizat” în GA4
@@ -3311,8 +3383,9 @@ useEffect(() => {
 }, [product?.id]);
 
 /*
- * Legătura dintre CustomizationPhotoUpload și starea paginii. Valoarea
- * salvată rămâne un singur URL (string), exact ca înainte.
+ * Legătura dintre CustomizationPhotoUpload și starea paginii. O singură
+ * fotografie se salvează ca URL (string), exact ca înainte; mai multe -
+ * ca listă de URL-uri (vezi addCustomizationPhoto).
  */
 const customizationUploadHandlers = useCallback(
   (uploadKey, applyUrl) => {
@@ -3326,7 +3399,10 @@ const customizationUploadHandlers = useCallback(
 
         setUploadingCustomization((current) => {
           if (busy) {
-            return { ...current, [uploadKey]: true };
+            return {
+              ...current,
+              [uploadKey]: busy === "failed" ? "failed" : "uploading",
+            };
           }
 
           const next = { ...current };
@@ -4467,6 +4543,8 @@ const customizationUploadHandlers = useCallback(
           onClick={() =>
             setCustomizationOpen((current) => !current)
           }
+          // închiderea ar demonta câmpurile și ar opri fotografiile în lucru
+          disabled={customizationOpen && isCustomizationUploading}
           aria-expanded={customizationOpen}
         >
           <span className={styles.customizationToggleLeft}>
@@ -4510,11 +4588,6 @@ const isImageField =
 
 const uploadKey =
   `custom:${field.key}`;
-
-const isUploading =
-  !!uploadingCustomization[
-    uploadKey
-  ];
               return (
                 <div
                   key={field.key}
@@ -4551,15 +4624,18 @@ const isUploading =
     key={`${product?.id || ""}:${uploadKey}`}
     label={field.label || "Fotografie"}
     value={value}
+    maxFiles={CUSTOMIZATION_MAX_PHOTOS}
     required={!!field.required}
     invalid={!!validationErrors[`custom:${field.key}`]}
-    externalBusy={isUploading}
     {...customizationUploadHandlers(
       uploadKey,
       (url) => {
         setCustomAnswers((current) => ({
           ...current,
-          [field.key]: url,
+          [field.key]: addCustomizationPhoto(
+            current[field.key],
+            url
+          ),
         }));
 
         setValidationErrors((current) => {
@@ -4569,10 +4645,20 @@ const isUploading =
         });
       }
     )}
-    onRemove={() => {
+    onRemove={(url) => {
       setCustomAnswers((current) => {
         const next = { ...current };
-        delete next[field.key];
+        const remaining = removeCustomizationPhoto(
+          current[field.key],
+          url
+        );
+
+        if (remaining === undefined) {
+          delete next[field.key];
+        } else {
+          next[field.key] = remaining;
+        }
+
         return next;
       });
     }}
@@ -4871,7 +4957,6 @@ const isUploading =
                           value={typeof value === "string" ? value : ""}
                           required={field.required !== false}
                           invalid={!!validationErrors[errorKey]}
-                          externalBusy={!!uploadingCustomization[uploadKey]}
                           {...customizationUploadHandlers(
                             uploadKey,
                             (url) =>
@@ -5094,7 +5179,7 @@ const isUploading =
             isSoldOut
               ? "Stoc epuizat"
               : isCustomizationUploading
-                ? "Se încarcă fotografia…"
+                ? customizationUploadFailed ? "Fotografii neîncărcate" : "Se încarcă fotografiile…"
               : adding
                 ? "Se adaugă…"
                 : hasOrderOptions &&
@@ -5108,7 +5193,7 @@ const isUploading =
           {isSoldOut
             ? "Stoc epuizat"
             : isCustomizationUploading
-              ? "Se încarcă fotografia…"
+              ? customizationUploadFailed ? "Fotografii neîncărcate" : "Se încarcă fotografiile…"
             : adding
               ? "Se adaugă…"
               : "Adaugă în coș"}
@@ -5141,9 +5226,28 @@ const isUploading =
         authLoading={!me && !sessionMe && Boolean(sessionLoading)}
       />
 
+      {quantityPrompt && (
+        <CustomizationQuantityPrompt
+          photoCount={quantityPrompt.photoCount}
+          qty={quantityPrompt.qty}
+          unitPrice={displayPrice}
+          formatPrice={(value) => fmt.format(value)}
+          onChooseCount={(count) => {
+            setQuantityPrompt(null);
+            setQty(count);
+            addToCartAny({ confirmedQty: count });
+          }}
+          onKeepQty={(count) => {
+            setQuantityPrompt(null);
+            addToCartAny({ confirmedQty: count });
+          }}
+          onClose={() => setQuantityPrompt(null)}
+        />
+      )}
+
       {isCustomizationUploading && (
         <p className={styles.quoteHint} role="status">
-          Așteaptă să se termine încărcarea fotografiei.
+          {customizationUploadFailed ? "Unele fotografii nu s-au încărcat. Reîncearcă-le sau elimină-le." : "Așteaptă să se termine încărcarea fotografiilor."}
         </p>
       )}
 

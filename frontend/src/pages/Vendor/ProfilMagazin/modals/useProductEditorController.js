@@ -10,15 +10,12 @@ import {
 import { useNavigate } from "react-router-dom";
 
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
-import { prepareProductImage } from "../../../../lib/productImages/prepareProductImage.js";
 import {
-  MAX_PRODUCT_PHOTOS,
-  checkProductImageFile,
-  checkUploadSize,
-  fileFingerprint,
-  readFileHead,
-} from "../../../../lib/productImages/productImageRules.js";
-import { uploadProductImageWithRetry } from "../../../../lib/productImages/uploadProductImage.js";
+  uploadProductImage,
+  uploadProductImageWithRetry,
+} from "../../../../lib/productImages/uploadProductImage.js";
+import { useProductImageQueue, useQueueFormImagesSync } from "../../../../lib/productImages/useProductImageQueue.js";
+import { isPersistentImageUrl } from "../../../../lib/productImages/productImageRules.js";
 import { api } from "../../../../lib/api";
 import { AI_IMAGE_EDITING_ENABLED } from "../../../../config/features.js";
 import { saveVendorGpsrDraftIfNeeded } from "../utils/vendorGpsrManufacturer.js";
@@ -181,10 +178,37 @@ const [
     );
   }, [editingProduct?.id, navigate, onClose]);
 
-  const [
-    uploadingImages,
-    setUploadingImages,
-  ] = useState(0);
+  /*
+   * Fotografiile noi trec prin coada COMUNĂ (lib/productImages, aceeași ca în
+   * Smart Listing): pregătire / optimizare / HEIC, 2 upload-uri simultan,
+   * reîncercări doar la erori temporare, „Reîncearcă” per fotografie,
+   * fără duplicate. În form.images ajung DOAR URL-uri definitive.
+   */
+  const uploadFileRef = useRef(uploadFile);
+  uploadFileRef.current = uploadFile;
+  const { queue: photoQueue, state: photoState } = useProductImageQueue({
+    upload: async (file, ctx) => {
+      const custom = uploadFileRef.current;
+      if (!custom) return uploadProductImage(file, { onProgress: ctx?.onProgress, signal: ctx?.signal });
+      const result = await custom(file);
+      const url = typeof result === "string" ? result : result?.url || "";
+      return { url: isPersistentImageUrl(url) ? url : "" };
+    },
+  });
+  const uploadingImages = photoState.pendingCount;
+
+  // coada <-> form.images (deschidere / ciornă / AI / URL lipit <-> încărcări noi)
+  useQueueFormImagesSync({
+    queue: photoQueue,
+    state: photoState,
+    images: form?.images,
+    onQueueUrls: (urls) =>
+      setForm((current) => ({
+        ...current,
+        images: urls,
+        aiManuallyEdited: current.aiAnalyzedAt ? true : current.aiManuallyEdited,
+      })),
+  });
 
   // blocaj sincron contra salvării duble (handleSubmit)
   const submitLockRef = useRef(false);
@@ -1242,174 +1266,22 @@ quoteSchema: [],
   );
 
   /*
-   * Pregătirea COMUNĂ tuturor formularelor de produs
-   * (lib/productImages/prepareProductImage.js): micșorare la 2400 px doar
-   * pentru fotografiile mari, orientare corectă, fără metadate, HEIC
-   * convertit dacă browserul poate (altfel pe server). Eșec -> originalul.
+   * Fotografii alese (galerie, cameră, lipite, trase): COADA COMUNĂ - adăugate
+   * la cele existente (nu le înlocuiesc), validate după conținut, fără duplicate,
+   * limită 12. Eșecul uneia nu le oprește pe celelalte („Reîncearcă” per fotografie).
+   * Întoarce rezultatul cozii; mesajele de refuz sunt arătate de apelant.
    */
-  async function compressImageBeforeUpload(file, kind) {
-    let result = null;
-    try {
-      // HEIC în Chrome / Edge / Firefox: convertit local (pe tile-uri), ca în Smart Listing
-      result = await prepareProductImage(file, { kind });
-    } catch {
-      return file;
-    }
-    // nu poate fi procesată nicăieri (ex. HEIC deteriorat): mesaj clar, fără upload
-    if (result?.fatalMessage) throw new Error(result.fatalMessage);
-    return result?.file || file;
-  }
-
-  const onFilesPicked =
-    useCallback(
-      async (files) => {
-        if (!files?.length) {
-          return;
-        }
-
-        const problems = [];
-        const seen = new Set();
-        let room = Math.max(0, MAX_PRODUCT_PHOTOS - (form?.images?.length || 0));
-
-        /*
-         * Fotografiile se procesează și se încarcă pe rând (memorie pe
-         * telefon); eșecul uneia NU le oprește pe celelalte, iar cele
-         * încărcate rămân în formular.
-         */
-        for (const file of Array.from(files)) {
-          const fileName =
-            file?.name || "imagine";
-
-          const fingerprint = fileFingerprint(file);
-          if (seen.has(fingerprint)) {
-            continue; // același fișier ales de două ori în aceeași selecție
-          }
-          seen.add(fingerprint);
-
-          if (room <= 0) {
-            problems.push(
-              `Un produs poate avea cel mult ${MAX_PRODUCT_PHOTOS} fotografii - „${fileName}” nu a fost adăugată.`
-            );
-            continue;
-          }
-
-          let check;
-          try {
-            check = checkProductImageFile(file, await readFileHead(file));
-          } catch {
-            check = { ok: false, message: `„${fileName}” nu a putut fi citită. Alege fotografia din nou.` };
-          }
-
-          if (!check.ok) {
-            problems.push(check.message);
-            continue;
-          }
-
-          room -= 1;
-
-          const previewUrl =
-            URL.createObjectURL(
-              file
-            );
-
-          setForm((current) => ({
-            ...current,
-
-            images: [
-              ...(current.images ||
-                []),
-              previewUrl,
-            ],
-          }));
-
-          try {
-            setUploadingImages(
-              (count) =>
-                count + 1
-            );
-
-            const fileToUpload =
-              await compressImageBeforeUpload(
-                file,
-                check.kind
-              );
-
-            // limita serverului (40 MB) se aplică fișierului optimizat
-            const sizeCheck = checkUploadSize(fileToUpload, fileName);
-            if (!sizeCheck.ok) {
-              throw new Error(sizeCheck.message);
-            }
-
-            const finalUrl =
-              await doUpload(
-                fileToUpload
-              );
-
-            if (!finalUrl || /^(blob|data):/i.test(String(finalUrl))) {
-              throw new Error("Serverul nu a confirmat fotografia. Încearcă din nou.");
-            }
-
-            setForm((current) => ({
-              ...current,
-
-              images: (
-                current.images || []
-              ).map((image) =>
-                image ===
-                previewUrl
-                  ? finalUrl
-                  : image
-              ),
-
-              aiManuallyEdited:
-                current.aiAnalyzedAt
-                  ? true
-                  : current.aiManuallyEdited,
-            }));
-          } catch (error) {
-            console.error(error);
-
-            setForm((current) => ({
-              ...current,
-
-              images: (
-                current.images || []
-              ).filter(
-                (image) =>
-                  image !==
-                  previewUrl
-              ),
-            }));
-
-            room += 1;
-            problems.push(
-              `„${fileName}”: ${error?.message || "nu am putut încărca fotografia. Încearcă din nou."}`
-            );
-          } finally {
-            URL.revokeObjectURL(
-              previewUrl
-            );
-
-            setUploadingImages(
-              (count) =>
-                Math.max(
-                  0,
-                  count - 1
-                )
-            );
-          }
-        }
-
-        if (problems.length) {
-          alert(problems.join("\n"));
-        }
-      },
-      [
-        doUpload,
-        form?.images?.length,
-        setForm,
-      ]
-    );
+  const onFilesPicked = useCallback(
+    async (files, { silent = false } = {}) => {
+      if (!files?.length) return { added: 0, rejected: [] };
+      const result = await photoQueue.addFiles(Array.from(files));
+      if (!silent && result.rejected.length) {
+        alert(result.rejected.map((entry) => entry.message).join("\n"));
+      }
+      return result;
+    },
+    [photoQueue]
+  );
 
   const onPasteImages =
     useCallback(
@@ -1631,6 +1503,16 @@ quoteSchema: [],
           return false;
         }
 
+        // o fotografie eșuată NU se pierde în tăcere: vânzătorul alege „Reîncearcă” sau o elimină
+        if (photoState.failedCount > 0) {
+          alert(
+            photoState.failedCount === 1
+              ? "O fotografie nu s-a încărcat. Apasă „Reîncearcă” sau elimin-o; celelalte fotografii sunt păstrate."
+              : `${photoState.failedCount} fotografii nu s-au încărcat. Apasă „Reîncearcă” sau elimină-le; celelalte fotografii sunt păstrate.`
+          );
+          return false;
+        }
+
         if (
           (form.images || []).some(
             (image) =>
@@ -1757,6 +1639,7 @@ quoteSchema: [],
       },
       [
         uploadingImages,
+        photoState.failedCount,
         form.images,
         form.isOwnManufacturer,
         onSave,
@@ -1804,6 +1687,8 @@ quoteSchema: [],
     goToCostsProfit,
 
     uploadingImages,
+    // coada comună de fotografii (ProductPhotoUploader în ProductImagesSection)
+    photos: { queue: photoQueue, state: photoState },
     uploadInfo,
     draftKey,
     mainImageReadyForAi,

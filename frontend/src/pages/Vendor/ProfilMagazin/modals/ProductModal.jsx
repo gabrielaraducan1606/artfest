@@ -62,6 +62,7 @@ export default function ProductModal({
     hasPriceWarning,
     goToCostsProfit,
     uploadingImages,
+    photos,
     uploadInfo,
     draftKey,
     mainImageReadyForAi,
@@ -270,6 +271,7 @@ removeQuoteFieldOption={
           uploadingImages={
             uploadingImages
           }
+          photos={photos}
           hasPriceWarning={
             hasPriceWarning
           }

@@ -44,6 +44,11 @@ import {
   trackViewCart,
 } from "../../../services/analytics.js";
 import styles from "./Cart.module.css";
+import {
+  classifyQuantityLocally,
+  photosLabel,
+  productsLabel,
+} from "../Vendor/Produse/hooks/customizationQuantity.js";
 // prețul liniei = bază + diferențele variantelor alese (aceeași regulă ca serverul)
 import { resolveVariantPricing } from "../../../../backend/src/lib/variantPricing.js";
 
@@ -104,6 +109,12 @@ const isImageUrl = (value) => {
       /\.(jpg|jpeg|png|webp|gif|heic|heif|bmp|tiff|avif)(\?.*)?$/i.test(url)
     )
   );
+};
+
+/* URL-urile fotografiilor dintr-o valoare: string sau listă (toate imagini). */
+const imageUrlList = (value) => {
+  const list = Array.isArray(value) ? value : [value];
+  return list.length > 0 && list.every(isImageUrl) ? list : [];
 };
 
 const getConfigurationEntries = (value) => {
@@ -1454,6 +1465,18 @@ const goCheckout = useCallback(() => {
 const customAnswerEntries = getConfigurationEntries(
   r.customAnswers
 );
+/*
+ * Mai multe fotografii decât bucăți (ex. cantitatea scăzută în coș):
+ * doar o notă, fără blocare și fără AI. Câmpurile foto nu se adună.
+ */
+const cartPhotoCount = customAnswerEntries.reduce(
+  (max, [, value]) => Math.max(max, imageUrlList(value).length),
+  0
+);
+const showQuantityNote =
+  cartPhotoCount > 1 &&
+  cartPhotoCount > r._localQty &&
+  classifyQuantityLocally({ title: r.product?.title }) !== "single_product";
 const repeatedGroupEntries =
   getRepeatedGroupEntries(
     r.repeatedGroupAnswers
@@ -1540,7 +1563,9 @@ const hasConfiguration =
     )}
 
    {customAnswerEntries.map(([key, value]) => {
-  const imageValue = isImageUrl(value);
+  // o fotografie (string) sau mai multe (listă de URL-uri)
+  const imageUrls = imageUrlList(value);
+  const imageValue = imageUrls.length > 0;
 
   return (
     <div
@@ -1550,24 +1575,31 @@ const hasConfiguration =
       <span>{key}</span>
 
      {imageValue ? (
+  <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+  {imageUrls.map((url, photoIndex) => (
   <button
+    key={url}
     type="button"
     className={styles.previewTrigger}
     onClick={() =>
       setPreviewImage({
-        url: resolveFileUrl(value),
+        url: resolveFileUrl(url),
         label: key,
       })
     }
-    aria-label={`Deschide poza pentru ${key}`}
+    aria-label={`Deschide poza ${photoIndex + 1} pentru ${key}`}
     title="Deschide poza"
   >
     <img
-      src={resolveFileUrl(value)}
-      alt={`Personalizare ${key}`}
+      src={resolveFileUrl(url)}
+      alt={`Personalizare ${key} ${photoIndex + 1}`}
       className={styles.previewThumb}
+      loading="lazy"
+      decoding="async"
     />
   </button>
+  ))}
+  </span>
 ) : (
   <strong>
     {getReadableValue(value)}
@@ -1576,6 +1608,13 @@ const hasConfiguration =
     </div>
   );
 })}
+    {showQuantityNote && (
+      <p className={styles.quantityNote} role="note">
+        Ai încărcat {photosLabel(cartPhotoCount)} pentru{" "}
+        {productsLabel(r._localQty)}. Verifică dacă ai nevoie de mai multe
+        bucăți.
+      </p>
+    )}
     {repeatedGroupEntries.length > 0 && (
   <div
     className={

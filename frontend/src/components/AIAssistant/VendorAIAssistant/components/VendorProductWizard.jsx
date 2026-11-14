@@ -2514,6 +2514,7 @@ function VendorProductEditWizard({
           careOptions={controller.careOptions}
           colorOptions={controller.colorOptions}
           uploadingImages={controller.uploadingImages}
+          photos={controller.photos}
           hasPriceWarning={controller.hasPriceWarning}
           priceSuggestion={controller.priceSuggestion}
           priceWarningConfirmed={controller.priceWarningConfirmed}

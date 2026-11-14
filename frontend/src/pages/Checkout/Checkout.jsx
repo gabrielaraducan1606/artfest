@@ -629,6 +629,12 @@ function isCustomizationImage(value) {
   );
 }
 
+/* URL-urile fotografiilor dintr-o valoare: string sau listă (toate imagini). */
+function customizationImageList(value) {
+  const list = Array.isArray(value) ? value : [value];
+  return list.length > 0 && list.every(isCustomizationImage) ? list : [];
+}
+
 function formatConfigLabel(key) {
   return String(key || "")
     .replace(/[_-]+/g, " ")
@@ -3343,10 +3349,13 @@ if (me) {
         it.customAnswers
       ).map(
         ([key, value]) => {
-          const imageValue =
-            isCustomizationImage(
+          // o fotografie (string) sau mai multe (listă de URL-uri)
+          const imageUrls =
+            customizationImageList(
               value
             );
+          const imageValue =
+            imageUrls.length > 0;
 
           return (
             <div
@@ -3365,7 +3374,10 @@ if (me) {
               </span>
 
               {imageValue ? (
+                <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {imageUrls.map((url, photoIndex) => (
                 <button
+                  key={url}
                   type="button"
                   className={
                     styles.previewTrigger
@@ -3373,7 +3385,7 @@ if (me) {
                   onClick={() =>
                     setPreviewImage({
                       url: resolveFileUrl(
-                        value
+                        url
                       ),
                       label:
                         formatConfigLabel(
@@ -3381,18 +3393,18 @@ if (me) {
                         ),
                     })
                   }
-                  aria-label={`Deschide poza pentru ${formatConfigLabel(
+                  aria-label={`Deschide poza ${photoIndex + 1} pentru ${formatConfigLabel(
                     key
                   )}`}
                   title="Deschide poza"
                 >
                   <img
                     src={resolveFileUrl(
-                      value
+                      url
                     )}
                     alt={`Personalizare ${formatConfigLabel(
                       key
-                    )}`}
+                    )} ${photoIndex + 1}`}
                     className={
                       styles.previewThumb
                     }
@@ -3400,6 +3412,8 @@ if (me) {
                     decoding="async"
                   />
                 </button>
+                ))}
+                </span>
               ) : (
                 <>
                   {" "}

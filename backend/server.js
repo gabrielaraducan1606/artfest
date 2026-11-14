@@ -26,6 +26,7 @@ import subscriptionRoutes from "./src/routes/subscriptionRoutes.js";
 import publicStoreRoutes from "./src/routes/publicStoreRoutes.js";
 import vendorProductRoutes from "./src/routes/vendorProductRoutes.js";
 import publicProductRoutes from "./src/routes/publicProductRoutes.js";
+import customizationQuantityRoutes from "./src/routes/customizationQuantityRoutes.js";
 import { getOptionPresets } from "./src/controllers/productController.js";
 import publicCollectionsRoutes from "./src/routes/publicCollectionsRoutes.js";
 import favoritesRoutes, { mountWishlistCountAlias } from "./src/routes/favoritesRoutes.js";
@@ -565,6 +566,8 @@ app.use("/api/account", accountRoutes);
 // Lista publică de colecții (linkuri interne Home/meniu) - GET /collections;
 // GET /collections/:slug rămâne în publicProductRoutes.
 app.use("/api/public", publicCollectionsRoutes);
+// Verificarea cantității la produse personalizate cu mai multe fotografii.
+app.use("/api/public/customization-quantity", customizationQuantityRoutes);
 app.use("/api/public", publicProductRoutes);
 app.use("/api", productReviewsRouter);
 app.use("/api", storeReviewsRouter);

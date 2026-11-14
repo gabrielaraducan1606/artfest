@@ -208,6 +208,7 @@
 }
 
 .error {
+  white-space: pre-line; /* mai multe motive, câte unul pe rând */
   border-radius: 12px;
   padding: 12px 14px;
   font-size: 14px;

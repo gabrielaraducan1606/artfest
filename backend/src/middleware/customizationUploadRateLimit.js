@@ -4,7 +4,7 @@
 // Separată de apiLimiter-ul global din server.js (neatins aici).
 //
 // 1) Per cont (utilizator autentificat): mereu activă, cheie = userId.
-//    Implicit 30 / 10 min (RATE_CUSTOMIZATION_UPLOAD_USER_MAX).
+//    Implicit 60 / 10 min (RATE_CUSTOMIZATION_UPLOAD_USER_MAX).
 //
 // 2) Per IP: cheie = ipKeyGenerator(req.ip, 56) - IPv4 exact, IPv6 grupat
 //    pe /56 (altfel un singur client poate roti adrese din propriul
@@ -204,8 +204,10 @@ export function createInflightGuard({
 export function createCustomizationUploadLimiters({
   mode = resolveCustomizationIpLimitMode(),
   windowMs = 10 * 60 * 1000,
-  userMax = Number(process.env.RATE_CUSTOMIZATION_UPLOAD_USER_MAX || 30),
-  ipMax = Number(process.env.RATE_CUSTOMIZATION_UPLOAD_IP_MAX || 40),
+  // 60 / 10 min: un client poate trimite până la 50 de fotografii pentru
+  // un produs personalizat (limita din frontend) plus câteva reîncercări
+  userMax = Number(process.env.RATE_CUSTOMIZATION_UPLOAD_USER_MAX || 60),
+  ipMax = Number(process.env.RATE_CUSTOMIZATION_UPLOAD_IP_MAX || 80),
   logger = console,
   diagnostics = mode === "observe",
 } = {}) {
