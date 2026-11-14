@@ -112,6 +112,7 @@ const SmartListingModal = SMART_LISTING_ENABLED
   ? lazy(() => import("./features/smartListing/SmartListingModal.jsx"))
   : null;
 const FairRulesDraftPage = lazy(() => import("./pages/Vendor/Fair/FairRulesDraftPage.jsx"));
+const SecretSantaPage = lazy(() => import("./pages/SecretSanta/SecretSantaPage.jsx"));
 const StoreDesignPage = lazy(() => import("./pages/Vendor/StoreDesign/StoreDesignPage.jsx"));
 import ProductsPage from "./pages/Products/Products";
 import StoresPage from "./pages/Stores/StoresPage";
@@ -908,6 +909,9 @@ export default function App() {
               path="/targ-artfest/regulament-draft"
               element={<FairRulesDraftPage />}
             />
+
+            {/* Secret Santa Artfest - pagină publică; înscrierea doar pentru vânzători */}
+            <Route path="/secret-santa" element={<SecretSantaPage />} />
 
             {/* Servicii digitale */}
 

@@ -134,6 +134,20 @@
   flex-wrap: wrap;
 }
 
+/* inventarul participantului în listă: trimise / netrimise */
+.inventoryCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+  font-size: 0.85em;
+}
+
+.inventoryDraft {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
 .primaryBtn,
 .ghostBtn,
 .successBtn,

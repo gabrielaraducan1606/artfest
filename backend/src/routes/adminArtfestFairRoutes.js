@@ -104,7 +104,7 @@ import {
 } from "../services/artfestFairReceptionService.js";
 import { createSale, getPosStatus, getSale, listSales, previewSale, scanBarcode, setSalesOpen } from "../services/artfestFairPosService.js";
 import { buildPublicUrl, uploadToR2 } from "../services/r2Storage.js";
-import { getAdminLabelItems, markLabelsGenerated } from "../services/artfestFairInventoryService.js";
+import { adminSubmitDraftInventory, getAdminLabelItems, markLabelsGenerated } from "../services/artfestFairInventoryService.js";
 import { adminDailyReport, adminReportCsv } from "../services/artfestFairReportsService.js";
 import { previewSaleReturn, returnSale, voidSale } from "../services/artfestFairSaleReturnService.js";
 import {
@@ -184,6 +184,21 @@ router.post(
   handle(async (req, res) => {
     const item = await reviewRegistration({ id: req.params.id, action: "approve", adminId: req.adminUser.id });
     res.json({ ok: true, item });
+  })
+);
+
+// trimite liniile DRAFT ale participantului (validări + rezervare stoc ca la vendor);
+// body: { expectedLines, expectedQty } = ce a confirmat Admin în fereastra de confirmare
+router.post(
+  "/registrations/:id/inventory/submit-drafts",
+  handle(async (req, res) => {
+    const result = await adminSubmitDraftInventory({
+      registrationId: req.params.id,
+      adminUserId: req.adminUser.id,
+      expectedLines: req.body?.expectedLines,
+      expectedQty: req.body?.expectedQty,
+    });
+    res.json({ ok: true, ...result, item: await getRegistrationForAdmin({ id: req.params.id }) });
   })
 );
 

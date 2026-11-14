@@ -461,6 +461,7 @@ model Vendor {
   CourierAccount          CourierAccount[]
   VendorPickupAddress     VendorPickupAddress[]
   fairRegistrations       ArtfestFairRegistration[]
+  secretSantaParticipations SecretSantaParticipant[]
   fairBroadcastDeliveries ArtfestBroadcastDelivery[]
   fairInventoryItems      ArtfestFairInventoryItem[]
   fairSaleLines           ArtfestFairSaleLine[]
@@ -6340,4 +6341,84 @@ model ArtfestFairDeliveryNoteLine {
   @@unique([noteId, position])
   @@unique([noteId, inventoryItemId])
   @@index([inventoryItemId])
+}
+
+// ============================================================
+// Secret Santa Artfest - schimb gratuit de cadouri între vânzători.
+// Complet separat de Târgul Artfest. O ediție pe an (key unic).
+// ============================================================
+
+enum SecretSantaEditionStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  DRAWN
+}
+
+model SecretSantaEdition {
+  id                   String                   @id @default(cuid())
+  key                  String                   @unique @db.VarChar(60)
+  title                String                   @db.VarChar(160)
+  status               SecretSantaEditionStatus @default(DRAFT)
+  registrationClosesAt DateTime?
+  shipByAt             DateTime?
+  drawnAt              DateTime?
+  drawnById            String?
+  // datele de livrare au fost șterse după eveniment
+  personalDataPurgedAt DateTime?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  participants SecretSantaParticipant[]
+  assignments  SecretSantaAssignment[]
+
+  @@index([status, createdAt])
+}
+
+// datele de livrare sunt vizibile doar expeditorului extras și Adminului
+model SecretSantaParticipant {
+  id                   String   @id @default(cuid())
+  editionId            String
+  vendorId             String
+  userId               String
+  storeName            String   @db.VarChar(200)
+  recipientName        String   @db.VarChar(160)
+  email                String   @db.VarChar(320)
+  phone                String   @db.VarChar(40)
+  county               String   @db.VarChar(60)
+  city                 String   @db.VarChar(120)
+  address              String   @db.VarChar(300)
+  postalCode           String   @db.VarChar(12)
+  preferences          String?  @db.VarChar(500)
+  dataNoticeAcceptedAt DateTime
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  edition   SecretSantaEdition     @relation(fields: [editionId], references: [id], onDelete: Restrict)
+  vendor    Vendor                 @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  giving    SecretSantaAssignment? @relation("SecretSantaGiver")
+  receiving SecretSantaAssignment? @relation("SecretSantaReceiver")
+
+  @@unique([editionId, vendorId])
+  @@index([vendorId])
+}
+
+// giverId trimite cadoul către receiverId; CHECK giverId <> receiverId în migrație
+model SecretSantaAssignment {
+  id          String    @id @default(cuid())
+  editionId   String
+  giverId     String    @unique
+  receiverId  String    @unique
+  emailSentAt DateTime?
+  emailError  String?   @db.VarChar(80)
+  awb         String?   @db.VarChar(60)
+  courierName String?   @db.VarChar(80)
+  shippedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  edition  SecretSantaEdition     @relation(fields: [editionId], references: [id], onDelete: Restrict)
+  giver    SecretSantaParticipant @relation("SecretSantaGiver", fields: [giverId], references: [id], onDelete: Cascade)
+  receiver SecretSantaParticipant @relation("SecretSantaReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([editionId])
 }

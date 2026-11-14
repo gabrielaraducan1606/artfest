@@ -271,7 +271,99 @@ function TermsAcceptance({ item }) {
   );
 }
 
-function RegistrationDetails({ item, onClose }) {
+const units = (n) => `${n} ${n === 1 ? "bucată" : "bucăți"}`;
+const products = (n) => `${n} ${n === 1 ? "produs" : "produse"}`;
+
+// inventarul participantului: trimise vs netrimise (linii + bucăți declarate)
+function InventoryCell({ inventory }) {
+  const inv = inventory || {};
+  if (!inv.submittedLines && !inv.draftLines) return "—";
+  return (
+    <span className={styles.inventoryCell}>
+      <span>Trimise: {inv.submittedLines} ({inv.submittedQty} buc.)</span>
+      <span className={inv.draftLines ? styles.inventoryDraft : undefined}>
+        Netrimise: {inv.draftLines} ({inv.draftQty} buc.)
+      </span>
+    </span>
+  );
+}
+
+/*
+ * Inventarul în detaliile înscrierii + trimiterea produselor netrimise de către Admin.
+ * Backendul trimite DOAR liniile netrimise, cu aceleași validări și aceeași rezervare
+ * a stocului online ca trimiterea vendorului; dacă lista s-a schimbat, refuză.
+ */
+function RegistrationInventory({ item, onChanged }) {
+  const inv = item.inventory || {};
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [problems, setProblems] = useState([]);
+  const [done, setDone] = useState("");
+
+  async function submitDrafts() {
+    const ok = window.confirm(
+      `Trimiți în inventarul târgului ${products(inv.draftLines)} netrimise (${units(inv.draftQty)}) ale participantului „${item.vendorName || "—"}”?\n\n` +
+        "Se aplică aceleași verificări ca la trimiterea făcută de participant, iar pentru produsele din catalog se rezervă stocul online. " +
+        "Produsele deja trimise sau recepționate nu se modifică. Nu se emite niciun aviz, termenul nu se schimbă și participantul nu poate edita din nou inventarul."
+    );
+    if (!ok) return;
+    setBusy(true);
+    setError("");
+    setProblems([]);
+    setDone("");
+    try {
+      const res = await api(`${API}/registrations/${encodeURIComponent(item.id)}/inventory/submit-drafts`, {
+        method: "POST",
+        body: { expectedLines: inv.draftLines, expectedQty: inv.draftQty },
+      });
+      setDone(`Au fost trimise ${products(res.submitted)} (${units(res.submittedQty)}).`);
+      if (res.item) onChanged?.(res.item);
+    } catch (e) {
+      setError(e?.data?.message || e?.message || "Trimiterea nu a reușit.");
+      setProblems(Array.isArray(e?.data?.problems) ? e.data.problems : []);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className={styles.detailSection} aria-label="Inventarul participantului">
+      <h4>Inventar</h4>
+      <dl className={styles.details}>
+        <DetailRow label="Produse trimise">{String(inv.submittedLines ?? 0)}</DetailRow>
+        <DetailRow label="Produse netrimise">{String(inv.draftLines ?? 0)}</DetailRow>
+        <DetailRow label="Cantități trimise">{units(inv.submittedQty ?? 0)}</DetailRow>
+        <DetailRow label="Cantități netrimise">{units(inv.draftQty ?? 0)}</DetailRow>
+      </dl>
+      {item.actions?.canSubmitDrafts && (
+        <div className={styles.actions}>
+          <button type="button" className={styles.successBtn} onClick={submitDrafts} disabled={busy}>
+            {busy ? "Se trimite…" : "Trimite produsele netrimise"}
+          </button>
+        </div>
+      )}
+      {done && (
+        <p className={shared.subtle} role="status">
+          {done}
+        </p>
+      )}
+      {error && (
+        <div className={shared.error} role="alert">
+          {error}
+          {problems.length > 0 && (
+            <ul>
+              {problems.map((p) => (
+                <li key={p.id || p.title}>{p.title || p.id}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RegistrationDetails({ item, onClose, onChanged }) {
   const cancellation = item.cancellation;
   return (
     <Modal title={`Înscriere - ${item.vendorName || "vendor"}`} onClose={onClose} wide>
@@ -312,6 +404,10 @@ function RegistrationDetails({ item, onClose }) {
       </dl>
 
       <TermsAcceptance item={item} />
+
+      {(item.status === "APPROVED" || item.inventory?.submittedLines > 0 || item.inventory?.draftLines > 0) && (
+        <RegistrationInventory item={item} onChanged={onChanged} />
+      )}
 
       <section className={styles.detailSection} aria-label="Istoricul deciziilor">
         <h4>Istoric</h4>
@@ -494,6 +590,7 @@ function RegistrationsSection() {
                 <th>Nr. estimat produse</th>
                 <th>Data înscrierii</th>
                 <th>Status</th>
+                <th>Inventar</th>
                 <th>Observații</th>
                 <th>Acțiuni</th>
               </tr>
@@ -521,6 +618,9 @@ function RegistrationsSection() {
                       <span className={`${styles.badge} ${STATUS_TONE[item.status] || ""}`}>
                         {STATUS_LABEL[item.status] || item.status}
                       </span>
+                    </td>
+                    <td>
+                      <InventoryCell inventory={item.inventory} />
                     </td>
                     <td className={styles.notes} title={item.notes || ""}>
                       {item.notes || "—"}
@@ -577,7 +677,16 @@ function RegistrationsSection() {
         </div>
       )}
 
-      {details && <RegistrationDetails item={details} onClose={closeDetails} />}
+      {details && (
+        <RegistrationDetails
+          item={details}
+          onClose={closeDetails}
+          onChanged={(next) => {
+            setDetails(next);
+            setItems((prev) => prev.map((row) => (row.id === next.id ? next : row)));
+          }}
+        />
+      )}
       {rejecting && (
         <RejectModal
           item={rejecting}

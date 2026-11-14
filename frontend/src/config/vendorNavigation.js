@@ -59,6 +59,8 @@ export const VENDOR_STORE_DESIGN_URL = "/vendor/design-magazin";
 // link de nivel 1 în burger (sub Dashboard), vizibil fără a deschide o secțiune
 export const VENDOR_FEATURED_LINKS = [
   { label: "Târg Artfest", to: VENDOR_FAIR_URL, icon: "Gift" },
+  // pagina afișează singură mesajul potrivit când nu există o ediție publicată
+  { label: "Secret Santa", to: "/secret-santa", icon: "Gift" },
 ];
 
 export const VENDOR_NAV_SECTIONS = [

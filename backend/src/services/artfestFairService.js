@@ -525,11 +525,45 @@ const ADMIN_TRANSITIONS = Object.freeze({
   reject: { from: ["SUBMITTED"], to: "REJECTED" },
 });
 
-function serializeRegistrationForAdmin(row, storesByVendor = new Map(), eligibilityByVendor = new Map()) {
+/*
+ * Inventarul fiecărei înscrieri, pentru Admin (doar citire): trimise = orice linie
+ * trimisă oficial (SUBMITTED / RECEIVED / REJECTED / CLOSED), netrimise = DRAFT.
+ * Liniile CANCELLED (eliminate de vendor înainte de trimitere) nu se numără.
+ */
+const EMPTY_INVENTORY_SUMMARY = Object.freeze({ submittedLines: 0, submittedQty: 0, draftLines: 0, draftQty: 0 });
+
+export async function inventorySummaryByRegistration(db, registrationIds) {
+  const map = new Map();
+  if (!registrationIds.length) return map;
+  const groups = await db.artfestFairInventoryItem.groupBy({
+    by: ["registrationId", "status"],
+    where: { registrationId: { in: registrationIds }, status: { not: "CANCELLED" } },
+    _count: { _all: true },
+    _sum: { declaredQty: true },
+  });
+  for (const g of groups) {
+    const s = map.get(g.registrationId) || { ...EMPTY_INVENTORY_SUMMARY };
+    const lines = g._count?._all ?? 0;
+    const qty = g._sum?.declaredQty ?? 0;
+    if (g.status === "DRAFT") {
+      s.draftLines += lines;
+      s.draftQty += qty;
+    } else {
+      s.submittedLines += lines;
+      s.submittedQty += qty;
+    }
+    map.set(g.registrationId, s);
+  }
+  return map;
+}
+
+function serializeRegistrationForAdmin(row, storesByVendor = new Map(), eligibilityByVendor = new Map(), inventoryByRegistration = new Map()) {
   const cancelled = row.status === "CANCELLED";
   const eligibility = eligibilityByVendor.get(row.vendorId) || null;
+  const inventory = inventoryByRegistration.get(row.id) || EMPTY_INVENTORY_SUMMARY;
   return {
     ...serializeRegistrationForVendor(row),
+    inventory: { ...inventory },
     vendorId: row.vendorId,
     vendorName: row.vendor?.displayName || null,
     vendorActive: row.vendor?.isActive ?? null,
@@ -560,6 +594,8 @@ function serializeRegistrationForAdmin(row, storesByVendor = new Map(), eligibil
       canApprove: (row.status === "SUBMITTED" || row.status === "REJECTED") && eligibility?.eligible !== false,
       canReject: row.status === "SUBMITTED",
       canCancel: row.status === "APPROVED",
+      // trimiterea liniilor netrimise în numele participantului (Admin); validările rămân cele ale trimiterii
+      canSubmitDrafts: row.status === "APPROVED" && inventory.draftLines > 0,
     },
   };
 }
@@ -612,7 +648,11 @@ export async function listRegistrationsForAdmin({ status = null, participationTy
   });
 
   const vendorIds = [...new Set(rows.map((r) => r.vendorId))];
-  const [stores, eligibility] = await Promise.all([loadStores(db, vendorIds), loadFairEligibilityMap(vendorIds, db)]);
+  const [stores, eligibility, inventory] = await Promise.all([
+    loadStores(db, vendorIds),
+    loadFairEligibilityMap(vendorIds, db),
+    inventorySummaryByRegistration(db, rows.map((r) => r.id)),
+  ]);
 
   const counts = await db.artfestFairRegistration.groupBy({
     by: ["status"],
@@ -622,7 +662,7 @@ export async function listRegistrationsForAdmin({ status = null, participationTy
 
   return {
     fair: serializeFair(fair),
-    items: rows.map((row) => serializeRegistrationForAdmin(row, stores, eligibility)),
+    items: rows.map((row) => serializeRegistrationForAdmin(row, stores, eligibility, inventory)),
     counts: Object.fromEntries(counts.map((c) => [c.status, c._count?._all ?? 0])),
   };
 }
@@ -630,8 +670,12 @@ export async function listRegistrationsForAdmin({ status = null, participationTy
 export async function getRegistrationForAdmin({ id, db = prisma }) {
   const row = await db.artfestFairRegistration.findUnique({ where: { id: String(id) }, select: ADMIN_SELECT });
   if (!row) throw new FairError(404, "registration_not_found", "Înscrierea nu există.");
-  const [stores, eligibility] = await Promise.all([loadStores(db, [row.vendorId]), loadFairEligibilityMap([row.vendorId], db)]);
-  return serializeRegistrationForAdmin(row, stores, eligibility);
+  const [stores, eligibility, inventory] = await Promise.all([
+    loadStores(db, [row.vendorId]),
+    loadFairEligibilityMap([row.vendorId], db),
+    inventorySummaryByRegistration(db, [row.id]),
+  ]);
+  return serializeRegistrationForAdmin(row, stores, eligibility, inventory);
 }
 
 export async function reviewRegistration({ id, action, adminId, reason = null, now = new Date(), db = prisma }) {

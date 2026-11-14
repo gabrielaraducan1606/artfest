@@ -27,6 +27,7 @@ import publicStoreRoutes from "./src/routes/publicStoreRoutes.js";
 import vendorProductRoutes from "./src/routes/vendorProductRoutes.js";
 import publicProductRoutes from "./src/routes/publicProductRoutes.js";
 import customizationQuantityRoutes from "./src/routes/customizationQuantityRoutes.js";
+import { secretSantaAdminRoutes, secretSantaPublicRoutes, secretSantaVendorRoutes } from "./src/routes/secretSantaRoutes.js";
 import { getOptionPresets } from "./src/controllers/productController.js";
 import publicCollectionsRoutes from "./src/routes/publicCollectionsRoutes.js";
 import favoritesRoutes, { mountWishlistCountAlias } from "./src/routes/favoritesRoutes.js";
@@ -467,6 +468,7 @@ app.use(
 );
 // Târgul de Crăciun Artfest: înscrieri + invitație (doar manual, din Admin)
 app.use("/api/admin/artfest-fair", adminArtfestFairRoutes);
+app.use("/api/admin/secret-santa", secretSantaAdminRoutes);
 app.use(
   "/api/admin/influencer-payouts",
   adminInfluencerPayoutActionsRoutes
@@ -568,6 +570,7 @@ app.use("/api/account", accountRoutes);
 app.use("/api/public", publicCollectionsRoutes);
 // Verificarea cantității la produse personalizate cu mai multe fotografii.
 app.use("/api/public/customization-quantity", customizationQuantityRoutes);
+app.use("/api/public/secret-santa", secretSantaPublicRoutes);
 app.use("/api/public", publicProductRoutes);
 app.use("/api", productReviewsRouter);
 app.use("/api", storeReviewsRouter);
@@ -647,6 +650,7 @@ app.use("/api/me", userAddressesRoutes);
 
 // Târgul de Crăciun Artfest - înscrierea vendorului autentificat
 app.use("/api/vendor/artfest-fair", vendorArtfestFairRoutes);
+app.use("/api/vendor/secret-santa", secretSantaVendorRoutes);
 // inventarul vendorului pentru târg (etichete PDF, rezervarea stocului online)
 app.use("/api/vendor/fair/inventory", vendorArtfestFairInventoryRoutes);
 // avize de însoțire a mărfii (doar documente; nu modifică inventarul / stocurile)

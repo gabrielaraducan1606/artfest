@@ -1017,10 +1017,24 @@ export async function submitInventory({ vendorId, userId, db = prisma, now = new
   const ctx = await loadContext(db, vendorId, now);
   requireEditable(ctx);
 
-  const registrationId = ctx.registration.id;
-  const services = await vendorServiceMap(db, vendorId);
+  const submittedIds = await submitDraftLines({ db, registrationId: ctx.registration.id, vendorId, userId, now });
 
-  const submittedIds = await db.$transaction(async (tx) => {
+  return { submitted: submittedIds.length, ...(await listInventory({ vendorId, db, now })) };
+}
+
+/*
+ * Trimiterea propriu-zisă: DOAR liniile DRAFT ale înscrierii (citite și revendicate
+ * cu status "DRAFT"); liniile SUBMITTED / RECEIVED nu sunt citite și nu sunt modificate.
+ * Folosită de vendor (submitInventory, în termen) și de Admin (adminSubmitDraftInventory).
+ *   - onBehalfOf: true => evenimentele SUBMITTED poartă nota „trimis de Admin”;
+ *   - expected: { lines, qty } confirmate de Admin; dacă liniile DRAFT s-au schimbat
+ *     între timp, nu se trimite nimic (409).
+ */
+async function submitDraftLines({ db, registrationId, vendorId, userId, now, onBehalfOf = false, expected = null }) {
+  const services = await vendorServiceMap(db, vendorId);
+  const submittedNote = onBehalfOf ? "Trimis de Admin în numele participantului" : null;
+
+  return db.$transaction(async (tx) => {
     // două trimiteri simultane ale aceluiași vendor se serializează; anularea participării ia același lock
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`artfest-fair-submit:${registrationId}`}))`;
 
@@ -1036,6 +1050,16 @@ export async function submitInventory({ vendorId, userId, db = prisma, now = new
     });
     if (!lines.length) {
       throw new FairError(409, "nothing_to_submit", "Nu ai linii noi de trimis în inventar.");
+    }
+    if (expected) {
+      const qty = lines.reduce((sum, l) => sum + l.declaredQty, 0);
+      if (lines.length !== expected.lines || qty !== expected.qty) {
+        throw new FairError(
+          409,
+          "inventory_changed",
+          `Produsele netrimise s-au schimbat între timp (acum ${lines.length} produse, ${qty} bucăți). Reîncarcă și confirmă din nou.`
+        );
+      }
     }
 
     // produsele manuale nu au produs în catalog: fără blocare / rezervare online
@@ -1180,7 +1204,12 @@ export async function submitInventory({ vendorId, userId, db = prisma, now = new
       // C. la comandă / precomandă / stoc neurmărit / epuizat, neunicat: fără rezervare online
 
       for (const line of productLines) {
-        await writeEvent(tx, line, "SUBMITTED", { before: { status: "DRAFT" }, after: { status: "SUBMITTED" }, actorUserId: userId });
+        await writeEvent(tx, line, "SUBMITTED", {
+          before: { status: "DRAFT" },
+          after: { status: "SUBMITTED" },
+          note: submittedNote,
+          actorUserId: userId,
+        });
       }
     }
 
@@ -1189,14 +1218,55 @@ export async function submitInventory({ vendorId, userId, db = prisma, now = new
       await writeEvent(tx, line, "SUBMITTED", {
         before: { status: "DRAFT" },
         after: { status: "SUBMITTED", manual: true },
+        note: submittedNote,
         actorUserId: userId,
       });
     }
 
     return lineIds;
   }, FAIR_TX_OPTIONS);
+}
 
-  return { submitted: submittedIds.length, ...(await listInventory({ vendorId, db, now })) };
+/*
+ * Admin: trimite liniile DRAFT ale UNEI înscrieri, în numele participantului.
+ * Aceleași validări, aceeași rezervare a stocului online și același jurnal ca la
+ * trimiterea vendorului (submitDraftLines). Termenul inventarului NU se schimbă și
+ * editarea NU se redeschide pentru vendor; după încheierea târgului se refuză.
+ * Nu emite avize: liniile devin eligibile la următoarea deschidere a formularului.
+ */
+export async function adminSubmitDraftInventory({ registrationId, adminUserId, expectedLines, expectedQty, db = prisma, now = new Date() }) {
+  const lines = Number(expectedLines);
+  const qty = Number(expectedQty);
+  if (!Number.isInteger(lines) || lines < 1 || !Number.isInteger(qty) || qty < 1) {
+    throw new FairError(400, "confirmation_required", "Confirmă numărul de produse și bucăți afișat.");
+  }
+
+  const fair = await ensureFair(db);
+  const fullFair = await db.artfestFair.findUnique({ where: { id: fair.id }, select: { id: true, endsAt: true } });
+  const registration = await db.artfestFairRegistration.findUnique({
+    where: { id: String(registrationId || "") },
+    select: { id: true, fairId: true, vendorId: true, status: true },
+  });
+  if (!registration || registration.fairId !== fair.id) {
+    throw new FairError(404, "registration_not_found", "Înscrierea nu există.");
+  }
+  if (registration.status !== "APPROVED") {
+    throw new FairError(403, "registration_not_approved", "Se pot trimite produse doar pentru înscrierile aprobate.");
+  }
+  if (fairEnded(fullFair, now)) {
+    throw new FairError(409, "fair_ended", "Târgul s-a încheiat. Produsele nu mai pot fi trimise în inventar.");
+  }
+
+  const submittedIds = await submitDraftLines({
+    db,
+    registrationId: registration.id,
+    vendorId: registration.vendorId,
+    userId: adminUserId || null,
+    now,
+    onBehalfOf: true,
+    expected: { lines, qty },
+  });
+  return { submitted: submittedIds.length, submittedQty: qty };
 }
 
 /* ===================== Etichete ===================== */

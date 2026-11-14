@@ -6289,3 +6289,103 @@ export async function sendGuardianPayoutProfileUpdatedEmail({
     content: buildGuardianPayoutProfileUpdatedEmail({ guardianName, influencerName, changedAt, ibanLast4 }),
   });
 }
+
+/* ============================================================
+   SECRET SANTA ARTFEST - emailul cu destinatarul (doar expeditorului)
+   Nu numește cine îi trimite cadoul acestui participant.
+============================================================ */
+export function buildSecretSantaAssignmentEmail({ editionTitle, shipByAt, recipient = {}, link }) {
+  const e = escapeEmailHtml;
+  const deadline = shipByAt
+    ? new Date(shipByAt).toLocaleDateString("ro-RO", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Bucharest" })
+    : "";
+  const addressLine = [recipient.address, recipient.city, recipient.county ? `jud. ${recipient.county}` : "", recipient.postalCode]
+    .filter(Boolean)
+    .join(", ");
+  const subject = "🎁 Secret Santa Artfest: iată cui îi trimiți cadoul";
+  const rows = [
+    ["Destinatar", recipient.recipientName],
+    ["Magazin", recipient.storeName],
+    ["Adresă", addressLine],
+    ["Telefon pentru curier", recipient.phone],
+  ]
+    .filter(([, value]) => value)
+    .map(
+      ([label, value]) =>
+        `<tr><td style="padding:6px 0;color:#6b7280;vertical-align:top;width:40%;">${e(label)}</td><td style="padding:6px 0;color:#111827;font-weight:600;">${e(value)}</td></tr>`
+    )
+    .join("");
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#fdf6f0;border-radius:12px;">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" style="display:block;margin:0 auto;border:0;max-width:120px;height:auto;">
+  </div>
+  <div style="background:#ffffff;border:1px solid #f1d9c7;border-radius:14px;padding:22px;">
+    <h2 style="color:#9f1239;margin:0 0 12px;font-size:22px;">🎄 ${e(editionTitle || "Secret Santa Artfest")}</h2>
+    <p style="color:#374151;margin:0 0 16px;line-height:1.6;">Extragerea a avut loc! Tu pregătești un cadou handmade (80–100 lei) pentru:</p>
+    <table style="width:100%;border-collapse:collapse;margin:0 0 16px;font-size:15px;">${rows}</table>
+    ${
+      recipient.preferences
+        ? `<div style="background:#fdf2f8;border-radius:12px;padding:14px 16px;margin:0 0 16px;"><p style="margin:0 0 6px;color:#374151;font-weight:600;">Preferințe</p><p style="margin:0;color:#4b5563;line-height:1.6;white-space:pre-wrap;">${e(recipient.preferences)}</p></div>`
+        : ""
+    }
+    <ul style="margin:0 0 16px;padding-left:20px;color:#374151;line-height:1.7;">
+      ${deadline ? `<li>Expediază cadoul până la <strong>${e(deadline)}</strong>.</li>` : ""}
+      <li>Alegi curierul și plătești tu transportul, fără ramburs la destinatar.</li>
+      <li>După expediere, marchează cadoul ca expediat pe pagina Secret Santa (AWB-ul e opțional).</li>
+      <li>Păstrează surpriza: nu-i spune destinatarului că tu ești Secret Santa-ul lui.</li>
+    </ul>
+    ${
+      link
+        ? `<p style="text-align:center;margin:24px 0 8px;"><a href="${e(link)}" style="display:inline-block;background:#9f1239;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Deschide Secret Santa</a></p>`
+        : ""
+    }
+    <p style="color:#6b7280;margin:16px 0 0;font-size:12px;line-height:1.5;">Datele de livrare îți sunt trimise doar pentru expedierea cadoului. Te rugăm să nu le folosești în alt scop și să nu le distribui.</p>
+  </div>
+</div>`.trim();
+
+  const text = [
+    editionTitle || "Secret Santa Artfest",
+    "",
+    "Extragerea a avut loc! Tu pregătești un cadou handmade (80–100 lei) pentru:",
+    recipient.recipientName ? `Destinatar: ${recipient.recipientName}` : "",
+    recipient.storeName ? `Magazin: ${recipient.storeName}` : "",
+    addressLine ? `Adresă: ${addressLine}` : "",
+    recipient.phone ? `Telefon pentru curier: ${recipient.phone}` : "",
+    recipient.preferences ? `Preferințe: ${recipient.preferences}` : "",
+    "",
+    deadline ? `Expediază cadoul până la ${deadline}.` : "",
+    "Alegi curierul și plătești tu transportul, fără ramburs la destinatar.",
+    "După expediere, marchează cadoul ca expediat pe pagina Secret Santa (AWB-ul e opțional).",
+    link ? `Secret Santa: ${link}` : "",
+    "",
+    "Datele de livrare îți sunt trimise doar pentru expedierea cadoului.",
+  ]
+    .filter((line, index, all) => line || all[index - 1])
+    .join("\n");
+
+  return { subject, html, text };
+}
+
+export async function sendSecretSantaAssignmentEmail({ to, toName = null, userId = null, idempotencyKey = null, ...content }) {
+  if (!to) throw Object.assign(new Error("missing_recipient"), { code: "missing_recipient" });
+  const { subject, html, text } = buildSecretSantaAssignmentEmail(content);
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "secret_santa_assignment",
+    userId,
+    toName,
+    idempotencyKey,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
