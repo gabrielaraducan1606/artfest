@@ -408,6 +408,13 @@ const currentSeoCategory =
     () => [...params.keys()].every((key) => key === "page"),
     [params]
   );
+  // În /categorii (MobileCategories, embedded) ?tab=produse e doar tab-ul
+  // paginii, nu un filtru: Produsul zilei + Artizanul săptămânii apar ca pe
+  // /produse „curat”.
+  const isCleanEmbeddedView = useMemo(
+    () => [...params.keys()].every((key) => key === "page" || key === "tab"),
+    [params]
+  );
 
   // Produsele PAGINII de start (primele LIMIT din listă; cele aduse de
   // infinite scroll vin după și nu intră în ItemList).
@@ -2664,11 +2671,17 @@ const clearImageSearch =
        * (fără filtre/căutare/categorie, prima pagină), ca să nu încurce
        * rezultatele unei căutări sau ale unei categorii.
        */}
-      {!embedded &&
-        !forcedCategory &&
-        isCleanCategoryView &&
+      {!forcedCategory &&
+        (embedded ? isCleanEmbeddedView : isCleanCategoryView) &&
         startPage <= 1 && (
-          <FeaturedPicksSection compact placement="products_featured_picks" />
+          <FeaturedPicksSection
+            compact
+            placement={
+              embedded
+                ? "mobile_categories_featured_picks"
+                : "products_featured_picks"
+            }
+          />
         )}
 
       {loading ? (
