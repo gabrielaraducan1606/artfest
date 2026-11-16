@@ -36,6 +36,11 @@ export const PRODUCT_IMAGE_MAX_BYTES = 40 * MB;
 export const DEFAULT_UPLOAD_MEMORY_LIMIT_MB = 460; // 512 MB minus marjă (memorie nativă, RSS întârziat)
 const FIXED_OVERHEAD_BYTES = 40 * MB;
 const BASELINE_JPEG_MIN_BYTES = 60 * MB;
+// fotografii deja la dimensiunea web (max 2400 px): decodare completă, măsurat
+// 2026-11-16 (sharp 0.34, 1 fir, fișierul inclus): JPEG 2400x1800 ~47 MB,
+// 2400x2400 ~66 MB, WEBP 2400x1800 ~70 MB -> 7 B/px peste rezerva fixă (acoperă și WEBP)
+const SMALL_IMAGE_BYTES_PER_PIXEL = 7;
+const WEB_EDGE_PIXELS = 2400 * 2400;
 
 export function uploadMemoryLimitBytes(env = process.env) {
   const value = Number(env.UPLOAD_MEMORY_LIMIT_MB);
@@ -176,13 +181,19 @@ export function estimateImageProcessingBytes({ header, fileBytes }) {
   let decode;
   switch (header.format) {
     case "jpeg":
-      decode = header.isProgressive ? pixels * 4.5 : Math.max(BASELINE_JPEG_MIN_BYTES, pixels * 0.5);
+      // standard: rezerva de 60 MB e măsurată pe 60-100 MP; o fotografie deja optimizată
+      // (2400 px, ~4-6 MP) are nevoie de mult mai puțin -> plafon proporțional
+      decode = header.isProgressive
+        ? pixels * 4.5
+        : Math.min(pixels * SMALL_IMAGE_BYTES_PER_PIXEL, Math.max(BASELINE_JPEG_MIN_BYTES, pixels * 0.5));
       break;
     case "png":
       decode = pixels * (header.isProgressive ? 5 : 1.2);
       break;
     case "webp":
-      decode = pixels * 1.2;
+      // 1,2 B/px e măsurat la 54-100 MP (micșorare la citire); până la 2400 px imaginea
+      // se decodează întreagă (~67 MB la 2400x1800) -> minim proporțional
+      decode = Math.max(pixels * 1.2, Math.min(pixels, WEB_EDGE_PIXELS) * SMALL_IMAGE_BYTES_PER_PIXEL);
       break;
     case "gif":
       decode = pixels * 7;

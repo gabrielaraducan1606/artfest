@@ -90,30 +90,19 @@ export function initialRows(items, from = null) {
 }
 
 /*
- * Prețul ARTIZANULUI (valoarea la care facturează către Artfest), precompletat editabil.
- * Prețul de vânzare la târg (fairPriceCents) NU se folosește direct. Ordinea:
- *   1. prețul avizului înlocuit (doar la avizul înlocuitor)          -> "replaced"
- *   2. ultimul preț de pe un aviz EMIS și neanulat al aceleiași linii -> "previous"
- *   3. valoarea orientativă calculată de server (doar neplătitori TVA) -> "suggested"
- *   4. gol                                                            -> ""
+ * Prețul unitar de pe aviz, precompletat editabil. Ordinea:
+ *   1. prețul din avizul înlocuit (doar la avizul înlocuitor)                    -> "replaced"
+ *   2. EXACT prețul din inventarul târgului (priceSnapshotCents = fairPriceCents) -> "inventory"
+ *      fără comision, fără reduceri, fără TVA adăugat
+ *   3. gol, dacă linia nu are preț în inventar                                   -> ""
  * priceSource devine "manual" la prima editare a câmpului.
  */
 function initialPrice(item, prev) {
   if (prev?.unitPriceCents) return { price: centsToPriceInput(prev.unitPriceCents), priceSource: "replaced" };
-  if (item.lastUnitPriceCents) return { price: centsToPriceInput(item.lastUnitPriceCents), priceSource: "previous" };
-  if (item.suggestedUnitPriceCents) return { price: centsToPriceInput(item.suggestedUnitPriceCents), priceSource: "suggested" };
+  if (Number.isInteger(item.fairPriceCents) && item.fairPriceCents > 0) {
+    return { price: centsToPriceInput(item.fairPriceCents), priceSource: "inventory" };
+  }
   return { price: "", priceSource: "" };
-}
-
-// rânduri selectate cu valoare orientativă needitată (cer confirmarea explicită a valorilor orientative)
-export function hasSuggestedPrices(rows, withoutValues = false) {
-  return !withoutValues && (rows || []).some((r) => r.selected && r.remainingQty > 0 && r.priceSource === "suggested");
-}
-
-// procentul comisionului din commissionBps (1000 -> "10%", 1250 -> "12,5%")
-export function commissionPercentLabel(bps) {
-  if (!Number.isInteger(bps)) return "";
-  return `${new Intl.NumberFormat("ro-RO", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
 }
 
 export function rowValueCents(row) {

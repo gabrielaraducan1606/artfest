@@ -18,8 +18,6 @@ import {
   downloadDeliveryNotePdf,
   formatDate,
   formatLei,
-  commissionPercentLabel,
-  hasSuggestedPrices,
   initialRows,
   newIdempotencyKey,
   rowValueCents,
@@ -273,8 +271,6 @@ export function DeliveryNoteModal({ replaceNote = null, onClose, onIssued }) {
   const otherBlockers = blockers.filter((b) => !b.billing);
   const billingDetails = billingBlockers.filter((b) => !["issuer_incomplete", "issuer_billing_missing"].includes(b.code));
   const withValues = !form.withoutValues;
-  // există valori orientative needitate pe rândurile alese => explicație + confirmare explicită
-  const suggestedShown = hasSuggestedPrices(rows, form.withoutValues);
 
   const seriesFields = (
     <div className={base.fieldRow}>
@@ -518,7 +514,7 @@ export function DeliveryNoteModal({ replaceNote = null, onClose, onIssued }) {
                 <div className={`${styles.tr} ${styles.th}`} role="row">
                   <span role="columnheader">Produs</span>
                   <span role="columnheader">Cantitate</span>
-                  {withValues && <span role="columnheader">Preț artizan (lei)</span>}
+                  {withValues && <span role="columnheader">Preț unitar (lei)</span>}
                   {withValues && <span role="columnheader">Valoare</span>}
                 </div>
                 {rows.map((r) => {
@@ -567,18 +563,17 @@ export function DeliveryNoteModal({ replaceNote = null, onClose, onIssued }) {
                       </div>
                       {withValues && (
                         <div className={styles.cell} role="cell">
-                          <span className={styles.cellLabel}>Preț artizan (lei)</span>
+                          <span className={styles.cellLabel}>Preț unitar (lei)</span>
                           <input
-                            className={`${base.input} ${active && r.priceSource === "suggested" ? styles.inputSuggested : ""}`}
+                            className={base.input}
                             inputMode="decimal"
                             value={r.price}
                             placeholder="0,00"
                             disabled={!active}
                             onChange={(e) => setRow(id, { price: e.target.value, priceSource: "manual" })}
-                            aria-label={`Preț artizan ${r.title}${r.priceSource === "suggested" ? " (orientativ)" : ""}`}
+                            aria-label={`Preț unitar ${r.title}`}
                             aria-invalid={priceErr ? "true" : undefined}
                           />
-                          {active && r.priceSource === "suggested" && <span className={styles.suggestedTag}>Orientativ</span>}
                           {active && priceErr && <span className={base.fieldError}>{priceErr}</span>}
                         </div>
                       )}
@@ -607,29 +602,15 @@ export function DeliveryNoteModal({ replaceNote = null, onClose, onIssued }) {
               {withValues && (
                 <div className={styles.priceNote}>
                   <p>
-                    <strong>Preț artizan</strong> = prețul la care facturezi produsul către Artfest, nu prețul de vânzare de
-                    la târg. {vatLine(preview.issuerVat)}
+                    <strong>Preț unitar</strong> = prețul cu care produsul este în inventarul târgului, precompletat. Îl poți
+                    modifica înainte de emitere. {vatLine(preview.issuerVat)}
                   </p>
                   {preview.issuerVat?.anafMismatch && (
                     <p>Statutul TVA din datele tale de facturare diferă de verificarea ANAF. Verifică datele de facturare.</p>
                   )}
-                  {suggestedShown && (
-                    <p className={styles.suggestedNote}>
-                      <strong>Orientativ</strong> = prețul de vânzare la târg minus comisionul târgului (
-                      {commissionPercentLabel(preview.priceSuggestion?.commissionBps)}). Nu include reducerile aplicate ulterior. Verifică
-                      valoarea și corecteaz-o dacă e cazul.
-                    </p>
-                  )}
-                  {["vat_payer", "vat_unknown"].includes(preview.priceSuggestion?.reason) && (
-                    <p>Prețul artizanului nu se poate propune automat pentru regimul tău TVA: completează-l manual.</p>
-                  )}
                   <label className={styles.check}>
                     <input type="checkbox" checked={form.valuesConfirmed} onChange={(e) => set("valuesConfirmed", e.target.checked)} />
-                    <span>
-                      {suggestedShown
-                        ? "Am verificat valorile orientative și confirm prețurile de mai sus ca valori ale mele, fără TVA."
-                        : "Confirm prețurile de mai sus."}
-                    </span>
+                    <span>Confirm prețurile de mai sus.</span>
                   </label>
                   {errors.valuesConfirmed && <span className={base.fieldError}>{errors.valuesConfirmed}</span>}
                 </div>

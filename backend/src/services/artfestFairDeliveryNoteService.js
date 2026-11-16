@@ -30,7 +30,6 @@ import { ARTFEST_FAIR_KEY, FAIR_TX_OPTIONS } from "../config/artfestFair.js";
 import { FairError, ensureFair } from "./artfestFairService.js";
 import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { isManualFairItem } from "../lib/artfestFairManualItem.js";
-import { computeLine } from "./artfestFairPosService.js";
 
 export const DELIVERY_NOTE_ISSUER_LEGAL_TYPES = Object.freeze(["SRL", "PFA", "II", "IF"]);
 // liniile trimise / recepționate pot pleca cu aviz (DRAFT = inventar netrimis)
@@ -217,7 +216,7 @@ async function loadNoteContext(db, vendorId) {
   const fair = await ensureFair(db);
   const fullFair = await db.artfestFair.findUnique({
     where: { id: fair.id },
-    select: { id: true, key: true, title: true, city: true, venue: true, inventoryDeadlineAt: true, endsAt: true, commissionBps: true },
+    select: { id: true, key: true, title: true, city: true, venue: true, inventoryDeadlineAt: true, endsAt: true },
   });
   const registration = await db.artfestFairRegistration.findUnique({
     where: { fairId_vendorId: { fairId: fair.id, vendorId } },
@@ -251,63 +250,6 @@ async function issuedQtyByItem(db, registrationId, itemIds) {
   return map;
 }
 
-/*
- * Ultimul preț al artizanului declarat pe un aviz al ACESTEI înscrieri (același vendor,
- * aceeași ediție), per linie de inventar - doar pentru precompletarea editabilă a formularului.
- *   - DOAR avize emise și neanulate (status ISSUED); cel mai recent câștigă. Prețurile din
- *     avize anulate NU se propun (excepție, în frontend: avizul înlocuitor preia prețurile
- *     avizului înlocuit, editabile);
- *   - avizele fără valori (unitPriceCents null) nu propun nimic;
- *   - nu se calculează nimic din comision sau din prețul de vânzare.
- */
-async function lastUnitPriceByItem(db, registrationId, itemIds) {
-  const map = new Map();
-  if (!itemIds.length) return map;
-  const lines = await db.artfestFairDeliveryNoteLine.findMany({
-    where: { inventoryItemId: { in: itemIds }, unitPriceCents: { not: null }, note: { registrationId, status: "ISSUED" } },
-    select: { inventoryItemId: true, unitPriceCents: true, note: { select: { status: true, issuedAt: true, number: true } } },
-  });
-  const rank = (l) => [new Date(l.note?.issuedAt || 0).getTime(), l.note?.number || 0];
-  const newer = (a, b) => {
-    const ra = rank(a);
-    const rb = rank(b);
-    for (let i = 0; i < ra.length; i += 1) if (ra[i] !== rb[i]) return ra[i] > rb[i];
-    return false;
-  };
-  const best = new Map();
-  for (const line of lines) {
-    if (!(line.unitPriceCents > 0) || line.note?.status !== "ISSUED") continue;
-    const current = best.get(line.inventoryItemId);
-    if (!current || newer(line, current)) best.set(line.inventoryItemId, line);
-  }
-  for (const [id, line] of best) map.set(id, line.unitPriceCents);
-  return map;
-}
-
-/*
- * Valoare ORIENTATIVĂ a artizanului, doar pentru precompletarea editabilă a formularului
- * (nu se salvează, nu intră în inventar / POS / decont):
- *   prețul de vânzare la târg al unei bucăți, fără reducere, minus comisionul REAL al
- *   ediției (fair.commissionBps), cu exact formula și rotunjirea din POS (computeLine).
- * Doar pentru emitenții declarați neplătitori de TVA: coloana avizului este „fără TVA”,
- * iar prețul de târg e final (cu TVA inclus la plătitori) => pentru plătitori sau statut
- * necunoscut nu se propune nimic.
- */
-function priceSuggestionPolicy(fair, issuerVat) {
-  const commissionBps = Number.isInteger(fair?.commissionBps) && fair.commissionBps >= 0 ? fair.commissionBps : null;
-  const status = issuerVat?.status || null;
-  if (status === "payer") return { enabled: false, reason: "vat_payer", commissionBps };
-  if (status !== "non_payer") return { enabled: false, reason: "vat_unknown", commissionBps };
-  if (commissionBps === null) return { enabled: false, reason: "commission_unknown", commissionBps };
-  return { enabled: true, reason: null, commissionBps };
-}
-
-function suggestedUnitPrice(fairPriceCents, commissionBps) {
-  if (!Number.isInteger(fairPriceCents) || fairPriceCents <= 0) return null;
-  const net = computeLine({ listUnitPriceCents: fairPriceCents, quantity: 1, commissionBps }).vendorNetCents;
-  return net > 0 ? net : null;
-}
-
 // includePending: DOAR pentru afișarea din previzualizare; emiterea validează numai liniile trimise
 async function loadCandidates(db, ctx, vendorId, { includePending = false } = {}) {
   const statuses = includePending ? [...NOTE_ITEM_STATUSES, ...NOTE_PENDING_STATUSES] : NOTE_ITEM_STATUSES;
@@ -329,8 +271,6 @@ async function loadCandidates(db, ctx, vendorId, { includePending = false } = {}
   });
   const itemIds = items.map((i) => i.id);
   const issued = await issuedQtyByItem(db, ctx.registration.id, itemIds);
-  // doar la previzualizare (formular); emiterea nu are nevoie de el
-  const lastPrices = includePending ? await lastUnitPriceByItem(db, ctx.registration.id, itemIds) : new Map();
   const candidates = items.map((item) => {
     const alreadyIssued = issued.get(item.id) || 0;
     const notSubmitted = NOTE_PENDING_STATUSES.includes(item.status);
@@ -346,13 +286,10 @@ async function loadCandidates(db, ctx, vendorId, { includePending = false } = {}
       declaredQty: item.declaredQty,
       issuedQty: alreadyIssued,
       remainingQty: notSubmitted ? 0 : Math.max(0, item.declaredQty - alreadyIssued),
-      // priceSnapshotCents = prețul de vânzare la târg (cel de pe etichetă, plătit de client; pentru
-      // produsele din catalog e Product.priceCents la sincronizare, pentru cele manuale e prețul
-      // introdus de vânzător). Doar REFERINȚĂ în formular: pe aviz se trece prețul artizanului,
-      // care nu există separat în inventar și se completează de vânzător.
+      // priceSnapshotCents = prețul cu care produsul e în inventarul târgului (catalog: Product.priceCents
+      // la sincronizare; manual: prețul introdus de vânzător). Formularul îl precompletează EXACT,
+      // editabil: fără comision, fără reduceri, fără TVA adăugat. null/0 => câmp gol.
       fairPriceCents: item.priceSnapshotCents,
-      // ultimul preț al artizanului declarat pe un aviz anterior (precompletare editabilă); null = câmp gol
-      lastUnitPriceCents: lastPrices.get(item.id) ?? null,
       currency: item.currency || "RON",
     };
   });
@@ -446,7 +383,6 @@ export async function getDeliveryNotePreview({ vendorId, db = prisma }) {
   if (!receiving) blockers.push(RECEIVING_ADDRESS_MISSING);
   // aceeași regulă ca în inventar (termen trecut sau târg încheiat): fără buton „Trimite inventarul”
   const inventoryLocked = inventoryLockedFor(ctx.fair);
-  const suggestion = priceSuggestionPolicy(ctx.fair, issuer.vat);
   if (!candidates.some((c) => c.remainingQty > 0)) {
     blockers.push({
       code: "no_items",
@@ -473,14 +409,7 @@ export async function getDeliveryNotePreview({ vendorId, db = prisma }) {
     destination: ctx.registration.status === "APPROVED" ? receiving : null,
     defaults: { reason: defaultReason(), unit: DEFAULT_UNIT, currency: "RON" },
     series,
-    // suggestedUnitPriceCents: valoare orientativă (vezi priceSuggestionPolicy); null = fără propunere
-    items: candidates.map((c) => ({
-      ...c,
-      // doar rândurile care se pot trece pe aviz (nu cele netrimise sau fără cantitate rămasă)
-      suggestedUnitPriceCents:
-        suggestion.enabled && c.remainingQty > 0 ? suggestedUnitPrice(c.fairPriceCents, suggestion.commissionBps) : null,
-    })),
-    priceSuggestion: suggestion,
+    items: candidates,
     // true => produsele netrimise nu mai pot fi trimise de participant (doar prin Artfest)
     inventoryLocked,
   };

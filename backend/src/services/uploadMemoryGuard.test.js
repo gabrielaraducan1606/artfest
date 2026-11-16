@@ -56,11 +56,25 @@ test("estimarea costului acoperă vârfurile MĂSURATE pentru fiecare format (fi
     [{ format: "tiff", width: 12247, height: 8165 }, 0.3 * MB, 93],
     [{ format: "heif", compression: "av1", width: 3464, height: 2309 }, 3.5 * MB, 159],
     [{ format: "heif", compression: "hevc", width: 8256, height: 5504 }, 4.3 * MB, 412],
+    // fotografii deja optimizate în browser (max 2400 px), măsurat 2026-11-16
+    [{ format: "jpeg", width: 2400, height: 1800 }, 3.3 * MB, 47],
+    [{ format: "jpeg", width: 2400, height: 2400 }, 4.3 * MB, 66],
+    [{ format: "jpeg", width: 2400, height: 1800, isProgressive: true }, 3.1 * MB, 59],
+    [{ format: "png", width: 2400, height: 1800 }, 12.4 * MB, 53],
+    [{ format: "webp", width: 2400, height: 1800 }, 2.9 * MB, 70],
   ];
   for (const [header, fileBytes, peakMb] of measured) {
     const estimate = estimateImageProcessingBytes({ header, fileBytes }) / MB;
     assert.ok(estimate >= peakMb, `${header.format}${header.isProgressive ? " progresiv" : ""} ${header.width}x${header.height}: estimat ${estimate.toFixed(0)} MB < măsurat ${peakMb} MB`);
   }
+});
+
+test("JPEG standard 2400 px (rezultatul optimizării din browser): fără rezerva de 60 MB pentru 60-100 MP", () => {
+  const small = estimateImageProcessingBytes({ header: { format: "jpeg", width: 2400, height: 1800 }, fileBytes: 3.3 * MB }) / MB;
+  assert.ok(small < 80, `estimat ${small.toFixed(0)} MB (înainte ~103 MB)`);
+  // fotografiile mari păstrează rezerva măsurată
+  const large = estimateImageProcessingBytes({ header: { format: "jpeg", width: 9500, height: 6333 }, fileBytes: 0 }) / MB;
+  assert.equal(Math.round(large), 100);
 });
 
 test("cel mai scump caz permis încape într-o instanță de 512 MB peste un proces de ~250 MB", () => {
