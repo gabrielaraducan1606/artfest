@@ -1071,6 +1071,121 @@ function placeIds(place) {
   return place?.countyId && place?.cityId ? { countyId: place.countyId, cityId: place.cityId } : {};
 }
 
+/* ----- datele coletului salvate pe expediere, înainte de AWB ----- */
+
+const PARCEL_FIELDS = ["parcels", "weightKg", "lengthCm", "widthCm", "heightCm"];
+
+/*
+ * Valorile salvate pe Shipment, în forma în care le vede previzualizarea
+ * (resolveParcels): colete lipsă = 1, dimensiune 0 / lipsă = null.
+ */
+export function savedParcelValues(shipment) {
+  const num = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
+  const dim = (v) => (num(v) ? num(v) : null);
+  return {
+    parcels: num(shipment?.parcels) ?? 1,
+    weightKg: num(shipment?.weightKg),
+    lengthCm: dim(shipment?.lengthCm),
+    widthCm: dim(shipment?.widthCm),
+    heightCm: dim(shipment?.heightCm),
+  };
+}
+
+function sameParcelValues(a, b) {
+  return PARCEL_FIELDS.every((k) => (a?.[k] ?? null) === (b?.[k] ?? null));
+}
+
+/**
+ * Vendor: salvează numărul de colete, greutatea totală și dimensiunile pe Shipment
+ * (câmpurile existente, aceleași pe care previzualizarea / generarea AWB le citesc).
+ * NU apelează curierul, NU schimbă statusul, comanda, plata sau rambursul.
+ *   - aceleași validări ca la AWB (resolveParcels); greutatea e obligatorie;
+ *   - doar expedieri OUTBOUND, înainte de predare, fără AWB activ / emis;
+ *   - expected = valorile salvate văzute de vendor: dacă între timp s-au schimbat
+ *     (alt tab / alt dispozitiv), nu se scrie nimic -> { conflict, current };
+ *   - scriere condiționată (compare-and-set pe valorile citite).
+ * @returns {Promise<{ saved: Object, changed: boolean } | { conflict: true, current: Object }>}
+ */
+export async function saveShipmentParcels({ vendorId, shipmentId, input = {}, expected = undefined }, db = defaultDb) {
+  const cleanInput = Object.fromEntries(PARCEL_FIELDS.filter((k) => input?.[k] !== undefined).map((k) => [k, input[k]]));
+  // validare fără valori salvate: tot ce se scrie vine din cerere (fără câmp => null)
+  const resolved = resolveParcels({}, cleanInput);
+  if (resolved.blockers.length) {
+    const error = new CourierValidationError(
+      resolved.blockers[0].message,
+      resolved.blockers.map((b) => b.field).filter(Boolean)
+    );
+    error.blockers = resolved.blockers;
+    throw error;
+  }
+  const next = {
+    parcels: resolved.parcels,
+    weightKg: resolved.weightKg,
+    lengthCm: resolved.lengthCm,
+    widthCm: resolved.widthCm,
+    heightCm: resolved.heightCm,
+  };
+
+  const shipment = await db.shipment.findFirst({
+    where: { id: String(shipmentId || ""), vendorId },
+    select: {
+      id: true,
+      direction: true,
+      status: true,
+      awb: true,
+      manualShipment: true,
+      parcels: true,
+      weightKg: true,
+      lengthCm: true,
+      widthCm: true,
+      heightCm: true,
+      order: { select: { status: true } },
+    },
+  });
+  if (!shipment) throw new CourierError("shipment_not_found", "Expedierea nu există.", { httpStatus: 404 });
+
+  const locked = (message) => new CourierError("parcels_locked", message, { httpStatus: 409 });
+  if (shipment.direction === "RETURN") throw locked("Datele coletului de retur sunt gestionate de Artfest.");
+  if (String(shipment.order?.status) === "CANCELLED") throw locked("Comanda este anulată.");
+  if (shipment.manualShipment) throw locked("Expedierea a fost trimisă fără integrare de curier.");
+  if (shipment.awb) throw locked(`Există deja AWB-ul ${shipment.awb}. Datele coletului nu se mai modifică.`);
+  if (!ELIGIBLE_SHIPMENT_STATUSES.has(String(shipment.status))) {
+    throw locked("Expedierea nu mai este într-o etapă în care datele coletului se pot modifica.");
+  }
+  const active = await findActiveCourierAwb(db, shipment.id);
+  if (active) throw locked("Un AWB este în curs de generare sau a fost generat. Datele coletului nu se mai modifică.");
+
+  const current = savedParcelValues(shipment);
+  // aceleași valori deja salvate (retrimitere / alt tab cu aceleași date): nimic de scris
+  if (sameParcelValues(current, next)) return { saved: current, changed: false };
+  if (expected !== undefined && expected !== null && !sameParcelValues(savedParcelValues(expected), current)) {
+    return { conflict: true, current };
+  }
+
+  // compare-and-set: doar dacă valorile citite sunt încă cele din DB și nu există AWB
+  const res = await db.shipment.updateMany({
+    where: {
+      id: shipment.id,
+      vendorId,
+      awb: null,
+      parcels: shipment.parcels,
+      weightKg: shipment.weightKg,
+      lengthCm: shipment.lengthCm,
+      widthCm: shipment.widthCm,
+      heightCm: shipment.heightCm,
+    },
+    data: next,
+  });
+  if (res.count !== 1) {
+    const fresh = await db.shipment.findFirst({
+      where: { id: shipment.id, vendorId },
+      select: { parcels: true, weightKg: true, lengthCm: true, widthCm: true, heightCm: true },
+    });
+    return { conflict: true, current: savedParcelValues(fresh) };
+  }
+  return { saved: next, changed: true };
+}
+
 export async function previewAwb(args, db = defaultDb) {
   // vendor: actor fix (nu din argumente) - returul rămâne „doar Admin”
   const { preview } = await buildAwbPlan({ ...args, actor: "vendor" }, db);

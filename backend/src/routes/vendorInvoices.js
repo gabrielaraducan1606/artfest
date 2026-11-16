@@ -3,10 +3,9 @@ import Stripe from "stripe";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import PDFDocument from "pdfkit";
-import fs from "fs/promises";
-import path from "path";
 import { renderInvoiceHtml } from "../lib/invoiceHtmlTemplate.js";
 import { htmlToPdfBuffer } from "../lib/htmlToPdf.js";
+import { resolveInvoicePdf, SmartBillPdfUnavailableError } from "../lib/invoicePdfSource.js";
 import { getPlatformBillingOrThrow } from "../lib/platformBilling.js";
 
 const router = Router();
@@ -409,31 +408,6 @@ async function getVendorBillingSummary({ vendorId }) {
     nextDueInvoiceId: nextDueInvoice?.id || null,
     nextDueInvoiceNumber: nextDueInvoice?.number || null,
   };
-}
-
-async function sendLocalPdfIfExists(res, pdfUrl, label = "PDF") {
-  if (!pdfUrl) return false;
-
-  if (/^https?:\/\//i.test(pdfUrl)) {
-    res.redirect(pdfUrl);
-    return true;
-  }
-
-  const absPath = path.join(process.cwd(), pdfUrl.replace(/^\//, ""));
-
-  try {
-    await fs.access(absPath);
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${path.basename(absPath).replace(/"/g, "")}"`
-    );
-    res.sendFile(absPath);
-    return true;
-  } catch {
-    console.warn(`${label} local missing:`, absPath);
-    return false;
-  }
 }
 
 // GET /api/vendors/me/billing
@@ -1377,15 +1351,31 @@ router.get("/vendors/me/invoices/:id/pdf", authRequired, async (req, res) => {
       return res.status(404).json({ error: "invoice_not_found" });
     }
 
-    const sentSmartBillPdf = await sendLocalPdfIfExists(
-      res,
-      invoice.providerPdfUrl,
-      "Vendor SmartBill PDF"
-    );
-    if (sentSmartBillPdf) return;
+    /*
+     * Copia locală, iar dacă lipsește (discul Render se golește la deploy)
+     * PDF-ul OFICIAL descărcat din nou din SmartBill după serie + număr.
+     * Factura SmartBill nu cade pe PDF-ul generat din HTML (nu e documentul
+     * emis, iar Chrome nu e disponibil în producție).
+     */
+    let pdf;
+    try {
+      pdf = await resolveInvoicePdf(invoice);
+    } catch (pdfErr) {
+      if (pdfErr instanceof SmartBillPdfUnavailableError) {
+        return res.status(502).json({
+          error: "smartbill_pdf_unavailable",
+          message: "PDF-ul facturii nu poate fi descărcat acum din SmartBill. Încearcă din nou în câteva minute.",
+        });
+      }
+      throw pdfErr;
+    }
 
-    const sentLocalPdf = await sendLocalPdfIfExists(res, invoice.pdfUrl, "Vendor PDF");
-    if (sentLocalPdf) return;
+    if (pdf?.kind === "redirect") return res.redirect(pdf.url);
+    if (pdf?.kind === "file" || pdf?.kind === "buffer") {
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${pdf.fileName.replace(/"/g, "")}"`);
+      return pdf.kind === "file" ? res.sendFile(pdf.absPath) : res.send(pdf.buffer);
+    }
 
     const platformBilling = await getPlatformBillingOrThrow();
     const billingProfile = toPlatformBillingProfile(platformBilling);

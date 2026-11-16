@@ -247,6 +247,47 @@ export function buildAwbRequestBody(form) {
 }
 
 /*
+ * Datele coletului salvate pe expediere (PUT /api/vendor/shipments/:id/awb/parcels).
+ * Forma comună (server și formular): { parcels, weightKg, lengthCm, widthCm, heightCm },
+ * numere sau null. Numărul de colete implicit e 1 (ca pe server, resolveParcels).
+ */
+export const PARCEL_VALUE_FIELDS = ["parcels", "weightKg", "lengthCm", "widthCm", "heightCm"];
+
+export function parcelValuesFromForm(form) {
+  const body = buildAwbRequestBody(form);
+  const out = {};
+  for (const key of PARCEL_VALUE_FIELDS) out[key] = body[key] === undefined ? null : body[key];
+  if (out.parcels === null) out.parcels = 1;
+  if (out.weightKg !== null) out.weightKg = Math.round(out.weightKg * 100) / 100;
+  // 0 la dimensiuni = necompletat (ca pe server)
+  for (const key of ["lengthCm", "widthCm", "heightCm"]) if (out[key] === 0) out[key] = null;
+  return out;
+}
+
+export function parcelValuesFromServer(values) {
+  const out = {};
+  for (const key of PARCEL_VALUE_FIELDS) {
+    const v = values?.[key];
+    out[key] = v === null || v === undefined || v === "" ? null : Number(v);
+  }
+  return out;
+}
+
+export function sameParcelValues(a, b) {
+  return PARCEL_VALUE_FIELDS.every((key) => (a?.[key] ?? null) === (b?.[key] ?? null));
+}
+
+/** Formularul pornit din valorile salvate (aceeași formă ca initialAwbForm). */
+export function formFromParcelValues(values) {
+  return initialAwbForm(values);
+}
+
+/** Se salvează doar un formular valid (aceleași validări ca la AWB). */
+export function canSaveParcels(form) {
+  return Object.keys(validateAwbForm(form)).length === 0;
+}
+
+/*
  * Tipul coletului Sameday după greutate (doc v3.6) - aceeași regulă ca
  * backend-ul (providers/sameday/awbMapper.js), pe cel mai greu colet:
  * 1 -> până la 1 kg; 0 -> 1,01-38 kg; 2 -> peste 38 kg.

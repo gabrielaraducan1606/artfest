@@ -51,6 +51,11 @@ import {
   initialAwbForm,
   buildAwbRequestBody,
   validateAwbForm,
+  parcelValuesFromForm,
+  parcelValuesFromServer,
+  sameParcelValues,
+  formFromParcelValues,
+  canSaveParcels,
   remainingBlockers,
   canSubmitAwb,
   newIdempotencyKey,
@@ -766,6 +771,12 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const keyRef = useRef(newIdempotencyKey());
   const submittingRef = useRef(false);
+  // datele coletului SALVATE pe expediere (ultimele confirmate de server; null = necunoscute)
+  const savedParcelsRef = useRef(null);
+  const formRef = useRef(null);
+  const saveChainRef = useRef(Promise.resolve(true));
+  const [parcelSave, setParcelSave] = useState({ status: "idle", message: "" });
+  formRef.current = form;
 
   const runPreview = useCallback(
     async (body = {}) => {
@@ -778,6 +789,8 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
           body,
         });
         setPreview(res.preview);
+        // fără date trimise, serverul răspunde cu valorile SALVATE pe expediere
+        if (!body || Object.keys(body).length === 0) savedParcelsRef.current = parcelValuesFromServer(res.preview);
         setForm((prev) => (prev ? { ...initialAwbForm(res.preview), ...stripEmpty(prev) } : initialAwbForm(res.preview)));
         setInputsTouched(false);
         return res.preview;
@@ -794,6 +807,65 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
   useEffect(() => {
     runPreview({});
   }, [runPreview]);
+
+  /*
+   * Salvează pe expediere nr. colete / greutatea / dimensiunile (fără curier).
+   * Salvările se execută pe rând (fără suprapuneri); doar formularele valide;
+   * expected = ultimele valori confirmate de server (alt tab / dispozitiv -> 409,
+   * iar formularul preia valorile salvate). @returns {Promise<boolean>} salvat / deja salvat
+   */
+  const saveParcels = useCallback(
+    (currentForm) => {
+      const run = async () => {
+        if (!currentForm || !canSaveParcels(currentForm)) return false;
+        const next = parcelValuesFromForm(currentForm);
+        if (savedParcelsRef.current && sameParcelValues(next, savedParcelsRef.current)) return true;
+        setParcelSave({ status: "saving", message: "" });
+        try {
+          const res = await api(`/api/vendor/shipments/${encodeURIComponent(shipmentId)}/awb/parcels`, {
+            method: "PUT",
+            body: { ...next, expected: savedParcelsRef.current },
+          });
+          savedParcelsRef.current = parcelValuesFromServer(res?.saved);
+          setParcelSave({ status: "saved", message: "" });
+          return true;
+        } catch (e) {
+          if (errorCode(e) === "parcels_changed" && e?.data?.current) {
+            const current = parcelValuesFromServer(e.data.current);
+            savedParcelsRef.current = current;
+            setForm((f) => ({ ...(f || {}), ...formFromParcelValues(current) }));
+            setParcelSave({ status: "error", message: apiErrorMessage(e, "Datele coletului au fost modificate între timp.") });
+            return false;
+          }
+          setParcelSave({ status: "error", message: apiErrorMessage(e, "Nu am putut salva datele coletului. Încearcă din nou.") });
+          return false;
+        }
+      };
+      const pending = saveChainRef.current.then(run, run);
+      saveChainRef.current = pending.catch(() => false);
+      return pending;
+    },
+    [shipmentId]
+  );
+
+  // salvare automată la scurt timp după tastare (și la ieșirea din câmp, mai jos)
+  const parcelKey = form ? AWB_INPUT_FIELDS.map((k) => form[k]).join("|") : "";
+  useEffect(() => {
+    if (!inputsTouched || !parcelKey) return undefined;
+    const timer = setTimeout(() => saveParcels(formRef.current), 800);
+    return () => clearTimeout(timer);
+  }, [parcelKey, inputsTouched, saveParcels]);
+
+  // închiderea comenzii / navigarea înainte de salvarea automată: salvăm ce e valid
+  useEffect(
+    () => () => {
+      const last = formRef.current;
+      if (last && savedParcelsRef.current && !sameParcelValues(parcelValuesFromForm(last), savedParcelsRef.current)) {
+        saveParcels(last);
+      }
+    },
+    [saveParcels]
+  );
 
   const formErrors = form ? validateAwbForm(form) : {};
   const allBlockers = serverBlockers || preview?.blockers;
@@ -828,8 +900,11 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
   const openConfirm = async () => {
     if (!canOpenConfirm) return;
     setSubmitError("");
+    // previzualizarea finală și AWB-ul folosesc EXACT datele salvate pe expediere
+    const saved = await saveParcels(formRef.current);
+    if (!saved) return;
     setConfirmOpen(true);
-    await runPreview(buildAwbRequestBody(form));
+    await runPreview({});
   };
 
   const submit = async () => {
@@ -839,9 +914,11 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
     setSubmitting(true);
     setSubmitError("");
     try {
+      // fără date de colet în cerere: serverul folosește valorile salvate pe expediere
+      // (aceleași cu cele din previzualizarea confirmată)
       const res = await api(`/api/vendor/shipments/${encodeURIComponent(shipmentId)}/awb`, {
         method: "POST",
-        body: buildAwbRequestBody(form),
+        body: {},
         headers: { "Idempotency-Key": keyRef.current },
       });
       toast.success(`AWB generat: ${res?.awb?.awbNumber}`);
@@ -945,7 +1022,12 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
             </dl>
           </div>
 
-          <fieldset className={styles.fieldset} disabled={submitting}>
+          <fieldset
+            className={styles.fieldset}
+            disabled={submitting}
+            // ieșirea din oricare câmp al coletului: salvare imediată (fără să aștepte pauza de tastare)
+            onBlur={() => inputsTouched && saveParcels(formRef.current)}
+          >
             <legend>Colet</legend>
 
             <div className={styles.row}>
@@ -978,6 +1060,19 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
             <span className={styles.muted} data-awb-package-type>
               Tip colet: {packageTypeLabel(form.weightKg, form.parcels)}
             </span>
+            {parcelSave.status !== "idle" && (
+              <span
+                className={parcelSave.status === "error" ? styles.fieldError : styles.muted}
+                role={parcelSave.status === "error" ? "alert" : "status"}
+                data-awb-parcels-save={parcelSave.status}
+              >
+                {parcelSave.status === "saving"
+                  ? "Se salvează datele coletului…"
+                  : parcelSave.status === "saved"
+                    ? "Datele coletului au fost salvate."
+                    : parcelSave.message}
+              </span>
+            )}
 
             <details className={styles.dims}>
               <summary>Dimensiuni (opțional)</summary>
@@ -1456,7 +1551,8 @@ function AwbPanelInner({ shipment, orderStatus, orderId, canProcess = true, onCh
 
       {state === "ready" && (
         <AwbForm
-          key={awbStatus?.latest?.id || "new"}
+          // alt shipment => formular nou (fără greutatea comenzii anterioare)
+          key={`${shipmentId}:${awbStatus?.latest?.id || "new"}`}
           shipmentId={shipmentId}
           notice={lastAttemptNotice(awbStatus)}
           onCreated={afterChange}

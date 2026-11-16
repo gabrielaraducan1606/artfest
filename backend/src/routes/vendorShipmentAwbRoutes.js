@@ -20,6 +20,7 @@ import {
   cancelAwbForShipment,
   recoverUnknownAwb,
   isArtfestLabelUrl,
+  saveShipmentParcels,
 } from "../couriers/awb/awbService.js";
 import { loadVendorShipmentTimeline } from "../couriers/tracking/trackingTimeline.js";
 
@@ -77,6 +78,36 @@ router.post(
     });
     // awbLiveEnabled: doar UX (butonul „Generează AWB”); protecția e pe server
     res.json({ preview: { ...preview, awbLiveEnabled: isCourierAwbLiveEnabled() } });
+  })
+);
+
+/*
+ * Datele coletului (nr. colete, greutate totală, dimensiuni) salvate pe expediere,
+ * înainte de AWB - fără niciun apel la curier. Previzualizarea și generarea le citesc
+ * de pe Shipment. body: { parcels, weightKg, lengthCm?, widthCm?, heightCm?, expected? }
+ * expected = valorile salvate văzute de vendor -> 409 parcels_changed dacă s-au schimbat.
+ */
+router.put(
+  "/shipments/:id/awb/parcels",
+  authRequired,
+  requireVendorAccount,
+  previewLimiter,
+  handle(async (req, res) => {
+    const body = req.body || {};
+    const result = await saveShipmentParcels({
+      vendorId: req.vendorId,
+      shipmentId: req.params.id,
+      input: pickAwbInput(body),
+      expected: body.expected && typeof body.expected === "object" ? body.expected : undefined,
+    });
+    if (result.conflict) {
+      return res.status(409).json({
+        error: "parcels_changed",
+        message: "Datele coletului au fost modificate între timp. Am încărcat valorile salvate.",
+        current: result.current,
+      });
+    }
+    res.json({ ok: true, saved: result.saved, changed: result.changed });
   })
 );
 
