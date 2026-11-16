@@ -39,7 +39,7 @@ export function urlFromUploadResponse(data) {
 
 /**
  * @param {Blob} file
- * @param {{ onProgress?: (fraction: number) => void, signal?: AbortSignal, endpoint?: string,
+ * @param {{ onProgress?: (fraction: number) => void, signal?: AbortSignal, endpoint?: string, fieldName?: string,
  *           stallTimeoutMs?: number, responseTimeoutMs?: number, XHR?: typeof XMLHttpRequest }} [options]
  * @returns {Promise<{ url: string, data: object }>}
  */
@@ -48,6 +48,8 @@ export function uploadProductImage(file, options = {}) {
     onProgress,
     signal,
     endpoint = PRODUCT_IMAGE_UPLOAD_ENDPOINT,
+    // câmpul multipart: "file" (/api/upload/products) sau "files" (ex. recepția Târgului)
+    fieldName = "file",
     stallTimeoutMs = STALL_TIMEOUT_MS,
     responseTimeoutMs = RESPONSE_TIMEOUT_MS,
     XHR = globalThis.XMLHttpRequest,
@@ -140,7 +142,7 @@ export function uploadProductImage(file, options = {}) {
     };
 
     const body = new FormData();
-    body.append("file", file, file?.name || "fotografie.jpg");
+    body.append(fieldName, file, file?.name || "fotografie.jpg");
     arm(stallTimeoutMs);
     xhr.send(body);
   });
@@ -154,7 +156,7 @@ export function uploadProductImage(file, options = {}) {
  */
 export async function uploadProductImageWithRetry(file, options = {}) {
   const {
-    maxAutoRetries = 2,
+    maxAutoRetries = 3,
     upload = uploadProductImage,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     ...rest

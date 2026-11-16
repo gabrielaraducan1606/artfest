@@ -8,6 +8,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../../lib/api";
 import { selectPhotos, selectionMessage } from "../../../../lib/photoSelection.js";
+import { canRetryImageUpload, prepareAndUploadImage } from "../../../../lib/productImages/prepareAndUploadImage.js";
+import { PRODUCT_IMAGE_ACCEPT } from "../../../../lib/productImages/productImageRules.js";
 import shared from "../AdminDesktop.module.css";
 import styles from "./AdminFairReception.module.css";
 import FairCameraScanner from "./FairCameraScanner.jsx";
@@ -84,51 +86,74 @@ function errorMessage(err, fallback) {
 /* ===================== Fotografii ===================== */
 
 const MAX_RECEPTION_PHOTOS = 10;
-const PHOTOS_PER_REQUEST = 6; // limita rutei POST /inventory/photos
+const PHOTO_UPLOAD_ENDPOINT = `${API}/photos`;
 
-function PhotoPicker({ urls, onChange, disabled }) {
+/*
+ * Fotografiile se optimizează în browser (max 2400 px, JPEG, orientare păstrată,
+ * HEIC prin convertorul comun) și se trimit CÂTE UNA, pe rând, cu reîncercări
+ * automate doar pentru erorile trecătoare (503 + Retry-After). Cele încărcate
+ * rămân; cele eșuate apar separat, fiecare cu „Reîncearcă”. Formularul nu se
+ * poate trimite cât timp se încarcă ceva (onBusyChange).
+ */
+function PhotoPicker({ urls, onChange, disabled, onBusyChange }) {
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
+  const [failed, setFailed] = useState([]); // [{ id, file, fingerprint, message, retryable }]
   const fingerprintsRef = useRef(new Map()); // URL încărcat -> amprenta fișierului (fără duplicate)
+  const urlsRef = useRef(urls);
+  urlsRef.current = urls;
+  const busyRef = useRef(false);
 
-  /*
-   * Selecție multiplă: se adaugă la fotografiile existente (max 10 per recepție),
-   * fără duplicate; trimise câte 6 per cerere (limita rutei), deci o selecție de
-   * 7-10 fotografii NU mai pierde nimic în tăcere. Un lot eșuat nu le anulează
-   * pe cele deja încărcate.
-   */
-  async function onFiles(event) {
+  useEffect(() => {
+    onBusyChange?.(uploading);
+  }, [uploading, onBusyChange]);
+
+  async function uploadAll(entries) {
+    if (busyRef.current || !entries.length) return;
+    busyRef.current = true;
+    setUploading(true);
+    const stillFailed = [];
+    try {
+      for (const [index, entry] of entries.entries()) {
+        if (urlsRef.current.length >= MAX_RECEPTION_PHOTOS) break;
+        setProgress(entries.length > 1 ? ` (${index + 1}/${entries.length})` : "");
+        try {
+          const url = await prepareAndUploadImage(entry.file, { endpoint: PHOTO_UPLOAD_ENDPOINT, fieldName: "files" });
+          fingerprintsRef.current.set(url, entry.fingerprint);
+          const next = [...urlsRef.current, url].slice(0, MAX_RECEPTION_PHOTOS);
+          urlsRef.current = next;
+          onChange(next);
+        } catch (err) {
+          stillFailed.push({
+            ...entry,
+            message: errorMessage(err, "Nu am putut încărca fotografia."),
+            retryable: canRetryImageUpload(err),
+          });
+        }
+      }
+    } finally {
+      busyRef.current = false;
+      setUploading(false);
+      setProgress("");
+      setFailed((prev) => [...prev.filter((p) => !entries.some((e) => e.id === p.id)), ...stillFailed]);
+    }
+  }
+
+  function onFiles(event) {
     const files = [...(event.target.files || [])];
     event.target.value = "";
     if (!files.length) return;
     const { accepted, rejected, fingerprints } = selectPhotos({
-      existingCount: urls.length,
-      existingFingerprints: fingerprintsRef.current.values(),
+      existingCount: urls.length + failed.length,
+      existingFingerprints: [...fingerprintsRef.current.values(), ...failed.map((f) => f.fingerprint)],
       incoming: files,
       max: MAX_RECEPTION_PHOTOS,
+      // tipul real se verifică după conținut la pregătire (HEIC are adesea tip gol pe Android/Windows)
+      accept: () => true,
     });
     setError(selectionMessage(rejected));
-    if (!accepted.length) return;
-    setUploading(true);
-    let current = urls;
-    try {
-      for (let start = 0; start < accepted.length; start += PHOTOS_PER_REQUEST) {
-        const form = new FormData();
-        for (const file of accepted.slice(start, start + PHOTOS_PER_REQUEST)) form.append("files", file);
-        const res = await api(`${API}/photos`, { method: "POST", body: form });
-        const batchUrls = res?.urls || [];
-        const batchPrints = fingerprints.slice(start, start + PHOTOS_PER_REQUEST);
-        batchUrls.forEach((url, i) => batchPrints[i] && fingerprintsRef.current.set(url, batchPrints[i]));
-        current = [...current, ...batchUrls].slice(0, MAX_RECEPTION_PHOTOS);
-        onChange(current);
-      }
-    } catch (err) {
-      setError(
-        [selectionMessage(rejected), errorMessage(err, "Nu am putut încărca fotografiile.")].filter(Boolean).join("\n")
-      );
-    } finally {
-      setUploading(false);
-    }
+    uploadAll(accepted.map((file, i) => ({ id: `${fingerprints[i]}|${Date.now()}|${i}`, file, fingerprint: fingerprints[i] })));
   }
 
   return (
@@ -139,15 +164,33 @@ function PhotoPicker({ urls, onChange, disabled }) {
           <button type="button" onClick={() => {
               fingerprintsRef.current.delete(url);
               onChange(urls.filter((u) => u !== url));
-            }} aria-label="Elimină fotografia" disabled={disabled}>
+            }} aria-label="Elimină fotografia" disabled={disabled || uploading}>
             ×
           </button>
         </span>
       ))}
       <label className={styles.photoAdd}>
-        <input type="file" accept="image/*" multiple onChange={onFiles} disabled={disabled || uploading} />
-        {uploading ? "Se încarcă…" : urls.length ? "+ Adaugă mai multe fotografii" : "+ Fotografii"}
+        <input type="file" accept={PRODUCT_IMAGE_ACCEPT} multiple onChange={onFiles} disabled={disabled || uploading} />
+        {uploading ? `Se încarcă${progress}…` : urls.length ? "+ Adaugă mai multe fotografii" : "+ Fotografii"}
       </label>
+      {failed.map((f) => (
+        <span key={f.id} className={styles.fieldError} role="alert">
+          {f.message}{" "}
+          {f.retryable && (
+            <button type="button" className={styles.ghostBtn} onClick={() => uploadAll([f])} disabled={disabled || uploading}>
+              Reîncearcă
+            </button>
+          )}{" "}
+          <button
+            type="button"
+            className={styles.ghostBtn}
+            onClick={() => setFailed((prev) => prev.filter((p) => p.id !== f.id))}
+            disabled={uploading}
+          >
+            Renunță
+          </button>
+        </span>
+      ))}
       {error && <span className={styles.fieldError} role="alert" style={{ whiteSpace: "pre-line" }}>{error}</span>}
     </div>
   );
@@ -161,6 +204,7 @@ function ReceiveForm({ item, onDone, onError }) {
   const [rejectedReason, setRejectedReason] = useState("");
   const [adminNotes, setAdminNotes] = useState("");
   const [photoUrls, setPhotoUrls] = useState([]);
+  const [photosBusy, setPhotosBusy] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
   // o cheie per operație: retrimiterile (dublu click, retry) folosesc aceeași cheie
@@ -171,7 +215,7 @@ function ReceiveForm({ item, onDone, onError }) {
 
   async function onSubmit(event) {
     event.preventDefault();
-    if (saving) return;
+    if (saving || photosBusy) return;
     setSaving(true);
     setFieldErrors({});
     try {
@@ -237,12 +281,12 @@ function ReceiveForm({ item, onDone, onError }) {
 
       <div className={styles.field}>
         <span>Fotografii (deteriorări / neconformități)</span>
-        <PhotoPicker urls={photoUrls} onChange={setPhotoUrls} disabled={saving} />
+        <PhotoPicker urls={photoUrls} onChange={setPhotoUrls} disabled={saving} onBusyChange={setPhotosBusy} />
       </div>
 
       <div className={styles.formActions}>
-        <button type="submit" className={styles.primaryBtn} disabled={saving}>
-          {saving ? "Se înregistrează…" : item.returnOnly ? "Recepționează doar pentru retur" : "Confirmă recepția"}
+        <button type="submit" className={styles.primaryBtn} disabled={saving || photosBusy}>
+          {photosBusy ? "Se încarcă fotografiile…" : saving ? "Se înregistrează…" : item.returnOnly ? "Recepționează doar pentru retur" : "Confirmă recepția"}
         </button>
       </div>
     </form>
@@ -255,12 +299,13 @@ function DamageForm({ item, onDone, onError, onCancel }) {
   const [quantity, setQuantity] = useState("1");
   const [reason, setReason] = useState("");
   const [photoUrls, setPhotoUrls] = useState([]);
+  const [photosBusy, setPhotosBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const keyRef = useRef(newKey());
 
   async function onSubmit(event) {
     event.preventDefault();
-    if (saving) return;
+    if (saving || photosBusy) return;
     setSaving(true);
     try {
       const res = await api(`${API}/${encodeURIComponent(item.id)}/damage`, {
@@ -289,13 +334,13 @@ function DamageForm({ item, onDone, onError, onCancel }) {
           <input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
         </label>
       </div>
-      <PhotoPicker urls={photoUrls} onChange={setPhotoUrls} disabled={saving} />
+      <PhotoPicker urls={photoUrls} onChange={setPhotoUrls} disabled={saving} onBusyChange={setPhotosBusy} />
       <div className={styles.formActions}>
         <button type="button" className={styles.ghostBtn} onClick={onCancel} disabled={saving}>
           Renunță
         </button>
-        <button type="submit" className={styles.dangerBtn} disabled={saving}>
-          {saving ? "Se înregistrează…" : "Marchează deteriorat"}
+        <button type="submit" className={styles.dangerBtn} disabled={saving || photosBusy}>
+          {photosBusy ? "Se încarcă fotografiile…" : saving ? "Se înregistrează…" : "Marchează deteriorat"}
         </button>
       </div>
     </form>

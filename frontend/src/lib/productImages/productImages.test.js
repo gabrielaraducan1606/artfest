@@ -28,6 +28,7 @@ import {
 import { jpegFileName, shouldProcessInBrowser, targetDimensions } from "./prepareProductImage.js";
 import { createProductImageQueue } from "./productImageQueue.js";
 import { uploadProductImage, uploadProductImageWithRetry, urlFromUploadResponse } from "./uploadProductImage.js";
+import { canRetryImageUpload, prepareAndUploadImage } from "./prepareAndUploadImage.js";
 
 /* ---------------- fișiere de test ---------------- */
 
@@ -688,4 +689,134 @@ test("eșec parțial: 6 fotografii, una eșuează -> celelalte 5 se salvează; �
   assert.equal(new Set(snap.urls).size, 6, "fără duplicate");
   assert.equal(snap.urls[2], "https://cdn/f3.jpg", "poziția aleasă de vânzător se păstrează");
   queue.destroy();
+});
+
+/* ---------------- o singură fotografie (inventar Târg, recepție Admin) ---------------- */
+
+test("prepareAndUploadImage: fotografia OPTIMIZATĂ pleacă la server, pe câmpul și ruta cerute", async () => {
+  const original = makeFile("telefon.jpg", "jpeg", { size: 9 * 1024 * 1024 });
+  const optimized = makeFile("telefon.jpg", "jpeg", { size: 900 * 1024 });
+  const sent = [];
+  const stages = [];
+  const url = await prepareAndUploadImage(original, {
+    endpoint: "/api/admin/artfest-fair/inventory/photos",
+    fieldName: "files",
+    onStage: (stage) => stages.push(stage),
+    prepare: async (file, { kind }) => {
+      assert.equal(kind, "jpeg");
+      return { file: optimized, processed: true, width: 2400, height: 1800, via: "browser" };
+    },
+    upload: async (file, opts) => {
+      sent.push({ file, opts });
+      return { url: "https://cdn.test/artfest-fair-reception/1.jpg" };
+    },
+  });
+  assert.equal(url, "https://cdn.test/artfest-fair-reception/1.jpg");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].file, optimized); // NU originalul de 9 MB
+  assert.equal(sent[0].opts.endpoint, "/api/admin/artfest-fair/inventory/photos");
+  assert.equal(sent[0].opts.fieldName, "files");
+  assert.deepEqual(stages, ["uploading"]);
+});
+
+test("prepareAndUploadImage: 503 cu Retry-After -> pauză de Retry-After și reîncercare cu ACELAȘI fișier pregătit", async () => {
+  const file = makeFile("a.jpg");
+  const delays = [];
+  let calls = 0;
+  let prepares = 0;
+  const url = await prepareAndUploadImage(file, {
+    prepare: async (f) => ((prepares += 1), { file: f, processed: false }),
+    sleep: async (ms) => delays.push(ms),
+    upload: async (sentFile) => {
+      calls += 1;
+      assert.equal(sentFile, file);
+      if (calls <= 2) throw new ProductImageUploadError({ kind: "http", status: 503, code: "server_busy", retryAfterSeconds: 10 });
+      return { url: "https://cdn.test/products/a.jpg" };
+    },
+  });
+  assert.equal(url, "https://cdn.test/products/a.jpg");
+  assert.equal(calls, 3);
+  assert.equal(prepares, 1); // fără reoptimizare la retry
+  assert.deepEqual(delays, [10_000, 10_000]);
+});
+
+test("prepareAndUploadImage: 413/415/422 NU se repetă automat și nu primesc „Reîncearcă”; 503 epuizat da", async () => {
+  for (const status of [413, 415, 422]) {
+    let calls = 0;
+    const error = await prepareAndUploadImage(makeFile("x.jpg"), {
+      prepare: async (f) => ({ file: f }),
+      sleep: async () => assert.fail("fără pauză / retry"),
+      upload: async () => {
+        calls += 1;
+        throw new ProductImageUploadError({ kind: "http", status });
+      },
+    }).catch((e) => e);
+    assert.equal(calls, 1, `status ${status}`);
+    assert.equal(canRetryImageUpload(error), false);
+  }
+
+  let calls = 0;
+  const busy = await prepareAndUploadImage(makeFile("y.jpg"), {
+    prepare: async (f) => ({ file: f }),
+    sleep: async () => {},
+    upload: async () => {
+      calls += 1;
+      throw new ProductImageUploadError({ kind: "http", status: 503, retryAfterSeconds: 10 });
+    },
+  }).catch((e) => e);
+  assert.equal(calls, 4); // 1 + 3 reîncercări automate
+  assert.equal(canRetryImageUpload(busy), true); // apoi „Reîncearcă” manual
+});
+
+test("prepareAndUploadImage: fișier care nu e imagine / HEIC deteriorat -> refuz în browser, fără upload", async () => {
+  const upload = async () => assert.fail("nu trebuie trimis");
+  const notImage = await prepareAndUploadImage(makeFile("doc.jpg", "text"), { upload }).catch((e) => e);
+  assert.match(notImage.message, /nu este o fotografie validă/);
+  assert.equal(canRetryImageUpload(notImage), false);
+
+  const broken = await prepareAndUploadImage(makeFile("IMG_1.HEIC", "heic"), {
+    upload,
+    prepare: async () => ({ fatalMessage: "„IMG_1.HEIC” pare deteriorată" }),
+  }).catch((e) => e);
+  assert.match(broken.message, /deteriorată/);
+  assert.equal(canRetryImageUpload(broken), false);
+
+  // HEIC cu tip MIME gol (Android / Windows) e recunoscut după conținut, nu refuzat
+  const heicNoType = new File([Uint8Array.from(HEADS.heic)], "IMG_2.HEIC", { type: "" });
+  const url = await prepareAndUploadImage(heicNoType, {
+    prepare: async (_f, { kind }) => (assert.equal(kind, "heic"), { file: makeFile("IMG_2.jpg") }),
+    upload: async () => ({ url: "https://cdn.test/products/2.jpg" }),
+  });
+  assert.equal(url, "https://cdn.test/products/2.jpg");
+});
+
+test("prepareAndUploadImage: optimizarea eșuează neprevăzut -> originalul (serverul îl procesează)", async () => {
+  const file = makeFile("a.png", "png");
+  let sent = null;
+  await prepareAndUploadImage(file, {
+    prepare: async () => {
+      throw new Error("canvas indisponibil");
+    },
+    upload: async (f) => ((sent = f), { url: "https://cdn.test/products/a.jpg" }),
+  });
+  assert.equal(sent, file);
+});
+
+test("uploadProductImage: câmpul multipart configurabil (implicit „file”)", async () => {
+  const fields = [];
+  class FakeXHR {
+    open() {}
+    getResponseHeader() {
+      return "";
+    }
+    send(body) {
+      fields.push([...body.keys()]);
+      this.status = 200;
+      this.responseText = JSON.stringify({ urls: ["https://cdn.test/x.jpg"] });
+      this.onload();
+    }
+  }
+  await uploadProductImage(makeFile("a.jpg"), { XHR: FakeXHR });
+  await uploadProductImage(makeFile("b.jpg"), { XHR: FakeXHR, fieldName: "files" });
+  assert.deepEqual(fields, [["file"], ["files"]]);
 });

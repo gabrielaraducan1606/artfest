@@ -81,7 +81,7 @@ export function createProductImageQueue({
   revokePreview = defaultRevokePreview,
   maxPhotos = MAX_PRODUCT_PHOTOS,
   uploadConcurrency = 2,
-  maxAutoRetries = 2,
+  maxAutoRetries = 3, // cu Retry-After 10 s la 503: ~30 s pentru eliberarea memoriei pe server
   sleep = defaultSleep,
   initialUrls = [],
 } = {}) {

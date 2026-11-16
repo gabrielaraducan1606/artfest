@@ -11,13 +11,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, BadgeCheck, Camera, FileText, Package, Pencil, Plus, Send, Tag, Trash2, X } from "lucide-react";
 import { api } from "../../../lib/api";
-import { uploadFile } from "../../../lib/uploadFile";
-import {
-  centsToPriceInput,
-  newClientRequestId,
-  validateManualItem,
-  validatePhotoFile,
-} from "./fairManualItem.js";
+import { canRetryImageUpload, prepareAndUploadImage } from "../../../lib/productImages/prepareAndUploadImage.js";
+import { PRODUCT_IMAGE_ACCEPT } from "../../../lib/productImages/productImageRules.js";
+import { centsToPriceInput, newClientRequestId, validateManualItem } from "./fairManualItem.js";
 import {
   INVENTORY_API,
   INVENTORY_STATUS_LABEL,
@@ -216,16 +212,25 @@ function ManualItemModal({ mode, item, onClose, onSaved, onSourceChange }) {
     declaredQty: item ? String(item.declaredQty) : "1",
     priceRon: item ? centsToPriceInput(item.priceCents) : "",
   }));
-  // fotografia: cea salvată (url), una nouă aleasă (file + preview) sau ștearsă
-  const [photo, setPhoto] = useState(() => ({ url: item?.imageUrl || null, file: null, preview: null }));
+  // fotografia: cea salvată (url), una nouă aleasă (file + preview) sau ștearsă.
+  // O fotografie nouă se optimizează în browser și se încarcă IMEDIAT după alegere
+  // (status uploading -> done | error); url = doar adresa definitivă de pe server.
+  const [photo, setPhoto] = useState(() => ({
+    url: item?.imageUrl || null,
+    file: null,
+    preview: null,
+    status: "idle",
+    error: "",
+    retryable: false,
+  }));
   const [fieldErrors, setFieldErrors] = useState({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef(null);
   // același id la reîncercări => serverul nu creează a doua linie
   const clientRequestIdRef = useRef(newClientRequestId());
-  // fotografia urcată deja (reîncercare după o eroare) nu se mai urcă o dată
-  const uploadedRef = useRef(null);
+  // uploadul în curs: anulat la înlocuire / ștergere / închidere; rezultatele vechi se ignoră
+  const uploadRef = useRef({ token: 0, controller: null });
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && !saving && onClose();
@@ -234,30 +239,66 @@ function ManualItemModal({ mode, item, onClose, onSaved, onSourceChange }) {
   }, [onClose, saving]);
 
   useEffect(() => () => photo.preview && URL.revokeObjectURL(photo.preview), [photo.preview]);
+  useEffect(() => () => uploadRef.current.controller?.abort(), []);
 
   function update(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
     setFieldErrors((prev) => (prev[field] ? { ...prev, [field]: "" } : prev));
   }
 
+  // același pipeline ca fotografiile de produs: optimizare în browser (2400 px, HEIC),
+  // upload cu reîncercări automate doar pentru erorile trecătoare (503 + Retry-After)
+  async function startUpload(file) {
+    uploadRef.current.controller?.abort();
+    const controller = new AbortController();
+    const token = uploadRef.current.token + 1;
+    uploadRef.current = { token, controller };
+    const current = () => uploadRef.current.token === token;
+
+    setPhoto((prev) => ({ ...prev, url: null, status: "uploading", stage: "optimizing", error: "", retryable: false }));
+    try {
+      const url = await prepareAndUploadImage(file, {
+        signal: controller.signal,
+        onStage: (stage) => current() && setPhoto((prev) => ({ ...prev, stage })),
+      });
+      if (!current()) return;
+      setPhoto((prev) => ({ ...prev, url, status: "done", stage: null }));
+    } catch (err) {
+      if (!current() || err?.kind === "aborted") return;
+      setPhoto((prev) => ({
+        ...prev,
+        url: null,
+        status: "error",
+        stage: null,
+        error: err?.message || "Nu am putut încărca fotografia.",
+        retryable: canRetryImageUpload(err),
+      }));
+    } finally {
+      if (current()) uploadRef.current.controller = null;
+    }
+  }
+
   function choosePhoto(event) {
     const file = event.target.files?.[0] || null;
     event.target.value = "";
     if (!file) return;
-    const invalid = validatePhotoFile(file);
-    if (invalid) {
-      setFieldErrors((prev) => ({ ...prev, imageUrl: invalid }));
-      return;
-    }
-    uploadedRef.current = null;
     setFieldErrors((prev) => ({ ...prev, imageUrl: "" }));
-    setPhoto({ url: null, file, preview: URL.createObjectURL(file) });
+    setError("");
+    setPhoto({ url: null, file, preview: URL.createObjectURL(file), status: "uploading", error: "", retryable: false });
+    startUpload(file);
+  }
+
+  function retryPhoto() {
+    if (photo.file && photo.status === "error" && photo.retryable) startUpload(photo.file);
   }
 
   function removePhoto() {
-    uploadedRef.current = null;
-    setPhoto({ url: null, file: null, preview: null });
+    uploadRef.current.controller?.abort();
+    uploadRef.current = { token: uploadRef.current.token + 1, controller: null };
+    setPhoto({ url: null, file: null, preview: null, status: "idle", error: "", retryable: false });
   }
+
+  const photoBusy = photo.status === "uploading";
 
   async function onSubmit(event) {
     event.preventDefault();
@@ -269,13 +310,20 @@ function ManualItemModal({ mode, item, onClose, onSaved, onSourceChange }) {
       return;
     }
 
+    // nu salvăm un produs care „pretinde” o fotografie neîncărcată
+    if (photoBusy) {
+      setError("Așteaptă să se termine încărcarea fotografiei.");
+      return;
+    }
+    if (photo.status === "error") {
+      setError("Fotografia nu s-a încărcat. Apasă „Reîncearcă” sau șterge fotografia, apoi salvează.");
+      return;
+    }
+
     setSaving(true);
     try {
-      let imageUrl = photo.url;
-      if (photo.file) {
-        if (!uploadedRef.current) uploadedRef.current = await uploadFile(photo.file, "/api/upload/products");
-        imageUrl = uploadedRef.current;
-      }
+      // doar adresa definitivă de pe server (niciodată blob: de previzualizare)
+      const imageUrl = photo.url;
 
       const body = {
         title: form.title.trim(),
@@ -385,7 +433,7 @@ function ManualItemModal({ mode, item, onClose, onSaved, onSourceChange }) {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept={PRODUCT_IMAGE_ACCEPT}
               className={styles.visuallyHidden}
               onChange={choosePhoto}
               tabIndex={-1}
@@ -415,6 +463,24 @@ function ManualItemModal({ mode, item, onClose, onSaved, onSourceChange }) {
                 <small>Din galerie sau direct cu camera telefonului</small>
               </button>
             )}
+            {photo.status === "uploading" && (
+              <span className={styles.hint} role="status">
+                {photo.stage === "uploading" ? "Se încarcă fotografia…" : "Se pregătește fotografia…"}
+              </span>
+            )}
+            {photo.status === "error" && (
+              <div className={styles.fieldError} role="alert">
+                {photo.error}
+                {photo.retryable && (
+                  <>
+                    {" "}
+                    <button type="button" className={styles.btnSmall} onClick={retryPhoto} disabled={saving}>
+                      Reîncearcă
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             {fieldErrors.imageUrl && <span className={styles.fieldError}>{fieldErrors.imageUrl}</span>}
           </div>
 
@@ -429,8 +495,8 @@ function ManualItemModal({ mode, item, onClose, onSaved, onSourceChange }) {
           <button type="button" className={styles.btnGhost} onClick={onClose} disabled={saving}>
             Renunță
           </button>
-          <button type="submit" className={styles.btn} disabled={saving}>
-            {saving ? "Se salvează…" : mode === "add" ? "Adaugă în inventar" : "Salvează"}
+          <button type="submit" className={styles.btn} disabled={saving || photoBusy}>
+            {saving ? "Se salvează…" : photoBusy ? "Se încarcă fotografia…" : mode === "add" ? "Adaugă în inventar" : "Salvează"}
           </button>
         </div>
       </form>
