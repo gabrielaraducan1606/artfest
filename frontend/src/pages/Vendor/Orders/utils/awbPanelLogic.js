@@ -544,3 +544,76 @@ export function labelErrorMessage(e) {
   if (status === 401 || status === 403) return "Sesiunea a expirat sau nu ai acces la această etichetă. Autentifică-te din nou.";
   return e?.data?.message || "Nu am putut obține eticheta. Încearcă din nou.";
 }
+
+/* ===================== Corectarea adresei destinatarului ===================== */
+
+/*
+ * Formularul „Modifică adresa” (aceleași reguli ca serverul:
+ * backend/src/couriers/awb/recipientOverride.js). Județ / localitate din
+ * nomenclatorul Sameday când e disponibil (countyId / cityId), altfel text.
+ */
+export const RECIPIENT_FORM_FIELDS = Object.freeze([
+  { key: "name", label: "Nume destinatar", required: true, max: 160, autoComplete: "name" },
+  { key: "phone", label: "Telefon", required: true, max: 40, inputMode: "tel", autoComplete: "tel" },
+  { key: "email", label: "Email", required: true, max: 320, type: "email", autoComplete: "email" },
+  { key: "street", label: "Stradă", required: true, max: 200, autoComplete: "address-line1" },
+  { key: "streetNo", label: "Număr", required: false, max: 20 },
+  { key: "block", label: "Bloc", required: false, max: 20 },
+  { key: "staircase", label: "Scară", required: false, max: 20 },
+  { key: "apartment", label: "Apartament", required: false, max: 20 },
+  { key: "postalCode", label: "Cod poștal", required: false, max: 6, inputMode: "numeric", autoComplete: "postal-code" },
+]);
+
+// aceleași expresii ca backend/src/couriers/awb/addresses.js (hasStreetNumber)
+const RECIPIENT_STREET_NUMBER_RE = /(^|[\s,.])(nr\.?\s*)?\d+[a-z]?\b/i;
+const RECIPIENT_NO_NUMBER_RE = /\b(f\.?\s?n\.?|fără număr|fara numar)\b/i;
+
+export function emptyRecipientForm(source = {}) {
+  const form = {};
+  for (const key of ["name", "phone", "email", "county", "city", "street", "streetNo", "block", "staircase", "apartment", "postalCode", "notes"]) {
+    form[key] = source?.[key] != null ? String(source[key]) : "";
+  }
+  form.countyId = source?.countyId ?? null;
+  form.cityId = source?.cityId ?? null;
+  return form;
+}
+
+export function validateRecipientForm(form) {
+  const errors = {};
+  const v = (k) => String(form?.[k] ?? "").replace(/\s+/g, " ").trim();
+  const phoneDigits = v("phone").replace(/\D+/g, "");
+  if (!v("name")) errors.name = "Completează numele destinatarului.";
+  if (!v("phone")) errors.phone = "Completează telefonul destinatarului.";
+  else if (!/^(40|0)\d{9}$/.test(phoneDigits) && !/^\+\d{9,15}$/.test(v("phone").replace(/[^\d+]/g, ""))) {
+    errors.phone = "Telefonul nu este valid (ex. 07xxxxxxxx).";
+  }
+  if (!v("email")) errors.email = "Completează emailul destinatarului (obligatoriu pentru AWB).";
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v("email"))) errors.email = "Emailul nu este valid.";
+  if (!v("county")) errors.county = "Alege județul.";
+  if (!v("city")) errors.city = "Alege localitatea.";
+  if (!v("street")) errors.street = "Completează strada.";
+  else if (!v("streetNo") && !RECIPIENT_STREET_NUMBER_RE.test(v("street")) && !RECIPIENT_NO_NUMBER_RE.test(v("street"))) {
+    errors.streetNo = "Completează numărul (sau „FN” dacă strada nu are număr).";
+  }
+  if (v("postalCode") && !/^\d{6}$/.test(v("postalCode"))) errors.postalCode = "Codul poștal are 6 cifre.";
+  if (v("notes").length > 200) errors.notes = "Maximum 200 de caractere.";
+  for (const f of RECIPIENT_FORM_FIELDS) {
+    if (!errors[f.key] && v(f.key).length > f.max) errors[f.key] = `Maximum ${f.max} de caractere.`;
+  }
+  return errors;
+}
+
+/** Corpul pentru PUT /api/vendor/shipments/:id/awb/recipient. */
+export function recipientPayloadFromForm(form) {
+  const address = {};
+  for (const key of ["name", "phone", "email", "county", "city", "street", "streetNo", "block", "staircase", "apartment", "postalCode", "notes"]) {
+    address[key] = String(form?.[key] ?? "").replace(/\s+/g, " ").trim();
+  }
+  const countyId = Number(form?.countyId);
+  const cityId = Number(form?.cityId);
+  if (Number.isInteger(countyId) && countyId > 0 && Number.isInteger(cityId) && cityId > 0) {
+    address.countyId = countyId;
+    address.cityId = cityId;
+  }
+  return address;
+}

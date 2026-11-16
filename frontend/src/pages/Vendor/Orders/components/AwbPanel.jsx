@@ -76,6 +76,7 @@ import {
 } from "../utils/awbPanelLogic.js";
 import TrackingTimeline from "../../../../components/Courier/TrackingTimeline.jsx";
 import styles from "./AwbPanel.module.css";
+import RecipientAddressForm from "./RecipientAddressForm.jsx";
 
 /*
  * Secțiunea „Curier / Livrare” din detaliul comenzii (per Shipment).
@@ -776,6 +777,7 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
   const formRef = useRef(null);
   const saveChainRef = useRef(Promise.resolve(true));
   const [parcelSave, setParcelSave] = useState({ status: "idle", message: "" });
+  const [editingRecipient, setEditingRecipient] = useState(false);
   formRef.current = form;
 
   const runPreview = useCallback(
@@ -882,6 +884,7 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
     !loadingPreview &&
     !setupPending &&
     !awbLiveOff &&
+    !editingRecipient &&
     !pickupBlocked &&
     canSubmitAwb({ blockers: allBlockers, inputsTouched, formErrors, submitting });
 
@@ -946,6 +949,8 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
   };
 
   const recipient = preview?.recipient || {};
+  // corectarea adresei destinatarului (server: editable / active / form / original)
+  const correction = preview?.recipientCorrection || null;
   const confirmBlockers = serverBlockers || preview?.blockers || [];
 
   return (
@@ -991,9 +996,41 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
             <PickupSummary pickup={preview.pickup} blockers={allBlockers} onEdit={() => setEditingPickup(true)} />
           )}
 
-          {/* destinatarul, din comandă (server) - vendorul îl verifică înainte de generare */}
-          <div className={styles.group}>
-            <span className={styles.groupTitle}>Destinatar</span>
+          {/* destinatarul, din comandă (server) - vendorul îl verifică (și îl poate corecta) înainte de generare */}
+          <div className={styles.group} data-awb-recipient>
+            <div className={styles.groupHead}>
+              <span className={styles.groupTitle}>Destinatar</span>
+              {correction?.editable && !editingRecipient && (
+                <button type="button" className={styles.linkBtn} onClick={() => setEditingRecipient(true)} disabled={submitting}>
+                  Modifică adresa
+                </button>
+              )}
+            </div>
+            {correction?.active && !editingRecipient && (
+              <div className={`${styles.notice} ${styles.notice_warning}`} role="status" data-awb-recipient-corrected>
+                <strong>
+                  Adresă corectată {correction.updatedByRole === "ADMIN" ? "de Artfest" : "de tine"}
+                  {correction.updatedAt ? ` · ${formatDateTime(correction.updatedAt)}` : ""}
+                </strong>
+                <span>AWB-ul va folosi adresa de mai jos. Adresa din comandă rămâne neschimbată.</span>
+              </div>
+            )}
+            {editingRecipient ? (
+              <RecipientAddressForm
+                shipmentId={shipmentId}
+                initial={correction?.form}
+                expectedUpdatedAt={correction?.updatedAt ?? null}
+                canReset={!!correction?.active}
+                onCancel={() => setEditingRecipient(false)}
+                onSaved={async (result) => {
+                  setEditingRecipient(false);
+                  if (result === "saved") toast.success("Adresa destinatarului a fost salvată.");
+                  if (result === "reset") toast.info("Se folosește din nou adresa din comandă.");
+                  if (result === "changed") toast.info("Adresa fusese modificată între timp. Am încărcat varianta salvată.");
+                  await runPreview({});
+                }}
+              />
+            ) : (
             <dl className={styles.details}>
               <div className={styles.detail}>
                 <dt>Nume</dt>
@@ -1019,7 +1056,24 @@ function AwbForm({ shipmentId, notice, onCreated, onSetupPendingChange }) {
                   </div>
                 </dd>
               </div>
+              {correction?.observation && (
+                <div className={styles.detail}>
+                  <dt>Observații curier</dt>
+                  <dd>{correction.observation}</dd>
+                </div>
+              )}
+              {correction?.active && correction.original && (
+                <div className={styles.detail}>
+                  <dt>Adresa din comandă</dt>
+                  <dd className={styles.muted}>
+                    {[correction.original.street, correction.original.city, correction.original.county, correction.original.postalCode]
+                      .filter(Boolean)
+                      .join(", ") || "—"}
+                  </dd>
+                </div>
+              )}
             </dl>
+            )}
           </div>
 
           <fieldset

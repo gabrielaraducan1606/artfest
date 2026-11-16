@@ -16,6 +16,13 @@ import { computeVendorOrderPaymentState } from "../../services/vendorOrderPaymen
 import { computeShipmentCodAmount } from "./codAmount.js";
 import { buildRecipient, buildPickupParty } from "./addresses.js";
 import { resolveParcels } from "./parcels.js";
+import {
+  activeOverride,
+  nextOverrideValue,
+  normalizeRecipientInput,
+  recipientFormFrom,
+  recipientFromOverride,
+} from "./recipientOverride.js";
 import { homeRecipientFromDelivery, oohRecipientFromDelivery } from "./deliverySnapshot.js";
 import { classifySamedayServices } from "../providers/sameday/catalog.js";
 import {
@@ -805,7 +812,15 @@ export async function buildAwbPlan({ vendorId, shipmentId, input = {}, liveMode 
   let oohLastMile = null;
   let oohSnapshot = null;
   let expectedOohType = null;
-  if (delivery) {
+  // adresa corectată de vendor / Admin (doar livrare la adresă): are prioritate față de original
+  const correction = recipientCorrectionAllowed(shipment, delivery) ? activeOverride(shipment.recipientOverride) : null;
+  let correctionPlaceHint = null;
+  let correctionObservation = null;
+  if (correction) {
+    recipientSource = "vendor_correction";
+    ({ recipient, placeHint: correctionPlaceHint, observation: correctionObservation, blockers: recipientBlockers } =
+      recipientFromOverride(correction));
+  } else if (delivery) {
     recipientSource = "delivery_snapshot";
     if (delivery.method === "HOME") {
       ({ recipient, place: recipientPlace, blockers: recipientBlockers } = homeRecipientFromDelivery(delivery));
@@ -895,6 +910,18 @@ export async function buildAwbPlan({ vendorId, shipmentId, input = {}, liveMode 
         if (checked.blocker) blockers.push(checked.blocker);
       }
 
+      // adresa corectată: județ / localitate confirmate în nomenclator (ID-urile propuse
+      // de formular sau după nume); nerezolvat -> la generare se trimit numele (ca la legacy)
+      if (correction && typeof def.resolvePlace === "function") {
+        const place = await def.resolvePlace(ctx, {
+          county: recipient.county,
+          city: recipient.city,
+          countyId: correctionPlaceHint?.countyId ?? null,
+          cityId: correctionPlaceHint?.cityId ?? null,
+        });
+        if (place?.countyId && place?.cityId) recipientPlace = { countyId: place.countyId, cityId: place.cityId };
+      }
+
       // locația easybox / Sameday Point: revalidată live, fără cache (altfel blocat)
       if (isOoh && oohLastMile != null) {
         const checked = await revalidateOohLocation(def, ctx, oohLastMile, expectedOohType);
@@ -907,7 +934,8 @@ export async function buildAwbPlan({ vendorId, shipmentId, input = {}, liveMode 
 
   const cancelledCount = await db.courierAwb.count({ where: { shipmentId: shipment.id, status: "CANCELLED" } });
   const clientReference = clientReferenceFor(shipment.id, cancelledCount);
-  const observation = String(order.shippingAddress?.notes || "").replace(/\s+/g, " ").trim().slice(0, 200) || null;
+  const observation =
+    (correction ? correctionObservation : String(order.shippingAddress?.notes || "").replace(/\s+/g, " ").trim().slice(0, 200)) || null;
   const packageInfo = def?.describePackage ? def.describePackage(parcels.list) : null;
   const setupBlocker = blockers.find((b) => PLATFORM_SETUP_MESSAGES[b.code]) || null;
 
@@ -950,6 +978,16 @@ export async function buildAwbPlan({ vendorId, shipmentId, input = {}, liveMode 
       : null,
     recipient,
     recipientSource,
+    // corectarea adresei destinatarului (doar livrare la adresă, înainte de AWB / predare)
+    recipientCorrection: {
+      editable: recipientCorrectionEditable(shipment, delivery, order, active),
+      active: Boolean(correction),
+      updatedAt: correction ? shipment.recipientOverride?.updatedAt || null : null,
+      updatedByRole: correction ? shipment.recipientOverride?.updatedBy?.role || null : null,
+      observation,
+      form: recipientFormFrom({ override: shipment.recipientOverride, delivery, order }),
+      original: correction ? recipientFormFrom({ delivery, order }) : null,
+    },
     deliveryAddress: (isOoh
       ? [oohSnapshot?.name ? `${deliveryMethod === "LOCKER" ? "easybox" : "Sameday Point"} ${oohSnapshot.name}` : null, recipient.address, recipient.city, recipient.county]
       : [recipient.address, recipient.city, recipient.county, recipient.postalCode]
@@ -1184,6 +1222,106 @@ export async function saveShipmentParcels({ vendorId, shipmentId, input = {}, ex
     return { conflict: true, current: savedParcelValues(fresh) };
   }
   return { saved: next, changed: true };
+}
+
+/* ----- adresa destinatarului corectată înainte de AWB ----- */
+
+// doar livrarea la ADRESĂ (easybox / Sameday Point: destinația e locația aleasă de client)
+export function recipientCorrectionAllowed(shipment, delivery) {
+  if (shipment?.direction === "RETURN") return false;
+  if (delivery) return delivery.method === "HOME";
+  return shipment?.method !== "LOCKER";
+}
+
+// se poate modifica acum: livrare la adresă, comandă activă, înainte de AWB și de predare
+export function recipientCorrectionEditable(shipment, delivery, order, activeAwb) {
+  return (
+    recipientCorrectionAllowed(shipment, delivery) &&
+    !shipment?.manualShipment &&
+    !shipment?.awb &&
+    !activeAwb &&
+    String(order?.status) !== "CANCELLED" &&
+    ELIGIBLE_SHIPMENT_STATUSES.has(String(shipment?.status))
+  );
+}
+
+/**
+ * Salvează (sau anulează, cu body.reset = true) adresa corectată a destinatarului pe
+ * Shipment.recipientOverride. Order.shippingAddress și ShipmentDelivery NU se ating.
+ * Fără apel la curier; fără efect pe plăți, ramburs, cost de transport sau stoc.
+ *   actor: { type: "vendor", vendorId, userId } (doar expedierea proprie) |
+ *          { type: "admin", userId }
+ *   expectedUpdatedAt: momentul ultimei corecturi văzute (null = niciuna) ->
+ *          dacă între timp altcineva a salvat, 409 recipient_changed (nimic scris).
+ * Rândul Shipment e blocat (FOR UPDATE) cât timp se verifică și se scrie.
+ */
+export async function saveRecipientCorrection({ actor, shipmentId, body = {}, now = new Date() }, db = defaultDb) {
+  const reset = body?.reset === true;
+  let address = null;
+  if (!reset) {
+    const normalized = normalizeRecipientInput(body?.address || {});
+    if (!normalized.address) {
+      // primul mesaj concret (formularul validează local aceleași reguli, câmp cu câmp)
+      throw new CourierValidationError(Object.values(normalized.fields)[0], Object.keys(normalized.fields));
+    }
+    address = normalized.address;
+  }
+  const expectedUpdatedAt = body?.expectedUpdatedAt === undefined ? undefined : body.expectedUpdatedAt || null;
+
+  return db.$transaction(async (tx) => {
+    const id = String(shipmentId || "");
+    await tx.$queryRaw`SELECT "id" FROM "Shipment" WHERE "id" = ${id} FOR UPDATE`;
+    const shipment = await tx.shipment.findFirst({
+      where: actor?.type === "admin" ? { id } : { id, vendorId: String(actor?.vendorId || "") },
+      select: {
+        id: true,
+        vendorId: true,
+        direction: true,
+        method: true,
+        status: true,
+        awb: true,
+        manualShipment: true,
+        recipientOverride: true,
+        delivery: { select: { method: true } },
+        order: { select: { status: true } },
+      },
+    });
+    if (!shipment) throw new CourierError("shipment_not_found", "Expedierea nu există.", { httpStatus: 404 });
+
+    const locked = (message) => new CourierError("recipient_locked", message, { httpStatus: 409 });
+    if (!recipientCorrectionAllowed(shipment, shipment.delivery)) {
+      throw locked("Adresa se poate corecta doar la livrarea la adresă (nu la easybox / Sameday Point).");
+    }
+    if (String(shipment.order?.status) === "CANCELLED") throw locked("Comanda este anulată.");
+    if (shipment.manualShipment) throw locked("Expedierea a fost trimisă fără integrare de curier.");
+    if (shipment.awb) throw locked(`Există deja AWB-ul ${shipment.awb}. Adresa nu se mai modifică.`);
+    if (!ELIGIBLE_SHIPMENT_STATUSES.has(String(shipment.status))) {
+      throw locked("Coletul a fost deja predat curierului. Adresa nu se mai modifică.");
+    }
+    const active = await findActiveCourierAwb(tx, shipment.id);
+    if (active) throw locked("Un AWB este în curs de generare sau a fost generat. Adresa nu se mai modifică.");
+
+    const currentUpdatedAt = shipment.recipientOverride?.updatedAt || null;
+    if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== currentUpdatedAt) {
+      const error = new CourierError(
+        "recipient_changed",
+        "Adresa a fost modificată între timp de altcineva. Am încărcat varianta salvată; verifică și salvează din nou.",
+        { httpStatus: 409 }
+      );
+      throw error;
+    }
+    if (reset && !activeOverride(shipment.recipientOverride)) {
+      return { changed: false, correction: shipment.recipientOverride || null };
+    }
+
+    const value = nextOverrideValue(shipment.recipientOverride, address, {
+      userId: actor?.userId || null,
+      role: actor?.type === "admin" ? "ADMIN" : "VENDOR",
+      now,
+    });
+    await tx.shipment.update({ where: { id: shipment.id }, data: { recipientOverride: value } });
+    return { changed: true, correction: value };
+  });
 }
 
 export async function previewAwb(args, db = defaultDb) {

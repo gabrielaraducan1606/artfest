@@ -21,6 +21,7 @@ import {
   recoverUnknownAwb,
   isArtfestLabelUrl,
   saveShipmentParcels,
+  saveRecipientCorrection,
 } from "../couriers/awb/awbService.js";
 import { loadVendorShipmentTimeline } from "../couriers/tracking/trackingTimeline.js";
 
@@ -108,6 +109,28 @@ router.put(
       });
     }
     res.json({ ok: true, saved: result.saved, changed: result.changed });
+  })
+);
+
+/*
+ * Adresa destinatarului corectată înainte de AWB (doar expedierea proprie, livrare la
+ * adresă, fără AWB, nepredată). Order și ShipmentDelivery rămân neatinse.
+ * body: { address: { name, phone, email, county, countyId?, city, cityId?, street, streetNo,
+ *         block, staircase, apartment, postalCode, notes }, expectedUpdatedAt }
+ *       sau { reset: true, expectedUpdatedAt } -> revenire la adresa din comandă.
+ */
+router.put(
+  "/shipments/:id/awb/recipient",
+  authRequired,
+  requireVendorAccount,
+  previewLimiter,
+  handle(async (req, res) => {
+    const result = await saveRecipientCorrection({
+      actor: { type: "vendor", vendorId: req.vendorId, userId: req.user?.sub || null },
+      shipmentId: req.params.id,
+      body: req.body || {},
+    });
+    res.json({ ok: true, changed: result.changed, updatedAt: result.correction?.updatedAt || null });
   })
 );
 

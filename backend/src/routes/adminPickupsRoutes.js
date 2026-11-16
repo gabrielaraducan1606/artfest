@@ -22,6 +22,7 @@ import {
   resolveAwbCancel,
   resolveUnknownAwb,
   toAdminAwb,
+  saveRecipientCorrection,
 } from "../couriers/awb/awbService.js";
 import { isCourierError } from "../couriers/errors.js";
 import { requireCourierAwbLive, requireCourierIntegration, sendAwbLabelPdf } from "../couriers/http.js";
@@ -1487,6 +1488,29 @@ router.post("/returns/:id/notices/:awbId/:kind/resend", requireAdmin, async (req
    POST /api/admin/pickups/:shipmentId/return-awb/recover  „Verifică din nou la Sameday” (UNKNOWN)
    Doar Shipment RETURN (altfel 404). Comutatorul COURIER_INTEGRATION_ENABLED.
 ------------------------------------------- */
+/*
+ * Admin: corectează adresa destinatarului înainte de AWB (aceleași reguli ca la vendor:
+ * livrare la adresă, fără AWB, nepredată). Order și ShipmentDelivery rămân neatinse.
+ * body: { address: {...}, expectedUpdatedAt } sau { reset: true, expectedUpdatedAt }
+ */
+router.put("/pickups/:shipmentId/recipient", requireAdmin, async (req, res) => {
+  try {
+    const result = await saveRecipientCorrection(
+      {
+        actor: { type: "admin", userId: req.user?.id || req.user?.sub || null },
+        shipmentId: String(req.params.shipmentId),
+        body: req.body || {},
+      },
+      prisma
+    );
+    return res.json({ ok: true, changed: result.changed, correction: result.correction });
+  } catch (e) {
+    if (isCourierError(e)) return sendCourierError(res, e);
+    console.error("PUT /api/admin/pickups/:shipmentId/recipient FAILED:", e?.name || "Error", e?.code || "");
+    return res.status(500).json({ error: "server_error" });
+  }
+});
+
 router.post("/pickups/:shipmentId/return-awb/preview", requireAdmin, requireCourierIntegration, async (req, res) => {
   try {
     const preview = await previewReturnAwbForAdmin({ shipmentId: String(req.params.shipmentId) }, prisma);

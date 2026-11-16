@@ -1982,6 +1982,12 @@ model Shipment {
   depositPaymentError          String?
   depositMeta                  Json?
 
+  // ==================== Adresa destinatarului corectată ====================
+  // Corectura făcută de vendor / Admin înainte de AWB (livrare la adresă). Order.shippingAddress
+  // și ShipmentDelivery rămân NEATINSE (originalul); AWB-ul folosește adresa de aici când e activă.
+  // { active, address: {...}, updatedAt, updatedBy, history: [{ at, by, before, after }] }
+  recipientOverride Json?
+
   // ==================== Relații ====================
   order          Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
   vendor         Vendor             @relation("ShipmentSellerVendor", fields: [vendorId], references: [id])
