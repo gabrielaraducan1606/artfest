@@ -104,6 +104,17 @@ import {
 } from "../services/artfestFairReceptionService.js";
 import { createSale, getPosStatus, getSale, listSales, previewSale, scanBarcode, setSalesOpen } from "../services/artfestFairPosService.js";
 import { buildPublicUrl, uploadToR2 } from "../services/r2Storage.js";
+import sharp from "sharp";
+import { heicDecodeMaxPixels } from "../services/heicDecoder.js";
+import { heavyUploadProcessing } from "../services/sharedUploadProcessing.js";
+import { UploadBusyError, sendUploadBusy } from "../middleware/uploadLoadGuards.js";
+import {
+  UploadImageRejectedError,
+  UploadMemoryBusyError,
+  assertImageProcessable,
+  ensureUploadMemory,
+  estimateImageProcessingBytes,
+} from "../services/uploadMemoryGuard.js";
 import { adminSubmitDraftInventory, getAdminLabelItems, markLabelsGenerated } from "../services/artfestFairInventoryService.js";
 import { adminDailyReport, adminReportCsv } from "../services/artfestFairReportsService.js";
 import { previewSaleReturn, returnSale, voidSale } from "../services/artfestFairSaleReturnService.js";
@@ -152,6 +163,8 @@ function adminOnly(req, res, next) {
 const handle = (fn) => handleFair(fn, "adminArtfestFair");
 
 // fotografiile de la recepție: doar imagini, max 10 MB / fișier, max 6 deodată
+// (frontend-ul le micșorează în browser la 2400 px și le trimite câte una)
+const RECEPTION_PHOTO_MAX_PIXELS = 60_000_000;
 const uploadPhotos = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 6 },
@@ -659,20 +672,55 @@ router.post("/inventory/photos", (req, res) => {
     const files = Array.isArray(req.files) ? req.files : [];
     if (!files.length) return res.status(400).json({ error: "no_file", message: "Alege cel puțin o fotografie." });
     try {
-      const uploaded = [];
-      for (const [index, file] of files.entries()) {
-        // doar imagini verificate după conținut, cu limită de pixeli înainte de decodare
-        uploaded.push(
-          await uploadToR2({ file, folder: FAIR_PHOTO_FOLDER, userId: req.adminUser.id, index, policy: "image", maxPixels: 60_000_000 })
-        );
-      }
+      // același rând de procesare și aceeași protecție de memorie ca fotografiile de produs
+      // (512 MB): o fotografie decodată odată, estimată din header înainte de decodare
+      const uploaded = await heavyUploadProcessing(async (signal) => {
+        const items = [];
+        for (const [index, file] of files.entries()) {
+          signal.throwIfAborted();
+          const header = await sharp(file.buffer, { limitInputPixels: false }).metadata().catch(() => null);
+          const costBytes = estimateImageProcessingBytes({ header, fileBytes: file.size });
+          await ensureUploadMemory(costBytes, {
+            precheck: (state) =>
+              assertImageProcessable({
+                header,
+                costBytes,
+                productMaxPixels: RECEPTION_PHOTO_MAX_PIXELS,
+                heicMaxPixels: heicDecodeMaxPixels(),
+                // limita pe format (GIF/AVIF etc.) o aplică oricum uploadToR2 (maxPixels) -> 422
+                pixelLimit: (_header, max) => max,
+                limitBytes: state.limitBytes,
+              }),
+          });
+          // doar imagini verificate după conținut, cu limită de pixeli înainte de decodare
+          items.push(
+            await uploadToR2({
+              file,
+              folder: FAIR_PHOTO_FOLDER,
+              userId: req.adminUser.id,
+              index,
+              policy: "image",
+              maxPixels: RECEPTION_PHOTO_MAX_PIXELS,
+              abortSignal: signal,
+            })
+          );
+        }
+        return items;
+      });
       res.json({ ok: true, urls: uploaded.map((u) => u.url) });
     } catch (error) {
       if (error?.code === "upload_content_mismatch") {
         return res.status(415).json({ error: "invalid_image", message: "Fișierul nu este o fotografie validă." });
       }
-      if (error?.code === "image_too_many_pixels") {
+      if (error?.code === "image_too_many_pixels" || error instanceof UploadImageRejectedError) {
         return res.status(422).json({ error: "image_too_many_pixels", message: "Fotografia are o rezoluție prea mare." });
+      }
+      // temporar (memorie / rând plin / peste termen): 503 + Retry-After, frontend-ul reîncearcă
+      if (error instanceof UploadMemoryBusyError) {
+        return sendUploadBusy(res, error.retryAfterSeconds || 10, { message: error.message, reason: "memory" });
+      }
+      if (error instanceof UploadBusyError || error?.code === "server_busy") {
+        return sendUploadBusy(res, error.retryAfterSeconds || 5);
       }
       console.error("[adminArtfestFair] photo upload:", error?.message || error);
       res.status(500).json({ error: "upload_failed", message: "Nu am putut încărca fotografiile." });

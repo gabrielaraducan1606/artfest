@@ -30,8 +30,6 @@ import {
   claimTempFiles,
   createByteBudget,
   createFreeSpaceProbe,
-  createProcessingLimiter,
-  envInteger,
   envMegabytes,
   removeTempFiles,
   sendUploadBusy,
@@ -48,6 +46,7 @@ import {
   pixelLimitForHeader,
 } from "../services/r2Storage.js";
 import sharp from "sharp";
+import { heavyUploadProcessing as sharedHeavyUploadProcessing } from "../services/sharedUploadProcessing.js";
 import { heicDecodeMaxPixels } from "../services/heicDecoder.js";
 import {
   PRODUCT_IMAGE_MAX_BYTES,
@@ -220,12 +219,8 @@ const SUPPORT_MAX_REQUEST_BYTES = 10 * 20 * MB + MB; // 10 fișiere x 20 MB + c�
  * (citire de pe disc + decodare). Frontendul trimite o fotografie pe
  * cerere, deci încărcarea multiplă doar așteaptă la rând câteva secunde.
  */
-const heavyUploadProcessing = createProcessingLimiter({
-  concurrency: envInteger("UPLOAD_PROCESSING_CONCURRENCY", 1, 1),
-  maxQueue: envInteger("UPLOAD_PROCESSING_MAX_QUEUE", 10, 0),
-  // peste termen procesarea e anulată (inclusiv apelul R2) -> 503
-  holdTimeoutMs: envInteger("UPLOAD_PROCESSING_HOLD_TIMEOUT_MS", 2 * 60 * 1000, 1),
-});
+// rândul e COMUN cu recepția Târgului (Admin) - services/sharedUploadProcessing.js
+const heavyUploadProcessing = sharedHeavyUploadProcessing;
 
 /*
  * Spațiu pe disc pentru fișierele temporare aflate în lucru: plafonul fix

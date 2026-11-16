@@ -211,3 +211,39 @@ test("ordinea: refuzul definitiv are prioritate chiar când memoria e plină; me
     (err) => err instanceof UploadMemoryBusyError && /prea puțină memorie liberă/.test(err.message) && !/multe fișiere/.test(err.message)
   );
 });
+
+test("memorie plină: o încercare de eliberare (ex. Chrome inactiv), apoi recitire; fără eliberare -> 503", async () => {
+  const { ensureUploadMemory } = await import("./uploadMemoryGuard.js");
+  const env = { UPLOAD_MEMORY_SOURCE: "process" };
+
+  // Chrome inactiv închis: memoria scade 440 -> 250 MB, uploadul trece
+  let used = 440 * MB;
+  let calls = 0;
+  const relieve = async () => {
+    calls += 1;
+    used = 250 * MB;
+    return ["pdf-browser"];
+  };
+  const state = await ensureUploadMemory(100 * MB, { env, rss: () => used, logger: silent, relieve });
+  assert.equal(calls, 1);
+  assert.equal(state.usedBytes, 250 * MB);
+
+  // nimic de eliberat (Chrome lucrează / nu există) -> 503 temporar, ca înainte
+  await assert.rejects(
+    ensureUploadMemory(100 * MB, { env, rss: () => 440 * MB, logger: silent, relieve: async () => [] }),
+    (err) => err instanceof UploadMemoryBusyError && err.retryAfterSeconds === 10
+  );
+
+  // eliberat, dar tot nu încape -> 503 (o singură încercare, fără buclă)
+  let relieves = 0;
+  await assert.rejects(
+    ensureUploadMemory(100 * MB, { env, rss: () => 440 * MB, logger: silent, relieve: async () => (relieves += 1, ["pdf-browser"]) }),
+    (err) => err instanceof UploadMemoryBusyError
+  );
+  assert.equal(relieves, 1);
+
+  // încape din prima: eliberarea NU e cerută (Chrome rămâne pentru următorul PDF)
+  let untouched = true;
+  await ensureUploadMemory(50 * MB, { env, rss: () => 200 * MB, logger: silent, relieve: async () => ((untouched = false), []) });
+  assert.equal(untouched, true);
+});

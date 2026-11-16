@@ -22,6 +22,7 @@
 
 import puppeteer from "puppeteer";
 import { resolvePdfOptions } from "./pdfOptions.js";
+import { registerMemoryRelief } from "../services/memoryRelief.js";
 
 function envPositive(name, fallback) {
   const value = Number(process.env[name]);
@@ -87,6 +88,8 @@ async function launch() {
   });
   stats.launches += 1;
   registerShutdown();
+  // uploadurile de fotografii pot cere închiderea Chrome-ului INACTIV (512 MB)
+  registerMemoryRelief("pdf-browser", releaseIdlePdfBrowser);
 
   instance.on?.("disconnected", () => {
     if (browser === instance) browser = null;
@@ -197,6 +200,19 @@ export async function renderPdfWithSharedBrowser(html, options = {}) {
     releaseSlot();
     scheduleIdleClose();
   }
+}
+
+/**
+ * Închide Chrome-ul DOAR dacă e deschis și complet inactiv (nicio pagină în
+ * lucru, nimic la rând, nicio pornire în curs). Folosit de protecția de memorie
+ * a uploadurilor: următorul PDF îl repornește automat (pornire la rece).
+ * @returns {Promise<boolean>} true = browserul a fost închis
+ */
+export async function releaseIdlePdfBrowser() {
+  if (!browser || launching || active > 0 || waiting.length > 0) return false;
+  stats.idleReleases = (stats.idleReleases || 0) + 1;
+  await closePdfBrowser();
+  return true;
 }
 
 export async function closePdfBrowser() {

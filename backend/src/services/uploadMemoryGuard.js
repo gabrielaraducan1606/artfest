@@ -30,6 +30,8 @@
 //   HEIC (worker): ~9,2 B/px la 45 MP, totul inclus  -> 9,5 + 20 MB
 // Peste toate: fișierul în memorie + 40 MB fix (codare JPEG, buffere sharp).
 
+import { relieveMemory } from "./memoryRelief.js";
+
 const MB = 1024 * 1024;
 
 export const PRODUCT_IMAGE_MAX_BYTES = 40 * MB;
@@ -304,15 +306,39 @@ export function assertUploadMemoryAvailable(
  * Aruncă UploadMemoryBusyError (503 + Retry-After) dacă fotografia nu încape acum.
  */
 export async function ensureUploadMemory(costBytes, options = {}) {
+  const check = (state) =>
+    assertUploadMemoryAvailable(costBytes, {
+      rss: () => state.usedBytes,
+      limitBytes: state.limitBytes,
+      logger: options.logger || console,
+      source: state.source,
+      detail: state.detail,
+    });
+
   const state = await currentUploadMemoryState(options);
   // refuzurile DEFINITIVE (422) înaintea celor temporare (503)
   options.precheck?.(state);
-  assertUploadMemoryAvailable(costBytes, {
-    rss: () => state.usedBytes,
-    limitBytes: state.limitBytes,
-    logger: options.logger || console,
-    source: state.source,
-    detail: state.detail,
+  if (!state.limitBytes || state.usedBytes + costBytes <= state.limitBytes) {
+    check(state);
+    return state;
+  }
+
+  // nu încape ACUM: o singură încercare de a elibera memorie nefolosită
+  // (ex. Chrome-ul pentru PDF-uri, deschis dar inactiv), apoi citim din nou
+  const relieve = options.relieve === undefined ? relieveMemory : options.relieve;
+  const released = relieve ? await relieve().catch(() => []) : [];
+  if (!released?.length) {
+    check(state);
+    return state;
+  }
+
+  cached = { at: -Infinity, value: null };
+  const after = await currentUploadMemoryState({ ...options, now: Date.now() });
+  (options.logger || console).info?.("[UPLOAD] memorie eliberată pentru upload", {
+    surse: released,
+    inainteMB: Math.round(state.usedBytes / MB),
+    dupaMB: Math.round(after.usedBytes / MB),
   });
-  return state;
+  check(after);
+  return after;
 }

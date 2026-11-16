@@ -358,6 +358,31 @@ test("fotografii: upload în folderul recepției din R2", async () => {
   assert.equal((await rejected.json()).error, "invalid_image");
 });
 
+test("fotografii: memorie insuficientă ACUM -> 503 + Retry-After (reîncercabil), fără upload în R2", async () => {
+  const before = uploadCalls.length;
+  const saved = { limit: process.env.UPLOAD_MEMORY_LIMIT_MB, source: process.env.UPLOAD_MEMORY_SOURCE };
+  // pragul chiar peste memoria procesului: fotografia (~40 MB estimat) nu încape acum,
+  // dar ar încăpea cu serverul liber (nu e refuz definitiv 422)
+  process.env.UPLOAD_MEMORY_SOURCE = "process";
+  process.env.UPLOAD_MEMORY_LIMIT_MB = String(Math.ceil(process.memoryUsage().rss / (1024 * 1024)) + 20);
+  try {
+    const form = new FormData();
+    form.append("files", new Blob([Buffer.from("img")], { type: "image/jpeg" }), "a.jpg");
+    const res = await fetch(`${base}${A}/photos`, { method: "POST", headers: { "x-test-user": ctx.admin.id }, body: form });
+    assert.equal(res.status, 503);
+    assert.equal(res.headers.get("retry-after"), "10");
+    const body = await res.json();
+    assert.equal(body.error, "server_busy");
+    assert.equal(body.reason, "memory");
+    assert.equal(uploadCalls.length, before);
+  } finally {
+    for (const [key, value] of [["UPLOAD_MEMORY_LIMIT_MB", saved.limit], ["UPLOAD_MEMORY_SOURCE", saved.source]]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 /* ============================== blocare ============================== */
 
 test("blocare / deblocare de la vânzare, cu audit", async () => {

@@ -11,8 +11,10 @@ import {
   closePdfBrowser,
   getPdfBrowserLimits,
   getPdfBrowserStats,
+  releaseIdlePdfBrowser,
   renderPdfWithSharedBrowser,
 } from "./pdfBrowser.js";
+import { relieveMemory } from "../services/memoryRelief.js";
 
 let launches;
 let browsers;
@@ -142,5 +144,29 @@ test("closePdfBrowser închide instanța; următoarea cerere pornește alta", as
   assert.equal(browsers[0].closed, true);
   assert.equal(getPdfBrowserStats().open, false);
   await renderPdfWithSharedBrowser("<p>2</p>");
+  assert.equal(launches, 2);
+});
+
+test("releaseIdlePdfBrowser: închide DOAR Chrome-ul inactiv; uploadurile îl pot elibera prin registru", async () => {
+  // nimic pornit -> nimic de eliberat
+  assert.equal(await releaseIdlePdfBrowser(), false);
+
+  await renderPdfWithSharedBrowser("<p>1</p>");
+  assert.equal(getPdfBrowserStats().open, true);
+
+  // în timpul unui PDF: NU se închide
+  const busy = renderPdfWithSharedBrowser("<p>2</p>");
+  await new Promise((r) => setTimeout(r, 1));
+  assert.equal(await releaseIdlePdfBrowser(), false);
+  await busy;
+  assert.equal(browsers[0].closed, false);
+
+  // inactiv: registrul de memorie (folosit de uploadMemoryGuard) îl închide
+  assert.deepEqual(await relieveMemory(), ["pdf-browser"]);
+  assert.equal(browsers[0].closed, true);
+  assert.equal(getPdfBrowserStats().open, false);
+
+  // următorul PDF repornește Chrome normal
+  await renderPdfWithSharedBrowser("<p>3</p>");
   assert.equal(launches, 2);
 });
