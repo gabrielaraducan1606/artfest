@@ -178,6 +178,9 @@ const MODELS = {
     },
     unique: { returnId_inventoryItemId: ["returnId", "inventoryItemId"] },
   },
+  // avize de însoțire (doar câmpurile citite de inventar: cantitățile avizate)
+  artfestFairDeliveryNote: { defaults: { status: "ISSUED" }, unique: {} },
+  artfestFairDeliveryNoteLine: { defaults: { unit: "buc" }, unique: {} },
   artfestBroadcastDelivery: {
     defaults: {
       notificationStatus: "PENDING",

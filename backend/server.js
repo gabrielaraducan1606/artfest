@@ -21,6 +21,7 @@ import authRouter from "./src/routes/authRoutes.js";
 import vendorsRouter from "./src/routes/vendorRoutes.js";
 import serviceTypesRouter from "./src/routes/serviceTypesRoutes.js";
 import uploadRoutes from "./src/routes/uploadRoutes.js";
+import directImageUploadRoutes from "./src/routes/directImageUploadRoutes.js";
 import billingRoutes from "./src/routes/billingRoutes.js";
 import subscriptionRoutes from "./src/routes/subscriptionRoutes.js";
 import publicStoreRoutes from "./src/routes/publicStoreRoutes.js";
@@ -551,6 +552,8 @@ app.use("/api", adminPolicyNotificationsRoutes);
 app.use("/", sitemapRoutes);
 app.use("/", googleShoppingFeedRoutes);
 /* ---------------- RUTE GUEST ---------------- */
+// upload direct în R2 (URL semnat) - oprit implicit, vezi DIRECT_IMAGE_UPLOAD_ENABLED
+app.use("/api/upload/direct", directImageUploadRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/guest", GuestSupportRoutes);
 app.use("/api/newsletter", newsletterRoutes);

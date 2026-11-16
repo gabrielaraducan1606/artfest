@@ -31,6 +31,7 @@ import {
 import { isSamedayCheckoutActive } from "../services/shipping/checkoutMode.js";
 import { openai } from "../lib/openai.js";
 import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
+import { enforceVendorProductImageUrls } from "../lib/productImageUrls.js";
 import {
   moderateSavedProduct,
   buildVendorModerationReport,
@@ -1633,6 +1634,18 @@ async function createProduct(req, res) {
         });
     }
 
+    // doar fotografii încărcate de vânzător (sau folosite deja pe produsele lui)
+    if (
+      !(await enforceVendorProductImageUrls(res, {
+        images: imgs,
+        userId: req.user.sub,
+        vendorId: service.vendorId || service.vendor?.id || null,
+        db: prisma,
+      }))
+    ) {
+      return;
+    }
+
     const gpsrValidation =
       validateGpsrConsistency(req.body || {}, null);
 
@@ -2143,6 +2156,20 @@ async function updateProduct(
           message:
             "Produsul trebuie să aibă cel puțin o imagine validă.",
         });
+    }
+
+    // fotografiile existente rămân valabile; cele noi trebuie încărcate de vânzător
+    if (
+      Array.isArray(req.body.images) &&
+      !(await enforceVendorProductImageUrls(res, {
+        images: patch.images,
+        userId: req.user.sub,
+        vendorId: product.service?.vendorId || product.service?.vendor?.id || null,
+        existingImages: product.images || [],
+        db: prisma,
+      }))
+    ) {
+      return;
     }
 
     if (

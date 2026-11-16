@@ -506,7 +506,14 @@ test("vendorul vede inventarul read-only, mesajul public, fără motivul intern"
   assert.equal(byId[ctx.lUnique.id].situation, "IN_TRANSIT");
   assert.equal(byId[ctx.lDraft.id].situation, "CANCELLED");
   for (const item of inv.body.items) {
-    assert.deepEqual(item.actions, { canEdit: false, canRemove: false, canCancel: false, canPrintLabel: false });
+    assert.deepEqual(item.actions, {
+      canEdit: false,
+      canRemove: false,
+      canCancel: false,
+      canAdjustQty: false,
+      qtyChange: { mode: "none", reason: null },
+      canPrintLabel: false,
+    });
   }
 });
 

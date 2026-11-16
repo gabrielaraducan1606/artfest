@@ -339,7 +339,27 @@ export function onlineReservationState(item) {
   return "reserved";
 }
 
-function serializeItem(item, product, ctx, movements = [], returnInfo = null) {
+// aceleași statusuri ca avizele (NOTE_ITEM_STATUSES din artfestFairDeliveryNoteService)
+const NOTE_ELIGIBLE_STATUSES = ["SUBMITTED", "RECEIVED"];
+
+/*
+ * Ce poate face vendorul cu cantitatea liniei și, dacă nu poate, de ce
+ * (pentru butonul „Modifică cantitatea” / „Solicită modificare”).
+ */
+function quantityChangeState(item, ctx) {
+  if (!ctx.approved) return { mode: "none", reason: null };
+  if (item.status === "DRAFT") return ctx.canEdit ? { mode: "edit", reason: null } : { mode: "request", reason: "deadline" };
+  if (item.status === "SUBMITTED") {
+    if (!ctx.canEdit) return { mode: "request", reason: "deadline" };
+    if (item.isUnique || item.onlineReservationMode === "FORCED_UNAVAILABLE") return { mode: "none", reason: "unique" };
+    if (item.onlineReleasedAt || item.onlineRestoredAt) return { mode: "request", reason: "reservation_closed" };
+    return { mode: "adjust", reason: null };
+  }
+  if (item.status === "RECEIVED" || item.status === "REJECTED") return { mode: "request", reason: "received" };
+  return { mode: "none", reason: null };
+}
+
+function serializeItem(item, product, ctx, movements = [], returnInfo = null, issuedQty = 0) {
   const priceOutOfSync = Boolean(product) && product.priceCents !== item.priceSnapshotCents;
   const reservedOnline = Math.max(0, (item.onlineReservedQty || 0) - (item.onlineReleasedQty || 0));
   const tracked = product && product.readyQty !== null && product.readyQty !== undefined;
@@ -348,6 +368,7 @@ function serializeItem(item, product, ctx, movements = [], returnInfo = null) {
   const afterReception = ["RECEIVED", "REJECTED", "CLOSED"].includes(item.status);
   const initialQty = afterReception ? item.receivedQty || 0 : item.declaredQty;
   const availableQty = afterReception ? item.availableQty || 0 : item.declaredQty;
+  const qtyChange = quantityChangeState(item, ctx);
 
   return {
     id: item.id,
@@ -397,6 +418,16 @@ function serializeItem(item, product, ctx, movements = [], returnInfo = null) {
       productAvailability: product ? product.availability : null,
     },
     reception: receptionFor(item, movements),
+    // cantitățile pentru „Modifică inventarul” și pentru aviz (aceeași regulă ca formularul de aviz)
+    quantities: {
+      declaredQty: item.declaredQty,
+      issuedQty,
+      receivedQty: afterReception ? item.receivedQty || 0 : 0,
+      availableForNoteQty: NOTE_ELIGIBLE_STATUSES.includes(item.status) ? Math.max(0, item.declaredQty - issuedQty) : 0,
+      // minimul la care poate coborî corecția (bucățile deja avizate), cel puțin 1
+      minAdjustQty: Math.max(1, issuedQty),
+      maxQty: MAX_DECLARED_QTY,
+    },
     situation: lineSituation(item, { openReturnQty }),
     // cantitățile fizice, pentru vizualizarea după anulare / la retur
     physical: {
@@ -413,6 +444,10 @@ function serializeItem(item, product, ctx, movements = [], returnInfo = null) {
       canRemove: ctx.canEdit && item.status === "DRAFT",
       // trimisă dar nerecepționată: anularea eliberează rezervarea online
       canCancel: ctx.canEdit && item.status === "SUBMITTED",
+      // trimisă, nerecepționată, în termen: corecție controlată a cantității
+      canAdjustQty: qtyChange.mode === "adjust",
+      // „edit” | „adjust” | „request” (doar prin Artfest) | „none”; reason: deadline | received | unique | reservation_closed
+      qtyChange,
       // participare anulată: fără etichete (inventarul e doar pentru citire)
       canPrintLabel: ctx.approved !== false && LABEL_INVENTORY_STATUSES.includes(item.status),
     },
@@ -455,6 +490,27 @@ export async function openReturnQtyByItem(db, itemIds) {
   return map;
 }
 
+/*
+ * Bucăți deja trecute pe avize EMISE (cele anulate nu contează), per linie de inventar.
+ * Aceeași regulă ca issuedQtyByItem din artfestFairDeliveryNoteService (avizul calculează
+ * cantitatea disponibilă ca declaredQty - issued).
+ */
+export async function issuedNoteQtyByItem(db, registrationId, itemIds) {
+  const map = new Map();
+  if (!itemIds.length) return map;
+  const notes = await db.artfestFairDeliveryNote.findMany({
+    where: { registrationId, status: "ISSUED" },
+    select: { id: true },
+  });
+  if (!notes.length) return map;
+  const lines = await db.artfestFairDeliveryNoteLine.findMany({
+    where: { noteId: { in: notes.map((n) => n.id) }, inventoryItemId: { in: itemIds } },
+    select: { inventoryItemId: true, quantity: true },
+  });
+  for (const line of lines) map.set(line.inventoryItemId, (map.get(line.inventoryItemId) || 0) + line.quantity);
+  return map;
+}
+
 export async function listInventory({ vendorId, db = prisma, now = new Date() }) {
   const ctx = await loadContext(db, vendorId, now);
 
@@ -493,13 +549,15 @@ export async function listInventory({ vendorId, db = prisma, now = new Date() })
       })
     : [];
   const returnInfo = await openReturnQtyByItem(db, receivedIds);
+  const issuedInfo = await issuedNoteQtyByItem(db, ctx.registration.id, items.map((i) => i.id));
   const serialized = items.map((item) =>
     serializeItem(
       item,
       products.get(item.productId),
       ctx,
       movements.filter((m) => m.inventoryItemId === item.id),
-      { openQty: returnInfo.get(item.id) || 0 }
+      { openQty: returnInfo.get(item.id) || 0 },
+      issuedInfo.get(item.id) || 0
     )
   );
 
@@ -1009,6 +1067,207 @@ export async function syncInventoryItemPrice({ vendorId, userId, id, db = prisma
 
   const products = await itemsWithProducts(db, [updated]);
   return serializeItem(updated, products.get(updated.productId), ctx);
+}
+
+/* ===================== Corectarea cantității unei linii trimise ===================== */
+
+/*
+ * Vendorul corectează cantitatea declarată a unei linii SUBMITTED (încă nerecepționate),
+ * în termenul inventarului. Totul într-o singură tranzacție, cu aceleași lock-uri ca
+ * trimiterea / anularea / emiterea avizelor (ordine fixă => fără deadlock):
+ *   înscriere (artfest-fair-submit) -> produs -> linie -> avizele vendorului.
+ *
+ * Reguli:
+ *   - doar liniile SUBMITTED, cu rezervarea online încă deschisă (neeliberată / nerestaurată);
+ *   - unicat: cantitatea rămâne 1;
+ *   - noua cantitate >= bucățile deja trecute pe avize EMISE (avizele anulate nu contează);
+ *   - prețul, varianta, codul de bare și avizele emise NU se ating;
+ *   - stoc online (doar produse din catalog), aplicat DOAR pe diferență:
+ *       majorare: aceeași regulă ca la trimitere - produs READY cu stoc urmărit => diferența
+ *         se scade atomic din readyQty (refuz dacă nu ajunge); altfel nicio rezervare;
+ *       diminuare: bucățile rezervate peste noua cantitate revin în stocul online
+ *         (aceeași regulă ca la anulare);
+ *   - expectedDeclaredQty (cantitatea văzută de vendor) protejează de scrieri concurente;
+ *     o cerere repetată cu aceeași țintă nu mai schimbă nimic (idempotent pe valoare);
+ *   - istoric: UPDATED (+ ONLINE_STOCK_RESERVED / ONLINE_STOCK_RELEASED / ONLINE_RESTORE_SKIPPED).
+ */
+export async function adjustSubmittedQuantity({ vendorId, userId, id, body = {}, db = prisma, now = new Date() }) {
+  const ctx = await loadContext(db, vendorId, now);
+  requireEditable(ctx);
+
+  const targetQty = Number(body.declaredQty);
+  if (!Number.isInteger(targetQty) || targetQty < 1 || targetQty > MAX_DECLARED_QTY) {
+    throw new FairError(400, "invalid_inventory_item", "Verifică cantitatea.", {
+      fields: { declaredQty: `Cantitatea trebuie să fie un număr întreg între 1 și ${MAX_DECLARED_QTY}.` },
+    });
+  }
+  const expectedQty = Number(body.expectedDeclaredQty);
+  if (!Number.isInteger(expectedQty) || expectedQty < 1) {
+    throw new FairError(400, "expected_qty_required", "Reîncarcă pagina și încearcă din nou.");
+  }
+
+  const existing = await findOwnedItem(db, vendorId, id);
+  const services = await vendorServiceMap(db, vendorId);
+
+  const result = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`artfest-fair-submit:${existing.registrationId}`}))`;
+    if (existing.productId) await lockProductForFair(tx, existing.productId);
+    // aceeași cheie ca lockLine din artfestFairReceptionService (recepție / anulare linie)
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`artfest-fair-line:${existing.id}`}))`;
+    // aceeași cheie ca emiterea / anularea avizelor: cantitatea avizată nu se schimbă între timp
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`artfest-delivery-note:${vendorId}`}))`;
+
+    const registration = await tx.artfestFairRegistration.findUnique({
+      where: { id: existing.registrationId },
+      select: { status: true },
+    });
+    if (registration?.status !== "APPROVED") {
+      throw new FairError(403, "registration_not_approved", "Inventarul este disponibil doar pentru înscrierile aprobate.");
+    }
+
+    const line = await tx.artfestFairInventoryItem.findUnique({ where: { id: existing.id } });
+    if (!line || line.vendorId !== vendorId) {
+      throw new FairError(404, "inventory_item_not_found", "Linia de inventar nu a fost găsită.");
+    }
+    if (line.status !== "SUBMITTED") {
+      throw new FairError(
+        409,
+        "inventory_item_not_adjustable",
+        line.status === "RECEIVED" || line.status === "REJECTED"
+          ? "Produsul a fost deja recepționat de Artfest. Cantitatea recepționată nu se mai poate modifica; pentru bucăți suplimentare, contactează Artfest."
+          : line.status === "DRAFT"
+            ? "Produsul nu a fost încă trimis. Modifică-l cu „Editează”."
+            : "Cantitatea acestei linii nu se mai poate modifica.",
+        { currentStatus: line.status }
+      );
+    }
+    if (line.onlineReleasedAt || line.onlineRestoredAt || (line.onlineReleasedQty || 0) > 0) {
+      throw new FairError(409, "inventory_item_not_adjustable", "Rezervarea online a acestei linii a fost deja închisă. Contactează Artfest.");
+    }
+    if (line.declaredQty === targetQty) {
+      return { line, changed: false, from: targetQty, onlineDelta: 0 };
+    }
+    if (line.declaredQty !== expectedQty) {
+      throw new FairError(
+        409,
+        "inventory_changed",
+        `Cantitatea a fost modificată între timp (acum ${line.declaredQty} buc.). Reîncarcă și încearcă din nou.`,
+        { currentQty: line.declaredQty }
+      );
+    }
+    if (line.isUnique || line.onlineReservationMode === "FORCED_UNAVAILABLE") {
+      throw new FairError(409, "unique_quantity_fixed", "Un produs unicat are întotdeauna cantitatea 1.", {
+        fields: { declaredQty: "Un produs unicat are cantitatea 1." },
+      });
+    }
+
+    // bucățile deja trecute pe avize emise (cele anulate nu contează)
+    const issued = (await issuedNoteQtyByItem(tx, line.registrationId, [line.id])).get(line.id) || 0;
+    if (targetQty < issued) {
+      throw new FairError(
+        409,
+        "below_issued_quantity",
+        `Ai deja ${plural(issued, "bucată", "bucăți")} pe avize emise. Cantitatea nu poate fi mai mică de ${issued}. Pentru mai puțin, anulează întâi avizul.`,
+        { issuedQty: issued, fields: { declaredQty: `Minimum ${issued} (bucăți deja avizate).` } }
+      );
+    }
+
+    const delta = targetQty - line.declaredQty;
+    const reservedOpen = line.onlineReservationMode === "TRANSFERRED" ? Math.max(0, line.onlineReservedQty || 0) : 0;
+    const lineData = { declaredQty: targetQty };
+    let onlineDelta = 0; // > 0: luat din stocul online; < 0: redat stocului online
+
+    if (line.productId && delta > 0) {
+      const product = await tx.product.findUnique({ where: { id: line.productId }, select: PRODUCT_SELECT });
+      if (!isEligibleProduct(product, services)) {
+        throw new FairError(
+          409,
+          "product_not_eligible",
+          "Produsul nu mai îndeplinește condițiile pentru târg (activ, vizibil, aprobat, cu preț). Cantitatea nu poate fi mărită."
+        );
+      }
+      // aceeași regulă ca la trimitere: doar produsele READY cu stoc urmărit se rezervă
+      if (product.availability === "READY" && product.readyQty !== null && product.readyQty !== undefined) {
+        const nextQty = product.readyQty - delta;
+        const res = await tx.product.updateMany({
+          where: { id: product.id, availability: "READY", readyQty: { gte: delta }, stockScope: { not: "VARIANT" } },
+          data: { readyQty: { decrement: delta }, availability: nextQty <= 0 ? "SOLD_OUT" : "READY" },
+        });
+        if (res.count !== 1) {
+          throw new FairError(
+            409,
+            "insufficient_online_stock",
+            `Pentru „${product.title}” mai ai ${Math.max(0, product.readyQty)} bucăți în stocul online, iar majorarea cere încă ${delta}. Mărește stocul produsului sau alege o cantitate mai mică.`,
+            { productId: product.id, available: product.readyQty, requested: delta }
+          );
+        }
+        onlineDelta = delta;
+        lineData.onlineReservationMode = "TRANSFERRED";
+        lineData.onlineReservedQty = reservedOpen + delta;
+        if (!line.onlineReservedAt) lineData.onlineReservedAt = now;
+        await writeEvent(tx, line, "ONLINE_STOCK_RESERVED", {
+          before: { readyQty: product.readyQty, availability: product.availability, reservedQty: reservedOpen },
+          after: { readyQty: nextQty, availability: nextQty <= 0 ? "SOLD_OUT" : "READY", mode: "TRANSFERRED", reservedQty: reservedOpen + delta },
+          note: "quantity_increase",
+          actorUserId: userId,
+        });
+      }
+    } else if (line.productId && delta < 0 && reservedOpen > targetQty) {
+      // bucățile rezervate peste noua cantitate revin online (regula de la anulare)
+      const excess = reservedOpen - targetQty;
+      const product = await tx.product.findUnique({ where: { id: line.productId }, select: { id: true, readyQty: true, availability: true } });
+      const res = product
+        ? await tx.product.updateMany({
+            where: { id: product.id, readyQty: { not: null }, availability: { in: ["READY", "SOLD_OUT"] }, stockScope: { not: "VARIANT" } },
+            data: { readyQty: { increment: excess }, availability: "READY" },
+          })
+        : { count: 0 };
+      lineData.onlineReservedQty = targetQty;
+      if (res.count === 1) {
+        onlineDelta = -excess;
+        await writeEvent(tx, line, "ONLINE_STOCK_RELEASED", {
+          before: { readyQty: product.readyQty, availability: product.availability, reservedQty: reservedOpen },
+          after: { readyQty: product.readyQty + excess, availability: "READY", releasedQty: excess, reservedQty: targetQty },
+          note: "quantity_decrease",
+          actorUserId: userId,
+        });
+      } else {
+        await writeEvent(tx, line, "ONLINE_RESTORE_SKIPPED", {
+          before: product ? { readyQty: product.readyQty, availability: product.availability } : null,
+          after: { releasedQty: excess, reservedQty: targetQty },
+          note: product ? "quantity_decrease:product_no_longer_stock_tracked" : "quantity_decrease:product_deleted",
+          actorUserId: userId,
+        });
+      }
+    }
+
+    // scriere condiționată: linia e încă SUBMITTED, cu exact cantitatea citită
+    const res = await tx.artfestFairInventoryItem.updateMany({
+      where: { id: line.id, status: "SUBMITTED", declaredQty: line.declaredQty },
+      data: lineData,
+    });
+    if (res.count !== 1) {
+      throw new FairError(409, "inventory_changed", "Linia a fost modificată între timp. Reîncarcă pagina.");
+    }
+    const updated = await tx.artfestFairInventoryItem.findUnique({ where: { id: line.id } });
+    await writeEvent(tx, updated, "UPDATED", {
+      before: { declaredQty: line.declaredQty, onlineReservedQty: line.onlineReservedQty || 0 },
+      after: { declaredQty: targetQty, onlineReservedQty: updated.onlineReservedQty || 0, onlineDelta, issuedQty: issued },
+      note: "submitted_quantity_corrected",
+      actorUserId: userId,
+    });
+    return { line: updated, changed: true, from: line.declaredQty, onlineDelta };
+  }, FAIR_TX_OPTIONS);
+
+  const products = await itemsWithProducts(db, [result.line]);
+  const issuedMap = await issuedNoteQtyByItem(db, result.line.registrationId, [result.line.id]);
+  return {
+    item: serializeItem(result.line, products.get(result.line.productId), ctx, [], null, issuedMap.get(result.line.id) || 0),
+    changed: result.changed,
+    fromQty: result.from,
+    toQty: result.line.declaredQty,
+    onlineDelta: result.onlineDelta,
+  };
 }
 
 /* ===================== Trimitere + rezervare online ===================== */

@@ -12,6 +12,12 @@
 
 import { buildUploadUrl } from "../uploadFile.js";
 import {
+  DIRECT_PURPOSE_BY_ENDPOINT,
+  isBrowserEncoded,
+  isDirectImageUploadEnabled,
+  uploadImageDirect,
+} from "./directImageUpload.js";
+import {
   PRODUCT_IMAGE_UPLOAD_ENDPOINT,
   ProductImageUploadError,
   isPersistentImageUrl,
@@ -38,12 +44,40 @@ export function urlFromUploadResponse(data) {
 }
 
 /**
+ * Upload-ul unei fotografii: DIRECT în R2 când noul sistem e activ și fișierul
+ * vine din optimizarea în browser (JPEG curat, max 2400 px); altfel - sau la
+ * revenirea controlată (DirectUploadFallback) - ruta veche prin server.
+ * @param {Blob} file
+ * @param {{ onProgress?: (fraction: number) => void, signal?: AbortSignal, endpoint?: string, fieldName?: string,
+ *           directPurpose?: string|null, directEnabled?: boolean, direct?: Function,
+ *           stallTimeoutMs?: number, responseTimeoutMs?: number, XHR?: typeof XMLHttpRequest }} [options]
+ * @returns {Promise<{ url: string, data: object }>}
+ */
+export function uploadProductImage(file, options = {}) {
+  const {
+    endpoint = PRODUCT_IMAGE_UPLOAD_ENDPOINT,
+    directEnabled = isDirectImageUploadEnabled(),
+    direct = uploadImageDirect,
+  } = options;
+  const purpose =
+    options.directPurpose === undefined ? DIRECT_PURPOSE_BY_ENDPOINT[endpoint] || null : options.directPurpose;
+
+  if (!directEnabled || !purpose || !isBrowserEncoded(file)) return uploadProductImageViaServer(file, options);
+
+  return direct(file, { purpose, signal: options.signal, onProgress: options.onProgress }).catch((error) => {
+    if (error?.directFallback) return uploadProductImageViaServer(file, options);
+    throw error;
+  });
+}
+
+/**
+ * Ruta veche: POST multipart spre server (procesare + R2 pe server).
  * @param {Blob} file
  * @param {{ onProgress?: (fraction: number) => void, signal?: AbortSignal, endpoint?: string, fieldName?: string,
  *           stallTimeoutMs?: number, responseTimeoutMs?: number, XHR?: typeof XMLHttpRequest }} [options]
  * @returns {Promise<{ url: string, data: object }>}
  */
-export function uploadProductImage(file, options = {}) {
+export function uploadProductImageViaServer(file, options = {}) {
   const {
     onProgress,
     signal,

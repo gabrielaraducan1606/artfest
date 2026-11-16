@@ -10,6 +10,8 @@
 //   POST   /:id/sync-price   preia prețul curent din Artfest (înainte de termen)
 //   POST   /submit           trimite liniile DRAFT + rezervă stocul online
 //   POST   /:id/cancel       anulează o linie trimisă, încă nerecepționată (eliberează rezervarea)
+//   POST   /:id/quantity     corectează cantitatea unei linii trimise, nerecepționate (în termen;
+//                             rezervarea online se ajustează doar cu diferența; istoric)
 //   GET    /labels.pdf       403 - etichetele sunt generate de Artfest (Admin)
 //   GET    /:id/label.pdf    403 - idem
 //
@@ -20,6 +22,7 @@ import { authRequired } from "../api/auth.js";
 import {
   addInventoryItem,
   addManualInventoryItem,
+  adjustSubmittedQuantity,
   getVendorInventoryContext,
   listEligibleProducts,
   listInventory,
@@ -116,6 +119,20 @@ router.post(
   handle(async (req, res) => {
     const item = await syncInventoryItemPrice({ vendorId: req.vendorId, userId: req.user.sub, id: req.params.id });
     res.json({ ok: true, item });
+  })
+);
+
+// body: { declaredQty, expectedDeclaredQty } - expectedDeclaredQty = cantitatea afișată vendorului
+router.post(
+  "/:id/quantity",
+  handle(async (req, res) => {
+    const result = await adjustSubmittedQuantity({
+      vendorId: req.vendorId,
+      userId: req.user.sub,
+      id: req.params.id,
+      body: req.body || {},
+    });
+    res.json({ ok: true, ...result });
   })
 );
 

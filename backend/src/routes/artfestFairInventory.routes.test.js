@@ -598,3 +598,200 @@ test("etichete: vendorul nu le mai poate genera (403), nimic nu se modifică", a
   assert.equal(listed.status, 200);
   assert.equal(listed.body.items[0].barcode, barcode);
 });
+
+/* ===================== corectarea cantității unei linii trimise ===================== */
+
+const lineOf = (productId, variant) =>
+  items().find((l) => l.productId === productId && (!variant || l.variantLabel === `Culoare: ${variant}`));
+const adjust = (as, line, declaredQty, expectedDeclaredQty = line.declaredQty) =>
+  call("POST", `${INV}/${line.id}/quantity`, { as, body: { declaredQty, expectedDeclaredQty } });
+
+function issueNote(line, quantity, status = "ISSUED") {
+  const [note] = fake.seed("artfestFairDeliveryNote", [
+    { fairId: line.fairId, registrationId: line.registrationId, vendorId: line.vendorId, series: "AV", number: 1, status },
+  ]);
+  fake.seed("artfestFairDeliveryNoteLine", [{ noteId: note.id, inventoryItemId: line.id, position: 1, quantity }]);
+  return note;
+}
+
+test("corecție: majorare din stocul online, doar diferența; istoric; idempotent pe valoare", async () => {
+  await add(ctx.v1, { productId: ctx.pColors.id, selectedOptions: { culoare: "Roșu" }, declaredQty: 2 });
+  await call("POST", `${INV}/submit`, { as: ctx.v1 });
+  assert.equal(productRow(ctx.pColors.id).readyQty, 3);
+  const line = lineOf(ctx.pColors.id, "Roșu");
+  const priceBefore = line.priceSnapshotCents;
+  const barcodeBefore = line.barcode;
+
+  const res = await adjust(ctx.v1, line, 4, 2);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.changed, true);
+  assert.equal(res.body.onlineDelta, 2);
+  assert.equal(productRow(ctx.pColors.id).readyQty, 1); // 3 - 2, nu 3 - 4
+  const after = lineOf(ctx.pColors.id, "Roșu");
+  assert.equal(after.declaredQty, 4);
+  assert.equal(after.onlineReservedQty, 4);
+  assert.equal(after.status, "SUBMITTED");
+  assert.equal(after.priceSnapshotCents, priceBefore);
+  assert.equal(after.barcode, barcodeBefore);
+  const updated = eventsOf("UPDATED").at(-1);
+  assert.deepEqual([updated.before.declaredQty, updated.after.declaredQty], [2, 4]);
+  assert.equal(updated.note, "submitted_quantity_corrected");
+  assert.equal(eventsOf("ONLINE_STOCK_RESERVED").at(-1).note, "quantity_increase");
+  assert.equal(res.body.item.quantities.availableForNoteQty, 4);
+
+  // aceeași țintă retrimisă (dublu click): nimic nou
+  const again = await adjust(ctx.v1, line, 4, 2);
+  assert.equal(again.status, 200);
+  assert.equal(again.body.changed, false);
+  assert.equal(productRow(ctx.pColors.id).readyQty, 1);
+
+  // cantitatea văzută e veche => 409, nimic schimbat
+  const stale = await adjust(ctx.v1, line, 5, 2);
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error, "inventory_changed");
+  assert.equal(lineOf(ctx.pColors.id, "Roșu").declaredQty, 4);
+});
+
+test("corecție: stoc online insuficient => 409 și rollback complet", async () => {
+  await add(ctx.v1, { productId: ctx.pColors.id, selectedOptions: { culoare: "Roșu" }, declaredQty: 2 });
+  await call("POST", `${INV}/submit`, { as: ctx.v1 });
+  const line = lineOf(ctx.pColors.id, "Roșu");
+  const eventsBefore = fake.tables.artfestFairInventoryEvent.length;
+
+  const res = await adjust(ctx.v1, line, 10);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.error, "insufficient_online_stock");
+  assert.equal(productRow(ctx.pColors.id).readyQty, 3);
+  assert.equal(lineOf(ctx.pColors.id, "Roșu").declaredQty, 2);
+  assert.equal(lineOf(ctx.pColors.id, "Roșu").onlineReservedQty, 2);
+  assert.equal(fake.tables.artfestFairInventoryEvent.length, eventsBefore);
+});
+
+test("corecție: produs epuizat online (1 în stoc, trimis) => 5 bucăți fără a atinge stocul online", async () => {
+  await add(ctx.v1, { productId: ctx.pLow.id, declaredQty: 1 });
+  await call("POST", `${INV}/submit`, { as: ctx.v1 });
+  assert.equal(productRow(ctx.pLow.id).availability, "SOLD_OUT");
+  const line = lineOf(ctx.pLow.id);
+
+  const res = await adjust(ctx.v1, line, 5);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.onlineDelta, 0);
+  assert.equal(productRow(ctx.pLow.id).readyQty, 0);
+  assert.equal(productRow(ctx.pLow.id).availability, "SOLD_OUT");
+  const after = lineOf(ctx.pLow.id);
+  assert.equal(after.declaredQty, 5);
+  assert.equal(after.onlineReservedQty, 1); // doar bucata luată efectiv din online revine la final
+});
+
+test("corecție: diminuare redă online surplusul rezervat; nu sub bucățile de pe avize emise", async () => {
+  await add(ctx.v1, { productId: ctx.pColors.id, selectedOptions: { culoare: "Roșu" }, declaredQty: 4 });
+  await call("POST", `${INV}/submit`, { as: ctx.v1 });
+  assert.equal(productRow(ctx.pColors.id).readyQty, 1);
+  const line = lineOf(ctx.pColors.id, "Roșu");
+  issueNote(line, 2);
+  issueNote(line, 3, "CANCELLED"); // avizul anulat nu contează
+
+  const below = await adjust(ctx.v1, line, 1);
+  assert.equal(below.status, 409);
+  assert.equal(below.body.error, "below_issued_quantity");
+  assert.match(below.body.fields.declaredQty, /Minimum 2/);
+  assert.equal(productRow(ctx.pColors.id).readyQty, 1);
+
+  const res = await adjust(ctx.v1, line, 2);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.onlineDelta, -2);
+  assert.equal(productRow(ctx.pColors.id).readyQty, 3);
+  assert.equal(productRow(ctx.pColors.id).availability, "READY");
+  assert.equal(lineOf(ctx.pColors.id, "Roșu").onlineReservedQty, 2);
+  assert.equal(eventsOf("ONLINE_STOCK_RELEASED").at(-1).note, "quantity_decrease");
+  // avizul emis rămâne neatins; disponibil pentru aviz = 2 - 2
+  assert.equal(fake.tables.artfestFairDeliveryNoteLine[0].quantity, 2);
+  assert.equal(res.body.item.quantities.issuedQty, 2);
+  assert.equal(res.body.item.quantities.availableForNoteQty, 0);
+
+  // lista arată cantitățile pentru „Modifică inventarul”
+  const listed = await call("GET", INV, { as: ctx.v1 });
+  const view = listed.body.items.find((i) => i.id === line.id);
+  assert.deepEqual(
+    { ...view.quantities },
+    { declaredQty: 2, issuedQty: 2, receivedQty: 0, availableForNoteQty: 0, minAdjustQty: 2, maxQty: 1000 }
+  );
+  assert.equal(view.actions.canAdjustQty, true);
+});
+
+test("corecție: la comandă (fără rezervare) => stocul online nu se schimbă", async () => {
+  await add(ctx.v1, { productId: ctx.pMto.id, declaredQty: 4 });
+  await call("POST", `${INV}/submit`, { as: ctx.v1 });
+  const line = lineOf(ctx.pMto.id);
+  const res = await adjust(ctx.v1, line, 9);
+  assert.equal(res.status, 200);
+  assert.equal(lineOf(ctx.pMto.id).onlineReservationMode, "NONE");
+  assert.equal(productRow(ctx.pMto.id).availability, "MADE_TO_ORDER");
+  assert.equal(productRow(ctx.pMto.id).readyQty, null);
+  const down = await adjust(ctx.v1, lineOf(ctx.pMto.id), 3);
+  assert.equal(down.status, 200);
+  assert.equal(productRow(ctx.pMto.id).readyQty, null);
+});
+
+test("corecție refuzată: unicat, DRAFT, recepționat, după termen, alt vendor, cantitate invalidă", async () => {
+  await draftMix();
+  await add(ctx.v1, { productId: ctx.pLow.id, declaredQty: 1 });
+  const draft = lineOf(ctx.pLow.id);
+  const draftRes = await adjust(ctx.v1, draft, 2);
+  assert.equal(draftRes.status, 409);
+  assert.equal(draftRes.body.error, "inventory_item_not_adjustable");
+  await call("DELETE", `${INV}/${draft.id}`, { as: ctx.v1 });
+
+  await call("POST", `${INV}/submit`, { as: ctx.v1 });
+  const unique = lineOf(ctx.pUnique.id);
+  const uniqueRes = await adjust(ctx.v1, unique, 2);
+  assert.equal(uniqueRes.status, 409);
+  assert.equal(uniqueRes.body.error, "unique_quantity_fixed");
+
+  const other = await adjust(ctx.v2, lineOf(ctx.pMto.id), 5);
+  assert.equal(other.status, 404);
+
+  for (const bad of [0, -1, 1.5, 1001, "abc"]) {
+    const r = await call("POST", `${INV}/${lineOf(ctx.pMto.id).id}/quantity`, {
+      as: ctx.v1,
+      body: { declaredQty: bad, expectedDeclaredQty: 4 },
+    });
+    assert.equal(r.status, 400, `cantitate ${bad}`);
+  }
+
+  // recepționat: cantitățile nu se mai modifică retroactiv
+  const received = lineOf(ctx.pColors.id, "Roșu");
+  Object.assign(received, { status: "RECEIVED", receivedQty: 2, availableQty: 2 });
+  const recRes = await adjust(ctx.v1, received, 5);
+  assert.equal(recRes.status, 409);
+  assert.equal(recRes.body.error, "inventory_item_not_adjustable");
+  assert.equal(received.declaredQty, 2);
+  const listed = await call("GET", INV, { as: ctx.v1 });
+  const recView = listed.body.items.find((i) => i.id === received.id);
+  assert.deepEqual({ ...recView.actions.qtyChange }, { mode: "request", reason: "received" });
+  assert.equal(recView.quantities.receivedQty, 2);
+
+  // după termen: doar prin Artfest
+  const readyBefore = productRow(ctx.pColors.id).readyQty;
+  fake.tables.artfestFair[0].inventoryDeadlineAt = new Date(Date.now() - DAY);
+  const late = await adjust(ctx.v1, lineOf(ctx.pColors.id, "Verde"), 3);
+  assert.equal(late.status, 409);
+  assert.equal(late.body.error, "inventory_locked");
+  assert.equal(productRow(ctx.pColors.id).readyQty, readyBefore);
+  const lateList = await call("GET", INV, { as: ctx.v1 });
+  const lateView = lateList.body.items.find((i) => i.id === lineOf(ctx.pColors.id, "Verde").id);
+  assert.equal(lateView.actions.canAdjustQty, false);
+  assert.deepEqual({ ...lateView.actions.qtyChange }, { mode: "request", reason: "deadline" });
+});
+
+test("corecție: două cereri simultane din aceeași stare => una reușește, cealaltă 409", async () => {
+  await add(ctx.v1, { productId: ctx.pColors.id, selectedOptions: { culoare: "Roșu" }, declaredQty: 1 });
+  await call("POST", `${INV}/submit`, { as: ctx.v1 });
+  const line = lineOf(ctx.pColors.id, "Roșu");
+  const [a, b] = await Promise.all([adjust(ctx.v1, line, 3, 1), adjust(ctx.v1, line, 2, 1)]);
+  assert.deepEqual([a.status, b.status].sort(), [200, 409]);
+  const final = lineOf(ctx.pColors.id, "Roșu");
+  // stocul online corespunde exact cantității rezervate de linie
+  assert.equal(productRow(ctx.pColors.id).readyQty, 5 - final.onlineReservedQty);
+  assert.equal(final.onlineReservedQty, final.declaredQty);
+});

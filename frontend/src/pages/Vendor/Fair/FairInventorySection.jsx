@@ -9,7 +9,22 @@
 // pentru citire: situația fiecărui produs și starea rezervării online.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, BadgeCheck, Camera, FileText, Package, Pencil, Plus, Send, Tag, Trash2, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import {
+  AlertTriangle,
+  BadgeCheck,
+  Camera,
+  FileText,
+  LifeBuoy,
+  ListChecks,
+  Package,
+  Pencil,
+  Plus,
+  Send,
+  Tag,
+  Trash2,
+  X,
+} from "lucide-react";
 import { api } from "../../../lib/api";
 import { canRetryImageUpload, prepareAndUploadImage } from "../../../lib/productImages/prepareAndUploadImage.js";
 import { PRODUCT_IMAGE_ACCEPT } from "../../../lib/productImages/productImageRules.js";
@@ -22,6 +37,13 @@ import {
   formatPrice,
 } from "./fairInventory.js";
 import { SITUATION_LABEL, SITUATION_TONE, onlineStateText } from "./fairReturns.js";
+import {
+  buildAdjustBody,
+  itemQuantities,
+  onlineEffectText,
+  qtyChangeText,
+  validateAdjustQty,
+} from "./fairInventoryQuantity.js";
 import styles from "./FairInventory.module.css";
 import { DeliveryNoteModal, DeliveryNotesHistory } from "./FairDeliveryNotes.jsx";
 
@@ -791,6 +813,226 @@ function ItemModal({ mode, item, products, onClose, onSaved, onSourceChange }) {
   );
 }
 
+/* ===================== Modifică inventarul: cantități ===================== */
+
+// cantitatea declarată / pe avize / recepționată / disponibilă pentru aviz
+function QuantityFacts({ item }) {
+  const q = itemQuantities(item);
+  return (
+    <dl className={styles.qtyFacts}>
+      <div>
+        <dt>Declarat</dt>
+        <dd>{q.declaredQty}</dd>
+      </div>
+      <div>
+        <dt>Pe avize</dt>
+        <dd>{q.issuedQty}</dd>
+      </div>
+      <div>
+        <dt>Recepționat</dt>
+        <dd>{q.receivedQty}</dd>
+      </div>
+      <div>
+        <dt>De avizat</dt>
+        <dd>{q.availableForNoteQty}</dd>
+      </div>
+    </dl>
+  );
+}
+
+// corecția cantității unei linii trimise, nerecepționate (în termen)
+function AdjustQtyModal({ item, onClose, onSaved, onStale }) {
+  const q = itemQuantities(item);
+  const [value, setValue] = useState(String(q.declaredQty));
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && !saving && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, saving]);
+
+  const parsed = Number(String(value).trim());
+  const effect = Number.isInteger(parsed) && parsed !== q.declaredQty ? onlineEffectText(item, parsed) : "";
+
+  async function onSubmit(event) {
+    event.preventDefault();
+    if (saving) return;
+    const check = validateAdjustQty(value, item);
+    if (!check.ok) {
+      setError(check.message);
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const res = await api(`${INVENTORY_API}/${encodeURIComponent(item.id)}/quantity`, {
+        method: "POST",
+        body: buildAdjustBody(item, check.qty),
+      });
+      onSaved(res);
+    } catch (err) {
+      setError(err?.data?.fields?.declaredQty || errorMessage(err, "Nu am putut modifica cantitatea."));
+      // 409: datele s-au schimbat (alt tab, aviz nou, recepție) => cantitățile afișate se reîncarcă
+      if (err?.status === 409) onStale?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={styles.backdrop} onClick={() => !saving && onClose()} role="presentation">
+      <form
+        className={styles.modal}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Modifică cantitatea"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={onSubmit}
+        noValidate
+      >
+        <div className={styles.modalHead}>
+          <h3>Modifică cantitatea</h3>
+          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Închide" disabled={saving}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className={styles.modalBody}>
+          <div className={styles.readonlyProduct}>
+            <strong>{item.title}</strong>
+            {item.variantLabel && <span>{item.variantLabel}</span>}
+            <span>
+              {formatPrice(item.priceCents)} · cod {item.barcodeDisplay}
+            </span>
+          </div>
+          <QuantityFacts item={item} />
+          <label className={styles.field}>
+            <span className={styles.label}>Cantitatea nouă trimisă la târg</span>
+            <input
+              className={styles.input}
+              type="number"
+              inputMode="numeric"
+              min={q.minAdjustQty}
+              max={q.maxQty}
+              step={1}
+              value={value}
+              autoFocus
+              onChange={(e) => {
+                setValue(e.target.value);
+                setError("");
+              }}
+              aria-invalid={error ? "true" : undefined}
+            />
+            {q.issuedQty > 0 && (
+              <span className={styles.hint}>Minimum {q.minAdjustQty}: bucățile deja trecute pe avize emise.</span>
+            )}
+          </label>
+          {effect && <p className={styles.hint}>{effect}</p>}
+          <p className={styles.hint}>
+            Prețul, codul produsului și avizele deja emise nu se schimbă. Avizele noi vor folosi cantitatea actualizată.
+          </p>
+          {error && (
+            <div className={styles.errorBox} role="alert">
+              {error}
+            </div>
+          )}
+        </div>
+        <div className={styles.modalFoot}>
+          <button type="button" className={styles.btnGhost} onClick={onClose} disabled={saving}>
+            Renunță
+          </button>
+          <button type="submit" className={styles.btn} disabled={saving}>
+            {saving ? "Se salvează…" : "Salvează cantitatea"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// „Modifică inventarul”: toate liniile, cu ce se poate face pentru fiecare
+function InventoryOverviewModal({ items, canAdd, onClose, onAdd, onEdit, onAdjust }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className={styles.backdrop} onClick={onClose} role="presentation">
+      <div
+        className={`${styles.modal} ${styles.modalWide}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Modifică inventarul"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={styles.modalHead}>
+          <h3>Modifică inventarul</h3>
+          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Închide">
+            <X size={18} />
+          </button>
+        </div>
+        <div className={styles.modalBody}>
+          <p className={styles.hint}>
+            Produsele netrimise se editează normal. La produsele trimise și încă nerecepționate poți corecta cantitatea până la
+            termen. După recepție sau după termen, modificările se fac doar cu acordul Artfest.
+          </p>
+          <ul className={styles.overviewList}>
+            {items.map((item) => {
+              const qtyChange = item.actions?.qtyChange || { mode: "none" };
+              const reasonText = qtyChangeText(qtyChange);
+              return (
+                <li key={item.id} className={styles.overviewItem}>
+                  <div className={styles.itemHead}>
+                    <div className={styles.itemTitle}>
+                      <strong>{item.title}</strong>
+                      {item.variantLabel && <span>{item.variantLabel}</span>}
+                    </div>
+                    <span className={`${styles.badge} ${styles[`tone_${INVENTORY_STATUS_TONE[item.status] || "muted"}`]}`}>
+                      {INVENTORY_STATUS_LABEL[item.status] || item.status}
+                    </span>
+                  </div>
+                  <QuantityFacts item={item} />
+                  {reasonText && <p className={styles.hint}>{reasonText}</p>}
+                  <div className={styles.itemActions}>
+                    {qtyChange.mode === "edit" && item.actions?.canEdit && (
+                      <button type="button" className={styles.btnSmall} onClick={() => onEdit(item)}>
+                        <Pencil size={14} aria-hidden="true" /> Editează
+                      </button>
+                    )}
+                    {qtyChange.mode === "adjust" && (
+                      <button type="button" className={styles.btnSmall} onClick={() => onAdjust(item)}>
+                        <Pencil size={14} aria-hidden="true" /> Modifică cantitatea
+                      </button>
+                    )}
+                    {qtyChange.mode === "request" && (
+                      <Link className={styles.btnSmall} to="/vendor/support">
+                        <LifeBuoy size={14} aria-hidden="true" /> Solicită modificare
+                      </Link>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        <div className={styles.modalFoot}>
+          <button type="button" className={styles.btnGhost} onClick={onClose}>
+            Închide
+          </button>
+          {canAdd && (
+            <button type="button" className={styles.btn} onClick={onAdd}>
+              <Plus size={16} aria-hidden="true" /> Adaugă produs
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ===================== Secțiunea ===================== */
 
 export default function FairInventorySection() {
@@ -804,6 +1046,9 @@ export default function FairInventorySection() {
   // aviz de însoțire: { replaceNote } (null = aviz nou); doar documente, fără efect pe inventar
   const [noteModal, setNoteModal] = useState(null);
   const [notesRefresh, setNotesRefresh] = useState(0);
+  // „Modifică inventarul”: lista de ansamblu și corecția unei cantități (după id: datele vin mereu din listă)
+  const [overviewOpen, setOverviewOpen] = useState(false);
+  const [adjustId, setAdjustId] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -887,7 +1132,7 @@ export default function FairInventorySection() {
       "Trimiți inventarul pentru târg?\n\n" +
         "• Bucățile trimise la târg se scad din stocul tău online.\n" +
         "• Produsele unicat devin indisponibile online cât timp sunt la târg.\n" +
-        "• După trimitere, cantitățile și variantele nu se mai pot modifica."
+        "• După trimitere, varianta nu se mai poate modifica. Cantitatea se poate corecta până la termen, cât timp produsul nu a fost recepționat."
     );
     if (!ok) return;
     run("submit", () => api(`${INVENTORY_API}/submit`, { method: "POST" }), "Inventarul a fost trimis.");
@@ -934,6 +1179,18 @@ export default function FairInventorySection() {
           </p>
         </div>
         <div className={styles.headActions}>
+          {data.approved && items.length > 0 && (
+            <button
+              type="button"
+              className={styles.btnGhost}
+              onClick={() => {
+                setNotice("");
+                setOverviewOpen(true);
+              }}
+            >
+              <ListChecks size={16} aria-hidden="true" /> Modifică inventarul
+            </button>
+          )}
           {data.canEdit && (
             <button type="button" className={styles.btnGhost} onClick={openAdd}>
               <Plus size={16} aria-hidden="true" /> Adaugă produs
@@ -1037,6 +1294,7 @@ export default function FairInventorySection() {
                   </ul>
                 )}
 
+                {!readOnly && item.status !== "DRAFT" && <QuantityFacts item={item} />}
                 <ReceptionResult reception={item.reception} />
                 {readOnly ? (
                   <PhysicalState item={item} />
@@ -1065,6 +1323,24 @@ export default function FairInventorySection() {
                     >
                       <Pencil size={14} aria-hidden="true" /> Editează
                     </button>
+                  )}
+                  {item.actions.canAdjustQty && (
+                    <button
+                      type="button"
+                      className={styles.btnSmall}
+                      onClick={() => {
+                        setNotice("");
+                        setAdjustId(item.id);
+                      }}
+                      disabled={Boolean(busy)}
+                    >
+                      <Pencil size={14} aria-hidden="true" /> Modifică cantitatea
+                    </button>
+                  )}
+                  {!readOnly && item.actions.qtyChange?.mode === "request" && (
+                    <Link className={styles.btnSmall} to="/vendor/support" title={qtyChangeText(item.actions.qtyChange)}>
+                      <LifeBuoy size={14} aria-hidden="true" /> Solicită modificare
+                    </Link>
                   )}
                   {item.actions.canCancel && (
                     <button
@@ -1107,6 +1383,49 @@ export default function FairInventorySection() {
           onIssued={() => setNotesRefresh((x) => x + 1)}
         />
       )}
+
+      {overviewOpen && (
+        <InventoryOverviewModal
+          items={items}
+          canAdd={data.canEdit}
+          onClose={() => setOverviewOpen(false)}
+          onAdd={() => {
+            setOverviewOpen(false);
+            openAdd();
+          }}
+          onEdit={(item) => {
+            setOverviewOpen(false);
+            setModal({ mode: "edit", item });
+          }}
+          onAdjust={(item) => {
+            setOverviewOpen(false);
+            setAdjustId(item.id);
+          }}
+        />
+      )}
+
+      {adjustId &&
+        (() => {
+          const adjustItem = items.find((i) => i.id === adjustId);
+          if (!adjustItem) return null;
+          return (
+            <AdjustQtyModal
+              key={adjustItem.id}
+              item={adjustItem}
+              onClose={() => setAdjustId(null)}
+              onStale={load}
+              onSaved={(res) => {
+                setAdjustId(null);
+                setNotice(
+                  res?.changed
+                    ? `Cantitatea pentru „${adjustItem.title}” a fost actualizată: ${res.fromQty} → ${res.toQty} buc. Avizele noi vor folosi noua cantitate.`
+                    : "Cantitatea era deja actualizată."
+                );
+                load();
+              }}
+            />
+          );
+        })()}
 
       {modal &&
         (() => {

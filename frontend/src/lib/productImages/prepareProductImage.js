@@ -17,6 +17,8 @@
 // Memorie (telefoane): apelantul procesează O SINGURĂ fotografie odată
 // (productImageQueue.js); bitmap-ul și canvas-ul sunt eliberate imediat.
 
+import { isDirectImageUploadEnabled, markBrowserEncoded } from "./directImageUpload.js";
+
 export const TARGET_MAX_EDGE = 2400;
 export const JPEG_QUALITY = 0.9;
 export const PROCESS_ABOVE_BYTES = 4 * 1024 * 1024;
@@ -128,10 +130,12 @@ export function heicFatalMessage(error, fileName = "") {
  *   (ex. HEIC deteriorat) - apelantul o marchează cu eroare, fără upload.
  */
 export async function prepareProductImage(file, options = {}) {
-  const { kind } = options;
+  // upload direct în R2 activ: TOATE fotografiile trec prin canvas (JPEG curat, fără EXIF),
+  // pentru că serverul nu le mai procesează; altfel cele mici pleacă neatinse (ca până acum)
+  const { kind, forceEncode = isDirectImageUploadEnabled() } = options;
   if (!file || NEVER_PROCESS_KINDS.has(kind)) return { file, processed: false };
 
-  const native = await prepareWithNativeDecoder(file, kind);
+  const native = await prepareWithNativeDecoder(file, kind, { forceEncode });
   if (native.processed || native.decoded || kind !== "heic") return native;
 
   /*
@@ -147,7 +151,14 @@ export async function prepareProductImage(file, options = {}) {
   options.onStage?.("optimizing");
   try {
     const result = await convert(file, { onProgress: options.onProgress });
-    return { file: result.file, processed: true, width: result.width, height: result.height, via: "heic-browser" };
+    // canvas de max 2400 px -> JPEG fără metadate: poate merge direct în R2
+    return {
+      file: markBrowserEncoded(result.file),
+      processed: true,
+      width: result.width,
+      height: result.height,
+      via: "heic-browser",
+    };
   } catch (error) {
     const fatalMessage = heicFatalMessage(error, file.name);
     if (fatalMessage) return { file, processed: false, via: "none", fatalMessage };
@@ -157,14 +168,14 @@ export async function prepareProductImage(file, options = {}) {
 }
 
 /** Decodorul NATIV al browserului (JPEG/PNG/WEBP peste tot, HEIC în Safari). */
-async function prepareWithNativeDecoder(file, kind) {
+async function prepareWithNativeDecoder(file, kind, { forceEncode = false } = {}) {
   let bitmap = null;
   let canvas = null;
   try {
     bitmap = await withTimeout(decodeBitmap(file), DECODE_TIMEOUT_MS, "DECODE_TIMEOUT");
 
     // mică, format nativ și sub 2400 px: originalul (serverul o codează o singură dată)
-    if (!shouldProcessInBrowser({ kind, size: file.size, width: bitmap.width, height: bitmap.height })) {
+    if (!forceEncode && !shouldProcessInBrowser({ kind, size: file.size, width: bitmap.width, height: bitmap.height })) {
       return { file, processed: false, decoded: true, width: bitmap.width, height: bitmap.height };
     }
 
@@ -184,13 +195,14 @@ async function prepareWithNativeDecoder(file, kind) {
 
     // JPEG/PNG/WEBP deja în limită și mai mici decât rezultatul: originalul e mai bun
     const sameSize = width === bitmap.width && height === bitmap.height;
-    if (PASSTHROUGH_KINDS.has(kind) && sameSize && blob.size >= file.size) {
+    // (cu upload direct păstrăm rezultatul: serverul nu mai curăță EXIF / orientarea)
+    if (!forceEncode && PASSTHROUGH_KINDS.has(kind) && sameSize && blob.size >= file.size) {
       return { file, processed: false, decoded: true, width, height };
     }
 
     const name = jpegFileName(file.name);
     const out = typeof File === "function" ? new File([blob], name, { type: "image/jpeg" }) : blob;
-    return { file: out, processed: true, decoded: true, width, height, via: "browser" };
+    return { file: markBrowserEncoded(out), processed: true, decoded: true, width, height, via: "browser" };
   } catch {
     // decodare nativă imposibilă (ex. HEIC în Chrome) / memorie / timp: apelantul decide
     return { file, processed: false, decoded: false };
