@@ -362,7 +362,7 @@ export default function FairPage() {
           )}
 
           {status === "WITHDRAWN" && (
-            <p className={styles.muted}>Ți-ai retras înscrierea. Te poți înscrie din nou cât timp înscrierile sunt deschise.</p>
+            <p className={styles.muted}>Înscrierea a fost retrasă. Te poți înscrie din nou cât timp înscrierile sunt deschise.</p>
           )}
 
           {status === "CANCELLED" && (

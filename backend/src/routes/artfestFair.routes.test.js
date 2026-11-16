@@ -813,3 +813,147 @@ test("draftul regulamentului: doar citire pentru vendor / Admin, marcat draft, f
   assert.equal(res2.body.error, "terms_not_published");
   assert.equal(registrations().length, 0);
 });
+
+/* ============================== retragere din Admin ============================== */
+
+const ADM = "/api/admin/artfest-fair";
+const withdrawEvents = (id) =>
+  (fake.tables.artfestFairRegistrationEvent || []).filter((e) => e.registrationId === id && e.type === "WITHDRAWN");
+
+test("admin retrage: SUBMITTED -> WITHDRAWN, cine + când + notă internă; vendorul vede doar „retrasă”", async () => {
+  await register(ctx.v1);
+  const reg = registrations()[0];
+  const notificationsBefore = (fake.tables.notification || []).length;
+  const emailsBefore = sentEmails.length;
+
+  const res = await call("POST", `${ADM}/registrations/${reg.id}/withdraw`, {
+    as: ctx.admin,
+    body: { note: "  Vânzătorul a confirmat că nu mai participă  " },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.item.status, "WITHDRAWN");
+  assert.equal(res.body.item.withdrawal.byAdmin, true);
+  assert.equal(res.body.item.withdrawal.byId, ctx.admin.id);
+  assert.equal(res.body.item.withdrawal.note, "Vânzătorul a confirmat că nu mai participă");
+  assert.equal(res.body.item.actions.canWithdraw, false);
+
+  // înscrierea rămâne în istoric (același rând), cu data retragerii
+  assert.equal(registrations().length, 1);
+  assert.equal(registrations()[0].id, reg.id);
+  assert.ok(registrations()[0].withdrawnAt instanceof Date);
+
+  // audit: un eveniment WITHDRAWN cu actorul Admin
+  const [event] = withdrawEvents(reg.id);
+  assert.equal(withdrawEvents(reg.id).length, 1);
+  assert.equal(event.actorUserId, ctx.admin.id);
+  assert.deepEqual(event.metadata, { byAdmin: true });
+  assert.equal(event.reason, "Vânzătorul a confirmat că nu mai participă");
+  assert.deepEqual(event.before, { status: "SUBMITTED" });
+
+  // istoricul Admin
+  const history = await call("GET", `${ADM}/registrations/${reg.id}/events`, { as: ctx.admin });
+  assert.equal(history.body.items.at(-1).type, "WITHDRAWN");
+  assert.equal(history.body.items.at(-1).metadata.byAdmin, true);
+
+  // vendorul: status WITHDRAWN, fără nota internă / cine a retras
+  const state = await call("GET", "/api/vendor/artfest-fair", { as: ctx.v1 });
+  assert.equal(state.body.registration.status, "WITHDRAWN");
+  assert.doesNotMatch(JSON.stringify(state.body), /nu mai participă|byAdmin/);
+  assert.equal(state.body.actions.canWithdraw, false);
+
+  // fără notificări / emailuri
+  assert.equal((fake.tables.notification || []).length, notificationsBefore);
+  assert.equal(sentEmails.length, emailsBefore);
+});
+
+test("admin retrage: lista participanților activi și contoarele se actualizează", async () => {
+  await register(ctx.v1);
+  await register(ctx.v2);
+  const [r1, r2] = registrations();
+  await call("POST", `${ADM}/registrations/${r1.id}/approve`, { as: ctx.admin });
+  await call("POST", `${ADM}/registrations/${r2.id}/approve`, { as: ctx.admin });
+
+  const before = await call("GET", `${ADM}/registrations?status=APPROVED`, { as: ctx.admin });
+  assert.deepEqual(before.body.items.map((i) => i.id).sort(), [r1.id, r2.id].sort());
+  assert.equal(before.body.items.find((i) => i.id === r1.id).actions.canWithdraw, true);
+
+  const res = await call("POST", `${ADM}/registrations/${r1.id}/withdraw`, { as: ctx.admin, body: {} });
+  assert.equal(res.status, 200);
+  assert.deepEqual(withdrawEvents(r1.id)[0].before, { status: "APPROVED" });
+  assert.equal(withdrawEvents(r1.id)[0].reason, null);
+
+  const after = await call("GET", `${ADM}/registrations?status=APPROVED`, { as: ctx.admin });
+  assert.deepEqual(after.body.items.map((i) => i.id), [r2.id]);
+  const all = await call("GET", `${ADM}/registrations`, { as: ctx.admin });
+  assert.deepEqual(all.body.counts, { APPROVED: 1, WITHDRAWN: 1 });
+  const row = all.body.items.find((i) => i.id === r1.id);
+  assert.equal(row.withdrawal.byAdmin, true);
+  assert.equal(row.withdrawal.byName, "adm@t.ro");
+
+  // o retragere a vendorului rămâne „de vendor”
+  await call("POST", "/api/vendor/artfest-fair/registration/withdraw", { as: ctx.v2 });
+  const both = await call("GET", `${ADM}/registrations?status=WITHDRAWN`, { as: ctx.admin });
+  assert.equal(both.body.items.find((i) => i.id === r2.id).withdrawal.byAdmin, false);
+  assert.equal(both.body.items.find((i) => i.id === r2.id).withdrawal.note, null);
+});
+
+test("admin retrage: dublu click + retragere simultană a vendorului => o singură retragere", async () => {
+  await register(ctx.v1);
+  const reg = registrations()[0];
+
+  const results = await Promise.all([
+    call("POST", `${ADM}/registrations/${reg.id}/withdraw`, { as: ctx.admin, body: { note: "a" } }),
+    call("POST", `${ADM}/registrations/${reg.id}/withdraw`, { as: ctx.admin, body: { note: "b" } }),
+    call("POST", "/api/vendor/artfest-fair/registration/withdraw", { as: ctx.v1 }),
+  ]);
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409, 409]);
+  for (const r of results.filter((x) => x.status === 409)) assert.equal(r.body.error, "invalid_transition");
+  assert.equal(withdrawEvents(reg.id).length, 1);
+  assert.equal(registrations()[0].status, "WITHDRAWN");
+});
+
+test("admin retrage: doar ADMIN; statusuri nepermise și inventar trimis / recepționat => 409, nimic schimbat", async () => {
+  await register(ctx.v1);
+  await register(ctx.v2);
+  await register(ctx.v3);
+  const [r1, r2, r3] = registrations();
+
+  assert.equal((await call("POST", `${ADM}/registrations/${r1.id}/withdraw`)).status, 401);
+  assert.equal((await call("POST", `${ADM}/registrations/${r1.id}/withdraw`, { as: ctx.v1 })).status, 403);
+  assert.equal((await call("POST", `${ADM}/registrations/nope/withdraw`, { as: ctx.admin })).status, 404);
+  assert.equal(
+    (await call("POST", `${ADM}/registrations/${r1.id}/withdraw`, { as: ctx.admin, body: { note: "x".repeat(2001) } })).status,
+    400
+  );
+  assert.equal(registrations()[0].status, "SUBMITTED");
+
+  // REJECTED nu se retrage (ca la vendor)
+  await call("POST", `${ADM}/registrations/${r2.id}/reject`, { as: ctx.admin, body: {} });
+  const onRejected = await call("POST", `${ADM}/registrations/${r2.id}/withdraw`, { as: ctx.admin });
+  assert.equal(onRejected.status, 409);
+  assert.equal(onRejected.body.currentStatus, "REJECTED");
+
+  // produse recepționate => retragerea e blocată, se folosește „Anulează participarea”
+  await call("POST", `${ADM}/registrations/${r3.id}/approve`, { as: ctx.admin });
+  fake.seed("artfestFairInventoryItem", [
+    { registrationId: r3.id, fairId: r3.fairId, vendorId: r3.vendorId, status: "RECEIVED", declaredQty: 3, receivedQty: 3 },
+    { registrationId: r3.id, fairId: r3.fairId, vendorId: r3.vendorId, status: "DRAFT", declaredQty: 1 },
+  ]);
+  const detail = await call("GET", `${ADM}/registrations/${r3.id}`, { as: ctx.admin });
+  assert.equal(detail.body.item.actions.canWithdraw, false);
+  assert.equal(detail.body.item.actions.canCancel, true);
+  assert.equal(detail.body.item.inventory.receivedLines, 1);
+  assert.equal(detail.body.item.inventory.activeLines, 1);
+
+  const blocked = await call("POST", `${ADM}/registrations/${r3.id}/withdraw`, { as: ctx.admin });
+  assert.equal(blocked.status, 409);
+  assert.equal(blocked.body.error, "inventory_submitted");
+  assert.match(blocked.body.message, /Anulează participarea/);
+  assert.equal(registrations()[2].status, "APPROVED");
+  assert.equal(withdrawEvents(r3.id).length, 0);
+  // inventarul neatins
+  assert.deepEqual(
+    fake.tables.artfestFairInventoryItem.filter((i) => i.registrationId === r3.id).map((i) => i.status),
+    ["RECEIVED", "DRAFT"]
+  );
+});

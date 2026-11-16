@@ -9,6 +9,7 @@ import {
 } from "../../errors.js";
 import { assertSamedayEnvironment, SAMEDAY_BASE_URLS } from "../../samedayEnvironment.js";
 import { isSamedayLocalSimulationEnabled, SamedaySimulationBlockedError, simulatedSamedayResponse } from "./localSimulation.js";
+import { parseSamedayError, samedayRejectionMessage } from "./errorParsing.js";
 
 /*
  * Simulare locală (localSimulation.js): cu simularea activă NICIO cerere nu
@@ -242,25 +243,14 @@ export async function getSamedaySession(ctx, { forceRefresh = false } = {}) {
 }
 
 /*
- * Câmpurile respinse de Sameday la 400 (structura Symfony form errors:
- * { errors: { children: { field: { errors: [...] }, awbRecipient: { children: ... } } } }).
+ * Câmpurile respinse de Sameday la 400 / 422 (formular Symfony errors.children,
+ * { error: { code, message } } documentat în Swagger, liste - vezi errorParsing.js).
  * Întoarcem DOAR căile câmpurilor (ex. "awbRecipient.phoneNumber"), nu și
  * mesajele/valorile - pot conține date trimise.
  */
 export function collectSamedayErrorFields(body) {
-  const out = [];
-  const walk = (node, path) => {
-    if (!node || typeof node !== "object") return;
-    if (Array.isArray(node.errors) && node.errors.length && path) out.push(path);
-    const children = node.children && typeof node.children === "object" ? node.children : null;
-    if (children) {
-      for (const [key, child] of Object.entries(children)) {
-        walk(child, path ? `${path}.${key}` : key);
-      }
-    }
-  };
-  walk(body?.errors, "");
-  return [...new Set(out)].slice(0, 30);
+  // toate formele cunoscute (errorParsing.js): formular Symfony, { error: {...} }, liste
+  return parseSamedayError(body).fields;
 }
 
 /**
@@ -301,18 +291,28 @@ export async function samedayRequest(ctx, { method = "GET", path, form, binary =
     if (res.status === 401 || res.status === 403) throw new CourierAuthError();
 
     if (res.status === 400 || res.status === 422) {
-      // date respinse de Sameday: eșec SIGUR (nimic creat)
+      // date respinse de Sameday: eșec SIGUR (nimic creat). Corpul poate fi JSON
+      // (documentat: { error: { code, message } }; formular: errors.children) sau text.
       let body = null;
       try {
-        body = await res.json();
+        const text = await res.text();
+        try {
+          body = text ? JSON.parse(text) : null;
+        } catch {
+          body = text;
+        }
       } catch {
         body = null;
       }
-      const err = new CourierValidationError(
-        "Sameday a respins datele expedierii. Verifică adresa, greutatea și serviciul ales.",
-        collectSamedayErrorFields(body)
-      );
+      const parsed = parseSamedayError(body);
+      // mesajul pentru vânzător: în română, fără textul tehnic Sameday
+      const err = new CourierValidationError(samedayRejectionMessage(parsed), parsed.fields);
       err.providerStatus = res.status;
+      // diagnostic (curățat de date personale): salvat în CourierAwb.providerMeta, NU trimis vânzătorului
+      err.providerMessage = parsed.message;
+      err.providerErrors = parsed.errors;
+      // mesaje Sameday eliminate complet (nu au putut fi curățate sigur): rămân doar codul și câmpurile
+      err.providerMessagesRedacted = parsed.redacted || 0;
       // respins de curier (nu cerere invalidă a clientului nostru)
       err.httpStatus = 422;
       throw err;

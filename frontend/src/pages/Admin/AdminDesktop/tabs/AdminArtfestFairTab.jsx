@@ -1,7 +1,7 @@
 // src/pages/Admin/AdminDesktop/tabs/AdminArtfestFairTab.jsx
 //
 // Admin -> Târg Artfest: înscrierile vendorilor (aprobare / respingere /
-// anularea participării aprobate + retur) și trimiterea MANUALĂ a invitației
+// retragere în numele vendorului / anularea participării aprobate + retur) și trimiterea MANUALĂ a invitației
 // către toți vendorii activi. Invitația e idempotentă pe server
 // (ArtfestBroadcastDelivery), deci butonul poate fi apăsat din nou fără să
 // retrimită celor care au primit-o deja.
@@ -368,7 +368,7 @@ function RegistrationDetails({ item, onClose, onChanged }) {
   return (
     <Modal title={`Înscriere - ${item.vendorName || "vendor"}`} onClose={onClose} wide>
       <dl className={styles.details}>
-        <DetailRow label="Status">{STATUS_LABEL[item.status] || item.status}</DetailRow>
+        <DetailRow label="Status">{statusLabel(item)}</DetailRow>
         <DetailRow label="Vendor">{item.vendorName}</DetailRow>
         <DetailRow label="Magazin">
           {storeNames(item)} <StoreEligibility item={item} />
@@ -390,6 +390,14 @@ function RegistrationDetails({ item, onClose, onChanged }) {
         <DetailRow label="Verificată la">{item.reviewedAt ? formatDate(item.reviewedAt) : null}</DetailRow>
         <DetailRow label="Motiv intern respingere">{item.rejectionReason}</DetailRow>
         <DetailRow label="Retrasă la">{item.withdrawnAt ? formatDate(item.withdrawnAt) : null}</DetailRow>
+        {item.withdrawal && (
+          <>
+            <DetailRow label="Retrasă de">
+              {item.withdrawal.byAdmin ? `admin${item.withdrawal.byName ? ` (${item.withdrawal.byName})` : ""}` : "vendor"}
+            </DetailRow>
+            <DetailRow label="Notă internă retragere">{item.withdrawal.note}</DetailRow>
+          </>
+        )}
         {cancellation && (
           <>
             <DetailRow label="Anulată la">{formatDate(cancellation.at)}</DetailRow>
@@ -419,6 +427,137 @@ function RegistrationDetails({ item, onClose, onChanged }) {
           <RegistrationReturns registration={item} />
         </section>
       )}
+    </Modal>
+  );
+}
+
+// eticheta statusului: o retragere făcută din Admin apare ca „Retrasă de admin”
+function statusLabel(item) {
+  if (item.status === "WITHDRAWN" && item.withdrawal?.byAdmin) return "Retrasă de admin";
+  return STATUS_LABEL[item.status] || item.status;
+}
+
+/*
+ * „Retrage înscrierea” din Admin (vendorul a anunțat că nu mai participă).
+ * Înainte de confirmare reîncarcă înscrierea și arată situația ei; retragerea e
+ * permisă doar când serverul o permite (aceleași reguli ca la vendor). Nu face
+ * rambursări, nu anulează facturi, nu modifică inventarul și nu trimite emailuri.
+ */
+function WithdrawModal({ item: initial, fairTitle, onClose, onDone, onStale }) {
+  const [item, setItem] = useState(initial);
+  const [fresh, setFresh] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  // un singur POST chiar și la dublu click (serverul oricum acceptă o singură retragere)
+  const sending = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api(`${API}/registrations/${encodeURIComponent(initial.id)}`)
+      .then((res) => {
+        if (cancelled || !res?.item) return;
+        setItem(res.item);
+        setFresh(true);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e?.data?.message || e?.message || "Nu am putut reîncărca înscrierea.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [initial.id]);
+
+  const inv = item.inventory || {};
+  const canWithdraw = Boolean(item.actions?.canWithdraw);
+
+  async function confirm() {
+    if (sending.current || !canWithdraw) return;
+    sending.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api(`${API}/registrations/${encodeURIComponent(item.id)}/withdraw`, {
+        method: "POST",
+        body: { note: note.trim() || null },
+      });
+      onDone(res?.item || null);
+    } catch (e) {
+      setError(e?.data?.message || e?.message || "Retragerea nu a reușit.");
+      sending.current = false;
+      setBusy(false);
+      // starea s-a schimbat între timp (ex. vendorul a retras singur) => reîncărcăm lista
+      if (e?.status === 409) onStale();
+    }
+  }
+
+  return (
+    <Modal
+      title={`Retrage înscrierea - ${item.vendorName || "vendor"}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className={styles.ghostBtn} onClick={onClose} disabled={busy}>
+            Renunță
+          </button>
+          <button
+            type="button"
+            className={styles.dangerBtn}
+            onClick={confirm}
+            disabled={busy || !fresh || !canWithdraw}
+          >
+            {busy ? "Se retrage…" : "Retrage înscrierea"}
+          </button>
+        </>
+      }
+    >
+      <p>
+        Retragi înscrierea vendorului <strong>„{item.vendorName || "—"}”</strong> la <strong>{fairTitle || "Târgul Artfest"}</strong>?
+      </p>
+      <dl className={styles.details}>
+        <DetailRow label="Status actual">{statusLabel(item)}</DetailRow>
+        <DetailRow label="Produse recepționate">
+          {inv.receivedLines ? `${products(inv.receivedLines)} (${units(inv.receivedQty || 0)})` : "niciunul"}
+        </DetailRow>
+        <DetailRow label="Produse trimise, nerecepționate">
+          {String(Math.max(0, (inv.activeLines || 0) - (inv.receivedLines || 0)))}
+        </DetailRow>
+        <DetailRow label="Produse netrimise (ciornă)">
+          {inv.draftLines ? `${products(inv.draftLines)} - rămân neschimbate` : "niciunul"}
+        </DetailRow>
+        <DetailRow label="Taxa de participare">
+          Plata taxei nu este înregistrată în aplicație. Verific-o separat; retragerea nu face nicio rambursare.
+        </DetailRow>
+      </dl>
+
+      {fresh && !canWithdraw && (
+        <div className={shared.error} role="alert">
+          {inv.activeLines > 0
+            ? "Participantul are produse trimise sau recepționate, așa că înscrierea nu poate fi retrasă. Folosește „Anulează participarea” cu cauza „La cererea vendorului” (include returul produselor)."
+            : `Statusul înscrierii (${statusLabel(item).toLowerCase()}) nu mai permite retragerea.`}
+        </div>
+      )}
+
+      <div className={styles.result} role="note">
+        <strong>Ce se întâmplă</strong>
+        <span>Înscrierea devine „Retrasă” și rămâne în istoric, cu data și autorul retragerii.</span>
+        <span>Nu se fac rambursări, nu se anulează facturi, nu se modifică inventarul și nu se trimit emailuri.</span>
+        <span className={shared.subtle}>Vendorul se poate înscrie din nou cât timp înscrierile sunt deschise.</span>
+      </div>
+
+      <label className={styles.field}>
+        <span>Notă internă (opțional, nu este afișată vendorului)</span>
+        <textarea
+          rows={3}
+          maxLength={2000}
+          value={note}
+          placeholder="Vânzătorul a confirmat că nu mai participă"
+          onChange={(e) => setNote(e.target.value)}
+          disabled={busy}
+        />
+      </label>
+
+      {error && <div className={shared.error}>{error}</div>}
     </Modal>
   );
 }
@@ -460,6 +599,8 @@ function RegistrationsSection() {
   const [details, setDetails] = useState(null);
   const [rejecting, setRejecting] = useState(null);
   const [cancelling, setCancelling] = useState(null);
+  const [withdrawing, setWithdrawing] = useState(null);
+  const [fairTitle, setFairTitle] = useState("");
   const [busyId, setBusyId] = useState(null);
 
   const load = useCallback(async () => {
@@ -473,6 +614,7 @@ function RegistrationsSection() {
       const res = await api(`${API}/registrations${qs ? `?${qs}` : ""}`);
       setItems(Array.isArray(res?.items) ? res.items : []);
       setCounts(res?.counts || {});
+      setFairTitle(res?.fair?.title || "");
     } catch (e) {
       setError(e?.message || "Nu am putut încărca înscrierile.");
     } finally {
@@ -601,6 +743,8 @@ function RegistrationsSection() {
                 const canApprove = item.actions?.canApprove ?? (item.status === "SUBMITTED" || item.status === "REJECTED");
                 const canReject = item.actions?.canReject ?? item.status === "SUBMITTED";
                 const canCancel = item.actions?.canCancel ?? item.status === "APPROVED";
+                // butonul apare pe orice înscriere activă; fereastra arată situația și dacă retragerea e permisă
+                const showWithdraw = item.status === "SUBMITTED" || item.status === "APPROVED";
                 const busy = busyId === item.id;
                 return (
                   <tr key={item.id}>
@@ -616,7 +760,7 @@ function RegistrationsSection() {
                     <td>{formatDate(item.submittedAt)}</td>
                     <td>
                       <span className={`${styles.badge} ${STATUS_TONE[item.status] || ""}`}>
-                        {STATUS_LABEL[item.status] || item.status}
+                        {statusLabel(item)}
                       </span>
                     </td>
                     <td>
@@ -662,6 +806,21 @@ function RegistrationsSection() {
                             </button>
                           )
                         )}
+                        {showWithdraw && (
+                          <button
+                            type="button"
+                            className={styles.ghostBtn}
+                            onClick={() => setWithdrawing(item)}
+                            disabled={busy}
+                            title={
+                              item.actions?.canWithdraw === false
+                                ? "Are produse trimise sau recepționate: folosește „Anulează participarea”"
+                                : "Vendorul a anunțat că nu mai participă"
+                            }
+                          >
+                            Retrage înscrierea
+                          </button>
+                        )}
                         {item.status === "CANCELLED" && (
                           <button type="button" className={styles.ghostBtn} onClick={() => setDetails(item)}>
                             Istoric și retur
@@ -693,6 +852,19 @@ function RegistrationsSection() {
           busy={busyId === rejecting.id}
           onClose={() => setRejecting(null)}
           onConfirm={(reason) => review(rejecting, "reject", reason)}
+        />
+      )}
+      {withdrawing && (
+        <WithdrawModal
+          item={withdrawing}
+          fairTitle={fairTitle}
+          onClose={() => setWithdrawing(null)}
+          onStale={load}
+          onDone={(next) => {
+            setWithdrawing(null);
+            if (next) setItems((prev) => prev.map((row) => (row.id === next.id ? next : row)));
+            load();
+          }}
         />
       )}
       {cancelling && (

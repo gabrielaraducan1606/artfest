@@ -5,6 +5,8 @@
 //   GET  /registrations/:id         detaliu
 //   POST /registrations/:id/approve
 //   POST /registrations/:id/reject  { reason? } - motiv intern, nu se arată vendorului
+//   POST /registrations/:id/withdraw { note? } - retragere în numele vendorului (aceleași reguli ca la vendor;
+//                                    notă internă; fără inventar / bani / facturi / emailuri)
 //   GET  /invite/preview            număr estimat de destinatari
 //   POST /invite/send               { confirm: <campaignKey> } - pornește invitația
 //   GET  /invite/status             progresul / rezultatul ultimei rulări
@@ -77,6 +79,7 @@ import {
   listRegistrationEvents,
   listRegistrationsForAdmin,
   reviewRegistration,
+  adminWithdrawRegistration,
 } from "../services/artfestFairService.js";
 import { cancelParticipation, previewCancellation } from "../services/artfestFairCancellationService.js";
 import {
@@ -230,6 +233,19 @@ router.post(
       action: "reject",
       adminId: req.adminUser.id,
       reason: req.body?.reason ?? null,
+    });
+    res.json({ ok: true, item });
+  })
+);
+
+// vendorul a anunțat că nu mai participă: SUBMITTED / APPROVED -> WITHDRAWN, fără inventar trimis
+router.post(
+  "/registrations/:id/withdraw",
+  handle(async (req, res) => {
+    const item = await adminWithdrawRegistration({
+      id: req.params.id,
+      adminId: req.adminUser.id,
+      note: req.body?.note ?? null,
     });
     res.json({ ok: true, item });
   })

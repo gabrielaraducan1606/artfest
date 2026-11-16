@@ -1680,11 +1680,29 @@ async function recordFailure(db, reservation, account, e, { recoveryCheck = null
     errorCode: isCourierError(e) ? e.code : "unexpected_error",
     ...(e?.providerStatus ? { providerStatus: e.providerStatus } : {}),
     ...(Array.isArray(e?.fields) && e.fields.length ? { fields: e.fields } : {}),
+    // diagnostic Sameday, deja curățat de date personale (providers/sameday/errorParsing.js)
+    ...(e?.providerMessage ? { providerMessage: e.providerMessage } : {}),
+    ...(Array.isArray(e?.providerErrors) && e.providerErrors.length ? { providerErrors: e.providerErrors } : {}),
+    ...(e?.providerMessagesRedacted ? { providerMessagesRedacted: e.providerMessagesRedacted } : {}),
     ...(recoveryCheck ? { recoveryCheck, recoveryCheckedAt: new Date().toISOString() } : {}),
   };
 
   if (!isCourierError(e)) {
     console.error("[awb] eroare neașteptată la createShipment:", reservation.id, e?.name || "Error");
+  } else if (e instanceof CourierValidationError && e.providerStatus) {
+    // respingere Sameday: o linie în logurile Render, FĂRĂ nume / telefoane / adrese / tokenuri
+    // (doar ID-ul rezervării, codul HTTP, căile câmpurilor și mesajul curățat)
+    console.warn(
+      "[awb] Sameday a respins AWB-ul:",
+      JSON.stringify({
+        courierAwbId: reservation.id,
+        providerStatus: e.providerStatus,
+        fields: e.fields || [],
+        providerMessage: e.providerMessage || null,
+        providerErrors: (e.providerErrors || []).slice(0, 10),
+        providerMessagesRedacted: e.providerMessagesRedacted || 0,
+      })
+    );
   }
 
   try {

@@ -211,11 +211,16 @@ export function RegistrationHistory({ registrationId }) {
     <ol className={styles.history}>
       {items.map((e) => (
         <li key={e.id}>
-          <strong>{EVENT_LABEL[e.type] || e.type}</strong> · {formatDate(e.createdAt)}
+          <strong>{e.type === "WITHDRAWN" && e.metadata?.byAdmin ? "Retrasă de admin" : EVENT_LABEL[e.type] || e.type}</strong> ·{" "}
+          {formatDate(e.createdAt)}
           {e.metadata?.cause ? ` · ${CAUSE_LABEL[e.metadata.cause] || e.metadata.cause}` : ""}
           {e.metadata?.resubmission ? " · reînscriere" : ""}
           {e.metadata?.backfilled ? " · reconstituit" : ""}
-          {e.reason && <div className={shared.subtle}>Motiv intern: {e.reason}</div>}
+          {e.reason && (
+            <div className={shared.subtle}>
+              {e.type === "WITHDRAWN" ? "Notă internă" : "Motiv intern"}: {e.reason}
+            </div>
+          )}
           {e.vendorMessage && <div className={shared.subtle}>Mesaj vendor: {e.vendorMessage}</div>}
         </li>
       ))}

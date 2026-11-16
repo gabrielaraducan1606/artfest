@@ -477,44 +477,94 @@ export async function submitRegistration({ vendorId, userId, body, ip = null, ua
   }
 }
 
+/*
+ * Retragerea (vendor SAU Admin) - aceleași reguli și aceleași efecte:
+ *   - doar din SUBMITTED / APPROVED (WITHDRAWN_FROM);
+ *   - blocată dacă există inventar trimis / recepționat (SUBMITTED / RECEIVED):
+ *     atunci se folosește „Anulează participarea” (flux controlat, cu retur);
+ *   - DOAR statusul + withdrawnAt + un eveniment WITHDRAWN; fără inventar,
+ *     rezervări, bani, facturi, notificări sau emailuri.
+ * Sub lock-ul înscrierii (același ca trimiterea inventarului / anularea), iar
+ * updateMany condiționat pe status => dublu click sau retragere simultană
+ * vendor + Admin lasă o singură retragere (a doua primește 409).
+ */
+export const WITHDRAWN_FROM = Object.freeze(["SUBMITTED", "APPROVED"]);
+const ACTIVE_INVENTORY = ["SUBMITTED", "RECEIVED"];
+
+async function performWithdrawal(db, registrationId, { actorUserId, byAdmin, note = null, now, inventoryMessage }) {
+  return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`artfest-fair-submit:${registrationId}`}))`;
+
+    const current = await tx.artfestFairRegistration.findUnique({ where: { id: registrationId }, select: REGISTRATION_SELECT });
+    if (!current) throw new FairError(404, "registration_not_found", "Înscrierea nu există.");
+
+    if (!WITHDRAWN_FROM.includes(current.status)) {
+      throw new FairError(409, "invalid_transition", "Înscrierea nu mai poate fi retrasă.", { currentStatus: current.status });
+    }
+
+    const activeInventory = await tx.artfestFairInventoryItem.count({
+      where: { registrationId, status: { in: ACTIVE_INVENTORY } },
+    });
+    if (activeInventory > 0) {
+      throw new FairError(409, "inventory_submitted", inventoryMessage, { currentStatus: current.status, activeInventory });
+    }
+
+    const updated = await tx.artfestFairRegistration.updateMany({
+      where: { id: registrationId, status: { in: [...WITHDRAWN_FROM] } },
+      data: { status: "WITHDRAWN", withdrawnAt: now },
+    });
+    if (updated.count !== 1) {
+      throw new FairError(409, "invalid_transition", "Înscrierea nu mai poate fi retrasă.", { currentStatus: current.status });
+    }
+
+    await writeRegistrationEvent(tx, current, "WITHDRAWN", {
+      actorUserId,
+      reason: note,
+      before: { status: current.status },
+      after: { status: "WITHDRAWN" },
+      metadata: byAdmin ? { byAdmin: true } : null,
+    });
+    return current;
+  }, FAIR_TX_OPTIONS);
+}
+
 export async function withdrawRegistration({ vendorId, userId = null, now = new Date(), db = prisma }) {
   const fair = await ensureFair(db);
   const existing = await findRegistration(db, fair.id, vendorId);
 
   if (!existing) throw new FairError(404, "registration_not_found", "Nu ai o înscriere la târg.");
 
-  // după ce există inventar trimis / recepționat, retragerea se face doar printr-un flux controlat
-  const activeInventory = await db.artfestFairInventoryItem.count({
-    where: { registrationId: existing.id, status: { in: ["SUBMITTED", "RECEIVED"] } },
+  await performWithdrawal(db, existing.id, {
+    actorUserId: userId,
+    byAdmin: false,
+    now,
+    // după ce există inventar trimis / recepționat, retragerea se face doar printr-un flux controlat
+    inventoryMessage:
+      "Ai trimis deja inventarul pentru târg, așa că înscrierea nu mai poate fi retrasă direct. Scrie-ne din Asistență și te ajutăm.",
   });
-  if (activeInventory > 0) {
-    throw new FairError(
-      409,
-      "inventory_submitted",
-      "Ai trimis deja inventarul pentru târg, așa că înscrierea nu mai poate fi retrasă direct. Scrie-ne din Asistență și te ajutăm."
-    );
-  }
-
-  await db.$transaction(async (tx) => {
-    const updated = await tx.artfestFairRegistration.updateMany({
-      where: { id: existing.id, vendorId, status: { in: ["SUBMITTED", "APPROVED"] } },
-      data: { status: "WITHDRAWN", withdrawnAt: now },
-    });
-
-    if (updated.count !== 1) {
-      throw new FairError(409, "invalid_transition", "Înscrierea nu mai poate fi retrasă.", {
-        currentStatus: existing.status,
-      });
-    }
-
-    await writeRegistrationEvent(tx, existing, "WITHDRAWN", {
-      actorUserId: userId,
-      before: { status: existing.status },
-      after: { status: "WITHDRAWN" },
-    });
-  }, FAIR_TX_OPTIONS);
 
   return serializeRegistrationForVendor(await findRegistration(db, fair.id, vendorId));
+}
+
+// Admin retrage înscrierea în numele vendorului (ex. a anunțat că nu mai participă);
+// `note` e internă (doar în istoricul Admin, nu ajunge la vendor)
+export async function adminWithdrawRegistration({ id, adminId, note = null, now = new Date(), db = prisma }) {
+  const internalNote = String(note ?? "").trim() || null;
+  if (internalNote && internalNote.length > LIMITS.rejectionReason) {
+    throw new FairError(400, "note_too_long", `Nota internă poate avea maximum ${LIMITS.rejectionReason} de caractere.`);
+  }
+
+  await performWithdrawal(db, String(id), {
+    actorUserId: adminId || null,
+    byAdmin: true,
+    note: internalNote,
+    now,
+    inventoryMessage:
+      "Participantul are produse trimise sau recepționate la târg, așa că înscrierea nu poate fi retrasă. " +
+      "Folosește „Anulează participarea” cu cauza „La cererea vendorului” (include returul produselor).",
+  });
+
+  return getRegistrationForAdmin({ id, db });
 }
 
 /* ===================== Admin ===================== */
@@ -530,7 +580,16 @@ const ADMIN_TRANSITIONS = Object.freeze({
  * trimisă oficial (SUBMITTED / RECEIVED / REJECTED / CLOSED), netrimise = DRAFT.
  * Liniile CANCELLED (eliminate de vendor înainte de trimitere) nu se numără.
  */
-const EMPTY_INVENTORY_SUMMARY = Object.freeze({ submittedLines: 0, submittedQty: 0, draftLines: 0, draftQty: 0 });
+// activeLines = SUBMITTED + RECEIVED (blochează retragerea); receivedLines/Qty = deja recepționate fizic
+const EMPTY_INVENTORY_SUMMARY = Object.freeze({
+  submittedLines: 0,
+  submittedQty: 0,
+  draftLines: 0,
+  draftQty: 0,
+  activeLines: 0,
+  receivedLines: 0,
+  receivedQty: 0,
+});
 
 export async function inventorySummaryByRegistration(db, registrationIds) {
   const map = new Map();
@@ -552,12 +611,60 @@ export async function inventorySummaryByRegistration(db, registrationIds) {
       s.submittedLines += lines;
       s.submittedQty += qty;
     }
+    if (ACTIVE_INVENTORY.includes(g.status)) s.activeLines += lines;
+    if (g.status === "RECEIVED") {
+      s.receivedLines += lines;
+      s.receivedQty += qty;
+    }
     map.set(g.registrationId, s);
   }
   return map;
 }
 
-function serializeRegistrationForAdmin(row, storesByVendor = new Map(), eligibilityByVendor = new Map(), inventoryByRegistration = new Map()) {
+/*
+ * Cine a retras înscrierea: ultimul eveniment WITHDRAWN (istoricul e append-only;
+ * după o reînscriere statusul nu mai e WITHDRAWN, deci nu se mai afișează).
+ */
+export async function withdrawalInfoByRegistration(db, rows) {
+  const map = new Map();
+  const ids = rows.filter((r) => r.status === "WITHDRAWN").map((r) => r.id);
+  if (!ids.length) return map;
+  const events = await db.artfestFairRegistrationEvent.findMany({
+    where: { registrationId: { in: ids }, type: "WITHDRAWN" },
+    orderBy: { createdAt: "desc" },
+    select: { registrationId: true, actorUserId: true, reason: true, metadata: true, createdAt: true },
+  });
+  const actorIds = [...new Set(events.map((e) => e.actorUserId).filter(Boolean))];
+  const actors = actorIds.length
+    ? await db.user.findMany({
+        where: { id: { in: actorIds } },
+        select: { id: true, email: true, firstName: true, lastName: true, name: true },
+      })
+    : [];
+  const actorName = new Map(
+    actors.map((u) => [u.id, [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.name || u.email || null])
+  );
+  for (const e of events) {
+    if (map.has(e.registrationId)) continue;
+    const byAdmin = e.metadata?.byAdmin === true;
+    map.set(e.registrationId, {
+      at: e.createdAt,
+      byAdmin,
+      byId: e.actorUserId || null,
+      byName: e.actorUserId ? actorName.get(e.actorUserId) || null : null,
+      note: byAdmin ? e.reason || null : null,
+    });
+  }
+  return map;
+}
+
+function serializeRegistrationForAdmin(
+  row,
+  storesByVendor = new Map(),
+  eligibilityByVendor = new Map(),
+  inventoryByRegistration = new Map(),
+  withdrawalByRegistration = new Map()
+) {
   const cancelled = row.status === "CANCELLED";
   const eligibility = eligibilityByVendor.get(row.vendorId) || null;
   const inventory = inventoryByRegistration.get(row.id) || EMPTY_INVENTORY_SUMMARY;
@@ -575,6 +682,8 @@ function serializeRegistrationForAdmin(row, storesByVendor = new Map(), eligibil
     termsUa: row.termsUa || null,
     // adresa versiunii ACCEPTATE (nu a celei curente), doar dacă e publicată
     termsVersionUrl: fairRulesUrlForAcceptedVersion(row.termsVersion),
+    // WITHDRAWN: retrasă de vendor sau de Admin (din istoricul evenimentelor)
+    withdrawal: row.status === "WITHDRAWN" ? withdrawalByRegistration.get(row.id) || { at: row.withdrawnAt || null, byAdmin: false } : null,
     cancellation: cancelled
       ? {
           at: row.cancelledAt || null,
@@ -594,6 +703,8 @@ function serializeRegistrationForAdmin(row, storesByVendor = new Map(), eligibil
       canApprove: (row.status === "SUBMITTED" || row.status === "REJECTED") && eligibility?.eligible !== false,
       canReject: row.status === "SUBMITTED",
       canCancel: row.status === "APPROVED",
+      // aceleași reguli ca retragerea vendorului; cu inventar trimis / recepționat => „Anulează participarea”
+      canWithdraw: WITHDRAWN_FROM.includes(row.status) && inventory.activeLines === 0,
       // trimiterea liniilor netrimise în numele participantului (Admin); validările rămân cele ale trimiterii
       canSubmitDrafts: row.status === "APPROVED" && inventory.draftLines > 0,
     },
@@ -648,10 +759,11 @@ export async function listRegistrationsForAdmin({ status = null, participationTy
   });
 
   const vendorIds = [...new Set(rows.map((r) => r.vendorId))];
-  const [stores, eligibility, inventory] = await Promise.all([
+  const [stores, eligibility, inventory, withdrawals] = await Promise.all([
     loadStores(db, vendorIds),
     loadFairEligibilityMap(vendorIds, db),
     inventorySummaryByRegistration(db, rows.map((r) => r.id)),
+    withdrawalInfoByRegistration(db, rows),
   ]);
 
   const counts = await db.artfestFairRegistration.groupBy({
@@ -662,7 +774,7 @@ export async function listRegistrationsForAdmin({ status = null, participationTy
 
   return {
     fair: serializeFair(fair),
-    items: rows.map((row) => serializeRegistrationForAdmin(row, stores, eligibility, inventory)),
+    items: rows.map((row) => serializeRegistrationForAdmin(row, stores, eligibility, inventory, withdrawals)),
     counts: Object.fromEntries(counts.map((c) => [c.status, c._count?._all ?? 0])),
   };
 }
@@ -670,12 +782,13 @@ export async function listRegistrationsForAdmin({ status = null, participationTy
 export async function getRegistrationForAdmin({ id, db = prisma }) {
   const row = await db.artfestFairRegistration.findUnique({ where: { id: String(id) }, select: ADMIN_SELECT });
   if (!row) throw new FairError(404, "registration_not_found", "Înscrierea nu există.");
-  const [stores, eligibility, inventory] = await Promise.all([
+  const [stores, eligibility, inventory, withdrawals] = await Promise.all([
     loadStores(db, [row.vendorId]),
     loadFairEligibilityMap([row.vendorId], db),
     inventorySummaryByRegistration(db, [row.id]),
+    withdrawalInfoByRegistration(db, [row]),
   ]);
-  return serializeRegistrationForAdmin(row, stores, eligibility, inventory);
+  return serializeRegistrationForAdmin(row, stores, eligibility, inventory, withdrawals);
 }
 
 export async function reviewRegistration({ id, action, adminId, reason = null, now = new Date(), db = prisma }) {
