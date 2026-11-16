@@ -1684,6 +1684,9 @@ async function recordFailure(db, reservation, account, e, { recoveryCheck = null
     ...(e?.providerMessage ? { providerMessage: e.providerMessage } : {}),
     ...(Array.isArray(e?.providerErrors) && e.providerErrors.length ? { providerErrors: e.providerErrors } : {}),
     ...(e?.providerMessagesRedacted ? { providerMessagesRedacted: e.providerMessagesRedacted } : {}),
+    ...(Array.isArray(e?.providerMessageFiltered) && e.providerMessageFiltered.length ? { providerMessageFiltered: e.providerMessageFiltered } : {}),
+    ...(Array.isArray(e?.providerCategories) && e.providerCategories.length ? { providerCategories: e.providerCategories } : {}),
+    ...(e?.providerResponseShape ? { providerResponseShape: e.providerResponseShape } : {}),
     ...(recoveryCheck ? { recoveryCheck, recoveryCheckedAt: new Date().toISOString() } : {}),
   };
 
@@ -1701,6 +1704,9 @@ async function recordFailure(db, reservation, account, e, { recoveryCheck = null
         providerMessage: e.providerMessage || null,
         providerErrors: (e.providerErrors || []).slice(0, 10),
         providerMessagesRedacted: e.providerMessagesRedacted || 0,
+        providerMessageFiltered: (e.providerMessageFiltered || []).slice(0, 5),
+        providerCategories: e.providerCategories || [],
+        providerResponseShape: e.providerResponseShape || null,
       })
     );
   }

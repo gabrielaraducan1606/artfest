@@ -313,6 +313,10 @@ export async function samedayRequest(ctx, { method = "GET", path, form, binary =
       err.providerErrors = parsed.errors;
       // mesaje Sameday eliminate complet (nu au putut fi curățate sigur): rămân doar codul și câmpurile
       err.providerMessagesRedacted = parsed.redacted || 0;
+      // fără mesajul brut: motivul filtrării + scheletul tehnic, categoriile (coduri fixe), forma răspunsului
+      err.providerMessageFiltered = parsed.filtered || [];
+      err.providerCategories = parsed.categories || [];
+      err.providerResponseShape = parsed.shape || null;
       // respins de curier (nu cerere invalidă a clientului nostru)
       err.httpStatus = 422;
       throw err;
