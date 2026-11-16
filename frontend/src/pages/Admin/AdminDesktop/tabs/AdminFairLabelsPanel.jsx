@@ -25,6 +25,12 @@ const COPY_MODES = [
   { id: "one", label: "O etichetă pe produs" },
 ];
 
+// formatul etichetei: standard rămâne implicit
+const LAYOUTS = [
+  { id: "standard", label: "Etichetă standard (70 × 37 mm)", sheet: "A4, 3 × 8", size: "70 × 37 mm" },
+  { id: "promo", label: "Cu promovare creator + Artfest (70 × 74 mm)", sheet: "A4, 3 × 4", size: "70 × 74 mm" },
+];
+
 const STATUS_FILTERS = [
   { id: "all", label: "Toate" },
   { id: "SUBMITTED", label: "De recepționat" },
@@ -78,6 +84,8 @@ export default function AdminFairLabelsPanel() {
   const [status, setStatus] = useState("all");
   const [labelState, setLabelState] = useState("all");
   const [copies, setCopies] = useState("declared");
+  const [layout, setLayout] = useState("standard");
+  const layoutInfo = LAYOUTS.find((l) => l.id === layout) || LAYOUTS[0];
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(() => new Set());
@@ -184,15 +192,34 @@ export default function AdminFairLabelsPanel() {
       "selected",
       () =>
         downloadLabelsPdf(`${API}/labels.pdf`, "etichete-selectate-targ-artfest.pdf", "Nu am putut genera etichetele.", {
-          body: { ids: selectedItems.map((i) => i.id), copies },
+          body: { ids: selectedItems.map((i) => i.id), copies, layout },
         }),
-      `PDF-ul a fost generat: ${labelTotal} ${labelTotal === 1 ? "etichetă" : "etichete"} (A4, 3 × 8). Codurile sunt cele existente.`
+      `PDF-ul a fost generat: ${labelTotal} ${labelTotal === 1 ? "etichetă" : "etichete"} (${layoutInfo.sheet}). Codurile sunt cele existente.`
     );
+
+  // coala completă (tot târgul sau creatorul filtrat), în formatul ales
+  const printAll = () => {
+    const params = new URLSearchParams({ copies, layout });
+    if (vendorId) params.set("vendorId", vendorId);
+    return run(
+      "all",
+      () =>
+        downloadLabelsPdf(
+          `${API}/labels.pdf?${params.toString()}`,
+          vendorId ? "etichete-vendor-targ-artfest.pdf" : "etichete-targ-artfest.pdf"
+        ),
+      `PDF-ul a fost generat (${layoutInfo.sheet}) pentru ${vendorId ? "creatorul selectat" : "tot târgul"}. Codurile sunt cele existente.`
+    );
+  };
 
   const printOne = (item) =>
     run(
       `one:${item.id}`,
-      () => downloadLabelsPdf(`${API}/${encodeURIComponent(item.id)}/label.pdf`, `eticheta-${item.barcode}.pdf`),
+      () =>
+        downloadLabelsPdf(
+          `${API}/${encodeURIComponent(item.id)}/label.pdf${layout === "promo" ? "?layout=promo" : ""}`,
+          `eticheta-${item.barcode}.pdf`
+        ),
       item.label?.state === "valid"
         ? `Eticheta „${item.title}” a fost reimprimată cu același cod (${item.barcodeDisplay}).`
         : `Eticheta „${item.title}” a fost generată (${item.barcodeDisplay}).`
@@ -209,7 +236,11 @@ export default function AdminFairLabelsPanel() {
             după confirmarea vânzării în POS.
           </p>
         </div>
-        <p className={styles.format}>Coli A4 cu 24 de etichete (70 × 37 mm). La imprimare alege scala 100%.</p>
+        <p className={styles.format}>
+          {layout === "promo"
+            ? "Coli A4 cu 12 etichete duble (70 × 74 mm = două etichete de 70 × 37 suprapuse). Partea de sus (creatorul și Artfest) se taie pe linia punctată și rămâne la client. La imprimare alege scala 100%."
+            : "Coli A4 cu 24 de etichete (70 × 37 mm). La imprimare alege scala 100%."}
+        </p>
         {(counts.none > 0 || counts.outdated > 0) && (
           <p className={styles.todo}>
             {counts.none > 0 && <span>{counts.none} fără etichetă</span>}
@@ -242,6 +273,16 @@ export default function AdminFairLabelsPanel() {
             </option>
           ))}
         </select>
+        <select className={styles.select} value={layout} onChange={(e) => setLayout(e.target.value)} aria-label="Formatul etichetei">
+          {LAYOUTS.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+        <button type="button" className={rx.ghostBtn} onClick={printAll} disabled={Boolean(busy) || !items.length}>
+          {busy === "all" ? "Se generează…" : vendorId ? "Toate etichetele creatorului" : "Toate etichetele târgului"}
+        </button>
         <select className={styles.select} value={labelState} onChange={(e) => setLabelState(e.target.value)} aria-label="Starea etichetei">
           {LABEL_FILTERS.map((f) => (
             <option key={f.id} value={f.id}>
@@ -319,7 +360,7 @@ export default function AdminFairLabelsPanel() {
                     className={rx.ghostBtn}
                     onClick={() => printOne(item)}
                     disabled={Boolean(busy)}
-                    title="O etichetă 70 × 37 mm, cu codul existent"
+                    title={`O etichetă ${layoutInfo.size}, cu codul existent`}
                   >
                     {busy === `one:${item.id}`
                       ? "Se generează…"

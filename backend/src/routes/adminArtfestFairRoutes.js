@@ -130,7 +130,14 @@ import {
   recalculateSettlement,
   settlementCsv,
 } from "../services/artfestFairSettlementService.js";
-import { LABEL_COPY_MODES, applyLabelCopies, renderLabelSheetPdf, renderSingleLabelPdf } from "../lib/fairLabels.js";
+import {
+  LABEL_COPY_MODES,
+  applyLabelCopies,
+  labelLayout,
+  renderLabelSheetPdf,
+  renderSingleLabelPdf,
+  withLabelStores,
+} from "../lib/fairLabels.js";
 import { FairError } from "../services/artfestFairService.js";
 import {
   getDeliveryNoteForAdmin,
@@ -746,12 +753,13 @@ function labelCopyMode(value) {
   return mode;
 }
 
-async function sendLabelSheet(req, res, items, mode, filename) {
+// formatul: standard (implicit, 70 × 37) | promo (70 × 74: creator + Artfest deasupra etichetei standard)
+async function sendLabelSheet(req, res, items, mode, filename, layout = "standard") {
   const withCopies = applyLabelCopies(items, mode);
   if (!withCopies.length) {
     throw new FairError(409, "no_received_items", "Niciun produs selectat nu are bucăți recepționate.");
   }
-  const { pdf } = await renderLabelSheetPdf(withCopies);
+  const { pdf } = await renderLabelSheetPdf(await withLabelStores(withCopies, { db: prisma, layout }), { layout });
   await markLabelsGenerated({ items: withCopies, userId: req.adminUser.id });
   sendPdf(res, pdf, filename);
 }
@@ -764,7 +772,14 @@ router.get(
     const vendorId = req.query.vendorId ? String(req.query.vendorId) : null;
     const mode = labelCopyMode(req.query.copies);
     const items = await getAdminLabelItems({ vendorId });
-    await sendLabelSheet(req, res, items, mode, vendorId ? "etichete-vendor-targ-artfest.pdf" : "etichete-targ-artfest.pdf");
+    await sendLabelSheet(
+      req,
+      res,
+      items,
+      mode,
+      vendorId ? "etichete-vendor-targ-artfest.pdf" : "etichete-targ-artfest.pdf",
+      labelLayout(req.query.layout)
+    );
   })
 );
 
@@ -775,7 +790,7 @@ router.post(
   handle(async (req, res) => {
     const mode = labelCopyMode(req.body?.copies);
     const items = await getAdminLabelItems({ ids: Array.isArray(req.body?.ids) ? req.body.ids : [] });
-    await sendLabelSheet(req, res, items, mode, "etichete-selectate-targ-artfest.pdf");
+    await sendLabelSheet(req, res, items, mode, "etichete-selectate-targ-artfest.pdf", labelLayout(req.body?.layout));
   })
 );
 
@@ -783,7 +798,9 @@ router.get(
   "/inventory/:id/label.pdf",
   handle(async (req, res) => {
     const [item] = await getAdminLabelItems({ id: req.params.id });
-    const pdf = await renderSingleLabelPdf(item);
+    const layout = labelLayout(req.query.layout);
+    const [withStore] = await withLabelStores([item], { db: prisma, layout });
+    const pdf = await renderSingleLabelPdf(withStore, { layout });
     await markLabelsGenerated({ items: [item], userId: req.adminUser.id });
     sendPdf(res, pdf, `eticheta-${item.barcode}.pdf`);
   })
