@@ -29,6 +29,7 @@ import VendorSubscriptionPlans from "../Subscription/VendorSubscriptionPlans.jsx
 
 import MarketingPreferences from "../../User/MarketingPreferences/MarketingPreferences.jsx";
 import CourierSettings from "./couriers/CourierSettings.jsx";
+import SamedayStoreDelivery from "./couriers/SamedayStoreDelivery.jsx";
 import { VENDOR_COURIER_ACCOUNTS_ENABLED } from "../../../config/features.js";
 
 const VANITY_BASE = "www.artfest.ro";
@@ -653,6 +654,8 @@ function ShippingSettings() {
                   ✅ Datele de livrare și retur au fost salvate.
                 </div>
               )}
+
+              <SamedayStoreDelivery serviceId={serviceId} styles={settingsStyles} />
             </div>
           </Section>
         );

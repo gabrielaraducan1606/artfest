@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../lib/api";
-import { buildQuoteRequest, QUOTE_DEBOUNCE_MS, readQuote } from "./shippingQuote.js";
+import { buildQuoteRequest, QUOTE_DEBOUNCE_MS, quoteRequestKey, readQuote } from "./shippingQuote.js";
 
 const IDLE = { status: "idle", byGroup: {}, missing: [] };
 
@@ -19,13 +19,14 @@ const IDLE = { status: "idle", byGroup: {}, missing: [] };
  * @param {string[]} options.methods
  * @param {Object}  options.address
  * @param {string}  options.cartKey       semnătura coșului (re-cerere la schimbare)
+ * @param {number}  options.refreshKey    crește -> cerere nouă (ex. după 409 la plasare)
  */
-export function useShippingQuote({ enabled, isGuest, guestItems, groupKeys, selections, methods, address, cartKey }) {
+export function useShippingQuote({ enabled, isGuest, guestItems, groupKeys, selections, methods, address, cartKey, refreshKey = 0 }) {
   const request = useMemo(
     () => (enabled && groupKeys.length ? buildQuoteRequest({ groupKeys, selections, methods, address, guestItems: isGuest ? guestItems : null }) : null),
     [enabled, groupKeys, selections, methods, address, isGuest, guestItems]
   );
-  const requestKey = request ? JSON.stringify([isGuest, cartKey, request.body]) : "";
+  const requestKey = quoteRequestKey({ isGuest, cartKey, refreshKey, request });
   const [state, setState] = useState(IDLE);
 
   useEffect(() => {

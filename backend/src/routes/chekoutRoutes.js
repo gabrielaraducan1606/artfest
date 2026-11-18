@@ -66,23 +66,26 @@ import {
 } from "../services/discountCodeValidation.js";
 import { deliveryCatalog } from "../services/shipping/deliveryCatalog.js";
 import {
-  buildDeliverySnapshot,
   DeliverySelectionError,
   alignSnapshotWithOrderAddress,
-  priceGroupShipping,
-  resolveGroupShippingPrice,
   shipmentDeliveryCreate,
-  publicDelivery,
-  validateGroupSelection,
 } from "../services/shipping/deliverySelection.js";
 import { getPrimaryShippingPricer } from "../services/shipping/samedayCheckoutPricer.js";
-import { isSamedayCheckoutActive } from "../services/shipping/checkoutMode.js";
+import { checkoutSamedayAvailability } from "../services/shipping/samedayStoreDelivery.js";
+import {
+  assertPlacementCompatible,
+  quoteCheckoutShipping,
+  shipmentFulfillmentData,
+} from "../services/shipping/checkoutFulfillment.js";
 import { createUserOohLocationService, oohLocationsFromQuote } from "../services/shipping/userOohLocation.js";
 const router = Router();
 
-/* eroare de validare a livrării -> 400 cu mesaj pentru client */
+/* eroare de validare a livrării -> 400 (sau 409: Sameday indisponibil / preț schimbat) cu mesaj pentru client */
 function deliveryErrorBody(error) {
-  return { error: error.code, message: error.message, serviceId: error.groupKey || null };
+  return { error: error.code, message: error.message, serviceId: error.groupKey || null, ...(error.extra || {}) };
+}
+function deliveryErrorStatus(error) {
+  return Number.isInteger(error?.httpStatus) ? error.httpStatus : 400;
 }
 
 /* răspunsul de quote către frontend: fără snapshot-ul intern (ID serviciu etc.) */
@@ -2961,108 +2964,28 @@ router.post(
  * SHIPPING QUOTE
  */
 /*
- * Alegerea livrării per magazin (services/shipping/deliverySelection.js):
- * cu checkout-ul nou activ (checkoutMode.js), metoda (adresă / easybox / Sameday Point) și
- * locația sunt validate pe server; costul se recalculează mereu aici.
- * Fără flag: doar livrarea la adresă (ca până acum) - un lockerId trimis de
- * frontend NU mai e acceptat nevalidat.
+ * Livrarea per magazin (etapa 3, services/shipping/checkoutFulfillment.js):
+ *  - „Sameday prin Artfest” (ARTFEST_SAMEDAY) DOAR la magazinele cu opțiunea activă
+ *    (opt-in + eligibile) și doar dacă tot coșul se poate plăti cu cardul; tarif
+ *    exclusiv Sameday; metoda (adresă / easybox / Sameday Point) și locația validate aici;
+ *  - curierul magazinului (VENDOR_COURIER / alegere neexplicită): tariful magazinului,
+ *    exact ca până acum. Comutatorul vechi SAMEDAY_CHECKOUT_ENABLED NU mai oferă
+ *    Sameday magazinelor fără opțiunea activă.
+ * Un lockerId / preț trimis de frontend nu e acceptat: totul se recalculează aici.
  */
-// liveOoh = true DOAR la plasare: easybox / Sameday Point revalidate punctual
-// (oohList=<id>); la quote rămâne lista din cache (fără apel Sameday la fiecare recalculare)
-// allowUnpriced = true DOAR la quote: un magazin fără niciun tarif (Sameday indisponibil +
-// fără tarif de rezervă) e marcat separat, ceilalți își primesc prețul; la plasare -> 400 pe acel magazin
-async function quoteShipping({ groups, selections, address = null, catalog = null, liveOoh = false, allowUnpriced = false }) {
-  const samedayCheckout = await isSamedayCheckoutActive();
-  const cat = samedayCheckout ? catalog || deliveryCatalog() : null;
-  const services = samedayCheckout ? await cat.getServices() : null;
-  // sursa principală de preț (tariful Sameday); indisponibilă -> tariful de rezervă al vendorului
-  const primaryPricer = samedayCheckout ? getPrimaryShippingPricer() : null;
-
-  // magazinele se calculează în paralel (fiecare estimare Sameday are propriul termen),
-  // ordinea rezultatelor rămâne cea a coșului
-  const shipments = await Promise.all(groups.map(async (g) => {
-    const key = String(g.serviceId);
-    let pricing = priceGroupShipping(g);
-    let delivery = null;
-    let method = "COURIER";
-
-    if (samedayCheckout) {
-      const validated = await validateGroupSelection({
-        selection: selections?.[key],
-        address,
-        catalog: cat,
-        services,
-        groupKey: key,
-        liveOoh,
-      });
-      try {
-        pricing = await resolveGroupShippingPrice({
-          group: g,
-          method: validated.method,
-          serviceId: validated.serviceId,
-          ooh: validated.ooh,
-          place: validated.place,
-          address,
-          groupKey: key,
-          primaryPricer,
-        });
-      } catch (error) {
-        if (!(allowUnpriced && error instanceof DeliverySelectionError && error.code === "shipping_price_unavailable")) throw error;
-        // niciun tarif inventat: magazinul apare fără preț, cu mesajul pentru client
-        return {
-          serviceId: g.serviceId,
-          vendorId: g.vendorId,
-          method: validated.method === "HOME" ? "COURIER" : "LOCKER",
-          lockerId: null,
-          delivery: null,
-          publicDelivery: null,
-          price: null,
-          priceUnavailable: true,
-          priceUnavailableMessage: error.message,
-          shippingNotes: g.shippingNotes || null,
-          qualifiesFreeShipping: false,
-        };
-      }
-      delivery = buildDeliverySnapshot({
-        validated,
-        address,
-        priceCents: pricing.priceCents,
-        pricingSource: pricing.pricingSource,
-        fallbackReason: pricing.fallbackReason,
-        carrierCostCents: pricing.carrierCostCents,
-      });
-      // câmpul vechi Shipment.method: easybox și Sameday Point = livrare la punct fix
-      method = validated.method === "HOME" ? "COURIER" : "LOCKER";
-    }
-
-    return {
-      serviceId: g.serviceId,
-      vendorId: g.vendorId,
-      method,
-      lockerId: null,
-      delivery,
-      publicDelivery: publicDelivery(delivery),
-      price: dec(pricing.priceCents / 100),
-      estimatedShippingFee: dec(pricing.estimatedShippingFeeCents / 100),
-      freeShippingThreshold:
-        pricing.freeShippingThresholdCents != null
-          ? dec(pricing.freeShippingThresholdCents / 100)
-          : null,
-      shippingNotes: g.shippingNotes || null,
-      qualifiesFreeShipping: pricing.qualifiesFreeShipping,
-      vendorSubtotal: dec(pricing.vendorSubtotalCents / 100),
-    };
-  }));
-
-  const totalShipping = dec(
-    shipments.reduce((s, x) => s + Number(x.price || 0), 0)
-  );
-
-  return {
-    shipments,
-    totalShipping,
-    currency: "RON",
-  };
+// allowUnpriced = true DOAR la quote (preselectare, magazin indisponibil marcat separat);
+// la plasare: easybox / Sameday Point revalidate punctual, fără preselectare, erori 400 / 409
+async function quoteShipping({ groups, selections, address = null, allowUnpriced = false }) {
+  const availability = await checkoutSamedayAvailability({ groups });
+  return quoteCheckoutShipping({
+    groups,
+    selections: selections || {},
+    address,
+    availability,
+    getCatalog: () => deliveryCatalog(),
+    pricer: getPrimaryShippingPricer(),
+    placing: !allowUnpriced,
+  });
 }
 
 /**
@@ -3163,7 +3086,7 @@ const groups =
   try {
     q = await quoteShipping({ groups, selections, address, allowUnpriced: true });
   } catch (error) {
-    if (error instanceof DeliverySelectionError) return res.status(400).json(deliveryErrorBody(error));
+    if (error instanceof DeliverySelectionError) return res.status(deliveryErrorStatus(error)).json(deliveryErrorBody(error));
     throw error;
   }
 
@@ -3241,7 +3164,7 @@ const groups =
         allowUnpriced: true,
       });
     } catch (error) {
-      if (error instanceof DeliverySelectionError) return res.status(400).json(deliveryErrorBody(error));
+      if (error instanceof DeliverySelectionError) return res.status(deliveryErrorStatus(error)).json(deliveryErrorBody(error));
       throw error;
     }
 
@@ -3749,8 +3672,10 @@ const groups =
     let quote;
     try {
       quote = await quoteShipping({ groups, selections: selections || {}, address: normalizedAddress, liveOoh: true });
+      // Sameday prin Artfest doar cu cardul; prețul transportului = cel văzut de client
+      assertPlacementCompatible({ quote, selections: selections || {}, paymentMethod: pm });
     } catch (error) {
-      if (error instanceof DeliverySelectionError) return res.status(400).json(deliveryErrorBody(error));
+      if (error instanceof DeliverySelectionError) return res.status(deliveryErrorStatus(error)).json(deliveryErrorBody(error));
       throw error;
     }
     const shippingTotal = dec(quote.totalShipping);
@@ -4106,8 +4031,10 @@ for (const v of vendors) {
             lockerId: s.lockerId || null,
             price: dec(s.price),
             status: "PENDING",
-            // snapshot-ul livrării validat pe server (doar cu checkout-ul nou activ - checkoutMode.js)
+            // snapshot-ul livrării validat pe server (doar Sameday prin Artfest - checkoutFulfillment.js)
             ...shipmentDeliveryCreate(alignSnapshotWithOrderAddress(s.delivery, shippingAddressForOrder, normalizedAddress)),
+            // modul de livrare ales (null la checkout-ul vechi -> câmpul nu se scrie)
+            ...shipmentFulfillmentData(s),
 
             campaignId: shipmentAttribution?.campaignId || null,
             campaignCommissionBps: shipmentAttribution
@@ -4920,8 +4847,10 @@ const groups =
         address: normalizedAddress,
         liveOoh: true,
       });
+      // Sameday prin Artfest doar cu cardul; prețul transportului = cel văzut de client
+      assertPlacementCompatible({ quote, selections: selections || {}, paymentMethod: pm });
     } catch (error) {
-      if (error instanceof DeliverySelectionError) return res.status(400).json(deliveryErrorBody(error));
+      if (error instanceof DeliverySelectionError) return res.status(deliveryErrorStatus(error)).json(deliveryErrorBody(error));
       throw error;
     }
 
@@ -5319,10 +5248,12 @@ const storeAddresses = {};
               price: dec(shipmentQuote.price),
               status: "PENDING",
 
-              // snapshot-ul livrării validat pe server (doar cu checkout-ul nou activ - checkoutMode.js)
+              // snapshot-ul livrării validat pe server (doar Sameday prin Artfest - checkoutFulfillment.js)
               ...shipmentDeliveryCreate(
                 alignSnapshotWithOrderAddress(shipmentQuote.delivery, shippingAddressForOrder, normalizedAddress)
               ),
+              // modul de livrare ales (null la checkout-ul vechi -> câmpul nu se scrie)
+              ...shipmentFulfillmentData(shipmentQuote),
 
               campaignId:
                 guestShipmentAttribution?.campaignId || null,

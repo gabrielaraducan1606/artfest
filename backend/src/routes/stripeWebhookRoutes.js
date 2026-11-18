@@ -6,6 +6,7 @@ import {
   computeOrderSplits,
   allocateStripeFee,
   computeVendorPayouts,
+  summarizeArtfestShipping,
 } from "../payments/marketplaceCalc.js";
 
 import {
@@ -1340,6 +1341,20 @@ async function handleOrderPaymentIntentSucceeded(
             0
         ),
     });
+
+  // Sameday prin Artfest: transportul reținut de Artfest (nu se transferă vendorilor).
+  // Doar log, și doar dacă există (comenzile existente nu au transport Artfest).
+  const artfestShipping =
+    summarizeArtfestShipping({
+      vendors: vendorsWithFee,
+      feeNet: Number(feeNet || 0),
+    });
+  if (artfestShipping.artfestShippingGross > 0) {
+    console.log(
+      "[order payment] transport Sameday reținut de Artfest:",
+      JSON.stringify({ orderId: String(orderId), ...artfestShipping })
+    );
+  }
 
   const payouts =
     computeVendorPayouts({

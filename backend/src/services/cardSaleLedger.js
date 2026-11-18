@@ -21,6 +21,10 @@
 //    comună, services/shipmentCommissionGroups.js).
 //  - Ultimul shipment absoarbe reziduul de rotunjire.
 //  - Shipment-urile direction = RETURN nu sunt niciodată vânzări.
+//  - Sameday prin Artfest (fulfillment ARTFEST_SAMEDAY): transportul shipment-ului e al
+//    Artfest - nu intră în ponderile / sumele vendorului (services/shipping/fulfillment.js).
+
+import { shippingOwnership } from "./shipping/fulfillment.js";
 
 /* =========================================================
    Aritmetică în bani (cenți întregi) - fără erori de virgulă mobilă
@@ -184,6 +188,11 @@ export function buildCardSaleAllocation({ payout, shipments }) {
     // true = ponderile au venit din fallback (computeEarning a eșuat)
     earningUnavailable: !useEarningWeights,
 
+    // Sameday prin Artfest: transportul acestui shipment e al Artfest (nu e în sumele de mai sus)
+    ...(s.artfestShippingGross > 0
+      ? { artfestShippingGross: Number(s.artfestShippingGross), fulfillment: s.fulfillment || null }
+      : {}),
+
     earning: s.earning || null,
   }));
 }
@@ -259,6 +268,16 @@ export function buildCardSaleEntryMeta({
     isMixedCommission: Boolean(payout.isMixedCommission),
     commissionGroups: payout.commissionGroups || null,
 
+    // DOAR pentru ARTFEST_SAMEDAY (rândurile existente rămân identice): transportul
+    // încasat de la client e al Artfest - meta.shippingNet / shippingGross de mai sus = 0
+    ...(row.artfestShippingGross > 0
+      ? {
+          fulfillment: row.fulfillment || "ARTFEST_SAMEDAY",
+          shippingOwner: "ARTFEST",
+          artfestShippingGross: row.artfestShippingGross,
+        }
+      : {}),
+
     cardAllocation: {
       method: "proportional_to_shipment_earning_last_absorbs_rounding",
       shipmentIndex: row.shipmentIndex,
@@ -290,7 +309,7 @@ export async function loadOutboundShipmentsForVendor(
       vendorId: String(vendorId),
       direction: "OUTBOUND",
     },
-    select: { id: true, price: true },
+    select: { id: true, price: true, fulfillment: true },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
 }
@@ -349,9 +368,14 @@ export async function planCardSaleEntries({
       );
     }
 
+    // transportul VENDORULUI (0 pentru ARTFEST_SAMEDAY; exact shipment.price altfel)
+    const ownership = shippingOwnership(shipment, Number(shipment.price || 0));
     enriched.push({
       id: shipment.id,
-      shippingGross: Number(shipment.price || 0),
+      shippingGross: ownership.vendorShippingGross,
+      ...(ownership.artfestShippingGross > 0
+        ? { artfestShippingGross: ownership.artfestShippingGross, fulfillment: ownership.fulfillment }
+        : {}),
       earning,
     });
   }

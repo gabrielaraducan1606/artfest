@@ -595,3 +595,18 @@
 .transportBreakdown em {
   font-style: normal;
 }
+
+/* Sameday prin Artfest: alegerea metodei (adresă / easybox / punct) ca sub-nivel al opțiunii */
+.subChoice {
+  display: grid;
+  gap: 8px;
+  margin-left: 14px;
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
+}
+
+.subChoiceTitle {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}

@@ -9,7 +9,7 @@ export const SS_ADMIN_API = "/api/admin/secret-santa";
 
 export const SS_RULES = [
   "Participă gratuit doar vânzătorii Artfest.",
-  "Cadoul handmade are valoarea de 80–100 lei.",
+  "Cadoul handmade are valoarea de 50–80 lei.",
   "Fiecare trimite un cadou și primește unul.",
   "Transportul este achitat de expeditor, fără ramburs la destinatar.",
   "Cadoul trebuie expediat până la termenul stabilit.",

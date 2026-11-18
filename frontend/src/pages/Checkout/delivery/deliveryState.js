@@ -7,6 +7,17 @@
 
 export const DELIVERY_METHODS = ["HOME", "LOCKER", "PUDO"];
 
+/*
+ * Modul de livrare al unui magazin (etapa 3):
+ *  ARTFEST_SAMEDAY  „Sameday prin Artfest” - adresă / easybox / Sameday Point, doar cu cardul;
+ *  VENDOR_COURIER   „Curierul magazinului” - livrare la adresă, ramburs sau card.
+ * Serverul decide ce e disponibil și preselectează Sameday când se poate; alegerea
+ * făcută de client (userChosen) nu se schimbă automat.
+ */
+export const FULFILLMENTS = ["ARTFEST_SAMEDAY", "VENDOR_COURIER"];
+export const ARTFEST_SAMEDAY = "ARTFEST_SAMEDAY";
+export const VENDOR_COURIER = "VENDOR_COURIER";
+
 export const METHOD_LABELS = {
   HOME: "Livrare la adresă",
   LOCKER: "Easybox",
@@ -19,7 +30,8 @@ export const METHOD_HINTS = {
   PUDO: "Ridici coletul dintr-un punct Sameday partener.",
 };
 
-const STORAGE_KEY = "checkout:delivery:v1";
+// v2: alegerea include modul de livrare (Sameday prin Artfest / curierul magazinului)
+const STORAGE_KEY = "checkout:delivery:v2";
 
 function safeStorage() {
   try {
@@ -78,12 +90,15 @@ export function upcomingSpecialDays(specialSchedule = [], today = new Date(), da
 
 /** Alegerea unui magazin, curățată (metodă cunoscută, locație de tipul metodei). */
 export function sanitizeSelection(raw) {
-  const method = DELIVERY_METHODS.includes(raw?.method) ? raw.method : "HOME";
-  if (method === "HOME") return { method, location: null };
+  const fulfillment = FULFILLMENTS.includes(raw?.fulfillment) ? raw.fulfillment : null;
+  const mode = fulfillment ? { fulfillment, userChosen: raw?.userChosen === true } : {};
+  // easybox / Sameday Point există doar cu Sameday prin Artfest (sau modul încă necunoscut)
+  const method = DELIVERY_METHODS.includes(raw?.method) && fulfillment !== VENDOR_COURIER ? raw.method : "HOME";
+  if (method === "HOME") return { method, location: null, ...mode };
   const loc = publicLocation(raw?.location);
   // distanța ține de poziția clientului - nu se păstrează în alegere / sessionStorage
   const location = loc ? { ...loc, distanceKm: null } : null;
-  return { method, location: location && location.type === method ? location : null };
+  return { method, location: location && location.type === method ? location : null, ...mode };
 }
 
 export function loadSelections() {
@@ -123,17 +138,54 @@ export function clearSelections() {
  */
 export function effectiveSelection(selections, groupKey, availableMethods = ["HOME"]) {
   const sel = sanitizeSelection(selections?.[groupKey]);
-  return availableMethods.includes(sel.method) ? sel : { method: "HOME", location: null };
+  if (availableMethods.includes(sel.method)) return sel;
+  const { fulfillment, userChosen } = sel;
+  return { method: "HOME", location: null, ...(fulfillment ? { fulfillment, userChosen } : {}) };
 }
 
-/** Ce trimitem la server: doar metoda și ID-ul locației (fără preț / serviciu). */
+/**
+ * Ce trimitem la server: modul de livrare (doar când e ales de client sau e Sameday -
+ * altfel serverul preselectează), metoda și ID-ul locației. Fără preț / serviciu.
+ */
 export function buildSelectionsPayload(groupKeys, selections, availableMethods) {
   return Object.fromEntries(
     groupKeys.map((key) => {
       const sel = effectiveSelection(selections, key, availableMethods);
-      return [key, sel.method === "HOME" ? { method: "HOME" } : { method: sel.method, oohId: sel.location?.id ?? null }];
+      const mode = sel.fulfillment && (sel.userChosen || sel.fulfillment === ARTFEST_SAMEDAY) ? { fulfillment: sel.fulfillment } : {};
+      return [key, sel.method === "HOME" ? { method: "HOME", ...mode } : { method: sel.method, oohId: sel.location?.id ?? null, ...mode }];
     })
   );
+}
+
+/**
+ * Modul preselectat de server devine alegerea magazinului - DOAR unde clientul nu a
+ * ales singur. Sameday indisponibil (selectedFulfillment null) nu schimbă nimic:
+ * clientul reconfirmă explicit. Fără schimbare -> același obiect (fără bucle de render).
+ */
+export function applyQuotedFulfillment(selections, byGroup = {}) {
+  let next = selections;
+  for (const [key, quoted] of Object.entries(byGroup || {})) {
+    const target = quoted?.selectedFulfillment;
+    if (!FULFILLMENTS.includes(target)) continue;
+    const sel = sanitizeSelection(selections?.[key]);
+    if (sel.userChosen || sel.fulfillment === target) continue;
+    if (next === selections) next = { ...selections };
+    next[key] = target === ARTFEST_SAMEDAY ? { ...sel, fulfillment: target, userChosen: false } : { method: "HOME", location: null, fulfillment: target, userChosen: false };
+  }
+  return next;
+}
+
+/** Alegerea explicită a clientului pentru un magazin (păstrată la recalculări). */
+export function chooseFulfillment(selections, groupKey, fulfillment) {
+  if (!FULFILLMENTS.includes(fulfillment)) return selections;
+  const sel = sanitizeSelection(selections?.[groupKey]);
+  const keep = fulfillment === ARTFEST_SAMEDAY && sel.fulfillment === ARTFEST_SAMEDAY ? { method: sel.method, location: sel.location } : { method: "HOME", location: null };
+  return { ...selections, [groupKey]: { ...keep, fulfillment, userChosen: true } };
+}
+
+/** Magazinele cu Sameday prin Artfest ales acum (=> plata doar cu cardul). */
+export function samedayGroupKeys(groupKeys, selections) {
+  return groupKeys.filter((key) => sanitizeSelection(selections?.[key]).fulfillment === ARTFEST_SAMEDAY);
 }
 
 /**
@@ -152,13 +204,15 @@ export function unavailableSelections(groupKeys, selections, availableMethods) {
 
 const OPTIONS_KEY = "checkout:delivery-options:v1";
 export const HOME_ONLY = Object.freeze([{ method: "HOME", label: METHOD_LABELS.HOME }]);
-export const DEFAULT_DELIVERY_OPTIONS = Object.freeze({ enabled: false, nomenclator: false, methods: HOME_ONLY });
+export const DEFAULT_DELIVERY_OPTIONS = Object.freeze({ enabled: false, nomenclator: false, artfestSameday: false, methods: HOME_ONLY });
 
 function cleanOptions(raw) {
   const methods = Array.isArray(raw?.methods) ? raw.methods.filter((m) => DELIVERY_METHODS.includes(m?.method)) : [];
   return {
     enabled: Boolean(raw?.enabled),
     nomenclator: Boolean(raw?.nomenclator),
+    // Sameday prin Artfest poate fi oferit (ce magazine îl au decide quote-ul serverului)
+    artfestSameday: Boolean(raw?.artfestSameday),
     methods: methods.some((m) => m.method === "HOME") ? methods : [...HOME_ONLY, ...methods],
   };
 }
@@ -222,3 +276,17 @@ export function scheduleSummary(schedule = []) {
   }
   return groups.map((g) => `${DAY_NAMES[g.from]}${g.to !== g.from ? `-${DAY_NAMES[g.to]}` : ""} ${g.hours}`).join(" · ");
 }
+
+/**
+ * Magazinele unde clientul a avut „Sameday prin Artfest” ales, dar opțiunea nu mai e oferită
+ * deloc (Sameday oprit global -> checkout-ul revine la forma veche, fără quote). Fără acest
+ * control, alegerea ar fi ignorată în tăcere și comanda ar pleca cu curierul magazinului.
+ * Doar după un răspuns reușit al serverului (optionsFetched), ca să nu apară la încărcare.
+ */
+export function staleSamedayGroupKeys({ deliveryEnabled, optionsFetched, groupKeys = [], selections }) {
+  if (deliveryEnabled || !optionsFetched) return [];
+  return samedayGroupKeys(groupKeys, selections);
+}
+
+export const STALE_SAMEDAY_MESSAGE =
+  "Livrarea Sameday prin Artfest aleasă nu mai este disponibilă. Comanda poate fi livrată de curierul magazinului, la prețul afișat; confirmă alegerea ca să continui.";

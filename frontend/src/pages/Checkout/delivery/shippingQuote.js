@@ -6,7 +6,7 @@
 // Frontend-ul primește doar prețul pe magazin (fără cost curier / sursă /
 // payload Sameday) și îl afișează; la plasare serverul îl recalculează.
 
-import { buildSelectionsPayload, missingLocations } from "./deliveryState.js";
+import { buildSelectionsPayload, effectiveSelection, missingLocations } from "./deliveryState.js";
 
 export const QUOTE_DEBOUNCE_MS = 600;
 
@@ -35,9 +35,19 @@ export function quoteAddress(a = {}) {
 export function buildQuoteRequest({ groupKeys, selections, methods, address, guestItems = null }) {
   const missing = missingLocations(groupKeys, selections, methods);
   const payload = buildSelectionsPayload(groupKeys, selections, methods);
-  for (const key of missing) payload[key] = { method: "HOME" };
+  // modul de livrare rămâne (doar locația lipsește)
+  for (const key of missing) payload[key] = { method: "HOME", ...(payload[key]?.fulfillment ? { fulfillment: payload[key].fulfillment } : {}) };
   const body = { address: quoteAddress(address), selections: payload, ...(guestItems ? { items: guestItems } : {}) };
   return { body, missing };
+}
+
+/**
+ * Cheia cererii de quote (o cerere nouă doar când se schimbă). Lista locațiilor lipsă intră în cheie:
+ * easybox ales fără locație trimite același corp ca „la adresă”, dar prețul afișat
+ * trebuie să devină „Alege locația”, nu tariful la adresă.
+ */
+export function quoteRequestKey({ isGuest, cartKey, refreshKey = 0, request }) {
+  return request ? JSON.stringify([isGuest, cartKey, refreshKey, request.body, request.missing]) : "";
 }
 
 export const SHIPPING_UNAVAILABLE_MESSAGE =
@@ -52,15 +62,57 @@ export function readQuote(data) {
   const byGroup = {};
   for (const s of Array.isArray(data?.shipments) ? data.shipments : []) {
     if (s?.serviceId == null) continue;
+    // modul de livrare: cel ales / preselectat + opțiunile magazinului (prețul fiecăreia)
+    const mode = {
+      selectedFulfillment: typeof s.selectedFulfillment === "string" ? s.selectedFulfillment : null,
+      preselected: Boolean(s.preselected),
+      options: readOptions(s.fulfillmentOptions),
+      samedayUnavailable: s.samedayUnavailable?.message ? { code: String(s.samedayUnavailable.code || ""), message: String(s.samedayUnavailable.message) } : null,
+    };
     if (s.priceUnavailable) {
-      byGroup[String(s.serviceId)] = { unavailable: true, message: String(s.priceUnavailableMessage || SHIPPING_UNAVAILABLE_MESSAGE) };
+      byGroup[String(s.serviceId)] = { unavailable: true, message: String(s.priceUnavailableMessage || SHIPPING_UNAVAILABLE_MESSAGE), ...mode };
       continue;
     }
     const price = Number(s.price);
     if (!Number.isFinite(price) || price < 0) continue;
-    byGroup[String(s.serviceId)] = { price, qualifiesFreeShipping: Boolean(s.qualifiesFreeShipping) };
+    byGroup[String(s.serviceId)] = { price, qualifiesFreeShipping: Boolean(s.qualifiesFreeShipping), ...mode };
   }
   return byGroup;
+}
+
+const priceOrNull = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) || Number(v) < 0 ? null : Number(v));
+
+/** Opțiunile de livrare ale unui magazin (doar ce afișăm; serverul recalculează la plasare). */
+function readOptions(raw) {
+  const out = {};
+  const vendor = raw?.VENDOR_COURIER;
+  if (vendor) out.VENDOR_COURIER = { available: true, price: priceOrNull(vendor.price), qualifiesFreeShipping: Boolean(vendor.qualifiesFreeShipping) };
+  const sameday = raw?.ARTFEST_SAMEDAY;
+  if (sameday) {
+    out.ARTFEST_SAMEDAY = {
+      available: Boolean(sameday.available),
+      price: priceOrNull(sameday.price),
+      message: sameday.message ? String(sameday.message) : null,
+      methods: Array.isArray(sameday.methods) ? sameday.methods.filter((m) => ["HOME", "LOCKER", "PUDO"].includes(m)) : ["HOME"],
+    };
+  }
+  return out;
+}
+
+/**
+ * Selecțiile trimise la PLASARE: modul de livrare explicit pentru fiecare magazin
+ * (cel afișat clientului) + prețul transportului văzut de client, în bani. Serverul
+ * recalculează și refuză (409) dacă prețul s-a schimbat - nimic nu e acceptat din frontend.
+ */
+export function buildPlaceSelections({ groupKeys, selections, methods, quote }) {
+  const payload = buildSelectionsPayload(groupKeys, selections, methods);
+  for (const key of groupKeys) {
+    const hit = quote?.status === "ready" ? quote.byGroup?.[key] : null;
+    const fulfillment = effectiveSelection(selections, key, methods).fulfillment || hit?.selectedFulfillment || null;
+    if (fulfillment) payload[key] = { ...payload[key], fulfillment };
+    if (hit && !hit.unavailable && Number.isFinite(hit.price)) payload[key].expectedShippingCents = Math.round(hit.price * 100);
+  }
+  return payload;
 }
 
 /**

@@ -102,6 +102,8 @@ import adminMarketplaceWaitlistRouter from "./src/routes/adminMarketplaceWaitlis
 import adminSubscriptions from "./src/routes/adminSubscriptionRoutes.js";
 import adminPickupsRoutes from "./src/routes/adminPickupsRoutes.js";
 import adminCouriersRoutes from "./src/routes/adminCouriersRoutes.js";
+import adminSamedayDeliveryRoutes from "./src/routes/adminSamedayDeliveryRoutes.js";
+import vendorSamedayDeliveryRoutes from "./src/routes/vendorSamedayDeliveryRoutes.js";
 import platformBillingRouter from "./src/routes/platformBillingRoutes.js";
 import adminInvoicesRoutes from "./src/routes/adminInvoicesRoutes.js";
 import adminInfluencersRoutes from "./src/routes/adminInfluencersRoutes.js";
@@ -517,6 +519,8 @@ app.use("/api/admin", adminMarketplaceWaitlistRouter);
 app.use("/api/admin", adminSubscriptions);
 // Admin „Curieri”: starea integrărilor (Sameday) + verificare read-only (doar ADMIN)
 app.use("/api/admin/couriers", adminCouriersRoutes);
+// livrarea Sameday prin Artfest per magazin: restricția Admin (nu atinge magazinul)
+app.use("/api/admin/sameday-delivery", adminSamedayDeliveryRoutes);
 app.use("/api/admin", adminPickupsRoutes);
 app.use("/api/admin", adminInvoicesRoutes);
 app.use("/api/admin", adminProductsRoutes);
@@ -663,6 +667,8 @@ app.use("/api/vendor/fair/delivery-notes", vendorArtfestFairDeliveryNoteRoutes);
 app.use("/api/vendor", vendorCourierRoutes);
 // AWB (preview / creare / etichetă) - ÎNAINTEA vendorOrdersRoutes, care are GET /shipments/:id/label legacy
 app.use("/api/vendor", vendorShipmentAwbRoutes);
+// opt-in Sameday prin Artfest per magazin (middleware-ul de autentificare e pe rute, nu global)
+app.use("/api/vendor", vendorSamedayDeliveryRoutes);
 
 app.use("/api/auth", authRouter);
 app.use("/api/vendors", vendorsRouter);

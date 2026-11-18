@@ -6323,7 +6323,7 @@ export function buildSecretSantaAssignmentEmail({ editionTitle, shipByAt, recipi
   </div>
   <div style="background:#ffffff;border:1px solid #f1d9c7;border-radius:14px;padding:22px;">
     <h2 style="color:#9f1239;margin:0 0 12px;font-size:22px;">🎄 ${e(editionTitle || "Secret Santa Artfest")}</h2>
-    <p style="color:#374151;margin:0 0 16px;line-height:1.6;">Extragerea a avut loc! Tu pregătești un cadou handmade (80–100 lei) pentru:</p>
+    <p style="color:#374151;margin:0 0 16px;line-height:1.6;">Extragerea a avut loc! Tu pregătești un cadou handmade (50–80 lei) pentru:</p>
     <table style="width:100%;border-collapse:collapse;margin:0 0 16px;font-size:15px;">${rows}</table>
     ${
       recipient.preferences
@@ -6348,7 +6348,7 @@ export function buildSecretSantaAssignmentEmail({ editionTitle, shipByAt, recipi
   const text = [
     editionTitle || "Secret Santa Artfest",
     "",
-    "Extragerea a avut loc! Tu pregătești un cadou handmade (80–100 lei) pentru:",
+    "Extragerea a avut loc! Tu pregătești un cadou handmade (50–80 lei) pentru:",
     recipient.recipientName ? `Destinatar: ${recipient.recipientName}` : "",
     recipient.storeName ? `Magazin: ${recipient.storeName}` : "",
     addressLine ? `Adresă: ${addressLine}` : "",

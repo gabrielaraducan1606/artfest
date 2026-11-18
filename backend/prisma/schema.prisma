@@ -593,6 +593,14 @@ model VendorService {
   freeShippingThresholdCents Int?
   shippingNotes              String?
 
+  // Livrare Sameday prin Artfest (ARTFEST_SAMEDAY): opt-in pe magazin, inactiv implicit.
+  // Doar înregistrarea alegerii; eligibilitatea reală o decide serverul (Stripe, cont curier).
+  samedayOptInAt      DateTime?
+  samedayOptInById    String?
+  // oprit de Artfest pentru acest magazin (are prioritate față de opt-in)
+  samedayDisabledAt   DateTime?
+  samedayDisabledById String?
+
   searches           Search[] // dacă ai pus relație Search -> VendorService
   events             Event[] // ✅ adaugă
   products           Product[]
@@ -1988,6 +1996,13 @@ model Shipment {
   // { active, address: {...}, updatedAt, updatedBy, history: [{ at, by, before, after }] }
   recipientOverride Json?
 
+  // ==================== Modul de livrare (proprietarul economic al transportului) ====================
+  // ARTFEST_SAMEDAY: curierat prin contractul Artfest - transportul încasat e al Artfest (nu intră în transferul vendorului);
+  // VENDOR_COURIER:  curierul vânzătorului - transportul rămâne în fluxul vendorului;
+  // null:            comenzile existente - EXACT comportamentul de dinainte (transportul în fluxul vendorului).
+  // Se setează la plasare; după plata comenzii nu se mai schimbă.
+  fulfillment ShipmentFulfillment?
+
   // ==================== Relații ====================
   order          Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
   vendor         Vendor             @relation("ShipmentSellerVendor", fields: [vendorId], references: [id])
@@ -2966,6 +2981,14 @@ model ShipmentDelivery {
   carrierCost          Decimal?  @db.Decimal(10, 2) // costul real al curierului (Sameday) pentru acest shipment; null până e cunoscut
   carrierCostUpdatedAt DateTime?                    // când a fost completat / actualizat carrierCost (reconciliere)
   vendorShippingCost   Decimal?  @db.Decimal(10, 2) // suma de refacturat vendorului; null până e cunoscut carrierCost
+  // evidența separată a costului curierului (doar date, fără documente):
+  //   carrierCost (mai sus)   = la plasare: ESTIMAREA Sameday (estimate-cost);
+  //   carrierCostAwbReported  = awbCost raportat de Sameday la emiterea AWB - informativ, NU factură;
+  //   carrierCostFinal        = costul final confirmat (ex. din factura Sameday), cu sursa și momentul.
+  carrierCostAwbReported Decimal?  @db.Decimal(10, 2)
+  carrierCostFinal       Decimal?  @db.Decimal(10, 2)
+  carrierCostFinalSource String?   @db.VarChar(32) // SAMEDAY_INVOICE | MANUAL
+  carrierCostFinalAt     DateTime?
   pricingSource        String    @db.VarChar(32)    // SAMEDAY | VENDOR_FALLBACK | ARTFEST_RULE
   fallbackReason       String?   @db.VarChar(64)    // motivul tarifului de rezervă; doar la VENDOR_FALLBACK
   // retur (Shipment RETURN): shippingCost = partea clientului, vendorShippingCost = partea vendorului,
@@ -3162,6 +3185,12 @@ enum VendorEarningType {
 enum ShipmentDirection {
   OUTBOUND
   RETURN
+}
+
+// Proprietarul economic al transportului (vezi Shipment.fulfillment); null = comportamentul existent.
+enum ShipmentFulfillment {
+  ARTFEST_SAMEDAY
+  VENDOR_COURIER
 }
 
 model VendorEarningEntry {

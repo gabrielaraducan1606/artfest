@@ -410,7 +410,7 @@ function MySanta({ state, onChanged }) {
       <h2 className={styles.cardTitle}>🎅 Secret Santa-ul meu</h2>
       {recipient ? (
         <div className={styles.recipient}>
-          <p className={styles.muted}>Pregătești un cadou handmade (80–100 lei) pentru:</p>
+          <p className={styles.muted}>Pregătești un cadou handmade (50–80 lei) pentru:</p>
           <p className={styles.recipientName}>{recipient.recipientName}</p>
           <p>
             Magazin: <strong>{recipient.storeName}</strong>

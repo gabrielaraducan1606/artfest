@@ -1,4 +1,5 @@
 // backend/src/routes/vendorOrdersRoutes.js  (ESM)
+import { isArtfestSameday } from "../services/shipping/fulfillment.js";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { prisma } from "../db.js";
@@ -3821,6 +3822,14 @@ router.post(
 
           message:
             "Avansul poate fi solicitat doar pentru comenzile ramburs.",
+        });
+      }
+
+      // Sameday prin Artfest: plată integrală cu cardul, fără avans (protecție suplimentară)
+      if (isArtfestSameday(shipment)) {
+        return res.status(409).json({
+          error: "deposit_not_allowed_sameday",
+          message: "Comenzile cu livrare Sameday prin Artfest sunt plătite integral online; nu se poate cere avans.",
         });
       }
 

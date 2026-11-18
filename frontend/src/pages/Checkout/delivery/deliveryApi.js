@@ -33,10 +33,11 @@ export async function fetchDeliveryOptions() {
       ok: true,
       enabled: Boolean(data?.enabled),
       nomenclator: Boolean(data?.nomenclator),
+      artfestSameday: Boolean(data?.artfestSameday),
       methods: methods.length ? methods : [{ method: "HOME", label: "Livrare la adresă" }],
     };
   } catch {
-    return { ok: false, enabled: false, nomenclator: false, methods: [{ method: "HOME", label: "Livrare la adresă" }] };
+    return { ok: false, enabled: false, nomenclator: false, artfestSameday: false, methods: [{ method: "HOME", label: "Livrare la adresă" }] };
   }
 }
 

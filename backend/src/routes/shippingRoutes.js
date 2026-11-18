@@ -18,6 +18,7 @@ import express from "express";
 import { deliveryCatalog as defaultCatalog, foldText } from "../services/shipping/deliveryCatalog.js";
 import { METHOD_LABELS } from "../services/shipping/deliverySelection.js";
 import { isSamedayCheckoutActive } from "../services/shipping/checkoutMode.js";
+import { isArtfestSamedayOffered } from "../services/shipping/samedayStoreDelivery.js";
 import { isNomenclatorAvailable, returnPickupAvailability } from "../services/shipping/logisticsFlags.js";
 import { findRoCounty } from "../constants/roCounties.js";
 
@@ -47,11 +48,20 @@ export function parseNear(value) {
   return { lat, lng };
 }
 
-export function createShippingRouter({ catalog = null, env = process.env, isActive = null, db = undefined } = {}) {
+export function createShippingRouter({ catalog = null, env = process.env, isActive = null, db = undefined, artfestOffered = null } = {}) {
   const router = express.Router();
   const cat = () => catalog || defaultCatalog();
   // checkout (metode, easybox / Sameday Point)
   const enabled = () => (isActive ? isActive() : isSamedayCheckoutActive(env));
+  // „Sameday prin Artfest” (etapa 3): comutator + cont Artfest validat; oprit -> fără interogări.
+  // Ce magazine îl oferă decide quote-ul de checkout (opt-in + eligibilitate), nu această rută.
+  const artfest = async () => {
+    try {
+      return Boolean(await (artfestOffered ? artfestOffered() : isArtfestSamedayOffered({ env, ...(db ? { db } : {}) })));
+    } catch {
+      return false;
+    }
+  };
   // nomenclator (județe / localități): checkout activ SAU activare explicită
   const nomenclatorEnabled = () => isNomenclatorAvailable({ env, ...(db ? { db } : {}), checkoutActive: enabled });
 
@@ -72,7 +82,9 @@ export function createShippingRouter({ catalog = null, env = process.env, isActi
 
   router.get("/options", async (_req, res) => {
     try {
-      if (!(await enabled())) {
+      const [on, artfestSameday] = await Promise.all([enabled(), artfest()]);
+      if (!on && !artfestSameday) {
+        // răspunsul de până acum, identic
         return res.json({ enabled: false, nomenclator: false, methods: [{ method: "HOME", label: METHOD_LABELS.HOME }] });
       }
       const { courierAvailable, services } = await cat().getServices();
@@ -81,7 +93,12 @@ export function createShippingRouter({ catalog = null, env = process.env, isActi
         .map((m) => ({ method: m, label: METHOD_LABELS[m] }));
       // indisponibil temporar -> cache scurt, ca metodele să revină repede
       cache(res, courierAvailable ? 300 : 30);
-      return res.json({ enabled: true, nomenclator: Boolean(courierAvailable), methods });
+      return res.json({
+        enabled: Boolean(on),
+        nomenclator: Boolean(on && courierAvailable),
+        methods,
+        ...(artfestSameday ? { artfestSameday: true } : {}),
+      });
     } catch (error) {
       return fail(res, error, "options");
     }
@@ -132,7 +149,8 @@ export function createShippingRouter({ catalog = null, env = process.env, isActi
 
   router.get("/ooh-locations", async (req, res) => {
     try {
-      if (!(await enabled())) return res.json({ items: [], total: 0 });
+      // easybox / Sameday Point: checkout-ul vechi SAU Sameday prin Artfest
+      if (!(await enabled()) && !(await artfest())) return res.json({ items: [], total: 0 });
       const type = ["LOCKER", "PUDO"].includes(String(req.query.type || "").toUpperCase()) ? String(req.query.type).toUpperCase() : "ALL";
       const q = String(req.query.q || "").slice(0, 80);
       // zona din adresa clientului (prioritizare) și, opțional, poziția din browser

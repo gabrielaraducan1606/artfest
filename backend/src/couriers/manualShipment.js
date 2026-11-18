@@ -1,6 +1,7 @@
 // backend/src/couriers/manualShipment.js
 
 import { findActiveCourierAwb } from "./awb/awbService.js";
+import { isArtfestSameday } from "../services/shipping/fulfillment.js";
 
 /*
  * Expediere FĂRĂ integrare de curier („Trimite fără integrare”).
@@ -127,6 +128,14 @@ export async function assertManualShipmentAllowed(db, shipment) {
   }
   if (String(shipment.order?.status || "") === "CANCELLED") {
     throw new ManualShipmentError("order_cancelled", "Comanda este anulată.", { httpStatus: 409 });
+  }
+  // Sameday prin Artfest: transportul e al Artfest (plătit de client) -> doar AWB-ul integrat
+  if (isArtfestSameday(shipment)) {
+    throw new ManualShipmentError(
+      "sameday_artfest_delivery",
+      "Comanda are livrare Sameday prin Artfest: clientul a plătit transportul Sameday. Generează AWB-ul din Artfest, nu o expediere cu alt curier.",
+      { httpStatus: 409 }
+    );
   }
   if (shipment.manualShipment || !MANUAL_SHIP_ELIGIBLE_STATUSES.has(String(shipment.status))) {
     throw new ManualShipmentError(

@@ -31,6 +31,7 @@ import { humanizeOptionValue } from "../../utils/optionLabels.js";
 import styles from "./Checkout.module.css";
 import TraderStatusNotice from "./TraderStatusNotice.jsx";
 import DeliveryMethodPicker from "./delivery/DeliveryMethodPicker.jsx";
+import FulfillmentChoice from "./delivery/FulfillmentChoice.jsx";
 import OohLocationPicker from "./delivery/OohLocationPicker.jsx";
 import SamedayCityField from "./delivery/SamedayCityField.jsx";
 import { fetchCounties as fetchSamedayCounties, fetchDeliveryOptions } from "./delivery/deliveryApi.js";
@@ -41,7 +42,9 @@ import {
   postalSuggestion,
 } from "./delivery/placeFields.js";
 import {
-  buildSelectionsPayload,
+  applyQuotedFulfillment,
+  ARTFEST_SAMEDAY,
+  chooseFulfillment,
   clearSelections,
   DEFAULT_DELIVERY_OPTIONS,
   effectiveSelection,
@@ -52,11 +55,15 @@ import {
   missingLocations,
   publicLocation,
   saveDeliveryOptions,
+  samedayGroupKeys,
   saveSelections,
+  STALE_SAMEDAY_MESSAGE,
+  staleSamedayGroupKeys,
   unavailableSelections,
+  VENDOR_COURIER,
 } from "./delivery/deliveryState.js";
 import deliveryStyles from "./delivery/Delivery.module.css";
-import { quotedShipping, shippingPriceLabel } from "./delivery/shippingQuote.js";
+import { buildPlaceSelections, quotedShipping, shippingPriceLabel } from "./delivery/shippingQuote.js";
 import { useShippingQuote } from "./delivery/useShippingQuote.js";
 import {
   RO_COUNTIES_FALLBACK,
@@ -780,7 +787,10 @@ const [me, setMe] = useState(null);
   const [deliverySelections, setDeliverySelections] = useState(() => loadSelections());
   const [deliveryErrors, setDeliveryErrors] = useState({});
   const [locationPicker, setLocationPicker] = useState(null);
-  const deliveryEnabled = deliveryOptions.enabled && !isQuoteCheckout;
+  // crește -> quote nou (ex. după 409 la plasare: Sameday indisponibil / preț schimbat)
+  const [quoteRefresh, setQuoteRefresh] = useState(0);
+  // Sameday prin Artfest (etapa 3) sau checkout-ul vechi cu Sameday: prețul vine din quote-ul serverului
+  const deliveryEnabled = (deliveryOptions.enabled || deliveryOptions.artfestSameday) && !isQuoteCheckout;
   const availableDeliveryMethods = useMemo(
     () => deliveryOptions.methods.map((m) => m.method),
     [deliveryOptions]
@@ -791,9 +801,14 @@ const [me, setMe] = useState(null);
    * structura nouă rămâne, doar easybox / Sameday Point dispar. La prima
    * încărcare eșuată mai încercăm o dată după câteva secunde.
    */
+  // un răspuns reușit al serverului a sosit (controlul alegerilor Sameday rămase fără opțiune)
+  const [deliveryOptionsFetched, setDeliveryOptionsFetched] = useState(false);
   function applyDeliveryOptions(next) {
     setDeliveryOptions((prev) => mergeDeliveryOptions(prev, next));
-    if (next?.ok) saveDeliveryOptions(next);
+    if (next?.ok) {
+      saveDeliveryOptions(next);
+      setDeliveryOptionsFetched(true);
+    }
   }
 
   function refreshDeliveryOptions() {
@@ -863,15 +878,26 @@ const [me, setMe] = useState(null);
     if (method !== "HOME" && !location && lastOoh[method]?.status === "ok") {
       location = publicLocation(lastOoh[method].location);
     }
-    setDeliverySelections((prev) => ({ ...prev, [groupKey]: { method, location } }));
+    setDeliverySelections((prev) => ({ ...prev, [groupKey]: { method, location, fulfillment: ARTFEST_SAMEDAY, userChosen: true } }));
     clearDeliveryError(groupKey);
     if (method !== "HOME" && !location) setLocationPicker({ groupKey, method, storeLabel });
   }
 
   function chooseDeliveryLocation(groupKey, location) {
-    setDeliverySelections((prev) => ({ ...prev, [groupKey]: { method: location.type, location } }));
+    setDeliverySelections((prev) => ({
+      ...prev,
+      [groupKey]: { method: location.type, location, fulfillment: ARTFEST_SAMEDAY, userChosen: true },
+    }));
     clearDeliveryError(groupKey);
     setLocationPicker(null);
+  }
+
+  // „Sameday prin Artfest” / „Curierul magazinului” - alegerea clientului, păstrată la recalculări
+  function chooseStoreFulfillment(groupKey, fulfillment) {
+    setDeliverySelections((prev) => chooseFulfillment(prev, groupKey, fulfillment));
+    clearDeliveryError(groupKey);
+    // mesajul general „Sameday nu mai e disponibil” dispare odată cu reconfirmarea
+    setError((prev) => (prev === STALE_SAMEDAY_MESSAGE ? "" : prev));
   }
   const [shipToDifferentAddress, setShipToDifferentAddress] = useState(false);
 
@@ -1177,7 +1203,46 @@ const checkoutTrackedRef =
     cartKey: JSON.stringify(
       serviceGroups.map((g) => [g.serviceId, (g.items || []).map((it) => [it.productId, it.qty, it.price])])
     ),
+    refreshKey: quoteRefresh,
   });
+
+  // modul preselectat de server (Sameday când e disponibil) devine alegerea magazinului,
+  // DOAR unde clientul nu a ales singur; indisponibil -> fără schimbare (reconfirmare)
+  useEffect(() => {
+    if (!deliveryEnabled || shippingQuote.status !== "ready") return;
+    setDeliverySelections((prev) => applyQuotedFulfillment(prev, shippingQuote.byGroup));
+  }, [deliveryEnabled, shippingQuote]);
+
+  // Sameday prin Artfest ales la cel puțin un magazin -> toată comanda se plătește cu cardul
+  const samedayKeys = useMemo(
+    () => (deliveryEnabled ? samedayGroupKeys(deliveryGroupKeys, deliverySelections) : []),
+    [deliveryEnabled, deliveryGroupKeys, deliverySelections]
+  );
+  const samedayRequiresCard = samedayKeys.length > 0;
+  // Sameday ales anterior, dar oprit între timp: mesaj + reconfirmare, nu schimbare tăcută
+  const staleSamedayKeys = useMemo(
+    () =>
+      isQuoteCheckout
+        ? []
+        : staleSamedayGroupKeys({ deliveryEnabled, optionsFetched: deliveryOptionsFetched, groupKeys: deliveryGroupKeys, selections: deliverySelections }),
+    [isQuoteCheckout, deliveryEnabled, deliveryOptionsFetched, deliveryGroupKeys, deliverySelections]
+  );
+  useEffect(() => {
+    if (samedayRequiresCard && paymentMethod === "COD") setPaymentMethod("CARD");
+  }, [samedayRequiresCard, paymentMethod]);
+
+  // ramburs: clientul trece explicit magazinele cu Sameday pe curierul magazinului
+  function switchSamedayToVendorCourier() {
+    setDeliverySelections((prev) => samedayKeys.reduce((acc, key) => chooseFulfillment(acc, key, VENDOR_COURIER), prev));
+    setPaymentMethod("COD");
+  }
+
+  const formatFulfillmentPrice = (opt) =>
+    opt?.qualifiesFreeShipping ? "Gratuit" : opt?.price == null ? "Se calculează" : money(opt.price, currency);
+  const samedayPickerMethods = (groupKey) => {
+    const methods = shippingQuote.byGroup?.[groupKey]?.options?.ARTFEST_SAMEDAY?.methods;
+    return methods?.length ? methods.map((m) => ({ method: m, label: DELIVERY_METHOD_LABELS[m] })) : deliveryOptions.methods;
+  };
   const shippingForGroup = useCallback(
     (group) => {
       const base = getGroupShipping(group);
@@ -2636,6 +2701,13 @@ const removeDiscountCode = () => {
       return;
     }
 
+    if (staleSamedayKeys.length) {
+      setDeliveryErrors((prev) => ({ ...prev, ...Object.fromEntries(staleSamedayKeys.map((k) => [k, STALE_SAMEDAY_MESSAGE])) }));
+      setError(STALE_SAMEDAY_MESSAGE);
+      document.querySelector(`[data-delivery-group="${staleSamedayKeys[0]}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
     if (deliveryEnabled) {
       const unavailable = unavailableSelections(
         serviceGroups.map((g) => String(g.serviceId || "")).filter(Boolean),
@@ -2753,11 +2825,12 @@ const removeDiscountCode = () => {
         // livrarea fiecărui magazin: metoda + locația (costul îl calculează serverul)
         ...(deliveryEnabled
           ? {
-              selections: buildSelectionsPayload(
-                serviceGroups.map((g) => String(g.serviceId || "")).filter(Boolean),
-                deliverySelections,
-                availableDeliveryMethods
-              ),
+              selections: buildPlaceSelections({
+                groupKeys: serviceGroups.map((g) => String(g.serviceId || "")).filter(Boolean),
+                selections: deliverySelections,
+                methods: availableDeliveryMethods,
+                quote: shippingQuote,
+              }),
             }
           : {}),
         // campaniile din navigarea curentă (memorie / ?camp=), revalidate pe server
@@ -3044,6 +3117,18 @@ if (me) {
       }
 
       const deliveryCode = String(e?.data?.error || "");
+      if (/^(sameday_|shipping_price_changed)/.test(deliveryCode)) {
+        const key = String(e?.data?.serviceId || "");
+        const message = e?.data?.message || "Verifică livrarea aleasă.";
+        if (key) {
+          setDeliveryErrors((prev) => ({ ...prev, [key]: message }));
+          document.querySelector(`[data-delivery-group="${key}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        setError(message);
+        // prețul / disponibilitatea actuale, afișate înainte de o nouă confirmare
+        setQuoteRefresh((n) => n + 1);
+        return;
+      }
       if (/^(ooh_|delivery_method_|shipping_place_|shipping_price_unavailable)/.test(deliveryCode)) {
         const key = String(e?.data?.serviceId || "");
         const message = e?.data?.message || "Verifică livrarea aleasă.";
@@ -3057,7 +3142,7 @@ if (me) {
           if (!["delivery_method_unavailable", "ooh_location_unverified", "shipping_price_unavailable"].includes(deliveryCode)) {
             setDeliverySelections((prev) => ({
               ...prev,
-              [key]: { method: prev[key]?.method || "HOME", location: null },
+              [key]: { ...(prev[key] || {}), method: prev[key]?.method || "HOME", location: null },
             }));
           }
           document
@@ -4567,9 +4652,17 @@ if (me) {
         <TraderStatusNotice status={groupTraderStatus} />
 
         {deliveryEnabled && group.serviceId ? (
+          <FulfillmentChoice
+            groupKey={String(group.serviceId)}
+            quoted={shippingQuote.byGroup?.[String(group.serviceId)] || null}
+            fulfillment={deliverySelections[String(group.serviceId)]?.fulfillment || null}
+            formatPrice={formatFulfillmentPrice}
+            onChoose={(fulfillment) => chooseStoreFulfillment(String(group.serviceId), fulfillment)}
+            onRetry={() => setQuoteRefresh((n) => n + 1)}
+          >
           <DeliveryMethodPicker
             groupKey={String(group.serviceId)}
-            methods={deliveryOptions.methods}
+            methods={samedayPickerMethods(String(group.serviceId))}
             selection={effectiveSelection(
               deliverySelections,
               String(group.serviceId),
@@ -4596,6 +4689,29 @@ if (me) {
               })
             }
           />
+          </FulfillmentChoice>
+        ) : null}
+        {deliveryEnabled &&
+        group.serviceId &&
+        deliverySelections[String(group.serviceId)]?.fulfillment !== ARTFEST_SAMEDAY &&
+        (deliveryErrors[String(group.serviceId)] || shipping.blockedMessage) ? (
+          <p className={deliveryStyles.error} role="alert">
+            {deliveryErrors[String(group.serviceId)] || shipping.blockedMessage}
+          </p>
+        ) : null}
+        {staleSamedayKeys.includes(String(group.serviceId)) ? (
+          <div className={deliveryStyles.notice} role="alert">
+            <p style={{ margin: 0 }}>{STALE_SAMEDAY_MESSAGE}</p>
+            <div style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className={deliveryStyles.secondary}
+                onClick={() => chooseStoreFulfillment(String(group.serviceId), VENDOR_COURIER)}
+              >
+                Continuă cu curierul magazinului ({priceLabelFor(shipping)})
+              </button>
+            </div>
+          </div>
         ) : null}
 
         <div className={styles.summaryRow}>
@@ -4798,14 +4914,21 @@ if (me) {
                   {serviceGroups.map((group) => {
                     const groupShipping = shippingForGroup(group);
                     const groupKey = String(group.serviceId || group.vendorId || "");
-                    const method = deliveryEnabled
-                      ? effectiveSelection(deliverySelections, String(group.serviceId || ""), availableDeliveryMethods).method
+                    const sel = deliveryEnabled
+                      ? effectiveSelection(deliverySelections, String(group.serviceId || ""), availableDeliveryMethods)
                       : null;
+                    const method = !sel
+                      ? null
+                      : sel.fulfillment === ARTFEST_SAMEDAY
+                        ? `Sameday · ${DELIVERY_METHOD_LABELS[sel.method]}`
+                        : sel.fulfillment === VENDOR_COURIER
+                          ? "Curierul magazinului"
+                          : DELIVERY_METHOD_LABELS[sel.method];
                     return (
                       <li key={groupKey}>
                         <span>
                           {group.serviceTitle?.trim() || "Magazin"}
-                          {method ? <em> · {DELIVERY_METHOD_LABELS[method]}</em> : null}
+                          {method ? <em> · {method}</em> : null}
                         </span>
                         <span>{priceLabelFor(groupShipping)}</span>
                       </li>
@@ -4945,6 +5068,7 @@ if (me) {
       name="paymentMethod"
       value="COD"
       checked={paymentMethod === "COD"}
+      disabled={samedayRequiresCard}
       onChange={() =>
         setPaymentMethod("COD")
       }
@@ -4979,6 +5103,31 @@ if (me) {
   </span>
 </label>
 </div>
+
+{samedayRequiresCard && (
+  <div
+    style={{
+      marginTop: 12,
+      padding: "12px 14px",
+      borderRadius: 10,
+      background: "#eef4ff",
+      border: "1px solid #b9cdf5",
+      fontSize: 13,
+      lineHeight: 1.5,
+      color: "#1d3a6e",
+    }}
+    role="note"
+  >
+    Livrarea Sameday prin Artfest se plătește integral online, cu cardul.
+    {" "}Pentru plata ramburs, alege „Curierul magazinului” la{" "}
+    {samedayKeys.length === 1 ? "magazinul cu Sameday" : "magazinele cu Sameday"}.
+    <div style={{ marginTop: 8 }}>
+      <button type="button" className={deliveryStyles.linkButton} onClick={switchSamedayToVendorCourier}>
+        Plătesc ramburs, cu curierul magazinului
+      </button>
+    </div>
+  </div>
+)}
 
 {!cardPaymentAvailable && (
   <div

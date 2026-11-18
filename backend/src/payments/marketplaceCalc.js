@@ -14,6 +14,9 @@ import {
   classifyShipmentCommissionItems,
   COMMISSION_GROUP_LABELS,
 } from "../services/shipmentCommissionGroups.js";
+import {
+  shippingOwnership,
+} from "../services/shipping/fulfillment.js";
 
 /* =========================================================
    Helpers
@@ -553,12 +556,35 @@ export async function computeOrderSplits(
        dar NU intră în baza comisionului Artfest.
     ----------------------------------------------------- */
 
-    const shippingGross =
+    const customerShippingGross =
       dec2(
         safeNumber(
           shipment.price,
           0
         )
+      );
+
+    /*
+     * Proprietarul economic al transportului (services/shipping/fulfillment.js):
+     *  - fulfillment null / VENDOR_COURIER -> tot transportul e al vendorului
+     *    (shippingGross = exact valoarea de dinainte);
+     *  - ARTFEST_SAMEDAY -> transportul e al Artfest: NU intră în rândul
+     *    vendorului (deci nici în transferul Stripe), ci în artfestShippingGross.
+     */
+    const shippingSplit =
+      shippingOwnership(
+        shipment,
+        customerShippingGross
+      );
+
+    const shippingGross =
+      dec2(
+        shippingSplit.vendorShippingGross
+      );
+
+    const artfestShippingGross =
+      dec2(
+        shippingSplit.artfestShippingGross
       );
 
     const shippingNetExVat =
@@ -833,6 +859,17 @@ export async function computeOrderSplits(
           .shippingVat +
           shippingVat
       );
+
+    // transportul Sameday al Artfest (0 pentru fulfillment null / VENDOR_COURIER)
+    vendorRow.artfestShippingGross =
+      dec2(
+        safeNumber(
+          vendorRow
+            .artfestShippingGross,
+          0
+        ) +
+          artfestShippingGross
+      );
   }
 
   const vendors =
@@ -1021,10 +1058,25 @@ export async function computeOrderSplits(
       )
     );
 
+  // transportul atribuit Artfest (ARTFEST_SAMEDAY); 0 pentru comenzile existente
+  const totalArtfestShippingGross =
+    dec2(
+      vendors.reduce(
+        (total, vendor) =>
+          total +
+          safeNumber(
+            vendor.artfestShippingGross,
+            0
+          ),
+        0
+      )
+    );
+
   const totalGross =
     dec2(
       totalItemsGross +
-        totalShippingGross
+        totalShippingGross +
+        totalArtfestShippingGross
     );
 
   const totalCommissionNet =
@@ -1057,7 +1109,17 @@ export async function computeOrderSplits(
 
       totalItemsGross,
 
-      totalShippingGross,
+      // transportul încasat de la client = al vendorilor + al Artfest
+      totalShippingGross:
+        dec2(
+          totalShippingGross +
+            totalArtfestShippingGross
+        ),
+
+      totalVendorShippingGross:
+        totalShippingGross,
+
+      totalArtfestShippingGross,
 
       totalCommissionNet,
     },
@@ -1079,7 +1141,136 @@ export async function computeOrderSplits(
    produse + transport.
 ========================================================= */
 
+/*
+ * Sameday prin Artfest (fulfillment ARTFEST_SAMEDAY): transportul acestor shipment-uri
+ * e al Artfest (artfestShippingGross pe rândul vendorului), deci taxa Stripe aferentă e
+ * suportată de Artfest, nu de vendor.
+ *
+ * Fără transport Artfest în comandă (TOATE comenzile existente / fulfillment null) ->
+ * algoritmul de mai jos (allocateStripeFeeVendorsOnly), NESCHIMBAT, deci rezultatul e
+ * identic ban cu ban cu cel de dinainte.
+ *
+ * Cu transport Artfest: participanți = vendorii (pondere produse + transportul LOR) +
+ * Artfest (pondere = transportul Sameday). Alocare în CENȚI prin metoda celor mai mari
+ * resturi (rest egal -> ordinea participanților, Artfest ultimul): fiecare parte >= 0,
+ * suma exactă = taxa totală, determinist.
+ */
 export function allocateStripeFee({
+  vendors,
+  feeNet,
+}) {
+  const safeVendors =
+    Array.isArray(vendors) ? vendors : [];
+
+  const artfestShippingCents =
+    safeVendors.reduce(
+      (total, vendor) =>
+        total +
+        Math.round(
+          safeNumber(vendor?.artfestShippingGross, 0) * 100
+        ),
+      0
+    );
+
+  if (artfestShippingCents <= 0) {
+    return allocateStripeFeeVendorsOnly({
+      vendors,
+      feeNet,
+    });
+  }
+
+  const totalFeeCents =
+    Math.round(dec2(feeNet) * 100);
+
+  const weights = [
+    ...safeVendors.map((vendor) =>
+      Math.round(
+        dec2(
+          safeNumber(vendor.itemsGross, 0) +
+            safeNumber(vendor.shippingGross, 0)
+        ) * 100
+      )
+    ),
+    artfestShippingCents,
+  ];
+
+  const parts =
+    allocateCentsLargestRemainder(
+      totalFeeCents > 0 ? totalFeeCents : 0,
+      weights
+    );
+
+  return safeVendors.map((vendor, index) => ({
+    ...vendor,
+    stripeFeeAllocated:
+      parts[index] / 100,
+  }));
+}
+
+/*
+ * Taxa Stripe și suma reținută de Artfest pentru transportul Sameday, DUPĂ alocare:
+ * artfestStripeFee = taxa totală - taxele alocate vendorilor (exact, în cenți).
+ * Pentru comenzile fără transport Artfest: totul 0.
+ */
+export function summarizeArtfestShipping({
+  vendors,
+  feeNet,
+}) {
+  const safeVendors =
+    Array.isArray(vendors) ? vendors : [];
+
+  const artfestShippingCents =
+    safeVendors.reduce(
+      (t, v) =>
+        t + Math.round(safeNumber(v?.artfestShippingGross, 0) * 100),
+      0
+    );
+
+  if (artfestShippingCents <= 0) {
+    return {
+      artfestShippingGross: 0,
+      artfestStripeFee: 0,
+      artfestRetainedNet: 0,
+    };
+  }
+
+  const totalFeeCents = Math.max(0, Math.round(dec2(feeNet) * 100));
+  const vendorFeeCents = safeVendors.reduce(
+    (t, v) => t + Math.round(safeNumber(v?.stripeFeeAllocated, 0) * 100),
+    0
+  );
+  const artfestFeeCents = totalFeeCents - vendorFeeCents;
+
+  return {
+    artfestShippingGross: artfestShippingCents / 100,
+    artfestStripeFee: artfestFeeCents / 100,
+    artfestRetainedNet: (artfestShippingCents - artfestFeeCents) / 100,
+  };
+}
+
+// cenți întregi, metoda celor mai mari resturi; ponderi <= 0 primesc 0; fără ponderi -> egal
+function allocateCentsLargestRemainder(totalCents, weights) {
+  const w = weights.map((x) => (Number.isFinite(x) && x > 0 ? x : 0));
+  const weightSum = w.reduce((a, b) => a + b, 0);
+  const n = w.length;
+  if (!n) return [];
+  if (weightSum <= 0) {
+    const base = Math.floor(totalCents / n);
+    const rest = totalCents - base * n;
+    return w.map((_, i) => base + (i < rest ? 1 : 0));
+  }
+  const exact = w.map((x) => (totalCents * x) / weightSum);
+  const floors = exact.map((x) => Math.floor(x));
+  let rest = totalCents - floors.reduce((a, b) => a + b, 0);
+  const order = exact
+    .map((x, i) => ({ i, frac: x - Math.floor(x) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (let k = 0; k < order.length && rest > 0; k += 1, rest -= 1) floors[order[k].i] += 1;
+  return floors;
+}
+
+// algoritmul EXISTENT (neschimbat): doar vendorii, ultimul absoarbe rotunjirea
+function allocateStripeFeeVendorsOnly({
   vendors,
   feeNet,
 }) {

@@ -70,7 +70,8 @@ export default function DeliveryMethodPicker({
                 <span className={styles.optionTitle}>{METHOD_LABELS[method]}</span>
                 <span className={styles.optionHint}>{METHOD_HINTS[method]}</span>
               </span>
-              {priceLabel ? <span className={styles.optionPrice}>{priceLabel}</span> : null}
+              {/* prețul se cunoaște doar pentru metoda aleasă (fiecare metodă are tariful ei) */}
+              {priceLabel && checked ? <span className={styles.optionPrice}>{priceLabel}</span> : null}
             </label>
           );
         })}

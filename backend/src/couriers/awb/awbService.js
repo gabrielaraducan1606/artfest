@@ -46,6 +46,7 @@ import {
 } from "./returnAwb.js";
 import { onReturnAwbCancelled, onReturnAwbConfirmed } from "../../services/returnShipmentService.js";
 import { isReturnCourierPickupFlagOn } from "../../services/shipping/logisticsFlags.js";
+import { isArtfestSameday } from "../../services/shipping/fulfillment.js";
 
 /*
  * Generare AWB pentru UN Shipment (sub-comanda unui vendor).
@@ -760,6 +761,13 @@ export async function buildAwbPlan({ vendorId, shipmentId, input = {}, liveMode 
   }
   if (String(shipment.depositStatus || "") === "PENDING") {
     blockers.push(blocker("deposit_pending", "Clientul nu a plătit încă avansul cerut."));
+  }
+  // Sameday prin Artfest (etapa 3): DOAR comenzi plătite integral cu cardul și confirmate;
+  // comenzile vechi (fulfillment null) și curierul magazinului rămân ca până acum
+  if (isArtfestSameday(shipment) && !(String(order.paymentMethod || "").toUpperCase() === "CARD" && order.paidAt)) {
+    blockers.push(
+      blocker("sameday_payment_required", "Livrarea Sameday prin Artfest se generează doar după confirmarea plății online a comenzii.")
+    );
   }
 
   const currency = String(order.currency || "RON").toUpperCase();

@@ -92,6 +92,13 @@ import SmartListingPreviewEditor from "./SmartListingPreviewEditor.jsx";
 import SmartListingCollections from "./SmartListingCollections.jsx";
 import { ATTACH_FAILED_LINE, attachProductToCollections, describeAttachResult, normalizeCollectionIds } from "./smartListingCollections.js";
 import styles from "./SmartListing.module.css";
+import {
+  answerHint,
+  fieldErrorsByAnchor,
+  lostOnNo,
+  lostOnNoMessage,
+  markUnansweredHintsNo,
+} from "./smartListingVariantChoice.js";
 
 const STEPS = [
   { key: "photos", label: "Fotografii" },
@@ -285,6 +292,10 @@ export default function SmartListingPage({
   // rămâne la închiderea ferestrei: conversația nu se pierde și nu atinge formularul
   const [orderAi, setOrderAi] = useState({ message: "", history: [], proposal: null, status: "idle", error: "" });
   const [focusId, setFocusId] = useState(null);
+  // erorile apar lângă câmpuri după o încercare de publicare / „Rezolvă”
+  const [showFieldErrors, setShowFieldErrors] = useState(false);
+  // „Continuă” apăsat fără răspuns la „Are variante?”
+  const [optionsTried, setOptionsTried] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [saveResult, setSaveResult] = useState(null);
@@ -587,15 +598,16 @@ export default function SmartListingPage({
   const variantHints = ai.proposal?.variantHints || [];
   const personalizationHints = ai.proposal?.personalizationHints || [];
 
+  // „Nu” pe un card AI confirmă direct „fără variante” dacă nu rămâne altă variantă aleasă (smartListingVariantChoice.js)
   const answerVariantHint = (hint, yes) => {
-    setVariantAnswers((current) => ({ ...current, [hint.key]: yes ? "yes" : "no" }));
-    if (yes) setWantsOptions(true);
-    setVariants((current) => {
-      const without = current.filter((variant) => variant.fromHint !== hint.key);
-      if (!yes) return without;
-      // valorile observate NU se adaugă automat - vânzătorul le alege
-      return [...without, { id: nextId("variant"), fromHint: hint.key, label: hint.label, required: true, values: [] }];
-    });
+    if (!yes) {
+      const lost = lostOnNo({ variants, hint });
+      if (lost.length && !window.confirm(lostOnNoMessage(lost, { fromHint: true }))) return;
+    }
+    const next = answerHint({ hint, yes, variants, variantAnswers, wantsOptions, variantHints, nextId });
+    setVariants(next.variants);
+    setVariantAnswers(next.variantAnswers);
+    setWantsOptions(next.wantsOptions);
   };
 
   const answerCustomHint = (hint, yes) => {
@@ -609,9 +621,12 @@ export default function SmartListingPage({
   };
 
   // „Nu” doar ascunde: variantele scrise rămân în ciornă și revin la „Da”
+  // (cu confirmare dacă variante completate nu se mai salvează pe produs)
   const setNoOptions = () => {
+    const lost = lostOnNo({ variants, wantsOptions });
+    if (lost.length && !window.confirm(lostOnNoMessage(lost))) return;
     setWantsOptions(false);
-    setVariantAnswers((current) => ({ ...Object.fromEntries(variantHints.map((hint) => [hint.key, "no"])), ...current }));
+    setVariantAnswers((current) => markUnansweredHintsNo(variantHints, current));
   };
 
   // pe produs ajunge doar ce e activat; personalizarea și variantele sunt independente
@@ -735,6 +750,10 @@ export default function SmartListingPage({
 
   const gate = useMemo(() => {
     const extra = [];
+    // „Are variante?” nerăspuns (AI a propus variante): „Da” sau „Nu”
+    if (wantsOptions === null) {
+      extra.push({ code: "OPTIONS_UNANSWERED", message: "Răspunde dacă clientul alege o variantă: „Da” sau „Nu”.", step: "sell" });
+    }
     if (uploadingCount) extra.push({ code: "PHOTOS_UPLOADING", message: "Se încarcă încă fotografiile.", step: "photos" });
     if (failedCount) {
       extra.push({ code: "PHOTOS_FAILED", message: "Unele fotografii nu s-au încărcat - șterge-le sau adaugă-le din nou.", step: "photos" });
@@ -769,7 +788,16 @@ export default function SmartListingPage({
       conflicts: conflicts.map((conflict) => ({ ...conflict, label: FIELD_LABELS[conflict.field] || conflict.field })),
       extraBlockers: extra,
     });
-  }, [check, draft.errors, pendingConfirmations, conflicts, producerCheck, selectedProducer, producerChoice, uploadingCount, failedCount, gpsrWillChange, gpsrConfirmed]);
+  }, [check, draft.errors, pendingConfirmations, conflicts, producerCheck, selectedProducer, producerChoice, uploadingCount, failedCount, gpsrWillChange, gpsrConfirmed, wantsOptions]);
+
+  // erorile afișate lângă câmpuri: toate, după o încercare de publicare; altfel doar „Are variante?” după „Continuă”
+  const fieldErrors = useMemo(() => {
+    if (showFieldErrors) return fieldErrorsByAnchor(gate.blockers);
+    if (optionsTried && wantsOptions === null) {
+      return fieldErrorsByAnchor(gate.blockers.filter((blocker) => blocker.code === "OPTIONS_UNANSWERED"));
+    }
+    return {};
+  }, [showFieldErrors, optionsTried, wantsOptions, gate.blockers]);
 
   const prices = useMemo(() => previewFinalPrices(draft.form), [draft.form]);
 
@@ -784,13 +812,16 @@ export default function SmartListingPage({
   }, [gate.blockers]);
 
   const resolveBlocker = (blocker) => {
+    setShowFieldErrors(true);
     // greutatea coletului se completează în Editorul avansat (ciorna se transferă)
     if (blocker.code === "SHIPPING_WEIGHT_REQUIRED") return openAdvancedEditor();
     if (blocker.code === "AI_UNCONFIRMED" || blocker.code === "AI_CONFLICT") return goTo("details");
     if (blocker.code === "PRODUCER_PROFILE" && selectedProducer) {
       return setProducerEditor({ profile: selectedProducer, isNew: false });
     }
-    if (blocker.step) return goTo(blocker.step, blocker.step === "review" ? "sl-safety" : null);
+    if (blocker.step) {
+      return goTo(blocker.step, blocker.step === "review" ? "sl-safety" : blocker.step === "sell" ? "sl-options" : null);
+    }
     const issue = blocker.issue;
     if (String(issue?.code || "").startsWith("GPSR")) return goTo("review", "sl-safety");
     const anchors = {
@@ -1065,7 +1096,22 @@ export default function SmartListingPage({
   /* ---------------- navigare ---------------- */
 
   const stepIndex = STEPS.findIndex((item) => item.key === step);
-  const goNext = () => setStep(STEPS[Math.min(STEPS.length - 1, stepIndex + 1)].key);
+  const goNext = () => {
+    // singurul pas care blochează continuarea: „Are variante?” fără răspuns -> eroare lângă întrebare
+    if (step === "sell" && wantsOptions === null) {
+      setOptionsTried(true);
+      return goTo("sell", "sl-options");
+    }
+    return setStep(STEPS[Math.min(STEPS.length - 1, stepIndex + 1)].key);
+  };
+  // publicare cu probleme nerezolvate: erorile apar lângă câmpuri și mergem la prima
+  const onPublishClick = () => {
+    if (!gate.ready) {
+      setShowFieldErrors(true);
+      return resolveBlocker(gate.blockers[0]);
+    }
+    return publish();
+  };
   const goBack = () => setStep(STEPS[Math.max(0, stepIndex - 1)].key);
 
   /* ======================= randare ======================= */
@@ -1264,6 +1310,7 @@ export default function SmartListingPage({
             onVideoMuted={(muted) => setVideo((current) => (current ? { ...current, muted } : current))}
             onAnalyze={runAnalysis}
             onManual={continueManually}
+            fieldErrors={fieldErrors}
           />
         )}
 
@@ -1277,6 +1324,7 @@ export default function SmartListingPage({
             hints={hints}
             onEdit={editDetail}
             onConfirm={confirmField}
+            fieldErrors={fieldErrors}
             onConflict={decideConflict}
             onHint={decideHint}
             onRetry={() => setStep("photos")}
@@ -1289,6 +1337,7 @@ export default function SmartListingPage({
             onWantsOptions={(yes) => (yes ? setWantsOptions(true) : setNoOptions())}
             wantsPersonalization={wantsPersonalization}
             onWantsPersonalization={setWantsPersonalization}
+            fieldErrors={fieldErrors}
             activeOptionCount={activeVariants.length + activeCustomFields.length}
             onOpenOrderAi={() => setOrderAiOpen(true)}
             onOpenHelp={() => setHelpOpen(true)}
@@ -1367,6 +1416,7 @@ export default function SmartListingPage({
               producerChoice={producerChoice}
               selectedProducer={selectedProducer}
               producerCheck={producerCheck}
+              fieldErrors={fieldErrors}
               onChoose={setProducerChoice}
               onEdit={(profile) => setProducerEditor({ profile, isNew: false })}
               onCreate={(kind) =>
@@ -1419,8 +1469,8 @@ export default function SmartListingPage({
           <button
             type="button"
             className={styles.primaryBtn}
-            onClick={publish}
-            disabled={!gate.ready || saving || !access.canSave || declaration.blocked}
+            onClick={onPublishClick}
+            disabled={saving || !access.canSave || declaration.blocked}
           >
             {saving
               ? "Se salvează…"
@@ -1452,9 +1502,8 @@ export default function SmartListingPage({
             type="button"
             className={styles.primaryBtn}
             onClick={goNext}
-            disabled={step === "sell" && wantsOptions === null}
           >
-            {step === "sell" && wantsOptions === null ? "Răspunde la întrebarea despre opțiuni" : "Continuă"}
+            Continuă
           </button>
         )}
       </div>
@@ -1619,6 +1668,7 @@ function PhotosStep({
   onVideoMuted,
   onAnalyze,
   onManual,
+  fieldErrors = {},
 }) {
   const uploading = photos.some((photo) => photo.status === "uploading");
 
@@ -1634,6 +1684,7 @@ function PhotosStep({
 
       {/* selectorul COMUN de fotografii (coadă, status, retry, ordine, principală) */}
       <ProductPhotoUploader queue={photoQueue} state={photoState} resolveUrl={resolveUrl} idPrefix="sl-photos" />
+      <FieldErrors messages={fieldErrors["sl-photos"]} />
 
       {isPreview && (
         <p className={styles.hint}>Previzualizare: fotografiile rămân doar în browser, iar încărcarea video este dezactivată.</p>
@@ -1698,7 +1749,21 @@ function StatusBadge({ status, onConfirm }) {
   return null;
 }
 
-function Field({ id, label, status, onConfirm, hint, children }) {
+// eroarea unui câmp obligatoriu, afișată imediat sub el
+function FieldErrors({ messages, id }) {
+  if (!messages?.length) return null;
+  return (
+    <div id={id} className={styles.inlineErrors} role="alert">
+      {messages.map((message) => (
+        <p key={message} className={styles.inlineError}>
+          {message}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function Field({ id, label, status, onConfirm, hint, errors, children }) {
   return (
     <div className={`${styles.field} ${status === FIELD_STATUS.CONFIRM ? styles.fieldConfirm : ""}`}>
       <div className={styles.fieldHead}>
@@ -1708,6 +1773,7 @@ function Field({ id, label, status, onConfirm, hint, children }) {
         <StatusBadge status={status} onConfirm={onConfirm} />
       </div>
       {children}
+      <FieldErrors messages={errors} id={errors?.length ? `${id}-error` : undefined} />
       {hint ? <p className={styles.hint}>{hint}</p> : null}
     </div>
   );
@@ -1768,6 +1834,7 @@ function DetailsStep({
   onConflict,
   onHint,
   onRetry,
+  fieldErrors = {},
 }) {
   const filled = Object.keys(fieldStatus).length;
 
@@ -1826,7 +1893,13 @@ function DetailsStep({
         </div>
       )}
 
-      <Field id={FIELD_ANCHORS.title} label="Titlu" status={fieldStatus.title} onConfirm={() => onConfirm("title")}>
+      <Field
+        id={FIELD_ANCHORS.title}
+        label="Titlu"
+        status={fieldStatus.title}
+        onConfirm={() => onConfirm("title")}
+        errors={fieldErrors[FIELD_ANCHORS.title]}
+      >
         <input
           id={FIELD_ANCHORS.title}
           className={styles.input}
@@ -1842,6 +1915,7 @@ function DetailsStep({
         label="Descriere"
         status={fieldStatus.description}
         onConfirm={() => onConfirm("description")}
+        errors={fieldErrors[FIELD_ANCHORS.description]}
       >
         <textarea
           id={FIELD_ANCHORS.description}
@@ -1858,6 +1932,7 @@ function DetailsStep({
         label="Categorie"
         status={fieldStatus.category}
         onConfirm={() => onConfirm("category")}
+        errors={fieldErrors[FIELD_ANCHORS.category]}
       >
         <select
           id={FIELD_ANCHORS.category}
@@ -2053,10 +2128,13 @@ function SellStep(props) {
     wantsPersonalization,
     onWantsPersonalization,
     activeOptionCount,
+    fieldErrors = {},
   } = props;
 
   const hasHints = variantHints.length > 0;
   const showEditors = wantsOptions === true;
+  // erorile de configurare apar deja sub editoare (optionErrors): fără dubluri
+  const optionsMessages = (fieldErrors["sl-options"] || []).filter((message) => !(showEditors && optionErrors.includes(message)));
 
   return (
     <section className={styles.card} aria-labelledby="sl-sell-title">
@@ -2093,21 +2171,16 @@ function SellStep(props) {
                 />
               </div>
             ))}
-            {wantsOptions === null && (
-              <button type="button" className={styles.linkBtn} onClick={() => onWantsOptions(false)}>
-                Nu are variante
-              </button>
-            )}
           </div>
         ) : (
           <YesNoButtons
             value={showEditors ? true : wantsOptions === false ? false : null}
             onYes={() => onWantsOptions(true)}
             onNo={() => onWantsOptions(false)}
-            yesLabel="Da, are variante"
-            noLabel="Nu are variante"
           />
         )}
+
+        <FieldErrors messages={optionsMessages} />
 
         {showEditors && (
           <>
@@ -2387,7 +2460,7 @@ function VariantEditor({ variant, observed, onChange, onRemove }) {
   );
 }
 
-function CommerceFields({ commerce, setCommerce, saleType, hasOptions, notices, orderModeHint }) {
+function CommerceFields({ commerce, setCommerce, saleType, hasOptions, notices, orderModeHint, fieldErrors = {} }) {
   const set = (field) => (event) => setCommerce((current) => ({ ...current, [field]: event.target.value }));
   const choose = (value) => setCommerce((current) => ({ ...current, saleType: value }));
 
@@ -2444,6 +2517,7 @@ function CommerceFields({ commerce, setCommerce, saleType, hasOptions, notices, 
             />
             <span>lei</span>
           </div>
+          <FieldErrors messages={fieldErrors["sl-price"]} />
           {hasOptions && <p className={styles.hint}>Prețul celei mai simple variante. Sumele în plus se adaugă peste.</p>}
         </div>
 
@@ -2463,6 +2537,7 @@ function CommerceFields({ commerce, setCommerce, saleType, hasOptions, notices, 
               />
               <span>buc.</span>
             </div>
+            <FieldErrors messages={fieldErrors["sl-stock"]} />
           </div>
         ) : (
           <div className={styles.field}>
@@ -2480,6 +2555,7 @@ function CommerceFields({ commerce, setCommerce, saleType, hasOptions, notices, 
               />
               <span>zile</span>
             </div>
+            <FieldErrors messages={fieldErrors["sl-lead"]} />
           </div>
         )}
       </div>
@@ -2540,6 +2616,7 @@ function ProducerSection({
   onCreate,
   safety,
   setSafety,
+  fieldErrors = {},
 }) {
   const set = (field) => (value) => setSafety((current) => ({ ...current, [field]: value }));
   // „Da” fără text încă: rămâne ales până scrie vânzătorul (valoarea salvată rămâne null = nerăspuns)
@@ -2555,6 +2632,7 @@ function ProducerSection({
     <div id="sl-safety" className={styles.safetyBlock} tabIndex={-1}>
       <h3 className={styles.subTitle}>Producător și siguranță</h3>
       <p className={styles.hint}>Apar public pe pagina produsului. Datele tale de producător le completezi o singură dată.</p>
+      <FieldErrors messages={fieldErrors["sl-safety"]} />
 
       {gpsrState?.status === "loading" || gpsrState?.status === "idle" ? (
         <p className={styles.hint} role="status">

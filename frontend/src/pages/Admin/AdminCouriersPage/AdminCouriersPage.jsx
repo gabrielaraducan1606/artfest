@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../lib/api";
 import TrackingTimeline from "../../../components/Courier/TrackingTimeline.jsx";
+import AdminSamedayStores from "./AdminSamedayStores.jsx";
 import styles from "./AdminCouriersPage.module.css";
 import { SERVICE_ROWS, environmentLabel, formatCheckedAt, layers, statusView, testedWithLabel } from "./courierStatusView.js";
 
@@ -341,6 +342,8 @@ export default function AdminCouriersPage() {
           </div>
         </section>
       ) : null}
+
+      <AdminSamedayStores styles={styles} />
 
       <TrackingLookup />
     </main>
