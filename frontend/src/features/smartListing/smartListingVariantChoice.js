@@ -79,6 +79,7 @@ const ANCHOR_BY_CODE = {
   IMAGES_MISSING: "sl-photos",
   PHOTOS_UPLOADING: "sl-photos",
   PHOTOS_FAILED: "sl-photos",
+  PHOTOS_INVALID: "sl-photos",
   TITLE_MISSING: "sl-title",
   TITLE_TOO_SHORT: "sl-title",
   DESCRIPTION_MISSING: "sl-description",

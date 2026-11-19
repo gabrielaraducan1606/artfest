@@ -107,6 +107,11 @@ import vendorSamedayDeliveryRoutes from "./src/routes/vendorSamedayDeliveryRoute
 import platformBillingRouter from "./src/routes/platformBillingRoutes.js";
 import adminInvoicesRoutes from "./src/routes/adminInvoicesRoutes.js";
 import adminInfluencersRoutes from "./src/routes/adminInfluencersRoutes.js";
+// Artfest Creators (etapa 1a) - oprit implicit (CREATORS_ENABLED); rutele răspund 404 când e oprit
+import creatorRoutes from "./src/routes/creatorRoutes.js";
+import adminCreatorsRoutes from "./src/routes/adminCreatorsRoutes.js";
+import { isCreatorsEnabled } from "./src/config/creators.js";
+import { retryCreatorProfileEmails } from "./src/services/creators/creatorProfileService.js";
 import adminInfluencerTermsRoutes from "./src/routes/adminInfluencerTermsRoutes.js";
 import adminLegalRoutes from "./src/routes/adminLegalRoutes.js";
 import adminInfluencerPayoutRoutes from "./src/routes/adminInfluencerPayoutRoutes.js";
@@ -460,6 +465,7 @@ app.use(
 app.use(adminEmailLogsRoutes);
 
 app.use("/api/admin/influencers", adminInfluencersRoutes);
+app.use("/api/admin/creators", adminCreatorsRoutes);
 app.use("/api/admin/influencers", adminInfluencerPayoutRoutes);
 app.use(
   "/api/admin/vendor-discount-codes",
@@ -527,6 +533,7 @@ app.use("/api/admin", adminProductsRoutes);
 // evidența GPSR (doar citire, doar ADMIN)
 app.use("/api/admin/gpsr", adminGpsrRoutes);
 app.use("/api/admin", adminCollectionsRoutes);
+app.use("/api/creator", creatorRoutes);
 app.use("/api/influencer", influencerRoutes);
 app.use("/api/influencer", influencerPayoutsRoutes);
 app.use("/api", platformBillingRouter);
@@ -919,6 +926,18 @@ setInterval(() => {
     console.error("messageEmailRetry (interval) failed:", err)
   );
 }, messageEmailRetryIntervalMs);
+
+/*
+ * Artfest Creators - reia emailurile de status ale profilului (aprobat /
+ * modificări / respins / suspendat) eșuate sau rămase neterminate; cheia de
+ * idempotență = evenimentul, deci fără duplicate. Doar cu CREATORS_ENABLED.
+ */
+setInterval(() => {
+  if (!isCreatorsEnabled()) return;
+  retryCreatorProfileEmails().catch((err) =>
+    console.error("creatorProfileEmailRetry (interval) failed:", err?.message || err)
+  );
+}, 10 * 60 * 1000);
 
 });
 

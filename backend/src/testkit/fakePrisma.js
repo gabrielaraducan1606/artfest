@@ -190,6 +190,50 @@ const MODELS = {
     },
     unique: { campaignKey_vendorId: ["campaignKey", "vendorId"], notificationId: ["notificationId"] },
   },
+  // Artfest Creators (creators.routes.test.js)
+  creatorProfile: {
+    defaults: {
+      status: "DRAFT",
+      displayName: null,
+      bio: null,
+      avatarUrl: null,
+      city: null,
+      niches: [],
+      preferredCategories: [],
+      contentLanguages: [],
+      acceptsProducts: false,
+      acceptsPaid: false,
+      typicalTurnaroundDays: null,
+      availableForCollabs: true,
+      approvedSnapshot: null,
+      approvedAt: null,
+      hasUnpublishedChanges: false,
+      submittedAt: null,
+      reviewedAt: null,
+      reviewedById: null,
+      moderationMessage: null,
+      suspendedAt: null,
+      suspendedById: null,
+      suspendedReason: null,
+      pausedAt: null,
+      onboardingCompletedAt: null,
+      tourSeenVersion: 0,
+      tourSeenAt: null,
+      version: 1,
+    },
+    unique: { influencerId: ["influencerId"], slug: ["slug"] },
+  },
+  creatorSocialAccount: {
+    defaults: { avgViewsDeclared: null, engagementBps: null },
+    unique: { profileId_platform: ["profileId", "platform"] },
+  },
+  creatorPortfolioItem: { defaults: { imageUrl: null, linkUrl: null, description: null, sort: 0 }, unique: {} },
+  creatorOffer: { defaults: { isActive: true, currentVersion: 1, disabledByAdminAt: null }, unique: {} },
+  creatorOfferVersion: { defaults: { description: null, conditions: null, creatorFeeCents: null }, unique: { offerId_version: ["offerId", "version"] } },
+  creatorProfileEvent: {
+    defaults: { reason: null, before: null, after: null, emailStatus: "NONE", emailAttempts: 0, emailError: null, emailSentAt: null },
+    unique: {},
+  },
 };
 
 const RELATIONS = {
@@ -338,7 +382,7 @@ export function createFakePrisma(seed = {}) {
     const now = new Date(clock++);
     const row = { id: nextId(model), createdAt: now, ...def.defaults, ...data };
     if (def.autoDate && !row[def.autoDate]) row[def.autoDate] = now;
-    if (model.startsWith("artfest")) row.updatedAt ??= now;
+    if (model.startsWith("artfest") || model.startsWith("creator")) row.updatedAt ??= now;
     if (model === "policyGateCampaign") {
       row.targetCount ??= 0;
       row.createdCount ??= 0;

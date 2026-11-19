@@ -20,6 +20,8 @@ import {
   variantPriceRange,
 } from "../../../../backend/src/lib/variantPricing.js";
 import { makeKey, normalizeForCompare } from "./smartListingProposal.js";
+import { CATEGORY_SET } from "../../../../backend/src/constants/categories.js";
+import { normalizeAdditionalCategoryKeys } from "../../utils/additionalCategories.js";
 
 /** Cum vinde vânzătorul produsul (limbaj simplu -> orderMode existent). */
 export const SALE_TYPES = Object.freeze({
@@ -223,6 +225,14 @@ function externalOutsideEU(safety) {
   return safety?.isOwnManufacturer === false && safety?.manufacturerInEU === false;
 }
 
+/** Categoriile suplimentare acceptate de server (sugestii AI, păstrate și în ciorne vechi). */
+export function savableAdditionalCategories(list, primaryCategory = "") {
+  const known = (Array.isArray(list) ? list : []).filter((item) =>
+    CATEGORY_SET.has(String(typeof item === "string" ? item : item?.category || "").trim())
+  );
+  return normalizeAdditionalCategoryKeys(known, primaryCategory);
+}
+
 function tagsToFormString(value) {
   if (Array.isArray(value)) return value.filter(Boolean).join(", ");
   return String(value || "");
@@ -297,7 +307,9 @@ export function buildDraftForm({
     videoUrl: video?.url || null,
     videoMuted: Boolean(video?.url && video?.muted),
     category: details.category || "",
-    additionalCategories: Array.isArray(details.additionalCategories) ? details.additionalCategories : [],
+    // aceleași reguli ca serverul (normalizeAdditionalCategories): doar chei existente, fără
+    // principala, max 3 - o cheie veche dintr-o ciornă ar opri publicarea cu 400
+    additionalCategories: savableAdditionalCategories(details.additionalCategories, details.category),
     color: details.color || "",
 
     orderMode,

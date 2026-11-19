@@ -12,6 +12,7 @@
 import { buildProductPayload } from "../../pages/Vendor/ProfilMagazin/utils/productPayload.js";
 import { writeAvailabilityHandoff, writeSourceDraftLink } from "../../pages/Vendor/ProfilMagazin/utils/productDraftHandoff.js";
 import { rawCombinationOverrides } from "../../../../backend/src/lib/variantPricing.js";
+import { readServerValidation } from "./smartListingServerErrors.js";
 
 /** Payload-ul de creare (aruncă aceleași erori ca editorul: titlu / preț / categorie). */
 export function buildCreatePayload(form) {
@@ -75,11 +76,15 @@ export function describeSaveError(error) {
   }
   if (status === 422) {
     // protecția datelor de contact (lib/contactInfoGuard.js) - nimic salvat
+    const read = readServerValidation(error);
     return {
       code: "contact_info",
       message:
         data?.message ||
         "Textul conține date de contact (telefon, email, link). Pe Artfest clienții te contactează prin mesagerie - elimină-le și încearcă din nou.",
+      step: read.step,
+      anchor: read.anchor,
+      fieldErrors: read.fieldErrors,
     };
   }
   // backendul cere încă greutatea când checkoutul Sameday e activ: nu trimitem o valoare inventată
@@ -89,7 +94,11 @@ export function describeSaveError(error) {
       message: "Pentru moment, Artfest cere greutatea coletului la acest produs. Continuă în Editorul avansat ca să o completezi. Ciorna rămâne salvată.",
     };
   }
-  if (status === 400) return { code: data?.error || "invalid", message: data?.message || "Unele date nu sunt valide. Verifică formularul." };
+  // validare: codul, mesajul și câmpul de la server -> pasul și câmpul din formular
+  if (status === 400 || (status === 409 && /^gpsr_/.test(String(data?.error || "")))) {
+    const read = readServerValidation(error);
+    return { code: read.code, message: read.message, step: read.step, anchor: read.anchor, fieldErrors: read.fieldErrors };
+  }
   if (status === 401 || status === 403) return { code: "auth", message: "Sesiunea a expirat sau contul nu poate adăuga produse. Autentifică-te din nou." };
   // fără răspuns: produsul poate exista deja, iar publish() verifică înainte de a reîncerca
   if (!status && /fetch|network/i.test(String(error?.message || ""))) {
@@ -140,6 +149,64 @@ export async function findCreatedProduct({ api, storeSlug, form }) {
   const title = String(form?.title || "").trim();
   const image = form?.images?.[0];
   return items.find((item) => String(item?.title || "").trim() === title && image && item?.images?.[0] === image) || null;
+}
+
+/**
+ * Publicarea, pas cu pas, ca să știm unde a eșuat:
+ *   "producer" - datele centrale ale producătorului (înainte de produs, ca în ProductModal);
+ *   "lookup"   - după un răspuns pierdut: produsul poate exista deja;
+ *   "create"   - POST-ul produsului;
+ *   colecțiile se asociază DUPĂ ce produsul există, iar un eșec acolo NU
+ *   transformă publicarea în eroare (altfel o reîncercare ar crea un duplicat).
+ * Eroarea aruncată are `publishPhase`. Doar un răspuns pierdut la "create" face
+ * următoarea încercare să caute întâi produsul (`lookupExisting`).
+ */
+export async function publishNewProduct({
+  api,
+  storeSlug,
+  form,
+  createForm = form,
+  saveProducer = null,
+  lookupExisting = false,
+  onCreated = null,
+  attachCollections = null,
+}) {
+  let phase = "producer";
+  try {
+    const producer = saveProducer ? await saveProducer() : null;
+    phase = "lookup";
+    const existing = lookupExisting ? await findCreatedProduct({ api, storeSlug, form }) : null;
+    phase = "create";
+    const saved = existing || (await createProduct({ api, storeSlug, form: createForm }));
+    phase = "done";
+    try {
+      onCreated?.(saved);
+    } catch {
+      // produsul există deja: o eroare de interfață aici nu e o publicare eșuată
+    }
+    let collectionLines = [];
+    if (attachCollections) {
+      try {
+        collectionLines = (await attachCollections(saved)) || [];
+      } catch {
+        collectionLines = [COLLECTIONS_ATTACH_FAILED];
+      }
+    }
+    return { saved, producer, reused: Boolean(existing), collectionLines };
+  } catch (error) {
+    const out = error instanceof Error ? error : new Error(String(error?.message || error));
+    if (!out.publishPhase) out.publishPhase = phase;
+    throw out;
+  }
+}
+
+// rezervă: SmartListingPage trimite propriul mesaj (smartListingCollections.js)
+const COLLECTIONS_ATTACH_FAILED =
+  "Produsul a fost salvat, dar nu l-am putut adăuga în colecțiile alese. Îl poți adăuga din pagina Colecții.";
+
+/** După o eroare: următoarea publicare trebuie să verifice dacă produsul s-a creat? */
+export function isAmbiguousCreateError(error) {
+  return error?.publishPhase === "create" && describeSaveError(error).code === "no_response";
 }
 
 /** Configurații pe care Smart Listing nu le editează sigur -> Editorul avansat. */

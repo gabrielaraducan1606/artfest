@@ -78,18 +78,20 @@ import {
 } from "../../utils/gpsrNotice.js";
 import { APPLY_MODES, ORDER_AI_MAX_MESSAGE, askOrderAssistant, describeOrderAiError, mergeOrderConfig } from "./smartListingOrderAi.js";
 import {
-  createProduct,
   describeSaveError,
   describeSaveResult,
   findCreatedProduct,
   handoffToAdvancedEditor,
+  isAmbiguousCreateError,
   needsAdvancedEditor,
+  publishNewProduct,
 } from "./smartListingSave.js";
 import { smartListingAccessFor } from "./smartListingAccess.js";
 import { createDefaultServices, uploadWithServices } from "./smartListingServices.js";
 import { createPreviewServices, installPreviewNetworkGuard } from "./smartListingPreview.js";
 import SmartListingPreviewEditor from "./SmartListingPreviewEditor.jsx";
 import SmartListingCollections from "./SmartListingCollections.jsx";
+import { countUnsavableImages, mergeFieldErrors } from "./smartListingServerErrors.js";
 import { ATTACH_FAILED_LINE, attachProductToCollections, describeAttachResult, normalizeCollectionIds } from "./smartListingCollections.js";
 import styles from "./SmartListing.module.css";
 import {
@@ -298,6 +300,8 @@ export default function SmartListingPage({
   const [optionsTried, setOptionsTried] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  // erorile pe câmp trimise de server la ultima publicare (ancoră -> mesaje)
+  const [serverFieldErrors, setServerFieldErrors] = useState({});
   const [saveResult, setSaveResult] = useState(null);
   const [draftChoices, setDraftChoices] = useState(null); // null = neverificat; [] = nimic de ales
   const [draftToDelete, setDraftToDelete] = useState(null);
@@ -511,13 +515,20 @@ export default function SmartListingPage({
 
   /* ---------------- navigare / focus ---------------- */
 
+  // după focus, focusId redevine null: rularea următoare NU trebuie să urce pagina înapoi sus
+  const justFocusedRef = useRef(false);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const element = focusId ? document.getElementById(focusId) : null;
       if (element) {
-        element.scrollIntoView?.({ behavior: "smooth", block: "center" });
+        // cu o eroare sub câmp (Field: `${id}-error`), centrăm mesajul: pe mobil bara fixă l-ar acoperi
+        const message = document.getElementById(`${focusId}-error`);
+        (message || element).scrollIntoView?.({ behavior: "smooth", block: "center" });
         element.focus?.({ preventScroll: true });
+        justFocusedRef.current = true;
         setFocusId(null);
+      } else if (justFocusedRef.current) {
+        justFocusedRef.current = false;
       } else {
         (bodyRef.current || window).scrollTo?.({ top: 0, behavior: "smooth" });
       }
@@ -758,6 +769,15 @@ export default function SmartListingPage({
     if (failedCount) {
       extra.push({ code: "PHOTOS_FAILED", message: "Unele fotografii nu s-au încărcat - șterge-le sau adaugă-le din nou.", step: "photos" });
     }
+    // serverul păstrează doar adrese http(s): una relativă ar fi aruncată la salvare (sau ar opri publicarea)
+    const unsavablePhotos = isPreview ? 0 : countUnsavableImages(uploadedUrls);
+    if (unsavablePhotos) {
+      extra.push({
+        code: "PHOTOS_INVALID",
+        message: `${unsavablePhotos === 1 ? "O fotografie nu poate fi salvată" : `${unsavablePhotos} fotografii nu pot fi salvate`} pe produs - șterge-o și încarc-o din nou.`,
+        step: "photos",
+      });
+    }
     // fără mesaje duble: verificarea de publicare semnalează deja producătorul lipsă (GPSR_isOwnManufacturer)
     if (!producerChoice) {
       if (!check.errors.some((item) => item.code === "GPSR_isOwnManufacturer")) {
@@ -788,16 +808,28 @@ export default function SmartListingPage({
       conflicts: conflicts.map((conflict) => ({ ...conflict, label: FIELD_LABELS[conflict.field] || conflict.field })),
       extraBlockers: extra,
     });
-  }, [check, draft.errors, pendingConfirmations, conflicts, producerCheck, selectedProducer, producerChoice, uploadingCount, failedCount, gpsrWillChange, gpsrConfirmed, wantsOptions]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [check, draft.errors, pendingConfirmations, conflicts, producerCheck, selectedProducer, producerChoice, uploadingCount, failedCount, gpsrWillChange, gpsrConfirmed, wantsOptions, isPreview, uploadedUrls.join("|")]);
 
   // erorile afișate lângă câmpuri: toate, după o încercare de publicare; altfel doar „Are variante?” după „Continuă”
+  // + erorile serverului de la ultima publicare, până la următoarea modificare a formularului
   const fieldErrors = useMemo(() => {
-    if (showFieldErrors) return fieldErrorsByAnchor(gate.blockers);
-    if (optionsTried && wantsOptions === null) {
-      return fieldErrorsByAnchor(gate.blockers.filter((blocker) => blocker.code === "OPTIONS_UNANSWERED"));
-    }
-    return {};
-  }, [showFieldErrors, optionsTried, wantsOptions, gate.blockers]);
+    const local = showFieldErrors
+      ? fieldErrorsByAnchor(gate.blockers)
+      : optionsTried && wantsOptions === null
+        ? fieldErrorsByAnchor(gate.blockers.filter((blocker) => blocker.code === "OPTIONS_UNANSWERED"))
+        : {};
+    return mergeFieldErrors(local, serverFieldErrors);
+  }, [showFieldErrors, optionsTried, wantsOptions, gate.blockers, serverFieldErrors]);
+
+  // orice modificare a datelor face răspunsul serverului depășit: „gata de publicare” revine la verificarea locală
+  const lastSubmittedFormRef = useRef(null);
+  useEffect(() => {
+    if (!lastSubmittedFormRef.current || lastSubmittedFormRef.current === draft.form) return;
+    lastSubmittedFormRef.current = null;
+    setServerFieldErrors({});
+    setSaveError((current) => (current && current.code !== "help_pending" ? null : current));
+  }, [draft.form]);
 
   const prices = useMemo(() => previewFinalPrices(draft.form), [draft.form]);
 
@@ -867,37 +899,50 @@ export default function SmartListingPage({
     publishLockRef.current = true;
     setSaving(true);
     setSaveError(null);
+    setServerFieldErrors({});
+    lastSubmittedFormRef.current = draft.form;
     try {
-      // datele publice ale producătorului se salvează ÎNAINTE de produs (ca în ProductModal)
-      const gpsrResult = producerChoice === "self" ? await services.gpsr.saveIfNeeded() : null;
-      const existing = ambiguousSaveRef.current ? await findCreatedProduct({ api, storeSlug, form: draft.form }) : null;
-      const saved =
-        existing ||
-        (await createProduct({
-          api,
-          storeSlug,
-          form: { ...draft.form, gpsrConfirmed, gpsrConfirmationSource: "smart_listing" },
-        }));
-      // doar ciorna acestui produs dispare, celelalte rămân
-      draftDoneRef.current = true;
-      canAutosaveRef.current = false;
-      if (storage && draftIdRef.current) deleteDraftEntry(storage, draftScope, draftIdRef.current);
-      services.onProductSaved?.(saved);
+      const { saved, producer, collectionLines } = await publishNewProduct({
+        api,
+        storeSlug,
+        form: draft.form,
+        createForm: { ...draft.form, gpsrConfirmed, gpsrConfirmationSource: "smart_listing" },
+        // datele publice ale producătorului se salvează ÎNAINTE de produs (ca în ProductModal)
+        saveProducer: producerChoice === "self" ? () => services.gpsr.saveIfNeeded() : null,
+        lookupExisting: ambiguousSaveRef.current,
+        onCreated: (created) => {
+          // produsul există: doar ciorna lui dispare (celelalte rămân), înainte de orice alt pas
+          draftDoneRef.current = true;
+          canAutosaveRef.current = false;
+          if (storage && draftIdRef.current) deleteDraftEntry(storage, draftScope, draftIdRef.current);
+          services.onProductSaved?.(created);
+        },
+        attachCollections: (created) =>
+          attachCollections(created, {
+            publicNow:
+              String(created?.moderationStatus || "").toUpperCase() === "APPROVED" && created?.isActive !== false && !created?.isHidden,
+          }),
+      });
+      ambiguousSaveRef.current = false;
       const view = describeSaveResult(saved);
       // transparență: reevaluarea existentă a publicat produse oprite doar de GPSR
-      const autoApproved = gpsrResult?.autoApprovedProductIds?.length || 0;
+      const autoApproved = producer?.autoApprovedProductIds?.length || 0;
       if (autoApproved) {
         view.lines = [...view.lines, `După actualizarea datelor de producător, Artfest a publicat și ${autoApproved} produs(e) care așteptau doar aceste date.`];
       }
-      const collectionLines = await attachCollections(saved, {
-        publicNow: String(saved?.moderationStatus || "").toUpperCase() === "APPROVED" && saved?.isActive !== false && !saved?.isHidden,
-      });
       if (collectionLines.length) view.lines = [...view.lines, ...collectionLines];
       setSaveResult({ saved, view });
     } catch (error) {
-      // fără răspuns de la server nu știm dacă produsul s-a creat: verificăm înainte de a reîncerca
-      if (!error?.status) ambiguousSaveRef.current = true;
-      setSaveError(describeSaveError(error));
+      // doar un răspuns pierdut la creare lasă produsul „poate creat”: verificăm înainte de a reîncerca
+      if (isAmbiguousCreateError(error)) ambiguousSaveRef.current = true;
+      const described = describeSaveError(error);
+      setSaveError(described);
+      // eroare pe un câmp: îl arătăm lângă câmp, deschidem pasul și mutăm focusul acolo
+      if (described.fieldErrors && Object.keys(described.fieldErrors).length) {
+        setServerFieldErrors(described.fieldErrors);
+        setShowFieldErrors(true);
+        if (described.step) goTo(described.step, described.anchor);
+      }
     } finally {
       publishLockRef.current = false;
       setSaving(false);
@@ -1382,7 +1427,7 @@ export default function SmartListingPage({
             recommendations={check.recommendations}
             onResolve={resolveBlocker}
             onGoTo={goTo}
-            onPublish={publish}
+            onPublish={onPublishClick}
             saving={saving}
             canSave={access.canSave && !declaration.blocked}
             saveError={saveError}
@@ -2024,7 +2069,7 @@ function DetailsStep({
       >
         <summary>Mai multe detalii (opțional) · material, tehnică, îngrijire, dimensiuni</summary>
       <div className={styles.grid2}>
-        <Field id="sl-material" label="Material principal">
+        <Field id="sl-material" label="Material principal" errors={fieldErrors["sl-material"]}>
           <input
             id="sl-material"
             className={styles.input}
@@ -2033,7 +2078,7 @@ function DetailsStep({
             onChange={(event) => onEdit("materialMain", event.target.value)}
           />
         </Field>
-        <Field id="sl-technique" label="Cum este lucrat">
+        <Field id="sl-technique" label="Cum este lucrat" errors={fieldErrors["sl-technique"]}>
           <input
             id="sl-technique"
             className={styles.input}
@@ -2044,7 +2089,7 @@ function DetailsStep({
         </Field>
       </div>
 
-      <Field id="sl-care" label="Îngrijire">
+      <Field id="sl-care" label="Îngrijire" errors={fieldErrors["sl-care"]}>
         <input
           id="sl-care"
           className={styles.input}
@@ -2054,7 +2099,7 @@ function DetailsStep({
         />
       </Field>
 
-      <Field id="sl-dimensions" label="Dimensiuni">
+      <Field id="sl-dimensions" label="Dimensiuni" errors={fieldErrors["sl-dimensions"]}>
         <input
           id="sl-dimensions"
           className={styles.input}
@@ -3030,7 +3075,8 @@ function ReviewStep({
       <div className={styles.divider} />
 
       {gate.ready ? (
-        <p className={styles.ready}>✅ Produsul este gata de publicare.</p>
+        // după un refuz al serverului, mesajul lui (lângă buton / lângă câmp) are prioritate
+        saveError ? null : <p className={styles.ready}>✅ Produsul este gata de publicare.</p>
       ) : (
         <div className={styles.issues} role="alert">
           <strong>Mai ai de rezolvat ({gate.blockers.length}):</strong>
@@ -3062,8 +3108,11 @@ function ReviewStep({
       {beforePublish}
 
       {saveError && (
-        <div className={styles.alert} role="alert">
+        <div className={styles.alert} role="alert" data-testid="sl-save-error">
           <strong>{saveError.message}</strong>
+          {saveError.anchor && (
+            <span className={styles.muted}> Am marcat câmpul de corectat.</span>
+          )}
           {saveError.link && (
             <a className={styles.linkBtn} href={saveError.link}>
               Vezi abonamentul

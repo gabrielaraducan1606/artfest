@@ -6389,3 +6389,114 @@ export async function sendSecretSantaAssignmentEmail({ to, toName = null, userId
     },
   });
 }
+
+/* ============================================================
+   ARTFEST CREATORS - emailul de status al profilului (tranzacțional)
+   aprobat / modificări solicitate / respins / suspendat
+============================================================ */
+
+const CREATOR_STATUS_EMAIL = {
+  approved: {
+    subject: "Profilul tău Artfest Creators a fost aprobat",
+    heading: "Profilul tău a fost aprobat 🎉",
+    intro: "Echipa Artfest a verificat profilul tău Artfest Creators și l-a aprobat.",
+    next: "Poți adăuga sau actualiza oricând pachetele de promovare din dashboard.",
+    status: "Aprobat",
+  },
+  changes_requested: {
+    subject: "Profilul tău Artfest Creators are nevoie de câteva modificări",
+    heading: "Mai sunt câteva modificări de făcut",
+    intro: "Echipa Artfest a verificat profilul tău Artfest Creators și îți cere câteva modificări înainte de aprobare.",
+    next: "Actualizează profilul și trimite-l din nou spre aprobare.",
+    status: "Modificări solicitate",
+  },
+  rejected: {
+    subject: "Profilul tău Artfest Creators nu a fost aprobat",
+    heading: "Profilul tău nu a fost aprobat",
+    intro: "Echipa Artfest a analizat profilul tău Artfest Creators și nu l-a putut aproba.",
+    next: "Dacă ai întrebări, ne poți scrie din secțiunea de asistență.",
+    status: "Respins",
+  },
+  suspended: {
+    subject: "Profilul tău Artfest Creators a fost suspendat",
+    heading: "Profilul tău a fost suspendat",
+    intro: "Profilul tău Artfest Creators nu mai este vizibil momentan.",
+    next: "Pentru detalii, contactează echipa Artfest din secțiunea de asistență.",
+    status: "Suspendat",
+  },
+};
+
+export function buildCreatorProfileStatusEmail({ kind, displayName = "", message = null, path = "/influencer/creatori" }) {
+  const copy = CREATOR_STATUS_EMAIL[kind];
+  if (!copy) throw Object.assign(new Error("unknown_creator_email_kind"), { code: "unknown_creator_email_kind" });
+  const e = escapeEmailHtml;
+  // linkul duce în contul influencerului (autentificat); nu conține date private
+  const link = APP_URL ? `${APP_URL}${path}` : null;
+  const greeting = displayName ? `Bună, ${displayName}!` : "Bună!";
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#fdf6f0;border-radius:12px;">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" style="display:block;margin:0 auto;border:0;max-width:120px;height:auto;">
+  </div>
+  <div style="background:#ffffff;border:1px solid #f1d9c7;border-radius:14px;padding:22px;">
+    <p style="margin:0 0 6px;color:#9f1239;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;">Artfest Creators</p>
+    <h2 style="color:#111827;margin:0 0 12px;font-size:22px;">${e(copy.heading)}</h2>
+    <p style="color:#374151;margin:0 0 12px;line-height:1.6;">${e(greeting)}</p>
+    <p style="color:#374151;margin:0 0 12px;line-height:1.6;">${e(copy.intro)}</p>
+    <table style="width:100%;border-collapse:collapse;margin:0 0 16px;font-size:15px;">
+      <tr><td style="padding:6px 0;color:#6b7280;width:40%;">Status</td><td style="padding:6px 0;color:#111827;font-weight:600;">${e(copy.status)}</td></tr>
+    </table>
+    ${
+      message
+        ? `<div style="background:#fdf2f8;border-radius:12px;padding:14px 16px;margin:0 0 16px;"><p style="margin:0 0 6px;color:#374151;font-weight:600;">Mesajul echipei Artfest</p><p style="margin:0;color:#4b5563;line-height:1.6;white-space:pre-wrap;">${e(message)}</p></div>`
+        : ""
+    }
+    <p style="color:#374151;margin:0 0 12px;line-height:1.6;">${e(copy.next)}</p>
+    ${
+      link
+        ? `<p style="text-align:center;margin:24px 0 8px;"><a href="${e(link)}" style="display:inline-block;background:#9f1239;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Vezi profilul meu</a></p>`
+        : ""
+    }
+    <p style="color:#6b7280;margin:16px 0 0;font-size:12px;line-height:1.5;">Primești acest email pentru că ai un cont de influencer Artfest. Este un mesaj despre contul tău, nu un mesaj de marketing.</p>
+  </div>
+</div>`.trim();
+
+  const text = [
+    "Artfest Creators",
+    copy.heading,
+    "",
+    greeting,
+    copy.intro,
+    `Status: ${copy.status}`,
+    message ? `\nMesajul echipei Artfest:\n${message}\n` : "",
+    copy.next,
+    link ? `Vezi profilul meu: ${link}` : "",
+  ]
+    .filter((line, index, all) => line || all[index - 1])
+    .join("\n");
+
+  return { subject: copy.subject, html, text };
+}
+
+export async function sendCreatorProfileStatusEmail({ to, toName = null, userId = null, idempotencyKey = null, ...content }) {
+  if (!to) throw Object.assign(new Error("missing_recipient"), { code: "missing_recipient" });
+  const { subject, html, text } = buildCreatorProfileStatusEmail(content);
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: `creator_profile_${content.kind}`,
+    userId,
+    toName,
+    idempotencyKey,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}

@@ -24,6 +24,7 @@ import "react-toastify/dist/ReactToastify.css";
 
 import ScrollManager from "./components/ScrollManager/ScrollManager.jsx";
 import InfluencerAttributionCapture from "./components/InfluencerAttributionCapture.jsx";
+import { CREATORS_ENABLED } from "./features/creators/creatorsFlag.js";
 import AppLayout from "./components/Navbar/AppLayout.jsx";
 import Navbar from "./components/Navbar/Navbar.jsx";
 
@@ -204,6 +205,10 @@ import CustomerRequestDetailsPage
 const InfluencerCompliancePage = lazy(() =>
   import("./pages/Influencer/InfluencerCompliancePage/InfluencerCompliancePage.jsx")
 );
+// Artfest Creators (etapa 1a) - rute lazy, înregistrate doar cu VITE_CREATORS_ENABLED
+const CreatorsHomePage = lazy(() => import("./features/creators/CreatorsHomePage.jsx"));
+const CreatorOnboardingPage = lazy(() => import("./features/creators/CreatorOnboardingPage.jsx"));
+const CreatorOffersPage = lazy(() => import("./features/creators/CreatorOffersPage.jsx"));
 const InfluencerDashboardPage = lazy(() =>
   import("./pages/Influencer/InfluencerDashboardPage/InfluencerDashboardPage.jsx")
 );
@@ -959,6 +964,14 @@ export default function App() {
     </RequireInfluencer>
   }
 />
+{/* Artfest Creators: profil profesional (separat de afiliere), doar cu flag */}
+{CREATORS_ENABLED && (
+  <>
+    <Route path="/influencer/creatori" element={<RequireInfluencer><CreatorsHomePage /></RequireInfluencer>} />
+    <Route path="/influencer/creatori/configurare" element={<RequireInfluencer><CreatorOnboardingPage /></RequireInfluencer>} />
+    <Route path="/influencer/creatori/oferte" element={<RequireInfluencer><CreatorOffersPage /></RequireInfluencer>} />
+  </>
+)}
             <Route
               path="/verify-email"
               element={

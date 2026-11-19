@@ -1,0 +1,777 @@
+/* Artfest Creators - mobile-first, pe variabilele temei (light / dark) */
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px 16px 96px;
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.backLink:hover { color: var(--color-text); }
+
+.eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: clamp(22px, 5vw, 28px);
+  line-height: 1.2;
+}
+
+.lead {
+  margin: 6px 0 0;
+  color: var(--color-muted);
+  line-height: 1.55;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 18px;
+  font-family: var(--font-title);
+}
+
+.muted { color: var(--color-muted); }
+.small { font-size: 13px; }
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 720px) {
+  .grid2 { grid-template-columns: 1fr 1fr; }
+  .page { padding: 24px 24px 96px; }
+}
+
+/* ---------- butoane ---------- */
+
+.btn,
+.btnPrimary,
+.btnGhost,
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.btnPrimary { background: var(--color-primary); color: var(--on-primary); }
+.btnPrimary:hover { background: var(--color-hover); }
+.btn { background: var(--surface); color: var(--color-text); border-color: var(--color-border); }
+.btn:hover { border-color: var(--color-primary); }
+.btnGhost { background: transparent; color: var(--color-muted); }
+.btnGhost:hover { color: var(--color-text); }
+.btnDanger { background: transparent; color: var(--color-danger); border-color: var(--color-danger); }
+
+.btnPrimary:disabled,
+.btn:disabled,
+.btnGhost:disabled,
+.btnDanger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btnPrimary:focus-visible,
+.btn:focus-visible,
+.btnGhost:focus-visible,
+.btnDanger:focus-visible,
+.chip:focus-visible,
+.choice:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-primary) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+/* ---------- status ---------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tone_info { background: color-mix(in srgb, var(--color-primary) 14%, transparent); color: var(--color-primary); }
+.tone_success { background: color-mix(in srgb, #16a34a 16%, transparent); color: #15803d; }
+.tone_warning { background: color-mix(in srgb, #d97706 18%, transparent); color: #b45309; }
+.tone_danger { background: color-mix(in srgb, var(--color-danger) 14%, transparent); color: var(--color-danger); }
+.tone_muted { background: color-mix(in srgb, var(--color-muted) 16%, transparent); color: var(--color-muted); }
+
+.statusCard {
+  border-radius: 18px;
+  padding: 20px;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 10%, var(--surface)), var(--surface));
+  border: 1px solid var(--color-border);
+}
+
+.message {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, #d97706 10%, var(--surface));
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.alert,
+.success {
+  padding: 12px 14px;
+  border-radius: 12px;
+  margin: 12px 0;
+  line-height: 1.5;
+}
+
+.alert { background: color-mix(in srgb, var(--color-danger) 10%, var(--surface)); color: var(--color-danger); }
+.success { background: color-mix(in srgb, #16a34a 10%, var(--surface)); color: #15803d; }
+
+/* ---------- formular ---------- */
+
+.field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-muted);
+  line-height: 1.45;
+}
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 16px; /* fără zoom automat pe iOS */
+}
+
+.textarea { min-height: 120px; resize: vertical; line-height: 1.5; }
+
+.input:focus,
+.textarea:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+.inputInvalid { border-color: var(--color-danger); }
+
+.fieldError {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
+.counter {
+  justify-self: end;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  min-height: 38px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.chipActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--surface));
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.choices {
+  display: grid;
+  gap: 10px;
+}
+
+@media (min-width: 600px) {
+  .choices { grid-template-columns: repeat(3, 1fr); }
+}
+
+.choice {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.choiceActive {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
+.choice strong { font-size: 15px; }
+.choice span { font-size: 13px; color: var(--color-muted); }
+
+/* ---------- pași (indicator de progres) ---------- */
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 16px 0 20px;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.stepBar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.stepActive .stepBar,
+.stepDone .stepBar { background: var(--color-primary); }
+.stepActive { color: var(--color-text); font-weight: 700; }
+
+.stepLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (max-width: 420px) {
+  .stepHint { display: none; }
+}
+
+/*
+ * Bara Înapoi / Continuă a onboardingului: FIXĂ (nu sticky). Stilul global
+ * `body { overflow-x: hidden; overflow-y: auto }` face din body containerul de
+ * scroll pentru sticky, dar pagina derulează pe html => sticky nu se lipea
+ * niciodată și bara rămânea la finalul paginii. Deasupra barei de navigare
+ * mobile (--mobile-bottom-bar-h), sub dialoguri (z-index 60).
+ */
+.footerBar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--mobile-bottom-bar-h, 0px);
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  justify-content: space-between;
+  align-items: center;
+  /* conținutul aliniat cu .page (max 960px); în dreapta rămân minimum 96px liberi
+     pentru bula AI globală (64px, la 20px de colțul dreapta-jos) */
+  padding: 10px max(96px, calc((100% - 960px) / 2 + 24px)) calc(10px + env(safe-area-inset-bottom)) max(16px, calc((100% - 960px) / 2 + 24px));
+  background: var(--surface, var(--color-bg));
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.06);
+}
+
+/*
+ * Mobil (cu bara de navigare a aplicației): două rânduri fixe, toată lățimea -
+ * sus Înapoi / Continuă, jos „Completez mai târziu” în stânga. Colțul dreapta-jos
+ * (bula AI) rămâne liber fără să îngustăm butoanele. Safe-area e acoperită de navigare.
+ */
+@media (max-width: 768px) {
+  .footerBar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 10px 16px;
+  }
+  .footerBar > :last-child { order: -1; }
+  .footerBar > :first-child > button { min-height: 36px; padding-left: 0; }
+}
+
+/* footerul global al site-ului (după <main>) nu rămâne sub bara fixă la derulare
+   maximă; doar cât timp bara există pe pagină (body cu padding de la Navbar pe mobil) */
+:global(body):has(.footerBar) {
+  padding-bottom: calc(var(--mobile-bottom-bar-h, 0px) + 96px);
+}
+
+@media (max-width: 768px) {
+  :global(body):has(.footerBar) {
+    padding-bottom: calc(var(--mobile-bottom-bar-h, 0px) + 124px);
+  }
+}
+
+/* loc sub conținut pentru bara fixă (butoanele pot trece pe 2 rânduri pe mobil) */
+.pageWithFooter { padding-bottom: 160px; }
+
+/* focus cu Tab / derulare automată: elementul nu rămâne ascuns sub bara fixă
+   (+ bara de navigare mobilă, când există) */
+.pageWithFooter :is(input, textarea, select, button, a, summary) {
+  scroll-margin-bottom: calc(140px + var(--mobile-bottom-bar-h, 0px));
+}
+
+@media (min-width: 720px) {
+  .pageWithFooter { padding-bottom: 120px; }
+}
+
+.saveState {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+/* ---------- avatar / portofoliu ---------- */
+
+.avatarRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.avatar {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+.avatarPlaceholder {
+  display: grid;
+  place-items: center;
+  color: var(--color-muted);
+}
+
+.fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.socialRow {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  margin-bottom: 12px;
+}
+
+.socialHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.socialStats {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 600px) {
+  .socialStats { grid-template-columns: repeat(3, 1fr); }
+}
+
+.portfolioGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.portfolioItem {
+  position: relative;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.portfolioItem img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.portfolioLink {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  padding: 10px;
+  text-align: center;
+  color: var(--color-primary);
+  word-break: break-word;
+  font-size: 13px;
+}
+
+.portfolioCaption {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.iconBtn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+/* ---------- previzualizare profil ---------- */
+
+.preview {
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.previewCover {
+  height: 72px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--color-primary) 40%, var(--surface)), color-mix(in srgb, #f59e0b 30%, var(--surface)));
+}
+
+.previewBody {
+  padding: 0 18px 18px;
+}
+
+.previewAvatar {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: 4px solid var(--surface);
+  margin-top: -42px;
+  object-fit: cover;
+  background: var(--color-border);
+}
+
+.previewName {
+  margin: 8px 0 2px;
+  font-size: 20px;
+  font-family: var(--font-title);
+}
+
+.previewSocials {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.previewSocial {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--surface));
+  font-size: 14px;
+}
+
+.declared {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+/* ---------- dashboard Creators ---------- */
+
+.sections {
+  display: grid;
+  gap: 14px;
+}
+
+@media (min-width: 720px) {
+  .sections { grid-template-columns: 1fr 1fr; }
+}
+
+.section {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.sectionHighlighted {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+/* ---------- tur ghidat (non-modal: nu blochează pagina) ---------- */
+
+.tour {
+  position: fixed;
+  z-index: 40;
+  left: 12px;
+  right: 12px;
+  /* --mobile-bottom-bar-h: definită global de Navbar doar cât timp bara de jos e vizibilă
+     (<= 768px, include safe-area); altfel lipsește => doar safe-area */
+  bottom: calc(var(--mobile-bottom-bar-h, env(safe-area-inset-bottom)) + 12px);
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+}
+
+@media (min-width: 720px) {
+  .tour { left: auto; right: 24px; bottom: calc(var(--mobile-bottom-bar-h, 0px) + 24px); }
+}
+
+/* mobil / tabletă: turul stă peste butonul AI flotant și peste bara de navigare */
+@media (max-width: 899.98px) {
+  .tour { z-index: 1200; }
+}
+
+.tourStepCount {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.tourDots {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.tourDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-border);
+}
+
+.tourDotActive { background: var(--color-primary); }
+
+/* ---------- skeleton ---------- */
+
+.skeleton {
+  border-radius: 12px;
+  background: linear-gradient(90deg, var(--color-border) 25%, color-mix(in srgb, var(--color-border) 40%, var(--surface)) 50%, var(--color-border) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
+
+/* ---------- dialog de confirmare ---------- */
+
+.dialogBackdrop {
+  position: fixed;
+  inset: 0;
+  /* dialog modal: deasupra barei de navigare mobile (1100) și a bulei AI globale
+     (999999), care altfel acopereau butonul de confirmare de pe mobil */
+  z-index: 1000000;
+  display: grid;
+  place-items: end center;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 12px;
+}
+
+@media (min-width: 600px) {
+  .dialogBackdrop { place-items: center; }
+}
+
+.dialog {
+  width: 100%;
+  max-width: 460px;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 20px;
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--color-text);
+}
+
+/* ---------- oferte ---------- */
+
+.offerCard {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.offerInactive { opacity: 0.65; }
+
+.offerMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.price {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.deliverableRow {
+  display: grid;
+  grid-template-columns: 1fr 96px 44px;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.empty {
+  text-align: center;
+  padding: 28px 16px;
+  color: var(--color-muted);
+}
+
+.entryCard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  margin: 0 0 16px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 10%, var(--surface)), var(--surface));
+  color: var(--color-text);
+}
+
+.entryText {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

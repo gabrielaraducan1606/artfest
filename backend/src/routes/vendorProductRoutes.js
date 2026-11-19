@@ -32,6 +32,7 @@ import { isSamedayCheckoutActive } from "../services/shipping/checkoutMode.js";
 import { openai } from "../lib/openai.js";
 import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
 import { enforceVendorProductImageUrls } from "../lib/productImageUrls.js";
+import { productValidationBody } from "../lib/productValidationErrors.js";
 import {
   moderateSavedProduct,
   buildVendorModerationReport,
@@ -1464,9 +1465,7 @@ async function createProduct(req, res) {
     ) {
       return res
         .status(400)
-        .json({
-          error: "invalid_title",
-        });
+        .json(productValidationBody("invalid_title"));
     }
 
     const imgs =
@@ -1505,10 +1504,7 @@ async function createProduct(req, res) {
     if (!CATEGORY_SET.has(cat)) {
       return res
         .status(400)
-        .json({
-          error:
-            "invalid_category",
-        });
+        .json(productValidationBody("invalid_category"));
     }
 
     // categorii SUPLIMENTARE: max 3, fără duplicate, fără principala
@@ -1521,10 +1517,7 @@ async function createProduct(req, res) {
     if (!additionalNorm.ok) {
       return res
         .status(400)
-        .json({
-          error: additionalNorm.error,
-          detail: additionalNorm.detail,
-        });
+        .json(productValidationBody(additionalNorm.error, { detail: additionalNorm.detail }));
     }
 
     let colorCode = null;
@@ -1562,9 +1555,7 @@ async function createProduct(req, res) {
     if (availNorm.error) {
       return res
         .status(400)
-        .json({
-          error: availNorm.error,
-        });
+        .json(productValidationBody(availNorm.error));
     }
 
     const orderConfig =
@@ -1579,14 +1570,7 @@ async function createProduct(req, res) {
     if (orderConfig.error) {
       return res
         .status(400)
-        .json({
-          error:
-            orderConfig.error,
-
-          ...(orderConfig.message ? { message: orderConfig.message } : {}),
-
-            ...(orderConfig.errors ? { errors: orderConfig.errors } : {}),
-        });
+        .json(productValidationBody(orderConfig.error, { message: orderConfig.message, errors: orderConfig.errors }));
     }
 
     /*
@@ -2026,10 +2010,7 @@ async function updateProduct(
       ) {
         return res
           .status(400)
-          .json({
-            error:
-              "invalid_title",
-          });
+          .json(productValidationBody("invalid_title"));
       }
 
       patch.title =
@@ -2058,10 +2039,7 @@ async function updateProduct(
     if (!requestedOrderMode) {
       return res
         .status(400)
-        .json({
-          error:
-            "invalid_order_mode",
-        });
+        .json(productValidationBody("invalid_order_mode"));
     }
 
     /*
@@ -2234,10 +2212,7 @@ async function updateProduct(
       ) {
         return res
           .status(400)
-          .json({
-            error:
-              "invalid_category",
-          });
+          .json(productValidationBody("invalid_category"));
       }
 
       patch.category = c;
@@ -2283,10 +2258,7 @@ async function updateProduct(
     if (!additionalPlan.ok) {
       return res
         .status(400)
-        .json({
-          error: additionalPlan.error,
-          detail: additionalPlan.detail,
-        });
+        .json(productValidationBody(additionalPlan.error, { detail: additionalPlan.detail }));
     }
 
     if (additionalPlan.write) {
@@ -2452,10 +2424,7 @@ async function updateProduct(
     if (availNorm.error) {
       return res
         .status(400)
-        .json({
-          error:
-            availNorm.error,
-        });
+        .json(productValidationBody(availNorm.error));
     }
 
     patch.availability =
@@ -2535,14 +2504,7 @@ async function updateProduct(
       ) {
         return res
           .status(400)
-          .json({
-            error:
-              orderConfig.error,
-
-            ...(orderConfig.message ? { message: orderConfig.message } : {}),
-
-            ...(orderConfig.errors ? { errors: orderConfig.errors } : {}),
-          });
+          .json(productValidationBody(orderConfig.error, { message: orderConfig.message, errors: orderConfig.errors }));
       }
 
       patch.orderMode =

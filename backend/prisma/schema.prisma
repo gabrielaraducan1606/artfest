@@ -4475,6 +4475,9 @@ model InfluencerProfile {
 
   complianceGates InfluencerComplianceGate[]
 
+  // Artfest Creators (profil profesional permanent, separat de afiliere)
+  creatorProfile CreatorProfile?
+
   @@index([referralCode])
   @@index([status])
   @@index([createdAt])
@@ -6456,4 +6459,220 @@ model SecretSantaAssignment {
   receiver SecretSantaParticipant @relation("SecretSantaReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
 
   @@index([editionId])
+}
+
+/// ==================== Artfest Creators (etapa 1a) ====================
+/// Profil profesional PERMANENT al unui influencer (cont INFLUENCER existent,
+/// creat doar prin invitație). Separat de programul de afiliere: expirarea
+/// colaborării de afiliere (3 luni) NU ascunde profilul, iar aprobarea lui NU
+/// schimbă statusul / comisionul de afiliere. Doar tabele / enum-uri NOI.
+
+enum CreatorProfileStatus {
+  DRAFT
+  PENDING
+  CHANGES_REQUESTED
+  APPROVED
+  REJECTED
+}
+
+enum CreatorSocialPlatform {
+  INSTAGRAM
+  TIKTOK
+  FACEBOOK
+  YOUTUBE
+}
+
+enum CreatorPortfolioKind {
+  IMAGE
+  LINK
+}
+
+enum CreatorOfferType {
+  BARTER
+  PAID
+  MIXED
+}
+
+enum CreatorProfileEventType {
+  CREATED
+  SUBMITTED
+  APPROVED
+  CHANGES_REQUESTED
+  REJECTED
+  SUSPENDED
+  UNSUSPENDED
+  PAUSED
+  RESUMED
+  OFFER_DEACTIVATED_BY_ADMIN
+}
+
+enum CreatorEmailStatus {
+  NONE
+  PENDING
+  SENT
+  FAILED
+}
+
+model CreatorProfile {
+  id           String @id @default(cuid())
+  influencerId String @unique
+
+  status CreatorProfileStatus @default(DRAFT)
+
+  // copia de lucru (editabilă); public = approvedSnapshot (moderat)
+  displayName         String?  @db.VarChar(80)
+  slug                String   @unique @db.VarChar(80)
+  bio                 String?  @db.Text
+  avatarUrl           String?  @db.VarChar(500)
+  city                String?  @db.VarChar(120)
+  niches              String[] @default([])
+  preferredCategories String[] @default([])
+  contentLanguages    String[] @default([])
+
+  // preferințe de colaborare (aplicate direct, fără moderare)
+  acceptsProducts       Boolean @default(false)
+  acceptsPaid           Boolean @default(false)
+  typicalTurnaroundDays Int?
+  availableForCollabs   Boolean @default(true)
+
+  // moderare
+  approvedSnapshot      Json?
+  approvedAt            DateTime?
+  hasUnpublishedChanges Boolean   @default(false)
+  submittedAt           DateTime?
+  reviewedAt            DateTime?
+  reviewedById          String?
+  moderationMessage     String?   @db.Text
+
+  // suspendare (Admin) / pauză temporară (influencer)
+  suspendedAt     DateTime?
+  suspendedById   String?
+  suspendedReason String?   @db.Text
+  pausedAt        DateTime?
+
+  onboardingCompletedAt DateTime?
+  // turul ghidat: versiunea finalizată / omisă (0 = niciodată)
+  tourSeenVersion Int       @default(0)
+  tourSeenAt      DateTime?
+
+  // concurență optimistă pentru editări din două tab-uri
+  version Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  influencer InfluencerProfile      @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  socials    CreatorSocialAccount[]
+  portfolio  CreatorPortfolioItem[]
+  offers     CreatorOffer[]
+  events     CreatorProfileEvent[]
+
+  @@index([status, updatedAt])
+  @@index([status, suspendedAt, pausedAt])
+}
+
+model CreatorSocialAccount {
+  id        String                @id @default(cuid())
+  profileId String
+  platform  CreatorSocialPlatform
+  url       String                @db.VarChar(300)
+  handle    String                @db.VarChar(100)
+  // DECLARATE de influencer, nu verificate
+  followersDeclared Int
+  avgViewsDeclared  Int?
+  engagementBps     Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile CreatorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, platform])
+}
+
+model CreatorPortfolioItem {
+  id          String               @id @default(cuid())
+  profileId   String
+  kind        CreatorPortfolioKind
+  imageUrl    String?              @db.VarChar(500)
+  linkUrl     String?              @db.VarChar(300)
+  title       String               @db.VarChar(120)
+  description String?              @db.VarChar(500)
+  sort        Int                  @default(0)
+
+  createdAt DateTime @default(now())
+
+  profile CreatorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, sort])
+}
+
+/// Oferta (pachetul) e doar un pointer; conținutul stă în versiuni IMUABILE,
+/// astfel încât o colaborare acceptată păstrează exact condițiile de atunci.
+model CreatorOffer {
+  id             String  @id @default(cuid())
+  profileId      String
+  isActive       Boolean @default(true)
+  currentVersion Int     @default(1)
+  // dezactivată de Admin (moderare): influencerul nu o poate reactiva
+  disabledByAdminAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile  CreatorProfile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  versions CreatorOfferVersion[]
+
+  @@index([profileId, isActive])
+}
+
+model CreatorOfferVersion {
+  id              String           @id @default(cuid())
+  offerId         String
+  version         Int
+  title           String           @db.VarChar(120)
+  description     String?          @db.Text
+  platform        CreatorSocialPlatform
+  contentType     String           @db.VarChar(40)
+  // [{ "type": "REEL", "count": 1 }, { "type": "STORY", "count": 3 }]
+  deliverables    Json
+  turnaroundDays  Int
+  type            CreatorOfferType
+  // remunerația dorită de influencer, în bani (fără marja Artfest)
+  creatorFeeCents Int?
+  acceptsProduct  Boolean          @default(false)
+  conditions      String?          @db.Text
+  contentHash     String           @db.VarChar(64)
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+
+  offer CreatorOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@unique([offerId, version])
+}
+
+/// Istoric append-only (audit moderare + acțiunile influencerului). Emailul de
+/// status se urmărește pe eveniment: retry fără duplicat (cheie = id eveniment).
+model CreatorProfileEvent {
+  id          String                  @id @default(cuid())
+  profileId   String
+  type        CreatorProfileEventType
+  actorUserId String?
+  actorRole   String?                 @db.VarChar(20)
+  reason      String?                 @db.Text
+  before      Json?
+  after       Json?
+
+  emailStatus   CreatorEmailStatus @default(NONE)
+  emailAttempts Int                @default(0)
+  emailError    String?            @db.VarChar(200)
+  emailSentAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  profile CreatorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, createdAt])
+  @@index([emailStatus, createdAt])
 }
