@@ -20,8 +20,8 @@ export const PHYSICAL_STORE_TYPE = "products";
 export const SHIPPING_SETUP_MESSAGES = Object.freeze({
   incomplete: "Configurare livrare incompletă",
   fallbackMissing:
-    "Completează tariful de rezervă pentru transport. Se folosește doar dacă tariful Sameday nu poate fi calculat temporar; fără el, comenzile pot fi oprite în acele momente.",
-  fallbackRequired: "Tariful de rezervă pentru transport este obligatoriu pentru magazinele cu produse livrate prin curier.",
+    "Completează tariful tău de transport (livrarea prin curierul propriu). Fără el, clienții nu pot alege această livrare: lipsa tarifului nu înseamnă transport gratuit. Dacă vrei să oferi transport gratuit, scrie 0.",
+  fallbackRequired: "Tariful de transport (curierul propriu) este obligatoriu pentru magazinele cu produse livrate prin curier. Pentru transport gratuit, scrie 0.",
 });
 
 const isSetCents = (v) => v !== null && v !== undefined && v !== "" && Number.isInteger(Number(v)) && Number(v) >= 0;

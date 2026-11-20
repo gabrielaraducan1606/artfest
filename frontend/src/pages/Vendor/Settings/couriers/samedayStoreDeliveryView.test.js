@@ -45,3 +45,7 @@ test("fără răspuns -> stare necunoscută, fără acțiune; regulile mențione
   assert.equal(samedayDeliveryView(null).action, null);
   assert.ok(SAMEDAY_DELIVERY_RULES.some((r) => /integral online, cu cardul/.test(r)));
 });
+
+test("regula pentru produsele fără greutate: o frază scurtă", () => {
+  assert.ok(SAMEDAY_DELIVERY_RULES.some((r) => /nu are greutate/.test(r) && /AWB/.test(r)));
+});

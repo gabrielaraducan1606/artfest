@@ -16,6 +16,8 @@ const FULFILLMENT_LABELS = {
   VENDOR_COURIER: "Curierul magazinului",
 };
 
+export const STANDARD_RATE_NOTE = "Tarif fix Artfest, fără costuri ulterioare.";
+
 const FULFILLMENT_HINTS = {
   ARTFEST_SAMEDAY: "La adresă, easybox sau Sameday Point. Plata doar online, cu cardul.",
   VENDOR_COURIER: "Livrare la adresă, cu curierul ales de magazin. Plata ramburs sau cu cardul.",
@@ -45,12 +47,24 @@ export default function FulfillmentChoice({ groupKey, quoted, fulfillment, forma
       key: ARTFEST_SAMEDAY,
       disabled: !sameday?.available,
       // indisponibil: starea în titlu, explicația pe toată lățimea (fără coloană de preț îngustă pe mobil)
-      price: sameday?.available ? formatPrice(sameday) : null,
+      price: sameday?.available && sameday?.price != null ? formatPrice(sameday) : null,
       status: sameday?.available ? null : "indisponibil momentan",
-      note: !sameday?.available ? sameday?.message || null : null,
+      note: !sameday?.available
+        ? sameday?.message || null
+        : sameday?.standardRate
+          ? `${FULFILLMENT_HINTS.ARTFEST_SAMEDAY} ${STANDARD_RATE_NOTE}`
+          : null,
     },
-    { key: VENDOR_COURIER, disabled: false, price: vendor ? formatPrice(vendor) : null, note: null },
+    {
+      key: VENDOR_COURIER,
+      // tariful magazinului lipsă: nu se poate alege (fără 0 lei afișat)
+      disabled: vendor?.available === false,
+      price: vendor && vendor.available !== false ? formatPrice(vendor) : null,
+      status: vendor?.available === false ? "indisponibil" : null,
+      note: vendor?.available === false ? vendor.message || null : null,
+    },
   ];
+  const vendorAvailable = vendor?.available !== false;
 
   return (
     <div className={styles.picker}>
@@ -58,9 +72,11 @@ export default function FulfillmentChoice({ groupKey, quoted, fulfillment, forma
         <div className={styles.notice} role="alert">
           <p style={{ margin: 0 }}>{unavailable.message}</p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8 }}>
-            <button type="button" className={styles.secondary} onClick={() => onChoose(VENDOR_COURIER)}>
-              Continuă cu curierul magazinului{vendor ? ` (${formatPrice(vendor)})` : ""}
-            </button>
+            {vendorAvailable ? (
+              <button type="button" className={styles.secondary} onClick={() => onChoose(VENDOR_COURIER)}>
+                Continuă cu curierul magazinului{vendor ? ` (${formatPrice(vendor)})` : ""}
+              </button>
+            ) : null}
             {onRetry ? (
               <button type="button" className={styles.linkButton} onClick={onRetry}>
                 Încearcă din nou

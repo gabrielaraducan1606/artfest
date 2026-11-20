@@ -363,10 +363,10 @@ function ShippingSettings() {
     if (!email) return "Completează emailul pentru retururi.";
     if (!isEmail(email)) return "Emailul pentru retururi nu este valid.";
     if (shippingFee === "" || shippingFee === null || shippingFee === undefined) {
-      return "Completează tariful de rezervă pentru transport.";
+      return "Completează tariful tău de transport (sau 0 pentru transport gratuit).";
     }
     if (!Number.isFinite(Number(shippingFee)) || Number(shippingFee) < 0) {
-      return "Tariful de rezervă pentru transport trebuie să fie un număr pozitiv sau 0.";
+      return "Tariful de transport trebuie să fie un număr pozitiv sau 0.";
     }
     if (
       freeThreshold !== "" &&
@@ -535,7 +535,7 @@ function ShippingSettings() {
 
               <div className={settingsStyles.grid2}>
                 <label className={settingsStyles.field}>
-                  <span>Tarif de rezervă pentru transport (lei) *</span>
+                  <span>Tariful tău de transport (lei) *</span>
                   <input
                     className={settingsStyles.input}
                     type="number"
@@ -550,7 +550,7 @@ function ShippingSettings() {
                     placeholder="Ex: 25"
                   />
                   <small className={settingsStyles.hint}>
-                    Se folosește doar dacă tariful Sameday nu poate fi calculat temporar.
+                    Ce plătește clientul când alege livrarea prin curierul tău. Scrie 0 doar dacă oferi transport gratuit. Livrarea Sameday prin Artfest are tarifele ei, stabilite de Artfest.
                   </small>
                 </label>
 

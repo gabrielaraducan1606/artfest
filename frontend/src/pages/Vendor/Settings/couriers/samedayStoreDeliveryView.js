@@ -8,6 +8,7 @@ export const SAMEDAY_DELIVERY_RULES = Object.freeze([
   "Comenzile livrate prin Sameday cu Artfest se plătesc integral online, cu cardul (fără ramburs și fără avans).",
   "Clientul poate alege oricând livrarea ta obișnuită; metodele tale actuale de livrare și plată rămân neschimbate.",
   "Transportul Sameday este contractat și plătit de Artfest: suma de transport plătită de client pentru aceste comenzi nu intră în transferul către tine.",
+  "Dacă un produs nu are greutate, clientul plătește tariful stabilit de Artfest pentru metoda aleasă. Greutatea coletului o completezi la AWB.",
   "Clienții vor vedea opțiunea după ce Artfest lansează livrarea Sameday în checkout.",
 ]);
 

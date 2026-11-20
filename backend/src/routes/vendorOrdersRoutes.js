@@ -5686,7 +5686,9 @@ const policy =
       status: "PICKUP_SCHEDULED",
       consents,
       parcels: Number(dimensions.parcels || 1),
-      weightKg: Number(dimensions.weightKg || 1),
+      // greutatea NU se inventează (înainte: 1 kg implicit, preluat apoi de AWB ca valoare
+      // salvată): fără greutate trimisă rămâne cea de pe expediere; se confirmă la generarea AWB-ului
+      ...(Number(dimensions.weightKg) > 0 ? { weightKg: Number(dimensions.weightKg) } : {}),
       lengthCm: Number(dimensions.l || 0),
       widthCm: Number(dimensions.w || 0),
       heightCm: Number(dimensions.h || 0),

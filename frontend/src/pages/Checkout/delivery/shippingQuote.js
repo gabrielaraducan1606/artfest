@@ -86,7 +86,15 @@ const priceOrNull = (v) => (v === null || v === undefined || !Number.isFinite(Nu
 function readOptions(raw) {
   const out = {};
   const vendor = raw?.VENDOR_COURIER;
-  if (vendor) out.VENDOR_COURIER = { available: true, price: priceOrNull(vendor.price), qualifiesFreeShipping: Boolean(vendor.qualifiesFreeShipping) };
+  // tariful magazinului lipsă: opțiune indisponibilă (fără 0 lei afișat)
+  if (vendor) {
+    out.VENDOR_COURIER = {
+      available: vendor.available !== false,
+      price: vendor.available === false ? null : priceOrNull(vendor.price),
+      qualifiesFreeShipping: Boolean(vendor.qualifiesFreeShipping),
+      message: vendor.message ? String(vendor.message) : null,
+    };
+  }
   const sameday = raw?.ARTFEST_SAMEDAY;
   if (sameday) {
     out.ARTFEST_SAMEDAY = {
@@ -94,6 +102,8 @@ function readOptions(raw) {
       price: priceOrNull(sameday.price),
       message: sameday.message ? String(sameday.message) : null,
       methods: Array.isArray(sameday.methods) ? sameday.methods.filter((m) => ["HOME", "LOCKER", "PUDO"].includes(m)) : ["HOME"],
+      // tariful standard Artfest (produse fără greutate): preț fix, nimic în plus ulterior
+      standardRate: Boolean(sameday.standardRate),
     };
   }
   return out;

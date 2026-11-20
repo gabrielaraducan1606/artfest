@@ -5,8 +5,8 @@
 //
 // Păstrăm ce trimite serverul: `error` (codul), `message`, `field` și, la
 // protecția datelor de contact (422), `issues[].field`. Fără câmp cunoscut,
-// eroarea rămâne GENERALĂ (afișată lângă butonul de publicare), dar cu codul
-// serverului vizibil, ca să poată fi diagnosticată.
+// eroarea rămâne GENERALĂ (afișată lângă butonul de publicare), fără coduri
+// tehnice în text; codul rămâne în `code`, pentru diagnostic.
 //
 // Pur, fără React / rețea.
 
@@ -133,8 +133,11 @@ export function readServerValidation(error) {
   return {
     code,
     status,
-    // o eroare fără explicație primește codul serverului, ca să poată fi raportată
-    message: message || `Artfest nu a acceptat publicarea (cod: ${code}). Datele tale au rămas în ciornă. Dacă problema continuă, trimite-ne acest cod.`,
+    // fără explicație de la server: mesaj clar, fără coduri tehnice (codul rămâne în `code`,
+    // pus pe elementul de eroare ca data-error-code, pentru diagnostic)
+    message:
+      message ||
+      "Nu am putut publica produsul. Datele tale au rămas în ciornă. Încearcă din nou, iar dacă problema continuă, apasă „Cere ajutor echipei Artfest”.",
     field: first?.field || null,
     step: first?.step || null,
     anchor: first?.anchor || null,

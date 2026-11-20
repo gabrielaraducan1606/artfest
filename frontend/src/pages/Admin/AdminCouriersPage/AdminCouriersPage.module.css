@@ -370,3 +370,8 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* ---------- Sameday prin Artfest: tariful pentru produse fără greutate ---------- */
+.cfgGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 14px; }
+.cfgField { display: grid; gap: 4px; font-size: 0.85rem; }
+.cfgActions { display: flex; align-items: center; gap: 8px; }

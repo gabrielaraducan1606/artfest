@@ -235,7 +235,8 @@ export function buildDeliverySnapshot({ validated, address, priceCents, pricingS
     serviceId: validated.serviceId || null,
     shippingCost: (Number(priceCents) || 0) / 100,
     pricingSource,
-    fallbackReason: pricingSource === "VENDOR_FALLBACK" ? fallbackReason : null,
+    // motivul tarifului folosit în locul estimării: tariful magazinului (vechi) sau tariful Artfest (coș fără greutate)
+    fallbackReason: pricingSource === "VENDOR_FALLBACK" || pricingSource === "ARTFEST_RULE" ? fallbackReason : null,
     carrierCost: carrierCostCents == null ? null : carrierCostCents / 100,
     recipientName: clean(address?.name || [address?.firstName, address?.lastName].filter(Boolean).join(" "), 160),
     recipientPhone: clean(address?.phone, 40),

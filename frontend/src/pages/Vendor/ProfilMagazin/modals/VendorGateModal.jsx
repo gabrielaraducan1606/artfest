@@ -259,7 +259,7 @@ export default function VendorGateModal({
       ""
     ) {
       list.push(
-        "Completează tariful de rezervă pentru transport."
+        "Completează tariful tău de transport (sau 0 pentru transport gratuit)."
       );
     }
 
@@ -854,8 +854,8 @@ export default function VendorGateModal({
                       styles.vendorGateField
                     }
                   >
-                    Tarif de rezervă
-                    pentru transport *
+                    Tariful tău de
+                    transport (lei) *
 
                     <input
                       className={

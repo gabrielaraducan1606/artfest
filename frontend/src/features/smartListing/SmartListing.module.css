@@ -1710,3 +1710,108 @@
     flex: 1 1 100%;
   }
 }
+
+/* ---------- probleme de publicare: sumar, câmp marcat, navigare ---------- */
+
+/*
+ * Navigarea la o problemă aduce câmpul + explicația lui deasupra barei fixe de jos
+ * (bara formularului + bara de navigare a aplicației pe mobil) și sub antet.
+ */
+[data-sl-field] {
+  scroll-margin-top: 96px;
+  scroll-margin-bottom: calc(var(--sl-bar-h) + var(--bottombar-h, 0px) + env(safe-area-inset-bottom, 0px) + 32px);
+}
+
+/* câmp cu o problemă: evidențiere discretă (bordura câmpului), explicația e imediat sub el */
+.fieldInvalid :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  border-color: var(--color-danger);
+}
+
+.blockInvalid {
+  border-radius: var(--radius);
+  box-shadow: inset 3px 0 0 var(--color-danger);
+  padding-left: 10px;
+}
+
+/* scurtă evidențiere după ce vânzătorul ajunge la câmp */
+.flash {
+  animation: slFlash 1.6s ease-out;
+  border-radius: var(--radius);
+}
+
+@keyframes slFlash {
+  0% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-danger) 35%, transparent); }
+  100% { box-shadow: 0 0 0 4px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash { animation: none; }
+}
+
+/* sumarul „Mai ai de completat”: fiecare rând e un link către câmp */
+.issues .issueList {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.issueLink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.issueLink::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-danger);
+}
+
+.issueLink::after {
+  content: "›";
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 1.2rem;
+}
+
+.issueLink:hover,
+.issueLink:focus-visible {
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  text-decoration: underline;
+}
+
+/* eroare fără câmp identificabil (conexiune, server): chiar deasupra butoanelor */
+.actionBarError {
+  flex: 0 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--danger-bg-soft);
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* doar câmpul greșit dintr-un rând cu mai multe câmpuri (ex. suma unei valori) */
+.inputInvalid {
+  border-color: var(--color-danger);
+}

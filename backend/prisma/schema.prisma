@@ -6676,3 +6676,14 @@ model CreatorProfileEvent {
   @@index([profileId, createdAt])
   @@index([emailStatus, createdAt])
 }
+
+/// „Sameday prin Artfest”: tariful simplu Artfest pe metodă de livrare (HOME | LOCKER | PUDO),
+/// folosit DOAR când lipsește greutatea unui produs din coletul unui magazin. Setat din Admin,
+/// fără valori implicite (fără rând / null = neconfigurat => metoda nu se oferă acelui coș).
+model SamedayMethodConfig {
+  method      String   @id @db.VarChar(16)
+  amountCents Int?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

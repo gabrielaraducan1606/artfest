@@ -72,6 +72,7 @@ import {
 } from "../services/shipping/deliverySelection.js";
 import { getPrimaryShippingPricer } from "../services/shipping/samedayCheckoutPricer.js";
 import { checkoutSamedayAvailability } from "../services/shipping/samedayStoreDelivery.js";
+import { loadArtfestSamedayConfig } from "../services/shipping/artfestSamedayConfig.js";
 import {
   assertPlacementCompatible,
   quoteCheckoutShipping,
@@ -2977,7 +2978,10 @@ router.post(
 // la plasare: easybox / Sameday Point revalidate punctual, fără preselectare, erori 400 / 409
 async function quoteShipping({ groups, selections, address = null, allowUnpriced = false }) {
   const availability = await checkoutSamedayAvailability({ groups });
+  // tarifele Artfest (coș fără greutate) + limitele punctelor: doar când Sameday prin Artfest e oferit
+  const artfestConfig = availability?.offered ? await loadArtfestSamedayConfig(prisma) : null;
   return quoteCheckoutShipping({
+    artfestConfig,
     groups,
     selections: selections || {},
     address,

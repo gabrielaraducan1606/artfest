@@ -160,3 +160,28 @@ test("Sameday ales, apoi oprit global (checkout revine la forma veche): alegerea
   assert.deepEqual(staleSamedayGroupKeys({ deliveryEnabled: false, optionsFetched: true, groupKeys: ["s1", "s2"], selections: confirmed }), []);
   assert.match(STALE_SAMEDAY_MESSAGE, /nu mai este disponibilă/);
 });
+
+test("curierul magazinului fără tarif: opțiune indisponibilă, fără 0 lei; tariful standard Artfest marcat", () => {
+  const byGroup = readQuote({
+    shipments: [
+      {
+        serviceId: "svc-a",
+        selectedFulfillment: "ARTFEST_SAMEDAY",
+        price: 24.9,
+        fulfillmentOptions: {
+          VENDOR_COURIER: { available: false, price: null, reason: "vendor_shipping_price_missing", message: "Magazinul nu a stabilit încă tariful." },
+          ARTFEST_SAMEDAY: { available: true, price: 24.9, methods: ["HOME"], standardRate: true },
+        },
+      },
+      { serviceId: "svc-b", priceUnavailable: true, priceUnavailableMessage: "Magazinul nu a stabilit încă tariful.", fulfillmentOptions: { VENDOR_COURIER: { available: false, price: null } } },
+    ],
+  });
+  assert.deepEqual(byGroup["svc-a"].options.VENDOR_COURIER, { available: false, price: null, qualifiesFreeShipping: false, message: "Magazinul nu a stabilit încă tariful." });
+  assert.equal(byGroup["svc-a"].options.ARTFEST_SAMEDAY.standardRate, true);
+  assert.equal(byGroup["svc-a"].price, 24.9);
+  // magazinul fără niciun tarif: blocat, cu mesajul serverului (nu 0 lei)
+  const blocked = quotedShipping({ status: "ready", byGroup, missing: [] }, "svc-b");
+  assert.equal(blocked.pending, "blocked");
+  assert.equal(blocked.finalShipping, null);
+  assert.match(blocked.blockedMessage, /nu a stabilit/);
+});

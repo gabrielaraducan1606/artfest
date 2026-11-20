@@ -967,7 +967,7 @@ const handleCart = useCallback(
           {showShippingWeightMissing && (
             <span
               className={`${styles.badge} ${styles.badgeWarning}`}
-              title="Până completezi greutatea coletului, transportul se calculează cu tariful de rezervă al magazinului."
+              title="Opțional. La livrarea Sameday prin Artfest, clientul plătește tariful standard Artfest; greutatea reală a coletului o confirmi la generarea AWB-ului."
             >
               Lipsește greutatea coletului
             </span>

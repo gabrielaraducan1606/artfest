@@ -129,6 +129,10 @@ function makeModel(name, rows) {
     create: async ({ data }) => {
       const row = { id: data.id || nextId(name), createdAt: new Date(), updatedAt: new Date(), ...stripRelations(data) };
       rows.push(row);
+      // livrarea Sameday (creată imbricat pe expediere): păstrată separat, ca în DB
+      if (name === "shipment" && data.delivery?.create) {
+        (currentTables.shipmentDelivery ||= []).push({ id: nextId("shipmentDelivery"), shipmentId: row.id, createdAt: new Date(), ...data.delivery.create });
+      }
       return { ...row };
     },
     createMany: async ({ data }) => {
@@ -374,6 +378,8 @@ function seed() {
     occasionTags: [],
     availability: "READY",
     readyQty: 50,
+    // produse CU greutate: coș complet => estimarea Sameday (coșurile fără greutate: checkoutFulfillment.test.js)
+    shippingWeightGrams: 500,
     isActive: true,
     isHidden: false,
     moderationStatus: "APPROVED",
@@ -594,5 +600,118 @@ test("corp vechi cu easybox fără Sameday prin Artfest -> refuzat (easybox doar
   const res = await placeGuest({ paymentMethod: "COD", selections: { "svc-vendor-a": { method: "LOCKER", oohId: 501 }, "svc-vendor-b": { method: "COURIER" } } });
   assert.equal(res.status, 400);
   assert.equal(res.body.error, "delivery_method_unavailable");
+  assert.equal(orders().length, 0);
+});
+
+/* =========================================================
+   Tariful standard Artfest (produse fără greutate) + tariful lipsă al magazinului
+   (prin rutele reale de checkout; sume FICTIVE, doar pentru test)
+========================================================= */
+
+function addNoWeightProduct(id, vendorId, priceCents) {
+  const base = db.__tables.product.find((p) => p.vendorId === vendorId || p.service.vendorId === vendorId);
+  const p = { ...base, id, title: `Produs ${id}`, priceCents };
+  delete p.shippingWeightGrams;
+  db.__tables.product.push(p);
+}
+function setArtfestHome(amountCents = 2490) {
+  db.__tables.samedayMethodConfig = [{ method: "HOME", amountCents, updatedAt: new Date("2026-11-20T08:00:00Z") }];
+}
+function addStoreWithoutFee() {
+  const t = db.__tables;
+  t.vendor.push({ id: "vendor-c", displayName: "Atelier C", isActive: true, email: "c@t.ro", user: { email: "c@t.ro" }, ...STRIPE_READY });
+  const base = t.product.find((p) => p.id === "p-b1");
+  t.product.push({
+    ...base,
+    id: "p-c1",
+    title: "Produs p-c1",
+    priceCents: 5000,
+    serviceId: "svc-vendor-c",
+    service: { ...base.service, id: "svc-vendor-c", title: "Magazin vendor-c", vendorId: "vendor-c", estimatedShippingFeeCents: null },
+  });
+  t.vendorSubscription.push({ ...t.vendorSubscription[0], id: "sub-vendor-c", vendorId: "vendor-c" });
+}
+const deliveryOf = (vendorId) => (db.__tables.shipmentDelivery || []).find((d) => d.shipmentId === shipmentOf(vendorId)?.id);
+
+test("quote: magazin cu produs fără greutate -> tariful standard Artfest (fără estimare Sameday); celelalte magazine neschimbate", async () => {
+  setArtfestHome();
+  addNoWeightProduct("p-a2", "vendor-a", 6000);
+  const items = [{ productId: "p-a2", qty: 1 }, { productId: "p-b1", qty: 1 }];
+  const res = await post("/api/checkout/guest/quote", { address: ADDRESS, selections: {}, items });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const a = res.body.shipments.find((s) => s.serviceId === "svc-vendor-a");
+  const b = res.body.shipments.find((s) => s.serviceId === "svc-vendor-b");
+  assert.equal(a.selectedFulfillment, "ARTFEST_SAMEDAY");
+  assert.equal(a.price, 24.9);
+  assert.equal(a.fulfillmentOptions.ARTFEST_SAMEDAY.standardRate, true);
+  assert.deepEqual(a.fulfillmentOptions.ARTFEST_SAMEDAY.methods, ["HOME"]);
+  assert.equal(pricerCalls, 0, "fără estimare Sameday pentru produsul fără greutate");
+  assert.equal(b.price, 15);
+  assert.equal(res.body.totalShipping, 39.9);
+  assert.ok(!("delivery" in a), "condițiile interne nu ajung la client");
+});
+
+test("coș mixt în același magazin (cu și fără greutate) -> tariful standard Artfest pentru tot coletul magazinului", async () => {
+  setArtfestHome();
+  addNoWeightProduct("p-a2", "vendor-a", 6000);
+  const items = [{ productId: "p-a1", qty: 1 }, { productId: "p-a2", qty: 2 }];
+  const res = await post("/api/checkout/guest/quote", { address: ADDRESS, selections: {}, items });
+  const a = res.body.shipments.find((s) => s.serviceId === "svc-vendor-a");
+  assert.equal(a.price, 24.9);
+  assert.equal(pricerCalls, 0);
+  // același magazin, toate cu greutate -> estimarea Sameday
+  const full = await post("/api/checkout/guest/quote", { address: ADDRESS, selections: {}, items: [{ productId: "p-a1", qty: 2 }] });
+  assert.equal(full.body.shipments[0].price, 18.9);
+  assert.equal(pricerCalls, 1);
+});
+
+test("plasare CARD cu tariful Admin: prețul și sursa lui salvate pe livrare, fără cost de curier inventat", async () => {
+  setArtfestHome();
+  addNoWeightProduct("p-a2", "vendor-a", 6000);
+  const items = [{ productId: "p-a2", qty: 1 }, { productId: "p-b1", qty: 1 }];
+  const selections = { "svc-vendor-a": { fulfillment: "ARTFEST_SAMEDAY", method: "HOME", expectedShippingCents: 2490 }, "svc-vendor-b": { fulfillment: "VENDOR_COURIER", expectedShippingCents: 1500 } };
+  const res = await placeGuest({ items, selections });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(Number(shipmentOf("vendor-a").price), 24.9);
+  const d = deliveryOf("vendor-a");
+  assert.equal(d.pricingSource, "ARTFEST_RULE");
+  assert.equal(d.fallbackReason, "parcel_weight_unknown");
+  assert.equal(d.shippingCost, "24.90");
+  assert.equal(d.carrierCost, null, "fără estimare prezentată drept cost");
+  assert.equal(d.vendorShippingCost, null, "fără cost de curier, nimic calculat pentru vânzător");
+  // tariful se schimbă ulterior: comanda existentă își păstrează suma plătită
+  setArtfestHome(2990);
+  assert.equal(deliveryOf("vendor-a").shippingCost, "24.90");
+  assert.equal(Number(shipmentOf("vendor-a").price), 24.9);
+});
+
+test("fără tarif Artfest configurat: Sameday indisponibil pentru coșul fără greutate; plasarea Sameday 409, nicio comandă", async () => {
+  addNoWeightProduct("p-a2", "vendor-a", 6000);
+  const items = [{ productId: "p-a2", qty: 1 }];
+  const q = await post("/api/checkout/guest/quote", { address: ADDRESS, selections: {}, items });
+  const a = q.body.shipments[0];
+  assert.equal(a.selectedFulfillment, "VENDOR_COURIER");
+  assert.equal(a.price, 15);
+  assert.equal(a.fulfillmentOptions.ARTFEST_SAMEDAY.available, false);
+  const res = await placeGuest({ items, selections: { "svc-vendor-a": { fulfillment: "ARTFEST_SAMEDAY", method: "HOME", expectedShippingCents: 2490 } } });
+  assert.equal(res.status, 409, JSON.stringify(res.body));
+  assert.equal(orders().length, 0);
+});
+
+test("magazin fără tarif propriu (curierul magazinului): nu 0 lei; quote marcat, plasarea 409, nicio comandă; celelalte magazine afișate", async () => {
+  addStoreWithoutFee();
+  const items = [{ productId: "p-c1", qty: 1 }, { productId: "p-b1", qty: 1 }];
+  const q = await post("/api/checkout/guest/quote", { address: ADDRESS, selections: {}, items });
+  assert.equal(q.status, 200, JSON.stringify(q.body));
+  const c = q.body.shipments.find((s) => s.serviceId === "svc-vendor-c");
+  const b = q.body.shipments.find((s) => s.serviceId === "svc-vendor-b");
+  assert.equal(c.priceUnavailable, true);
+  assert.equal(c.price, null);
+  assert.match(c.priceUnavailableMessage, /nu a stabilit încă tariful/);
+  assert.equal(c.fulfillmentOptions.VENDOR_COURIER.available, false);
+  assert.equal(b.price, 15);
+  const res = await placeGuest({ items, selections: { "svc-vendor-c": { fulfillment: "VENDOR_COURIER" }, "svc-vendor-b": { fulfillment: "VENDOR_COURIER", expectedShippingCents: 1500 } } });
+  assert.equal(res.status, 409, JSON.stringify(res.body));
+  assert.equal(res.body.error || res.body.code, "vendor_shipping_price_missing");
   assert.equal(orders().length, 0);
 });

@@ -45,7 +45,7 @@ const WARNING_LABELS = {
   store_sale_price_not_imported: "Prețul redus din magazin nu se preia; folosește promoțiile Artfest.",
   backorders_beyond_stock_not_supported: "Comenzile peste stoc (backorders) nu sunt preluate.",
   shipping_weight_missing:
-    "Produsul nu are greutate în magazin. Se importă fără; până completezi greutatea coletului în Artfest, transportul se calculează cu tariful de rezervă al magazinului.",
+    "Produsul nu are greutate în magazin. Se importă fără (greutatea e opțională); la livrarea Sameday prin Artfest se aplică tariful standard Artfest, iar greutatea reală o confirmi la AWB.",
   shipping_weight_unit_unknown:
     "Nu am putut citi unitatea de greutate a magazinului, așa că greutatea nu se preia. Completeaz-o în Artfest după import.",
   shipping_weight_invalid: "Greutatea din magazin nu e validă (lipsă, zero sau peste 100 kg), așa că nu se preia.",
@@ -71,7 +71,7 @@ export function warningLabel(code, plan = null) {
   }
   if (code === "shipping_weight_only_on_variants") {
     const heaviest = plan?.shipping?.heaviestVariantGrams;
-    return `Greutatea e completată doar pe variante${Number.isFinite(heaviest) ? ` (cea mai grea: ${formatGrams(heaviest)})` : ""}, nu pe produs. Nu o alegem automat: completează greutatea coletului în Artfest după import; până atunci se folosește tariful de rezervă.`;
+    return `Greutatea e completată doar pe variante${Number.isFinite(heaviest) ? ` (cea mai grea: ${formatGrams(heaviest)})` : ""}, nu pe produs. Nu o alegem automat: poți completa greutatea coletului în Artfest după import (opțional).`;
   }
   if (code === "shipping_weight_varies_by_variant") {
     const weight = plan?.shipping?.weightGrams;

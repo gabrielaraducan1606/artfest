@@ -15,7 +15,8 @@ mock.module("../../db.js", { namedExports: { prisma: {} } });
 const F = await import("./checkoutFulfillment.js");
 const { DeliverySelectionError, priceGroupShipping } = await import("./deliverySelection.js");
 
-const group = (serviceId, vendorId, { fee = 1500, threshold = null, items = [{ price: 100, qty: 1 }] } = {}) => ({
+// produse CU greutate (coș complet => estimarea Sameday); coșurile fără greutate au teste separate
+const group = (serviceId, vendorId, { fee = 1500, threshold = null, items = [{ price: 100, qty: 1, shippingWeightGrams: 500 }] } = {}) => ({
   serviceId,
   vendorId,
   estimatedShippingFeeCents: fee,
@@ -62,8 +63,8 @@ const ADDRESS = { firstName: "Ana", lastName: "Pop", name: "Ana Pop", phone: "07
 const available = (...ids) => ({ offered: true, cartCardCapable: true, byService: Object.fromEntries(ids.map((id) => [id, { offered: true, available: true }])) });
 const OFF = { offered: false, cartCardCapable: false, byService: {} };
 
-async function quote({ groups, selections = {}, availability, cat = catalog(), price = pricer(), placing = false }) {
-  return F.quoteCheckoutShipping({ groups, selections, address: ADDRESS, availability, getCatalog: () => cat, pricer: price, placing });
+async function quote({ groups, selections = {}, availability, cat = catalog(), price = pricer(), placing = false, config = null }) {
+  return F.quoteCheckoutShipping({ groups, selections, address: ADDRESS, availability, getCatalog: () => cat, pricer: price, placing, artfestConfig: config });
 }
 const byKey = (q, key) => q.shipments.find((s) => String(s.serviceId) === key);
 
@@ -176,7 +177,7 @@ test("tarif Sameday indisponibil / timeout: NICIODATĂ tariful magazinului ca pr
 });
 
 test("pragul de transport gratuit al magazinului NU se aplică la Sameday prin Artfest", async () => {
-  const g = group("svc-a", "v-a", { threshold: 5000, items: [{ price: 100, qty: 1 }] });
+  const g = group("svc-a", "v-a", { threshold: 5000, items: [{ price: 100, qty: 1, shippingWeightGrams: 500 }] });
   const s = byKey(await quote({ groups: [g], availability: available("svc-a") }), "svc-a");
   assert.equal(s.fulfillmentOptions.VENDOR_COURIER.price, 0);
   assert.equal(s.fulfillmentOptions.VENDOR_COURIER.qualifiesFreeShipping, true);
@@ -256,4 +257,84 @@ test("gardă: checkout-ul nu mai decide Sameday prin comutatorul vechi (checkout
   const src = fs.readFileSync(new URL("../../routes/chekoutRoutes.js", import.meta.url), "utf8");
   assert.equal(/isSamedayCheckoutActive|from "..\/services\/shipping\/checkoutMode\.js"/.test(src), false);
   assert.match(src, /checkoutSamedayAvailability\(\{ groups \}\)/);
+});
+
+/* ===================== tariful simplu Artfest pentru coșurile fără greutate ===================== */
+
+const { configsFromRows } = await import("./artfestSamedayConfig.js");
+const { shipmentDeliveryCreate } = await import("./deliverySelection.js");
+const NO_WEIGHT = [{ price: 100, qty: 1 }];
+// tarif Admin de test doar la adresă (sumă FICTIVĂ, doar pentru test)
+const artfest = () => configsFromRows([{ method: "HOME", amountCents: 2490 }]);
+
+test("coș fără greutate + tarif Admin la adresă: prețul Artfest, fără apel Sameday, salvat pe livrare cu sursa lui", async () => {
+  const price = pricer();
+  const s = byKey(await quote({ groups: [group("svc-a", "v-a", { items: NO_WEIGHT })], availability: available("svc-a"), price, config: artfest() }), "svc-a");
+  assert.equal(s.selectedFulfillment, "ARTFEST_SAMEDAY");
+  assert.equal(s.price, 24.9);
+  assert.equal(price.calls.length, 0, "fără estimare Sameday (și fără greutate inventată)");
+  assert.equal(s.fulfillmentOptions.ARTFEST_SAMEDAY.standardRate, true);
+  assert.deepEqual(s.fulfillmentOptions.ARTFEST_SAMEDAY.methods, ["HOME"], "easybox / Point fără tarif nu se oferă");
+  const created = shipmentDeliveryCreate(s.delivery).delivery.create;
+  assert.equal(created.shippingCost, "24.90");
+  assert.equal(created.pricingSource, "ARTFEST_RULE");
+  assert.equal(created.fallbackReason, "parcel_weight_unknown");
+  assert.equal(created.carrierCost, null, "fără cost de curier inventat");
+});
+
+test("coș fără greutate fără tarif Admin: Sameday indisponibil, curierul magazinului neafectat; ales explicit -> 409", async () => {
+  const none = configsFromRows([]);
+  const g = () => [group("svc-a", "v-a", { items: NO_WEIGHT })];
+  const s = byKey(await quote({ groups: g(), availability: available("svc-a"), config: none }), "svc-a");
+  assert.equal(s.selectedFulfillment, "VENDOR_COURIER");
+  assert.equal(s.price, 15);
+  assert.equal(s.fulfillmentOptions.ARTFEST_SAMEDAY.available, false);
+  const sel = { "svc-a": { fulfillment: "ARTFEST_SAMEDAY" } };
+  assert.equal(byKey(await quote({ groups: g(), selections: sel, availability: available("svc-a"), config: none }), "svc-a").priceUnavailable, true);
+  await assert.rejects(quote({ groups: g(), selections: sel, availability: available("svc-a"), config: none, placing: true }), (e) => e.code === "sameday_no_method" && e.httpStatus === 409);
+});
+
+test("metodă fără tarif (easybox) aleasă pentru coș fără greutate: indisponibilă, adresa rămâne; plasarea 409", async () => {
+  const sel = { "svc-a": { fulfillment: "ARTFEST_SAMEDAY", method: "LOCKER", oohId: 501 } };
+  const g = () => [group("svc-a", "v-a", { items: NO_WEIGHT })];
+  const s = byKey(await quote({ groups: g(), selections: sel, availability: available("svc-a"), config: artfest() }), "svc-a");
+  assert.equal(s.priceUnavailable, true);
+  assert.deepEqual(s.fulfillmentOptions.ARTFEST_SAMEDAY.methods, ["HOME"]);
+  await assert.rejects(quote({ groups: g(), selections: sel, availability: available("svc-a"), config: artfest(), placing: true }), (e) => e.code === "sameday_method_unavailable" && e.httpStatus === 409);
+});
+
+test("coșuri mixte, separat pe magazine: greutăți complete -> estimare; un produs fără greutate -> tariful Admin", async () => {
+  const price = pricer();
+  const groups = [
+    group("svc-a", "v-a"),
+    group("svc-b", "v-b", { items: [{ price: 50, qty: 1, shippingWeightGrams: 400 }, { price: 30, qty: 2 }] }),
+    group("svc-c", "v-c", { fee: null, items: NO_WEIGHT }),
+  ];
+  const q = await quote({ groups, availability: available("svc-a", "svc-b"), price, config: artfest() });
+  assert.equal(byKey(q, "svc-a").delivery.pricingSource, "SAMEDAY");
+  assert.equal(byKey(q, "svc-a").price, 18.9);
+  assert.equal(byKey(q, "svc-b").delivery.pricingSource, "ARTFEST_RULE");
+  assert.equal(byKey(q, "svc-b").price, 24.9);
+  assert.equal(price.calls.length, 1);
+  assert.equal(byKey(q, "svc-c").priceUnavailable, true, "magazinul fără tarif propriu nu primește 0 lei");
+  assert.equal(q.totalShipping, 43.8);
+});
+
+test("curierul magazinului: tarif lipsă != transport gratuit; 0 lei ales explicit și pragul atins rămân gratuite", async () => {
+  let s = byKey(await quote({ groups: [group("svc-a", "v-a", { fee: null })], availability: OFF }), "svc-a");
+  assert.equal(s.priceUnavailable, true);
+  assert.equal(s.fulfillmentOptions.VENDOR_COURIER.available, false);
+  await assert.rejects(quote({ groups: [group("svc-a", "v-a", { fee: null })], availability: OFF, placing: true }), (e) => e.code === "vendor_shipping_price_missing" && e.httpStatus === 409);
+  s = byKey(await quote({ groups: [group("svc-a", "v-a", { fee: 0 })], availability: OFF }), "svc-a");
+  assert.equal(s.price, 0);
+  s = byKey(await quote({ groups: [group("svc-a", "v-a", { fee: null, threshold: 5000 })], availability: OFF }), "svc-a");
+  assert.equal(s.price, 0);
+  assert.equal(s.qualifiesFreeShipping, true);
+});
+
+test("tariful Admin schimbat după ce clientul a văzut prețul: plasarea cere reconfirmarea (409, prețul nou)", async () => {
+  const sel = { "svc-a": { fulfillment: "ARTFEST_SAMEDAY", expectedShippingCents: 2490 } };
+  const nou = configsFromRows([{ method: "HOME", amountCents: 2990 }]);
+  const q = await quote({ groups: [group("svc-a", "v-a", { items: NO_WEIGHT })], selections: sel, availability: available("svc-a"), config: nou, placing: true });
+  assert.throws(() => F.assertPlacementCompatible({ quote: q, selections: sel, paymentMethod: "CARD" }), (e) => e.code === "shipping_price_changed" && e.extra.price === 29.9);
 });

@@ -1,9 +1,10 @@
 // backend/src/lib/productShipping.js
 //
 // Profilul logistic al produsului (produsul AMBALAT, gata de expediere):
-// greutatea în grame (obligatorie pentru produsele noi cu checkout Sameday,
-// în afară de QUOTE_ONLY) și, opțional, dimensiunile coletului în cm (toate
-// trei sau niciuna). Fără valori implicite inventate.
+// greutatea în grame și dimensiunile coletului în cm (toate trei sau niciuna),
+// AMBELE OPȚIONALE: adăugarea și publicarea unui produs nu cer greutatea.
+// Greutatea reală a coletului se completează / confirmă la generarea AWB-ului
+// (couriers/awb/parcels.js). Fără valori implicite inventate.
 //
 // Pur, fără Prisma: refolosit de server (sursa de adevăr) și de editorul
 // vânzătorului (frontend/src/utils/productPublishCheck.js).
@@ -32,7 +33,7 @@ export const SHIPPING_MESSAGES = Object.freeze({
   dimensionsIncomplete: "Completează toate cele trei dimensiuni ale coletului (lungime, lățime, înălțime) sau lasă-le pe toate goale.",
   weightRequired: "Completează greutatea coletului (produsul ambalat, gata de expediere). Fără ea nu putem calcula transportul Sameday.",
   weightMissingPublished:
-    "Lipsește greutatea coletului. Până o completezi, transportul pentru acest produs se calculează cu tariful de rezervă al magazinului.",
+    "Greutatea coletului nu e completată (opțional). La livrarea Sameday prin Artfest, clientul plătește tariful standard Artfest; greutatea reală o confirmi la generarea AWB-ului.",
   weightRecommendedQuote:
     "Recomandat: completează greutatea coletului, ca să poți estima mai ușor transportul în ofertă.",
 });
@@ -99,15 +100,18 @@ export function hasShippingDimensions(product) {
 }
 
 /**
- * Cât de obligatorie e greutatea pentru publicare:
- *   "required"    produs NOU, comandă directă / cu opțiuni, checkout Sameday activ;
- *   "recommended" produs existent (nu-l blocăm) sau QUOTE_ONLY;
+ * Cât contează greutatea la publicare (NICIODATĂ nu blochează):
+ *   "recommended" checkout Sameday activ: fără greutate, „Sameday prin Artfest” folosește
+ *                 tariful standard Artfest al metodei (services/shipping/artfestSamedayConfig.js),
+ *                 dacă e configurat - doar informare;
  *   "none"        checkout Sameday oprit.
+ * Greutatea coletului pentru curier se confirmă la generarea AWB-ului.
+ * (Înainte: "required" la produsele noi - eliminat 2026-11-20, la cererea userului.)
  */
 export function shippingWeightRequirement({ orderMode, isNew, samedayEnabled }) {
-  if (!samedayEnabled) return "none";
-  if (String(orderMode || "").toUpperCase() === "QUOTE_ONLY") return "recommended";
-  return isNew ? "required" : "recommended";
+  void orderMode;
+  void isNew;
+  return samedayEnabled ? "recommended" : "none";
 }
 
 /** Greutatea în kg pentru Sameday: rotunjită în SUS la 0,01 kg (minimul Sameday). */

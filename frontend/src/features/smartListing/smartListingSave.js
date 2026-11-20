@@ -87,13 +87,6 @@ export function describeSaveError(error) {
       fieldErrors: read.fieldErrors,
     };
   }
-  // backendul cere încă greutatea când checkoutul Sameday e activ: nu trimitem o valoare inventată
-  if (status === 400 && data?.error === "shipping_weight_required") {
-    return {
-      code: "shipping_weight_required",
-      message: "Pentru moment, Artfest cere greutatea coletului la acest produs. Continuă în Editorul avansat ca să o completezi. Ciorna rămâne salvată.",
-    };
-  }
   // validare: codul, mesajul și câmpul de la server -> pasul și câmpul din formular
   if (status === 400 || (status === 409 && /^gpsr_/.test(String(data?.error || "")))) {
     const read = readServerValidation(error);
@@ -109,7 +102,8 @@ export function describeSaveError(error) {
   }
   // la 5xx, mesajul e un cod tehnic (ex. `server_error`), nu ceva util vânzătorului
   if (status && status >= 500) return { code: "server", message: "Serverul nu a putut finaliza acum. Încearcă din nou." };
-  return { code: "server", message: error?.message || "Nu am putut salva produsul. Ciorna ta a rămas salvată pe acest dispozitiv." };
+  // mesajul tehnic al erorii (ex. „Request failed with status 418”) nu ajunge la vânzător
+  return { code: "server", message: "Nu am putut salva produsul. Ciorna ta a rămas salvată pe acest dispozitiv. Încearcă din nou." };
 }
 
 /* ---------------- Editorul avansat (ProductModal) ---------------- */

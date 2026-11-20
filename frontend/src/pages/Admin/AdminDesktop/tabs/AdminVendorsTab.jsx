@@ -736,7 +736,7 @@ function VendorDetailsDrawer({
         </div>
 
         <div className={styles.drawerField}>
-          <span>Tarif de rezervă transport</span>
+          <span>Tarif transport (curier propriu)</span>
 
           <span>
             {formatRonFromCents(service.estimatedShippingFeeCents)}

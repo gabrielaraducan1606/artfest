@@ -71,7 +71,7 @@ before(async () => {
   const images = await import("../lib/productImageUrls.js?real");
   restores.push(mock.module("../lib/productImageUrls.js", { namedExports: { ...images, enforceVendorProductImageUrls: async () => true } }));
   const mode = await import("../services/shipping/checkoutMode.js?real");
-  restores.push(mock.module("../services/shipping/checkoutMode.js", { namedExports: { ...mode, isSamedayCheckoutActive: async () => false } }));
+  restores.push(mock.module("../services/shipping/checkoutMode.js", { namedExports: { ...mode, isSamedayCheckoutActive: async () => true } })); // checkout Sameday ACTIV: cazul cel mai strict
 
   const { default: router } = await import("./vendorProductRoutes.js");
   const app = express();
@@ -170,7 +170,7 @@ async function smartListing() {
   const vendorGpsr = { gpsrManufacturerName: "Atelier Test", gpsrManufacturerAddress: "Str. Lungă 1, Cluj-Napoca", gpsrManufacturerEmail: "atelier@exemplu.ro" };
   return (state) => {
     const draft = buildDraftForm(state);
-    const check = checkProductForPublish(draft.form, { knownCategories: known, vendorGpsr, isNewProduct: true, samedayShipping: false });
+    const check = checkProductForPublish(draft.form, { knownCategories: known, vendorGpsr, isNewProduct: true, samedayShipping: true });
     const gate = evaluatePublishGate({ check, draftErrors: draft.errors });
     return { gate, payload: buildCreatePayload({ ...draft.form, gpsrConfirmed: true, gpsrConfirmationSource: "smart_listing" }) };
   };
@@ -216,3 +216,31 @@ for (const [name, state] of Object.entries(CONTRACT)) {
     assert.equal(r.accepted, true, `${r.status} ${JSON.stringify(r.body)}`);
   });
 }
+
+/* ---------------- greutatea coletului: nu se cere la adăugare / publicare ---------------- */
+
+test("produs NOU fără greutate, cu checkout Sameday activ -> acceptat (fără shipping_weight_required)", async () => {
+  for (const orderMode of ["READY_TO_BUY", "QUOTE_ONLY"]) {
+    const r = await post(valid({ orderMode }));
+    assert.notEqual(r.body?.error, "shipping_weight_required");
+    assert.equal(r.accepted, true, `${orderMode}: ${r.status} ${JSON.stringify(r.body)}`);
+  }
+});
+
+test("greutatea trimisă rămâne validată ca format (nu se inventează, nu se acceptă valori greșite)", async () => {
+  const bad = await post(valid({ shippingWeightGrams: "12,5" }));
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.error, "shipping_weight_invalid");
+  assert.equal(bad.accepted, false);
+  const ok = await post(valid({ shippingWeightGrams: 450 }));
+  assert.equal(ok.accepted, true, JSON.stringify(ok.body));
+});
+
+test("Smart Listing: payload-ul nu conține câmpuri logistice (nimic de suprascris)", async () => {
+  const build = await smartListing();
+  const { payload, gate } = build(slState());
+  assert.equal(gate.ready, true, JSON.stringify(gate.blockers));
+  for (const field of ["shippingWeightGrams", "shippingLengthCm", "shippingWidthCm", "shippingHeightCm"]) {
+    assert.equal(field in payload, false, field);
+  }
+});

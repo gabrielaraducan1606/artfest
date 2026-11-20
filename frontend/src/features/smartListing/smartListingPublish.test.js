@@ -43,17 +43,20 @@ test("400 fără `message` (server vechi): mesaj explicit după cod, nu textul g
   assert.doesNotMatch(out.message, /Unele date nu sunt valide/);
 });
 
-test("400 necunoscut: rămâne eroare generală, dar cu codul serverului", () => {
+test("400 necunoscut: eroare generală, fără coduri tehnice în mesaj (codul rămâne în code)", () => {
   const out = describeSaveError(apiError(400, { error: "ceva_nou" }));
   assert.equal(out.anchor, null);
   assert.deepEqual(out.fieldErrors, {});
-  assert.match(out.message, /cod: ceva_nou/);
+  assert.equal(out.code, "ceva_nou");
+  assert.doesNotMatch(out.message, /ceva_nou|cod:/);
+  assert.match(out.message, /ciornă/);
 });
 
 test("400 cu răspuns care nu e JSON (proxy): eroare generală, fără excepție", () => {
   const out = describeSaveError(apiError(400, "<html>Bad Request</html>"));
   assert.equal(out.anchor, null);
-  assert.match(out.message, /cod: http_400/);
+  assert.equal(out.code, "http_400");
+  assert.doesNotMatch(out.message, /http_400|cod:|<html>/);
   assert.match(out.message, /ciornă/);
 });
 
@@ -82,9 +85,11 @@ test("422 date de contact: câte un mesaj lângă fiecare câmp găsit, focus pe
   assert.deepEqual(out.fieldErrors, { "sl-description": ["Telefon în descriere."], "sl-care": ["Email în îngrijire."] });
 });
 
-test("cazurile tratate separat rămân la fel (plan, greutate colet, rețea, 5xx)", () => {
+test("cazurile tratate separat rămân la fel (plan, rețea, 5xx); greutatea coletului nu mai are mesaj propriu", () => {
   assert.equal(describeSaveError(apiError(402, { error: "upgrade_required" })).code, "plan_limit");
-  assert.equal(describeSaveError(apiError(400, { error: "shipping_weight_required" })).code, "shipping_weight_required");
+  // serverul nu mai cere greutatea la creare: fără trimitere la Editorul avansat pentru greutate
+  const weight = describeSaveError(apiError(400, { error: "shipping_weight_required", field: "shippingWeightGrams" }));
+  assert.doesNotMatch(weight.message, /Editorul avansat|greutatea coletului/i);
   assert.equal(describeSaveError(new TypeError("Failed to fetch")).code, "no_response");
   assert.equal(describeSaveError(apiError(500, { error: "server_error" })).code, "server");
 });

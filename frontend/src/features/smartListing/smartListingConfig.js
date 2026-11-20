@@ -102,47 +102,61 @@ export function splitValueList(text, existing = []) {
  * (identic cu withPriceDelta din ProductOrderModeSection.jsx).
  *
  * @param {Array<{ label: string, required?: boolean, values: Array<{ label: string, deltaLei?: string }> }>} variants
- * @returns {{ optionsSchema: Array, errors: string[] }}
+ * `issues` = aceleași erori, cu elementul exact din formular (ancora DOM):
+ *   numele variantei `<id>-label`, câmpul „valoare nouă” `<id>-new-value`,
+ *   o valoare `<valueId>-value`, suma ei `<valueId>-delta`.
+ * `variantIdByKey`: cheia din optionsSchema -> id-ul variantei din formular.
+ *
+ * @returns {{ optionsSchema: Array, errors: string[], issues: Array<{ message: string, anchor: string|null }>, variantIdByKey: Record<string,string> }}
  */
 export function buildOptionsSchema(variants = []) {
   const errors = [];
+  const issues = [];
+  const variantIdByKey = {};
   const usedKeys = new Set();
   const optionsSchema = [];
+  const fail = (message, anchor) => {
+    errors.push(message);
+    issues.push({ message, anchor: anchor || null });
+  };
 
   for (const variant of Array.isArray(variants) ? variants : []) {
     const label = String(variant?.label || "").trim();
     const key = makeKey(label);
+    const vid = variant?.id ? String(variant.id) : "";
 
     if (!label || !key) {
-      errors.push("O variantă nu are nume.");
+      fail("O variantă nu are nume.", vid && `${vid}-label`);
       continue;
     }
     if (usedKeys.has(key)) {
-      errors.push(`Varianta „${label}” apare de două ori.`);
+      fail(`Varianta „${label}” apare de două ori.`, vid && `${vid}-label`);
       continue;
     }
     usedKeys.add(key);
+    if (vid) variantIdByKey[key] = vid;
 
     const seenValues = new Set();
     const options = [];
 
     for (const item of Array.isArray(variant.values) ? variant.values : []) {
       const valueLabel = String(item?.label || "").trim();
+      const valueId = item?.id ? String(item.id) : "";
       if (!valueLabel) {
-        errors.push(`O valoare de la „${label}” este goală - complet-o sau șterge-o.`);
+        fail(`O valoare de la „${label}” este goală - complet-o sau șterge-o.`, valueId ? `${valueId}-value` : vid && `${vid}-label`);
         continue;
       }
 
       const norm = normalizeForCompare(valueLabel);
       if (seenValues.has(norm)) {
-        errors.push(`„${valueLabel}” apare de două ori la „${label}”.`);
+        fail(`„${valueLabel}” apare de două ori la „${label}”.`, valueId ? `${valueId}-value` : vid && `${vid}-label`);
         continue;
       }
       seenValues.add(norm);
 
       const cents = parseLeiToCents(item?.deltaLei, { max: MAX_PRICE_DELTA_CENTS });
       if (cents === null) {
-        errors.push(`Suma pentru „${valueLabel}” (${label}) nu este validă - scrie ex. 5 sau 2,50.`);
+        fail(`Suma pentru „${valueLabel}” (${label}) nu este validă - scrie ex. 5 sau 2,50.`, valueId ? `${valueId}-delta` : vid && `${vid}-label`);
         options.push(valueLabel);
         continue;
       }
@@ -150,7 +164,7 @@ export function buildOptionsSchema(variants = []) {
       options.push(cents > 0 ? { value: valueLabel, label: valueLabel, priceDeltaCents: cents } : valueLabel);
     }
 
-    if (!options.length) errors.push(`Varianta „${label}” nu are nicio valoare.`);
+    if (!options.length) fail(`Varianta „${label}” nu are nicio valoare.`, vid && `${vid}-new-value`);
 
     optionsSchema.push({
       key,
@@ -165,9 +179,9 @@ export function buildOptionsSchema(variants = []) {
 
   // aceeași validare ca la salvare pe server (400 invalid_price_delta)
   const server = normalizeOptionsSchemaPricing(optionsSchema);
-  if (server.error) errors.push(server.message);
+  if (server.error) fail(server.message, null);
 
-  return { optionsSchema, errors };
+  return { optionsSchema, errors, issues, variantIdByKey };
 }
 
 /**
@@ -176,6 +190,7 @@ export function buildOptionsSchema(variants = []) {
  */
 export function buildCustomSchema(fields = []) {
   const errors = [];
+  const issues = [];
   const usedKeys = new Set();
   const customSchema = [];
 
@@ -184,7 +199,9 @@ export function buildCustomSchema(fields = []) {
     const key = makeKey(field?.key || label);
     if (!label || !key) continue;
     if (usedKeys.has(key)) {
-      errors.push(`Câmpul „${label}” apare de două ori.`);
+      const message = `Câmpul „${label}” apare de două ori.`;
+      errors.push(message);
+      issues.push({ message, anchor: field?.id ? `${field.id}-label` : "sl-personalization" });
       continue;
     }
     usedKeys.add(key);
@@ -199,7 +216,7 @@ export function buildCustomSchema(fields = []) {
     });
   }
 
-  return { customSchema, errors };
+  return { customSchema, errors, issues };
 }
 
 /**
@@ -252,7 +269,7 @@ export function resolveSaleType({ saleType, variants = [], customFields = [] }) 
  * Construiește ciorna în forma formularului existent (aceeași pe care o
  * primesc ProductModal / buildProductPayload / checkProductForPublish).
  *
- * @returns {{ form: Object, saleType: string, errors: string[], notices: string[] }}
+ * @returns {{ form: Object, saleType: string, errors: string[], issues: Array, variantIdByKey: Object, notices: string[] }}
  */
 export function buildDraftForm({
   details = {},
@@ -266,9 +283,11 @@ export function buildDraftForm({
   const errors = [];
   const notices = [];
 
-  const { optionsSchema, errors: variantErrors } = buildOptionsSchema(variants);
-  const { customSchema, errors: customErrors } = buildCustomSchema(customFields);
+  const { optionsSchema, errors: variantErrors, issues: variantIssues, variantIdByKey } = buildOptionsSchema(variants);
+  const { customSchema, errors: customErrors, issues: customIssues } = buildCustomSchema(customFields);
   errors.push(...variantErrors, ...customErrors);
+  // aceleași erori, cu elementul exact din formular (ancoră; null = blocul variantelor)
+  const issues = [...variantIssues, ...customIssues];
 
   const saleType = resolveSaleType({ saleType: commerce.saleType, variants, customFields });
 
@@ -332,10 +351,8 @@ export function buildDraftForm({
     careInstructions: details.careInstructions || "",
     specialNotes: details.specialNotes || "",
 
-    shippingWeightGrams: commerce.shippingWeightGrams ?? "",
-    shippingLengthCm: "",
-    shippingWidthCm: "",
-    shippingHeightCm: "",
+    // fără câmpuri logistice: produsul nou nu trimite greutate / dimensiuni de colet
+    // (se confirmă la generarea AWB-ului); nimic de suprascris
 
     isOwnManufacturer: safety.isOwnManufacturer ?? null,
     manufacturerName: safety.isOwnManufacturer === false ? safety.manufacturerName || "" : "",
@@ -352,7 +369,7 @@ export function buildDraftForm({
     isActive: true,
   };
 
-  return { form, saleType, errors, notices };
+  return { form, saleType, errors, issues, variantIdByKey, notices };
 }
 
 /* ---------------- prețurile finale ---------------- */
@@ -457,6 +474,8 @@ export function evaluatePublishGate({
       code: "AI_UNCONFIRMED",
       message: `Confirmă sau corectează propunerea AI pentru „${field.label}”.`,
       step: "details",
+      field: field.field,
+      label: field.label,
     });
   }
 

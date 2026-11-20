@@ -24,11 +24,8 @@ import {
 import {
   hasShippingWeight,
   hasShippingDimensions,
-  shippingWeightRequirement,
   validateShippingProfile,
-  SHIPPING_MESSAGES,
 } from "../lib/productShipping.js";
-import { isSamedayCheckoutActive } from "../services/shipping/checkoutMode.js";
 import { openai } from "../lib/openai.js";
 import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
 import { enforceVendorProductImageUrls } from "../lib/productImageUrls.js";
@@ -1645,8 +1642,8 @@ async function createProduct(req, res) {
     const gpsrPatch =
       pickGpsrPatchFromBody(req.body || {});
 
-    // profilul logistic (produsul ambalat): format validat; greutatea e
-    // obligatorie la produsele NOI cu checkout Sameday (nu la QUOTE_ONLY)
+    // profilul logistic (produsul ambalat): DOAR formatul e validat; greutatea
+    // nu e obligatorie (se confirmă la generarea AWB-ului)
     const shippingValidation = validateShippingProfile(req.body || {});
     if (!shippingValidation.ok) {
       return res.status(400).json({
@@ -1656,20 +1653,6 @@ async function createProduct(req, res) {
       });
     }
     const shippingPatch = shippingValidation.data;
-    if (
-      shippingWeightRequirement({
-        orderMode: orderConfig.orderMode,
-        isNew: true,
-        samedayEnabled: await isSamedayCheckoutActive(),
-      }) === "required" &&
-      !hasShippingWeight(shippingPatch)
-    ) {
-      return res.status(400).json({
-        error: "shipping_weight_required",
-        field: "shippingWeightGrams",
-        message: SHIPPING_MESSAGES.weightRequired,
-      });
-    }
 
     console.info(
       "[PRODUCT CREATE]",
