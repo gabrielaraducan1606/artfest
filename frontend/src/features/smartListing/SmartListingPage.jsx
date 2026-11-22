@@ -56,6 +56,8 @@ import {
   buildDraftSnapshot,
   deleteDraftEntry,
   draftKey,
+  draftRevision,
+  resolveDraftWrite,
   hasMeaningfulDraft,
   listDrafts,
   newDraftId,
@@ -86,6 +88,7 @@ import {
   publishNewProduct,
 } from "./smartListingSave.js";
 import { smartListingAccessFor } from "./smartListingAccess.js";
+import { clearCreateOperationKey, getCreateOperationKey } from "../../lib/productCreateRequest.js";
 import { createDefaultServices, uploadWithServices } from "./smartListingServices.js";
 import { createPreviewServices, installPreviewNetworkGuard } from "./smartListingPreview.js";
 import SmartListingPreviewEditor from "./SmartListingPreviewEditor.jsx";
@@ -378,6 +381,7 @@ export default function SmartListingPage({
   const draftDoneRef = useRef(false); // produsul a fost creat: ciorna nu se mai rescrie
   const checkedScopeRef = useRef("");
   const lastSavedRef = useRef("");
+  const lastRevRef = useRef(""); // revizia ciornei citite/scrise de acest tab
   const choosingDraft = Boolean(draftChoices?.length);
 
   // la deschidere: ciornele acestui utilizator pentru acest magazin
@@ -423,6 +427,7 @@ export default function SmartListingPage({
     }
     if (entry.id) {
       draftIdRef.current = entry.id;
+      lastRevRef.current = draftRevision(snapshot);
     } else {
       // ciornă veche, cu o singură cheie: continuă în formatul cu mai multe ciorne
       deleteDraftEntry(storage, draftScope, "");
@@ -496,9 +501,24 @@ export default function SmartListingPage({
       // o ciornă goală nu merită salvată
       if (!hasMeaningfulDraft(buildDraftSnapshot(state))) return null;
       draftIdRef.current = newDraftId();
+      lastRevRef.current = "";
+    }
+    // aceeași ciornă deschisă în alt tab: nu scriem peste ce a salvat acela
+    const conflict = resolveDraftWrite(storage, draftScopeRef.current, draftIdRef.current, lastRevRef.current, state);
+    if (conflict.action === "same") {
+      lastRevRef.current = conflict.rev;
+      lastSavedRef.current = fingerprint;
+      return null;
+    }
+    if (conflict.action === "fork") {
+      draftIdRef.current = newDraftId();
+      setDraftNotice("Ciorna a fost modificată și în alt tab. Modificările de aici au fost salvate ca ciornă separată, ca să nu se piardă niciuna.");
     }
     const snapshot = saveDraftEntry(storage, draftScopeRef.current, draftIdRef.current, state);
-    if (snapshot) lastSavedRef.current = fingerprint;
+    if (snapshot) {
+      lastSavedRef.current = fingerprint;
+      lastRevRef.current = snapshot.rev;
+    }
     setDraftStatus(snapshot ? { status: "saved", savedAt: snapshot.savedAt } : { status: "error", savedAt: null });
     return snapshot;
   }, [storage]);
@@ -901,10 +921,15 @@ export default function SmartListingPage({
     setSaveError(null);
     setServerFieldErrors({});
     lastSubmittedFormRef.current = draft.form;
+    // cheia operațiunii de creare, legată de ciorna curentă: aceeași la reîncercări (și după
+    // reîncărcarea ciornei), alta pentru o ciornă / un produs nou (lib/productCreateRequest.js)
+    flushDraft();
+    const createKeyScope = `smart:${userKey}:${storeSlug}:${draftIdRef.current || "nou"}`;
     try {
       const { saved, producer, collectionLines } = await publishNewProduct({
         api,
         storeSlug,
+        idempotencyKey: storage ? getCreateOperationKey(storage, createKeyScope) : null,
         form: draft.form,
         createForm: { ...draft.form, gpsrConfirmed, gpsrConfirmationSource: "smart_listing" },
         // datele publice ale producătorului se salvează ÎNAINTE de produs (ca în ProductModal)
@@ -915,6 +940,7 @@ export default function SmartListingPage({
           draftDoneRef.current = true;
           canAutosaveRef.current = false;
           if (storage && draftIdRef.current) deleteDraftEntry(storage, draftScope, draftIdRef.current);
+          if (storage) clearCreateOperationKey(storage, createKeyScope);
           services.onProductSaved?.(created);
         },
         attachCollections: (created) =>
@@ -936,6 +962,8 @@ export default function SmartListingPage({
       // doar un răspuns pierdut la creare lasă produsul „poate creat”: verificăm înainte de a reîncerca
       if (isAmbiguousCreateError(error)) ambiguousSaveRef.current = true;
       const described = describeSaveError(error);
+      // cheia a creat deja alt produs (date diferite): următoarea publicare pornește o operațiune nouă
+      if (described.code === "idempotency_conflict" && storage) clearCreateOperationKey(storage, createKeyScope);
       setSaveError(described);
       // eroare pe un câmp: o arătăm lângă câmp și în sumar, deschidem pasul și mutăm focusul acolo;
       // fără câmp identificat, mesajul rămâne doar lângă buton (nu alegem un câmp la întâmplare)
@@ -1122,8 +1150,29 @@ export default function SmartListingPage({
   const closeNow = () => {
     flushDraft();
     setCloseConfirm(false);
+    setCloseAfterUpload(false);
     onClose?.();
   };
+
+  // „Închide după încărcare”: coada se oprește la demontare, așa că formularul
+  // rămâne deschis până termină uploadurile, apoi salvează ciorna (cu URL-urile) și se închide
+  const [closeAfterUpload, setCloseAfterUpload] = useState(false);
+  const closeNowRef = useRef(closeNow);
+  closeNowRef.current = closeNow;
+  useEffect(() => {
+    if (closeAfterUpload && uploadingCount === 0) closeNowRef.current();
+  }, [closeAfterUpload, uploadingCount]);
+
+  // tab închis / reîncărcat în timpul uploadului: browserul cere confirmare
+  useEffect(() => {
+    if (!uploadingCount) return undefined;
+    const onBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [uploadingCount]);
 
   const requestClose = (source) => {
     // o fereastră din formular e deschisă: ea primește Escape, nu tot formularul
@@ -1568,17 +1617,40 @@ export default function SmartListingPage({
       )}
 
       {closeConfirm && (
-        <Sheet title="Închizi formularul?" onClose={() => setCloseConfirm(false)}>
-          <p className={styles.muted}>
+        <Sheet
+          title="Închizi formularul?"
+          onClose={() => {
+            setCloseConfirm(false);
+            setCloseAfterUpload(false);
+          }}
+        >
+          <p className={styles.muted} data-sl-close-message>
             Ce ai completat rămâne în ciornă și îl poți relua la următorul „Adaugă produs”.
-            {uploadingCount > 0 ? " Fotografiile care se încarcă acum nu vor fi păstrate." : ""}
+            {uploadingCount > 0 && !closeAfterUpload
+              ? ` Se încarcă încă ${uploadingCount === 1 ? "o fotografie" : `${uploadingCount} fotografii`}: dacă închizi acum, nu vor fi păstrate.`
+              : ""}
+            {closeAfterUpload && uploadingCount > 0
+              ? ` Se încarcă ${uploadingCount === 1 ? "o fotografie" : `${uploadingCount} fotografii`}… Formularul se închide singur după ce se termină.`
+              : ""}
           </p>
           <div className={styles.rowActions}>
-            <button type="button" className={styles.primaryBtn} onClick={() => setCloseConfirm(false)}>
+            {uploadingCount > 0 && !closeAfterUpload && (
+              <button type="button" className={styles.primaryBtn} data-sl-close-after-upload onClick={() => setCloseAfterUpload(true)}>
+                Închide după încărcare
+              </button>
+            )}
+            <button
+              type="button"
+              className={uploadingCount > 0 ? styles.ghostBtn : styles.primaryBtn}
+              onClick={() => {
+                setCloseConfirm(false);
+                setCloseAfterUpload(false);
+              }}
+            >
               Continuă editarea
             </button>
-            <button type="button" className={styles.ghostBtn} onClick={closeNow}>
-              Închide
+            <button type="button" className={styles.ghostBtn} data-sl-close-now onClick={closeNow}>
+              {uploadingCount > 0 ? "Închide oricum" : "Închide"}
             </button>
           </div>
         </Sheet>

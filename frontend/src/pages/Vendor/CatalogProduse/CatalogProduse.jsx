@@ -37,6 +37,15 @@ import VendorReferralEarnings from "./VendorReferralEarnings/VendorReferralEarni
 import VendorDiscountCodesTab from "./VendorDiscountCodesTab/VendorDiscountCodesTab.jsx";
 import VendorHomepagePromotions from "../Promotions/VendorPromotions.jsx";
 import {
+  clearCreateOperationKey,
+  describeProductSaveError,
+  getCreateOperationKey,
+  idempotencyHeaders,
+  isModerationQueued,
+  PRODUCT_SAVED_IN_REVIEW,
+  productSaveErrorText,
+} from "../../../lib/productCreateRequest.js";
+import {
   useAnnounceCurrentEntity,
   useAnnouncePageType,
 } from "../../../components/AIAssistant/CurrentEntityContext.jsx";
@@ -1448,6 +1457,8 @@ async function openNewProduct() {
     { title, description, numericPrice }
   );
 
+  let createKeyScope = "";
+
   try {
     setSavingProduct(true);
 
@@ -1530,6 +1541,9 @@ async function openNewProduct() {
 
       method =
         "POST";
+
+      // cheia operațiunii de creare: reîncercările nu creează un produs dublu
+      createKeyScope = `catalog:${storeSlug}`;
     }
 
     const response =
@@ -1547,6 +1561,10 @@ async function openNewProduct() {
 
             Accept:
               "application/json",
+
+            ...(createKeyScope
+              ? idempotencyHeaders(getCreateOperationKey(localStorage, createKeyScope))
+              : {}),
           },
 
           body:
@@ -1566,12 +1584,18 @@ async function openNewProduct() {
     }
 
     if (!response.ok) {
-      throw new Error(
+      const failure = new Error(
         saved?.message ||
           saved?.error ||
           "Nu am putut salva produsul."
       );
+      failure.status = response.status;
+      failure.data = saved;
+      throw failure;
     }
+
+    // creare confirmată -> următorul produs primește altă cheie
+    if (createKeyScope) clearCreateOperationKey(localStorage, createKeyScope);
 
     /*
      * Notificăm restul aplicației.
@@ -1602,6 +1626,9 @@ async function openNewProduct() {
 
     await loadProducts();
 
+    // verificarea AI rulează după răspuns: produsul NU e încă public
+    if (isModerationQueued(saved)) alert(PRODUCT_SAVED_IN_REVIEW);
+
     return saved;
   } catch (error) {
     console.error(
@@ -1609,9 +1636,15 @@ async function openNewProduct() {
       error
     );
 
+    if (createKeyScope && describeProductSaveError(error).kind === "conflict") {
+      clearCreateOperationKey(localStorage, createKeyScope);
+    }
+
+    // mesaj clar (validare / fără confirmare / eroare de server + cod), nu codul tehnic
     alert(
-      error?.message ||
-        "Nu am putut salva produsul."
+      error?.status || /fetch|network|load failed/i.test(String(error?.message || ""))
+        ? productSaveErrorText(error, { creating: !isEditing })
+        : error?.message || "Nu am putut salva produsul."
     );
 
     /*

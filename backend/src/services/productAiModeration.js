@@ -1136,6 +1136,68 @@ export function buildVendorModerationReport(
 }
 
 /*
+ * Doar CALCULUL verdictului pentru un produs salvat (AI + poarta GPSR), fără
+ * nicio scriere. Folosit de moderateSavedProduct (sincron) și de coada
+ * asincronă (services/productModerationQueue.js) - aceleași reguli.
+ */
+export async function computeSavedProductModeration({
+  prisma,
+  product,
+  previous = null,
+  previouslyRejectedByAdmin = false,
+  client,
+  env = process.env,
+}) {
+  // GPSR: produsul salvat nu are relațiile încărcate - sursa centrală
+  // (Vendor.gpsrManufacturer*) e citită aici, o singură dată
+  const vendor =
+    product.service?.vendor ??
+    (await prisma.product
+      .findUnique({
+        where: { id: product.id },
+        select: { service: { select: { vendor: { select: VENDOR_GPSR_SELECT } } } },
+      })
+      .then((row) => row?.service?.vendor ?? null)
+      .catch(() => null));
+
+  return applyGpsrDeclarationGate({
+    prisma,
+    product,
+    vendor,
+    env,
+    aiModeration: await runProductModeration({
+      product,
+      previous,
+      previouslyRejectedByAdmin,
+      vendor,
+      client,
+      env,
+    }),
+  });
+}
+
+/*
+ * Datele de scris pe produs pentru un verdict: aiModeration nou (păstrând
+ * solicitarea de modificări a adminului și verificarea cerută de vendor din
+ * `currentAiModeration`, citit cât mai târziu) + statusul.
+ */
+export function buildModerationApplyData(aiModeration, currentAiModeration) {
+  const { changeRequest, reviewRequest: savedReviewRequest } = currentAiModeration || {};
+  const reviewRequest = carryReviewRequestOverModeration(savedReviewRequest, {
+    decision: aiModeration.decision,
+  });
+
+  return {
+    aiModeration: {
+      ...aiModeration,
+      ...(changeRequest ? { changeRequest } : {}),
+      ...(reviewRequest ? { reviewRequest } : {}),
+    },
+    ...buildModerationStatusPatch(aiModeration),
+  };
+}
+
+/*
  * Rulează moderarea pentru un produs deja salvat și îi aplică statusul.
  * Nu aruncă: dacă ceva neprevăzut eșuează, produsul rămâne cum a fost
  * salvat (PENDING -> coada admin, comportamentul dinainte).
@@ -1153,31 +1215,13 @@ export async function moderateSavedProduct({
   }
 
   try {
-    // GPSR: produsul salvat nu are relațiile încărcate - sursa centrală
-    // (Vendor.gpsrManufacturer*) e citită aici, o singură dată
-    const vendor =
-      product.service?.vendor ??
-      (await prisma.product
-        .findUnique({
-          where: { id: product.id },
-          select: { service: { select: { vendor: { select: VENDOR_GPSR_SELECT } } } },
-        })
-        .then((row) => row?.service?.vendor ?? null)
-        .catch(() => null));
-
-    const aiModeration = await applyGpsrDeclarationGate({
+    const aiModeration = await computeSavedProductModeration({
       prisma,
       product,
-      vendor,
+      previous,
+      previouslyRejectedByAdmin,
+      client,
       env,
-      aiModeration: await runProductModeration({
-        product,
-        previous,
-        previouslyRejectedByAdmin,
-        vendor,
-        client,
-        env,
-      }),
     });
 
     // solicitarea de modificări a adminului (services/productChangeRequest.js)
@@ -1187,22 +1231,10 @@ export async function moderateSavedProduct({
     const latest = await prisma.product
       .findUnique({ where: { id: product.id }, select: { aiModeration: true } })
       .catch(() => null);
-    const { changeRequest, reviewRequest: savedReviewRequest } =
-      (latest ? latest.aiModeration : product.aiModeration) || {};
-    const reviewRequest = carryReviewRequestOverModeration(savedReviewRequest, {
-      decision: aiModeration.decision,
-    });
 
     return await prisma.product.update({
       where: { id: product.id },
-      data: {
-        aiModeration: {
-          ...aiModeration,
-          ...(changeRequest ? { changeRequest } : {}),
-          ...(reviewRequest ? { reviewRequest } : {}),
-        },
-        ...buildModerationStatusPatch(aiModeration),
-      },
+      data: buildModerationApplyData(aiModeration, latest ? latest.aiModeration : product.aiModeration),
     });
   } catch (error) {
     console.error(

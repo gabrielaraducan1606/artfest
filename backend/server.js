@@ -169,6 +169,8 @@ import { createStatusSyncNotifier } from "./src/couriers/tracking/statusSyncNoti
 import { createVendorNotification } from "./src/services/notifications.js";
 // 🔔 JOB: reconcilierea ledger-ului SALE / influencer / referral - OPRIT implicit
 import { startShipmentLedgerReconcileJob } from "./src/services/shipmentLedgerReconcile.js";
+import { startProductModerationWorker } from "./src/services/productModerationQueue.js";
+import { openai as productModerationOpenai } from "./src/lib/openai.js";
 import { retryFailedMessageEmails } from "./src/services/messageEmailNotifications.js";
 import vendorCatalogProductsRoutes
   from "./src/routes/vendorCatalogProductsRoutes.js";
@@ -913,6 +915,14 @@ startCourierStatusSyncJob({
  * online, fără Stripe / SmartBill - vezi services/shipmentLedgerReconcile.js.
  */
 startShipmentLedgerReconcileJob();
+
+/*
+ * Moderarea AI a produselor în coadă (services/productModerationQueue.js).
+ * Pornește DOAR cu PRODUCT_MODERATION_ASYNC=on sau PRODUCT_MODERATION_WORKER=on și
+ * procesează doar dacă tabelele migrației 20261122120000 există. Un job per
+ * proces, la 15 s + imediat după o salvare.
+ */
+startProductModerationWorker({ db: prisma, client: productModerationOpenai });
 
 /*
  * Email „mesaj nou” - reia trimiterile FAILED din ultimele 24h (max 3

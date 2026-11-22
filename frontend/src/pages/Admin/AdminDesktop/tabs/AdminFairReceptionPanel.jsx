@@ -10,6 +10,7 @@ import { api } from "../../../../lib/api";
 import { selectPhotos, selectionMessage } from "../../../../lib/photoSelection.js";
 import { canRetryImageUpload, prepareAndUploadImage } from "../../../../lib/productImages/prepareAndUploadImage.js";
 import { PRODUCT_IMAGE_ACCEPT } from "../../../../lib/productImages/productImageRules.js";
+import { prepareReceptionPhoto } from "./fairReceptionPhoto.js";
 import shared from "../AdminDesktop.module.css";
 import styles from "./AdminFairReception.module.css";
 import FairCameraScanner from "./FairCameraScanner.jsx";
@@ -119,7 +120,11 @@ function PhotoPicker({ urls, onChange, disabled, onBusyChange }) {
         if (urlsRef.current.length >= MAX_RECEPTION_PHOTOS) break;
         setProgress(entries.length > 1 ? ` (${index + 1}/${entries.length})` : "");
         try {
-          const url = await prepareAndUploadImage(entry.file, { endpoint: PHOTO_UPLOAD_ENDPOINT, fieldName: "files" });
+          const url = await prepareAndUploadImage(entry.file, {
+            endpoint: PHOTO_UPLOAD_ENDPOINT,
+            fieldName: "files",
+            prepare: prepareReceptionPhoto,
+          });
           fingerprintsRef.current.set(url, entry.fingerprint);
           const next = [...urlsRef.current, url].slice(0, MAX_RECEPTION_PHOTOS);
           urlsRef.current = next;
@@ -173,6 +178,10 @@ function PhotoPicker({ urls, onChange, disabled, onBusyChange }) {
         <input type="file" accept={PRODUCT_IMAGE_ACCEPT} multiple onChange={onFiles} disabled={disabled || uploading} />
         {uploading ? `Se încarcă${progress}…` : urls.length ? "+ Adaugă mai multe fotografii" : "+ Fotografii"}
       </label>
+      <span className={styles.muted}>
+        Maximum {MAX_RECEPTION_PHOTOS} fotografii. Cele mari de pe telefon se micșorează automat; fiecare poate avea cel mult
+        10 MB.
+      </span>
       {failed.map((f) => (
         <span key={f.id} className={styles.fieldError} role="alert">
           {f.message}{" "}

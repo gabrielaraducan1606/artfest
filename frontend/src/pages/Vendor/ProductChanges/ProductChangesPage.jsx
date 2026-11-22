@@ -211,6 +211,11 @@ export default function ProductChangesPage() {
 
       if (res?.blocked) {
         setConfirmError("Verificarea automată a găsit o problemă la imagini. Corectează-o și confirmă din nou.");
+      } else if (res?.verificationPending) {
+        // verificarea automată rulează după răspuns: dacă găsește o problemă, solicitarea se redeschide aici
+        setNotice(
+          "Confirmarea a fost salvată, iar produsul este în curs de verificare. Dacă verificarea automată găsește o problemă la imagini, solicitarea se redeschide aici, cu detaliile."
+        );
       }
     } catch (e) {
       setConfirmError(e?.message || "Nu am putut trimite confirmarea. Încearcă din nou.");

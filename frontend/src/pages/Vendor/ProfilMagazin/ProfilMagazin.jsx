@@ -38,6 +38,12 @@ import {
 } from "../../../features/smartListing/smartListingAccess.js";
 import { showContactInfoFix } from "../../../components/AIAssistant/contactInfo/contactInfoFixToast.jsx";
 import {
+  clearCreateOperationKey,
+  describeProductSaveError,
+  getCreateOperationKey,
+  idempotencyHeaders,
+} from "../../../lib/productCreateRequest.js";
+import {
   applyContactFixToProductForm,
   dispatchProductSaved,
   fetchVendorProduct,
@@ -958,10 +964,14 @@ async function handleAcceptGate() {
     if (saveProductLockRef.current) return;
     saveProductLockRef.current = true;
 
+    // cheia operațiunii de creare: aceeași la reîncercări (și după reîncărcare), nouă după o creare confirmată
+    const isEdit =
+      !!editingOverride && (editingOverride.id || editingOverride._id);
+    const createStore = sellerData?.slug || sellerData?.profile?.slug || slug;
+    const createKeyScope = `modal:${me?.id || "anon"}:${createStore || "default"}`;
+
     try {
       let saved;
-      const isEdit =
-        !!editingOverride && (editingOverride.id || editingOverride._id);
 
       if (isEdit) {
         saved = await updateVendorProduct(
@@ -969,17 +979,18 @@ async function handleAcceptGate() {
           prodForm
         );
       } else {
-        const sd = sellerData?.slug || sellerData?.profile?.slug || slug;
-
-        if (!sd) throw new Error("Slug lipsă la creare produs.");
+        if (!createStore) throw new Error("Slug lipsă la creare produs.");
 
         saved = await api(
-          `/api/vendors/store/${encodeURIComponent(sd)}/products`,
+          `/api/vendors/store/${encodeURIComponent(createStore)}/products`,
           {
             method: "POST",
             body: buildProductPayload(prodForm),
+            headers: idempotencyHeaders(getCreateOperationKey(localStorage, createKeyScope)),
           }
         );
+        // creare confirmată (serverul a întors produsul) -> următorul produs are altă cheie
+        clearCreateOperationKey(localStorage, createKeyScope);
       }
 
       dispatchProductSaved(saved, { isEdit, shopId: currentShopId });
@@ -988,7 +999,13 @@ async function handleAcceptGate() {
 
       showProductSaveReport(saved);
     } catch (er) {
-      handleProductSaveError(er, { navigate });
+      // cheia a creat deja alt produs (date diferite): următoarea salvare pornește o operațiune nouă
+      if (!isEdit && describeProductSaveError(er).kind === "conflict") {
+        clearCreateOperationKey(localStorage, createKeyScope);
+      }
+      handleProductSaveError(er, { navigate, creating: !isEdit });
+      // formularul și ciorna rămân (ProductModal le golește doar după o salvare reușită)
+      throw er;
     } finally {
       saveProductLockRef.current = false;
     }

@@ -15,7 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { countUnsavableImages, mergeFieldErrors, readServerValidation } from "./smartListingServerErrors.js";
-import { describeSaveError, isAmbiguousCreateError, publishNewProduct } from "./smartListingSave.js";
+import { describeSaveError, describeSaveResult, isAmbiguousCreateError, publishNewProduct } from "./smartListingSave.js";
 import { buildDraftForm, savableAdditionalCategories } from "./smartListingConfig.js";
 import { fieldErrorsByAnchor } from "./smartListingVariantChoice.js";
 import { CATEGORIES_DETAILED } from "../../../../backend/src/constants/categories.js";
@@ -201,4 +201,51 @@ test("fotografii cu adresă relativă (serverul le-ar arunca) -> blocaj lângă 
   assert.equal(countUnsavableImages([IMG, "/uploads/a.jpg", "blob:http://x/1"]), 2);
   assert.equal(countUnsavableImages([IMG]), 0);
   assert.deepEqual(fieldErrorsByAnchor([{ code: "PHOTOS_INVALID", message: "m" }]), { "sl-photos": ["m"] });
+});
+
+/* ---------------- moderare în coadă + cheia operațiunii de creare ---------------- */
+
+test("cheia operațiunii ajunge în header-ul Idempotency-Key al creării", async () => {
+  const headers = [];
+  const api = async (path, opts = {}) => {
+    if ((opts.method || "GET") === "POST") {
+      headers.push(opts.headers || {});
+      return { id: "p-1", moderationStatus: "PENDING", moderationQueued: true };
+    }
+    return { items: [] };
+  };
+  await publishNewProduct({ api, storeSlug: "magazin", form: form(), idempotencyKey: "op_0123456789abcdef0123" });
+  assert.deepEqual(headers, [{ "Idempotency-Key": "op_0123456789abcdef0123" }]);
+});
+
+test("după creare cu verificarea în coadă: „salvat și în curs de verificare”, NU „publicat”", () => {
+  const view = describeSaveResult({ id: "p", moderationStatus: "PENDING", moderationQueued: true });
+  assert.equal(view.tone, "pending");
+  assert.equal(view.title, "Produsul a fost salvat și este în curs de verificare.");
+  assert.doesNotMatch(JSON.stringify(view), /publicat\./);
+  // „Publicat” doar dacă e efectiv public
+  assert.equal(describeSaveResult({ moderationStatus: "APPROVED" }).title, "Produsul a fost publicat.");
+  assert.notEqual(describeSaveResult({ moderationStatus: "APPROVED", isHidden: true }).title, "Produsul a fost publicat.");
+});
+
+test("502 / 504 la creare = fără confirmare (ambiguu), nu „eroare de server”", () => {
+  for (const status of [502, 503, 504, 408]) {
+    const error = Object.assign(apiError(status, "<html>Bad gateway</html>"), { publishPhase: "create" });
+    assert.equal(describeSaveError(error).code, "no_response", String(status));
+    assert.equal(isAmbiguousCreateError(error), true, String(status));
+  }
+});
+
+test("500 real: mesaj în română + codul de diagnostic, fără „server_error”", () => {
+  const out = describeSaveError(apiError(500, { error: "server_error", message: "x", diagnosticId: "PAB12C3D" }));
+  assert.equal(out.code, "server");
+  assert.match(out.message, /eroare pe server/);
+  assert.match(out.message, /PAB12C3D/);
+  assert.doesNotMatch(out.message, /server_error/);
+});
+
+test("409 cheie folosită deja (alte date): mesaj clar, nu validare de câmp", () => {
+  const out = describeSaveError(apiError(409, { error: "idempotency_key_reused", productId: "p-1" }));
+  assert.equal(out.code, "idempotency_conflict");
+  assert.match(out.message, /deja creat/);
 });

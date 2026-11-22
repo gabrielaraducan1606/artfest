@@ -13,6 +13,7 @@ import { buildProductPayload } from "../../pages/Vendor/ProfilMagazin/utils/prod
 import { writeAvailabilityHandoff, writeSourceDraftLink } from "../../pages/Vendor/ProfilMagazin/utils/productDraftHandoff.js";
 import { rawCombinationOverrides } from "../../../../backend/src/lib/variantPricing.js";
 import { readServerValidation } from "./smartListingServerErrors.js";
+import { describeProductSaveError, idempotencyHeaders, isModerationQueued, PRODUCT_SAVED_IN_REVIEW } from "../../lib/productCreateRequest.js";
 
 /** Payload-ul de creare (aruncă aceleași erori ca editorul: titlu / preț / categorie). */
 export function buildCreatePayload(form) {
@@ -23,9 +24,10 @@ export function createEndpoint(storeSlug) {
   return `/api/vendors/store/${encodeURIComponent(storeSlug)}/products`;
 }
 
-export async function createProduct({ api, storeSlug, form }) {
+export async function createProduct({ api, storeSlug, form, idempotencyKey = null }) {
   if (!storeSlug) throw new Error("Alege magazinul în care adaugi produsul.");
-  return api(createEndpoint(storeSlug), { method: "POST", body: buildCreatePayload(form) });
+  // cheia operațiunii: o retrimitere întoarce produsul deja creat, nu unul dublu
+  return api(createEndpoint(storeSlug), { method: "POST", body: buildCreatePayload(form), headers: idempotencyHeaders(idempotencyKey) });
 }
 
 /**
@@ -37,8 +39,21 @@ export function describeSaveResult(saved = {}) {
   const status = String(saved?.moderationStatus || "PENDING").toUpperCase();
   const report = saved?.moderationReport || null;
 
-  if (status === "APPROVED") {
+  // verificarea AI rulează după răspuns: produsul e salvat, dar NU e încă public
+  if (isModerationQueued(saved)) {
+    return {
+      tone: "pending",
+      title: PRODUCT_SAVED_IN_REVIEW,
+      lines: ["Îl publicăm automat după verificare. Starea lui apare în lista ta de produse; nu trebuie să faci nimic momentan."],
+    };
+  }
+
+  if (status === "APPROVED" && saved?.isActive !== false && !saved?.isHidden) {
     return { tone: "success", title: "Produsul a fost publicat.", lines: ["Clienții îl pot vedea deja în magazinul tău."] };
+  }
+
+  if (status === "APPROVED") {
+    return { tone: "success", title: "Produsul a fost salvat și aprobat.", lines: ["Nu este vizibil în magazin până nu îl activezi."] };
   }
 
   if (report?.decision === "BLOCK_PUBLICATION" || status === "CHANGES_REQUESTED") {
@@ -93,15 +108,26 @@ export function describeSaveError(error) {
     return { code: read.code, message: read.message, step: read.step, anchor: read.anchor, fieldErrors: read.fieldErrors };
   }
   if (status === 401 || status === 403) return { code: "auth", message: "Sesiunea a expirat sau contul nu poate adăuga produse. Autentifică-te din nou." };
-  // fără răspuns: produsul poate exista deja, iar publish() verifică înainte de a reîncerca
-  if (!status && /fetch|network/i.test(String(error?.message || ""))) {
+  // aceeași operațiune a creat deja un produs, cu alte date (ex. formular schimbat după un răspuns pierdut)
+  if (status === 409 && /^idempotency_/.test(String(data?.error || ""))) {
+    return { code: "idempotency_conflict", message: describeProductSaveError(error).message };
+  }
+  // fără răspuns / timeout / 502-504: produsul poate exista deja; reîncercarea îl regăsește (cheia operațiunii)
+  if ((!status && /fetch|network|load failed|abort|timeout/i.test(String(error?.message || ""))) || [408, 502, 503, 504].includes(status)) {
     return {
       code: "no_response",
-      message: "Nu am primit răspuns de la server. Ciorna rămâne salvată. Apasă din nou „Publică produsul”: verificăm întâi dacă produsul a fost deja creat.",
+      message: "Nu am primit confirmarea salvării. Ciorna rămâne salvată. Apasă din nou „Publică produsul”: dacă produsul a fost deja creat, îl regăsim, fără să se creeze unul dublu.",
     };
   }
-  // la 5xx, mesajul e un cod tehnic (ex. `server_error`), nu ceva util vânzătorului
-  if (status && status >= 500) return { code: "server", message: "Serverul nu a putut finaliza acum. Încearcă din nou." };
+  // eroare reală de server: mesaj clar + codul de diagnostic (nu codul tehnic `server_error`)
+  if (status && status >= 500) {
+    const diagnosticId = data?.diagnosticId ? String(data.diagnosticId) : "";
+    return {
+      code: "server",
+      diagnosticId: diagnosticId || null,
+      message: `A apărut o eroare pe server și nu am putut confirma salvarea. Ciorna rămâne salvată; încearcă din nou peste câteva momente, fără risc de produs dublu.${diagnosticId ? ` Cod de diagnostic: ${diagnosticId}` : ""}`,
+    };
+  }
   // mesajul tehnic al erorii (ex. „Request failed with status 418”) nu ajunge la vânzător
   return { code: "server", message: "Nu am putut salva produsul. Ciorna ta a rămas salvată pe acest dispozitiv. Încearcă din nou." };
 }
@@ -164,6 +190,7 @@ export async function publishNewProduct({
   lookupExisting = false,
   onCreated = null,
   attachCollections = null,
+  idempotencyKey = null,
 }) {
   let phase = "producer";
   try {
@@ -171,7 +198,7 @@ export async function publishNewProduct({
     phase = "lookup";
     const existing = lookupExisting ? await findCreatedProduct({ api, storeSlug, form }) : null;
     phase = "create";
-    const saved = existing || (await createProduct({ api, storeSlug, form: createForm }));
+    const saved = existing || (await createProduct({ api, storeSlug, form: createForm, idempotencyKey }));
     phase = "done";
     try {
       onCreated?.(saved);

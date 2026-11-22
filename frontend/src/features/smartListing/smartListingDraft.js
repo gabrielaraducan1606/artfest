@@ -79,7 +79,8 @@ export function buildDraftSnapshot(state = {}, now = new Date()) {
 
 export function saveDraft(storage, key, state, now = new Date()) {
   try {
-    const snapshot = buildDraftSnapshot(state, now);
+    // revizia scrierii: dacă alt tab scrie aceeași ciornă, revizia se schimbă
+    const snapshot = { ...buildDraftSnapshot(state, now), rev: newDraftId(now.getTime()) };
     storage.setItem(key, JSON.stringify(snapshot));
     return snapshot;
   } catch {
@@ -151,6 +152,39 @@ export function saveDraftEntry(storage, scope, draftId, state, now = new Date())
   } catch {
     return null;
   }
+}
+
+/** Revizia unei ciorne citite (ciornele vechi nu au `rev`: se folosește data salvării). */
+export function draftRevision(snapshot) {
+  return snapshot ? String(snapshot.rev || snapshot.savedAt || "") : "";
+}
+
+/**
+ * Ciorna a fost rescrisă din alt tab după ultima noastră citire/scriere?
+ * Atunci tabul curent salvează într-o ciornă nouă, nu peste cea a celuilalt tab.
+ */
+export function draftChangedElsewhere(storage, scope, draftId, expectedRev) {
+  if (!draftId) return false;
+  const current = loadDraft(storage, draftKey({ ...scope, draftId }));
+  if (!current) return false;
+  return draftRevision(current) !== String(expectedRev || "");
+}
+
+const contentOf = (snapshot) => JSON.stringify({ ...snapshot, savedAt: "", rev: undefined });
+
+/**
+ * Cum scrie tabul curent ciorna `draftId`:
+ *  - "write": nimeni altcineva n-a scris între timp;
+ *  - "same": alt tab a scris exact același conținut (ex. ambele doar au deschis-o) -> preia revizia, fără scriere;
+ *  - "fork": alt tab a scris altceva -> tabul curent salvează într-o ciornă NOUĂ.
+ * @returns {{ action: "write" | "same" | "fork", rev?: string }}
+ */
+export function resolveDraftWrite(storage, scope, draftId, expectedRev, state) {
+  const current = draftId ? loadDraft(storage, draftKey({ ...scope, draftId })) : null;
+  if (!current) return { action: "write" };
+  // conținut identic (ex. ciorna doar a fost deschisă): fără scriere, revizia nu se schimbă
+  if (contentOf(current) === contentOf(buildDraftSnapshot(state))) return { action: "same", rev: draftRevision(current) };
+  return draftRevision(current) === String(expectedRev || "") ? { action: "write" } : { action: "fork" };
 }
 
 /** Șterge DOAR ciorna cerută. Id gol = ciorna veche, salvată înainte de a exista mai multe ciorne. */

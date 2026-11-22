@@ -28,6 +28,7 @@ import {
 import { api } from "../../../lib/api";
 import { canRetryImageUpload, prepareAndUploadImage } from "../../../lib/productImages/prepareAndUploadImage.js";
 import { PRODUCT_IMAGE_ACCEPT } from "../../../lib/productImages/productImageRules.js";
+import { inventoryErrorMessage } from "./fairInventoryErrors.js";
 import { centsToPriceInput, newClientRequestId, validateManualItem } from "./fairManualItem.js";
 import {
   INVENTORY_API,
@@ -59,8 +60,9 @@ const EMPTY_FORM = {
   vendorNotes: "",
 };
 
-function errorMessage(err, fallback) {
-  return err?.data?.message || err?.message || fallback;
+// mesaj clar în română; fără răspuns / 5xx fără mesaj = rezultat necunoscut, reîncercare sigură
+function errorMessage(err, fallback, action = "action") {
+  return inventoryErrorMessage(err, fallback, { action });
 }
 
 /* ===================== Mesajele de rezervare online ===================== */
@@ -320,7 +322,19 @@ function ManualItemModal({ mode, item, onClose, onSaved, onSourceChange }) {
     setPhoto({ url: null, file: null, preview: null, status: "idle", error: "", retryable: false });
   }
 
+  // la editare: fotografia salvată deja (adresa ei rămâne neatinsă cât timp nu salvezi altceva)
+  const savedPhotoUrl = mode === "edit" ? item?.imageUrl || null : null;
+
+  // înlocuire eșuată / în curs: renunțăm la fotografia nouă și revenim EXACT la cea salvată
+  function keepPreviousPhoto() {
+    uploadRef.current.controller?.abort();
+    uploadRef.current = { token: uploadRef.current.token + 1, controller: null };
+    setPhoto({ url: savedPhotoUrl, file: null, preview: null, status: "idle", error: "", retryable: false });
+    setError("");
+  }
+
   const photoBusy = photo.status === "uploading";
+  const canKeepPrevious = Boolean(savedPhotoUrl) && (photo.status === "error" || photo.status === "uploading");
 
   async function onSubmit(event) {
     event.preventDefault();
@@ -338,7 +352,11 @@ function ManualItemModal({ mode, item, onClose, onSaved, onSourceChange }) {
       return;
     }
     if (photo.status === "error") {
-      setError("Fotografia nu s-a încărcat. Apasă „Reîncearcă” sau șterge fotografia, apoi salvează.");
+      setError(
+        savedPhotoUrl
+          ? "Fotografia nouă nu s-a încărcat. Apasă „Reîncearcă” sau „Păstrează fotografia anterioară”, apoi salvează."
+          : "Fotografia nu s-a încărcat. Apasă „Reîncearcă” sau șterge fotografia, apoi salvează."
+      );
       return;
     }
 
@@ -369,7 +387,7 @@ function ManualItemModal({ mode, item, onClose, onSaved, onSourceChange }) {
       onSaved();
     } catch (err) {
       setFieldErrors(err?.data?.fields || {});
-      setError(errorMessage(err, "Nu am putut salva produsul."));
+      setError(errorMessage(err, "Nu am putut salva produsul.", "save"));
     } finally {
       setSaving(false);
     }
@@ -489,6 +507,13 @@ function ManualItemModal({ mode, item, onClose, onSaved, onSourceChange }) {
               <span className={styles.hint} role="status">
                 {photo.stage === "uploading" ? "Se încarcă fotografia…" : "Se pregătește fotografia…"}
               </span>
+            )}
+            {canKeepPrevious && (
+              <div>
+                <button type="button" className={styles.btnSmall} onClick={keepPreviousPhoto} disabled={saving}>
+                  Păstrează fotografia anterioară
+                </button>
+              </div>
             )}
             {photo.status === "error" && (
               <div className={styles.fieldError} role="alert">
@@ -618,7 +643,7 @@ function ItemModal({ mode, item, products, onClose, onSaved, onSourceChange }) {
       onSaved();
     } catch (err) {
       setFieldErrors(err?.data?.fields || {});
-      setError(errorMessage(err, "Nu am putut salva produsul."));
+      setError(errorMessage(err, "Nu am putut salva produsul.", "save"));
     } finally {
       setSaving(false);
     }
@@ -1056,7 +1081,7 @@ export default function FairInventorySection() {
       setData(res);
       setError("");
     } catch (err) {
-      setError(errorMessage(err, "Nu am putut încărca inventarul."));
+      setError(errorMessage(err, "Nu am putut încărca inventarul.", "load"));
     } finally {
       setLoading(false);
     }
@@ -1075,7 +1100,7 @@ export default function FairInventorySection() {
         setProducts(Array.isArray(res?.items) ? res.items : []);
       } catch (err) {
         setProducts([]);
-        setError(errorMessage(err, "Nu am putut încărca produsele."));
+        setError(errorMessage(err, "Nu am putut încărca produsele.", "load"));
       }
     }
   }

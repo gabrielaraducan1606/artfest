@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired, enforceTokenVersion } from "../api/auth.js";
@@ -27,6 +28,20 @@ import {
   validateShippingProfile,
 } from "../lib/productShipping.js";
 import { openai } from "../lib/openai.js";
+import {
+  enqueueModerationJob,
+  kickProductModerationWorker,
+  shouldQueueModeration,
+} from "../services/productModerationQueue.js";
+import {
+  IDEMPOTENCY_MESSAGES,
+  createIdempotencyActive,
+  findCreateRequest,
+  hashCreateRequest,
+  isCreateRequestConflict,
+  readIdempotencyKey,
+  recordCreateRequest,
+} from "../services/productCreateIdempotency.js";
 import { queueFeedTitleRefresh } from "../services/feedTitleService.js";
 import { enforceVendorProductImageUrls } from "../lib/productImageUrls.js";
 import { productValidationBody } from "../lib/productValidationErrors.js";
@@ -465,6 +480,48 @@ function mapPublicStoreProduct(p) {
 async function loadVendorGpsr(vendorId) {
   if (!vendorId) return null;
   return prisma.vendor.findUnique({ where: { id: vendorId }, select: VENDOR_GPSR_SELECT });
+}
+
+/*
+ * Eroare reală de server: cod de diagnostic (apare și în logurile Render),
+ * mesaj în română, fără detalii interne. `error: "server_error"` rămâne
+ * pentru clienții vechi.
+ */
+function sendProductServerError(res, label, error, message) {
+  const diagnosticId = `P${Date.now().toString(36).slice(-5)}${crypto.randomBytes(2).toString("hex")}`.toUpperCase();
+  console.error(`${label} error [${diagnosticId}]:`, error);
+  return res.status(500).json({ error: "server_error", message, diagnosticId });
+}
+
+/*
+ * Retrimiterea unei creări cu aceeași cheie: răspunde cu produsul deja creat
+ * (200) sau 409. Întoarce false dacă cheia nu a fost folosită încă.
+ */
+async function replayCreateRequest(res, idempotency) {
+  const found = await findCreateRequest(prisma, idempotency);
+  if (!found) return false;
+
+  if (found.requestHash !== idempotency.requestHash) {
+    res.status(409).json({ error: "idempotency_key_reused", message: IDEMPOTENCY_MESSAGES.reused, productId: found.productId || null });
+    return true;
+  }
+  const product = found.productId
+    ? await prisma.product.findUnique({ where: { id: found.productId }, include: { additionalCategories: true } })
+    : null;
+  if (!product) {
+    res.status(409).json({ error: "idempotency_product_deleted", message: IDEMPOTENCY_MESSAGES.deleted });
+    return true;
+  }
+  const queued = await prisma.productModerationJob
+    .findFirst({ where: { productId: product.id, status: { in: ["QUEUED", "RUNNING"] } }, select: { id: true } })
+    .catch(() => null);
+  res.status(200).json({
+    ...mapProduct(product, await loadVendorGpsr(idempotency.vendorId)),
+    additionalCategories: additionalCategoryKeys(product),
+    idempotentReplay: true,
+    ...(queued ? { moderationQueued: true } : {}),
+  });
+  return true;
 }
 
 function parseBooleanQuery(value) {
@@ -1397,6 +1454,25 @@ async function createProduct(req, res) {
         .json({ error });
     }
 
+    /*
+     * Idempotența (header Idempotency-Key): o retrimitere a ACELEIAȘI
+     * operațiuni întoarce produsul deja creat, înaintea oricărei validări
+     * (ex. limita de produse, atinsă chiar de produsul creat prima dată).
+     */
+    let idempotency = null;
+    const idempotencyHeader = readIdempotencyKey(req);
+    if (idempotencyHeader && (await createIdempotencyActive(prisma))) {
+      if (idempotencyHeader.invalid) {
+        return res.status(400).json({ error: "invalid_idempotency_key", message: IDEMPOTENCY_MESSAGES.invalid });
+      }
+      idempotency = {
+        vendorId: service.vendorId,
+        key: idempotencyHeader.key,
+        requestHash: hashCreateRequest(req.body),
+      };
+      if (await replayCreateRequest(res, idempotency)) return;
+    }
+
     const limitCheck =
       await checkProductLimitForService({
         serviceId: service.id,
@@ -1706,7 +1782,12 @@ async function createProduct(req, res) {
     }
     const vendorGpsr = await loadVendorGpsr(service.vendorId);
 
-    const created = await prisma.$transaction(async (tx) => {
+    // moderarea AI în coadă (asincron) doar cu flag + tabele; altfel, sincron ca înainte
+    const queueModeration = await shouldQueueModeration(prisma);
+
+    let created;
+    try {
+    created = await prisma.$transaction(async (tx) => {
     const product =
       await tx.product.create({
         data: {
@@ -1865,22 +1946,42 @@ async function createProduct(req, res) {
           source: gpsrConfirmation.source,
         });
       }
+      // cheia operațiunii: în aceeași tranzacție (cererea concurentă primește P2002 și nu creează nimic)
+      if (idempotency) {
+        await recordCreateRequest(tx, { ...idempotency, productId: product.id });
+      }
+      // jobul de moderare: există doar dacă există și produsul
+      if (queueModeration) {
+        await enqueueModerationJob(tx, { product, reason: "create" });
+      }
       return product;
     });
+    } catch (txError) {
+      // altă cerere cu aceeași cheie a creat deja produsul -> același răspuns ca la o retrimitere
+      if (idempotency && isCreateRequestConflict(txError) && (await replayCreateRequest(res, idempotency))) {
+        return;
+      }
+      throw txError;
+    }
 
     /*
      * Moderare AI automată: produsul e deja salvat (PENDING, nepublic);
      * aici primește verdictul (APPROVED / rămâne PENDING pentru admin /
      * CHANGES_REQUESTED cu imaginile problematice). Orice eroare AI ->
      * rămâne PENDING, ca înainte. Fără declarație GPSR validă, nu se aprobă.
+     * Cu coada activă, verdictul vine ulterior (procesorul), fără ca
+     * răspunsul să aștepte OpenAI.
      */
 
-    const moderated =
-      await moderateSavedProduct({
-        prisma,
-        product: { ...created, service: { vendor: vendorGpsr } },
-        client: openai,
-      });
+    const moderated = queueModeration
+      ? created
+      : await moderateSavedProduct({
+          prisma,
+          product: { ...created, service: { vendor: vendorGpsr } },
+          client: openai,
+        });
+
+    if (queueModeration) kickProductModerationWorker();
 
     // titlul pentru feed-ul Google - în fundal, nu blochează salvarea
     queueFeedTitleRefresh(created.id);
@@ -1891,18 +1992,15 @@ async function createProduct(req, res) {
         ...mapProduct(moderated, vendorGpsr),
         additionalCategories:
           additionalNorm.value,
+        ...(queueModeration ? { moderationQueued: true } : {}),
       });
   } catch (e) {
-    console.error(
-      "POST /vendors/store/:slug/products error:",
-      e
+    return sendProductServerError(
+      res,
+      "POST /vendors/store/:slug/products",
+      e,
+      "A apărut o eroare pe server și nu am putut confirma salvarea produsului."
     );
-
-    return res
-      .status(500)
-      .json({
-        error: "server_error",
-      });
   }
 }
 async function updateProduct(
@@ -2716,11 +2814,30 @@ async function updateProduct(
 
     let gpsrDeclarationRecorded = false;
 
+    /*
+     * Reevaluare LOCALĂ (cache AI) când vendorul completează GPSR-ul unui
+     * produs PENDING oprit exclusiv de GPSR - calculată ÎNAINTE de salvare
+     * (depinde doar de starea veche + patch), ca să poată intra în coadă
+     * în aceeași tranzacție.
+     */
+    const gpsrReevaluation =
+      !shouldModerate &&
+      needsGpsrReevaluation(
+        product,
+        pickGpsrPatchFromBody(
+          req.body || {}
+        )
+      );
+
+    // moderarea în coadă (asincron) doar cu flag + tabele; altfel, sincron ca înainte
+    const queueModeration = await shouldQueueModeration(prisma);
+    let moderationQueued = false;
+
     // Târg Artfest: preț blocat după termen / unicat rezervat la târg
     const updated =
       await guardedProductUpdate(id, patch, async (outerDb) => {
-        // salvarea + declarația GPSR: atomic (tranzacție proprie dacă nu suntem deja într-una)
-        if (gpsrConfirmation.provided && typeof outerDb.$transaction === "function") {
+        // salvarea + declarația GPSR + jobul de moderare: atomic (tranzacție proprie dacă nu suntem deja într-una)
+        if ((gpsrConfirmation.provided || queueModeration) && typeof outerDb.$transaction === "function") {
           return outerDb.$transaction((tx) => writeWithDeclaration(tx));
         }
         return writeWithDeclaration(outerDb);
@@ -2745,6 +2862,20 @@ async function updateProduct(
           });
           gpsrDeclarationRecorded = result.created || Boolean(result.declaration);
         }
+        // coada: jobul în ACEEAȘI tranzacție cu salvarea (aceleași declanșatoare ca moderarea sincronă)
+        if (
+          queueModeration &&
+          (shouldModerate ||
+            gpsrReevaluation ||
+            (gpsrDeclarationRecorded && isBlockedOnlyByGpsrDeclaration(product.aiModeration)))
+        ) {
+          await enqueueModerationJob(db, {
+            product: saved,
+            reason: shouldModerate ? "update" : "gpsr",
+            previouslyRejectedByAdmin,
+          });
+          moderationQueued = true;
+        }
         return saved;
     }
 
@@ -2757,15 +2888,8 @@ async function updateProduct(
      * + reevaluare LOCALĂ când vendorul completează GPSR-ul unui produs
      * PENDING oprit exclusiv de GPSR (cache AI -> 0 apeluri OpenAI;
      * dacă acum e complet, devine APPROVED automat).
+     * (gpsrReevaluation e calculat înainte de salvare, mai sus.)
      */
-    const gpsrReevaluation =
-      !shouldModerate &&
-      needsGpsrReevaluation(
-        product,
-        pickGpsrPatchFromBody(
-          req.body || {}
-        )
-      );
 
     // produs PENDING oprit doar de lipsa declarației: după confirmare se reevaluează (cache AI)
     const declarationReevaluation =
@@ -2774,9 +2898,10 @@ async function updateProduct(
       isBlockedOnlyByGpsrDeclaration(product.aiModeration);
 
     const moderated =
-      shouldModerate ||
-      gpsrReevaluation ||
-      declarationReevaluation
+      !moderationQueued &&
+      (shouldModerate ||
+        gpsrReevaluation ||
+        declarationReevaluation)
         ? await moderateSavedProduct({
             prisma,
             product: updated,
@@ -2791,25 +2916,24 @@ async function updateProduct(
     // relevante s-au schimbat (hash) - nu blochează salvarea
     queueFeedTitleRefresh(updated.id);
 
+    if (moderationQueued) kickProductModerationWorker();
+
     return res.json({
       ...mapProduct(moderated, product.service?.vendor ?? null),
       additionalCategories:
         additionalCategoryKeys(updated),
       ...(visibilityHeld ? { visibilityHeld: true } : {}),
+      ...(moderationQueued ? { moderationQueued: true } : {}),
     });
   } catch (e) {
     if (sendFairLockError(res, e)) return;
 
-    console.error(
-      "PUT /vendors/products/:id error:",
-      e
+    return sendProductServerError(
+      res,
+      "PUT /vendors/products/:id",
+      e,
+      "A apărut o eroare pe server și nu am putut confirma salvarea modificărilor."
     );
-
-    return res
-      .status(500)
-      .json({
-        error: "server_error",
-      });
   }
 }
 
@@ -2992,7 +3116,7 @@ async function confirmProductChanges(req, res) {
     const resubmit = product.moderationStatus === "CHANGES_REQUESTED";
 
     // updatedAt = blocare optimistă: din două click-uri simultane câștigă unul
-    const result = await prisma.product.updateMany({
+    const confirmWrite = {
       where: { id: product.id, updatedAt: product.updatedAt },
       data: {
         aiModeration: {
@@ -3010,7 +3134,39 @@ async function confirmProductChanges(req, res) {
             }
           : {}),
       },
-    });
+    };
+
+    /*
+     * Coada activă: confirmarea + jobul de verificare (reason "resubmit") în
+     * ACEEAȘI tranzacție; răspunsul nu mai așteaptă AI. Procesorul aplică
+     * aceleași reguli ca mai jos: blocare -> solicitarea se redeschide, fără
+     * notificarea adminilor; altfel -> confirmarea pe notificare + adminii
+     * notificați (services/productModerationQueue.js).
+     */
+    if (resubmit && (await shouldQueueModeration(prisma))) {
+      const queued = await prisma.$transaction(async (tx) => {
+        const written = await tx.product.updateMany(confirmWrite);
+        if (written.count === 0) return false;
+        const saved = await tx.product.findUnique({ where: { id: product.id } });
+        await enqueueModerationJob(tx, { product: saved, reason: "resubmit", previouslyRejectedByAdmin: true });
+        return true;
+      });
+
+      if (queued) {
+        kickProductModerationWorker();
+        const current = (await loadOwnedProductForChanges(product.id, req.user.sub)).product;
+        return res.json({ ok: true, verificationPending: true, ...(await buildChangeRequestPayload(current)) });
+      }
+
+      const { product: fresh } = await loadOwnedProductForChanges(product.id, req.user.sub);
+      return res.json({
+        ok: true,
+        alreadyConfirmed: Boolean(getChangeRequest(fresh)?.confirmedAt),
+        ...(await buildChangeRequestPayload(fresh)),
+      });
+    }
+
+    const result = await prisma.product.updateMany(confirmWrite);
 
     if (result.count === 0) {
       const { product: fresh } = await loadOwnedProductForChanges(product.id, req.user.sub);

@@ -21,6 +21,7 @@ import { uploadProductImageWithRetry } from "../../../../lib/productImages/uploa
 import { buildProductPayload } from "./productPayload";
 import { extractCode, extractHttpStatus } from "./activationErrors";
 import { showContactInfoFix } from "../../../../components/AIAssistant/contactInfo/contactInfoFixToast.jsx";
+import { PRODUCT_SAVED_IN_REVIEW, isModerationQueued, productSaveErrorText } from "../../../../lib/productCreateRequest.js";
 
 export { productFormFromApi } from "./productFormFromApi.js";
 
@@ -82,6 +83,10 @@ export function showProductSaveReport(saved) {
         ),
       ].join("\n")
     );
+  } else if (isModerationQueued(saved)) {
+    // verificarea AI rulează după răspuns: produsul NU e încă public
+    alert(`${PRODUCT_SAVED_IN_REVIEW}
+Îl publicăm după verificare; starea apare pe cardul produsului.`);
   } else if (report?.action === "COMPLETE_GPSR") {
     // acționabil, nu alarmant: vendorul poate rezolva imediat, din
     // butonul „Completează informațiile de siguranță” de pe produs
@@ -96,7 +101,7 @@ export function showProductSaveReport(saved) {
   }
 }
 
-export function handleProductSaveError(er, { navigate } = {}) {
+export function handleProductSaveError(er, { navigate, creating = false } = {}) {
   // date de contact externe -> nimic salvat; formularul rămâne
   // deschis, cu mesaj + „Corectează cu ajutorul asistentului”
   if (showContactInfoFix(er)) return;
@@ -112,7 +117,14 @@ export function handleProductSaveError(er, { navigate } = {}) {
     return;
   }
 
-  alert(er?.message || "Nu am putut salva produsul.");
+  // eroare fără răspuns HTTP aruncată local (ex. „Slug lipsă”): mesajul ei e deja pentru vânzător
+  if (!status && er?.message && !/fetch|network|load failed|abort/i.test(er.message)) {
+    alert(er.message);
+    return;
+  }
+
+  // validare / fotografii / fără confirmare / eroare de server - mesaj clar + cod de diagnostic
+  alert(productSaveErrorText(er, { creating }));
 }
 
 /*

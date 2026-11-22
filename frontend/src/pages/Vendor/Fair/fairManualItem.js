@@ -6,7 +6,6 @@
 
 export const MANUAL_TITLE_MAX = 200;
 export const MANUAL_QTY_MAX = 1000;
-export const MANUAL_PHOTO_MAX_BYTES = 15 * 1024 * 1024;
 
 const PRICE_RE = /^\d{1,7}(?:[.,]\d{1,2})?$/;
 
@@ -43,11 +42,4 @@ export function validateManualItem({ title, declaredQty, priceRon }) {
 
   if (parsePriceRon(priceRon) === null) errors.priceRon = "Introdu un preț mai mare decât zero (ex. 45 sau 45,50).";
   return errors;
-}
-
-export function validatePhotoFile(file) {
-  if (!file) return "";
-  if (!String(file.type || "").startsWith("image/")) return "Alege o fotografie (JPG, PNG, WEBP sau HEIC).";
-  if (file.size > MANUAL_PHOTO_MAX_BYTES) return "Fotografia este prea mare (maximum 15 MB).";
-  return "";
 }

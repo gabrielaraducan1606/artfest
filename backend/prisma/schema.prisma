@@ -1088,6 +1088,10 @@ model Product {
   externalLink       ExternalProductLink?
   inventoryMovements InventoryMovement[]
 
+  // moderarea AI asincronă (coada) + cheia de idempotență a creării (doar relații, fără coloane noi)
+  moderationJobs ProductModerationJob[]
+  createRequest  ProductCreateRequest?
+
   @@index([serviceId, isActive, createdAt])
   @@index([category])
   @@index([isHidden, isActive, availability, createdAt])
@@ -6686,4 +6690,74 @@ model SamedayMethodConfig {
   updatedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+/**
+ * Moderarea AI a produselor, ASINCRONĂ (services/productModerationQueue.js).
+ * Jobul se scrie în aceeași tranzacție cu salvarea produsului; procesorul îl
+ * preia cu FOR UPDATE SKIP LOCKED (o singură instanță per job). `activeKey`
+ * = productId cât jobul e QUEUED (un singur job în așteptare per produs) și
+ * devine null la preluare / final. Rezultatul se aplică doar dacă produsul
+ * are același conținut (`contentHash`) și aceeași stare de moderare
+ * (`statusSnapshot`) ca la salvare: o decizie manuală sau o editare
+ * ulterioară nu e suprascrisă niciodată.
+ */
+model ProductModerationJob {
+  id        String                     @id @default(cuid())
+  productId String
+  reason    String                     @db.VarChar(32)
+  status    ProductModerationJobStatus @default(QUEUED)
+  activeKey String?                    @unique @db.VarChar(191)
+
+  contentHash               String  @db.VarChar(64)
+  statusSnapshot            Json
+  previouslyRejectedByAdmin Boolean @default(false)
+
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  runAfter    DateTime  @default(now())
+  lockedAt    DateTime?
+  lockedBy    String?   @db.VarChar(100)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  outcome          String? @db.VarChar(40)
+  lastErrorCode    String? @db.VarChar(64)
+  lastErrorMessage String? @db.VarChar(1000)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
+  @@index([productId, status])
+}
+
+enum ProductModerationJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  SKIPPED
+  DEAD
+}
+
+/**
+ * Idempotența creării de produs: (vendorId, idempotencyKey) unic, scris în
+ * aceeași tranzacție cu produsul. Retrimiterea aceleiași operațiuni întoarce
+ * produsul deja creat; aceeași cheie cu alte date -> 409. Produs șters ->
+ * productId null (cheia rămâne consumată).
+ */
+model ProductCreateRequest {
+  id             String   @id @default(cuid())
+  vendorId       String
+  idempotencyKey String   @db.VarChar(100)
+  requestHash    String   @db.VarChar(64)
+  productId      String?  @unique
+  createdAt      DateTime @default(now())
+
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@unique([vendorId, idempotencyKey])
+  @@index([createdAt])
 }
