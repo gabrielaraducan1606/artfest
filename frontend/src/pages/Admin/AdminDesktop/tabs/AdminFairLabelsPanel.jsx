@@ -70,6 +70,83 @@ function labelCopiesFor(item, mode) {
   return Math.max(1, item.declaredQty || 0);
 }
 
+/** „42,90” / „42.9” / „42” -> bani; invalid -> null. */
+function parseLei(raw) {
+  const text = String(raw ?? "").trim().replace(/\s/g, "").replace(",", ".");
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return null;
+  return Math.round(Number(text) * 100);
+}
+
+const leiInput = (cents) => (cents == null ? "" : (cents / 100).toFixed(2).replace(".", ","));
+
+/*
+ * Regulamentul 2.0.0: prețul declarat, sugestia (declarat / 0,90) și prețul final (pe etichetă),
+ * cu împărțirea comision 10% / vendor 90%. Nu atinge prețul online sau vânzările anterioare.
+ */
+function FinalPriceEditor({ item, disabled, onSaved, onError }) {
+  const pricing = item.pricing;
+  const [value, setValue] = useState(() => leiInput(pricing.finalPriceCents ?? pricing.suggestedFinalPriceCents));
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setValue(leiInput(pricing.finalPriceCents ?? pricing.suggestedFinalPriceCents));
+  }, [pricing.finalPriceCents, pricing.suggestedFinalPriceCents]);
+
+  const cents = parseLei(value);
+  const invalid = cents === null || cents < 1;
+  // aceeași regulă ca la vânzare: comision rotunjit half-up din prețul efectiv; vendorul primește restul
+  const bps = pricing.commissionBps ?? 1000;
+  const commission = cents !== null ? Math.floor((2 * cents * bps + 10000) / 20000) : null;
+  const vendorNet = cents !== null ? cents - commission : null;
+  const unchanged = cents === pricing.finalPriceCents;
+
+  async function save() {
+    if (invalid || unchanged || saving) return;
+    setSaving(true);
+    try {
+      const res = await api(`${API}/${encodeURIComponent(item.id)}/final-price`, { method: "POST", body: { finalPriceCents: cents } });
+      onSaved(item, res);
+    } catch (err) {
+      onError(errorMessage(err, "Nu am putut salva prețul final."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={styles.pricing}>
+      <span>
+        Preț declarat <strong>{formatPrice(pricing.vendorPriceCents)}</strong> · Sugerat (declarat / 0,90){" "}
+        <strong>{formatPrice(pricing.suggestedFinalPriceCents)}</strong>
+      </span>
+      <label className={styles.finalPrice}>
+        <span>Preț final (etichetă)</span>
+        <input
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && save()}
+          disabled={disabled || saving}
+          aria-label={`Preț final pentru ${item.title}`}
+        />
+        <span>lei</span>
+        <button type="button" className={rx.ghostBtn} onClick={save} disabled={disabled || saving || invalid || unchanged}>
+          {saving ? "Se salvează…" : "Salvează"}
+        </button>
+      </label>
+      {cents !== null && !invalid && (
+        <span className={styles.muted}>
+          La acest preț: Artfest {bps / 100}% {formatPrice(commission)} · vânzătorul {100 - bps / 100}% {formatPrice(vendorNet)}
+        </span>
+      )}
+      {invalid && <span className={styles.warnText}>Introdu un preț valid (lei, cu cel mult două zecimale).</span>}
+      {!invalid && vendorNet < pricing.vendorPriceCents && (
+        <span className={styles.warnText}>Sub prețul sugerat: vânzătorul primește mai puțin decât prețul declarat.</span>
+      )}
+      {pricing.finalPriceCents == null && <span className={styles.warnText}>Prețul final nu este salvat: eticheta nu se poate genera.</span>}
+    </div>
+  );
+}
+
 function LabelBadge({ label }) {
   if (label?.state === "valid") {
     return <span className={`${styles.badge} ${styles.badgeValid}`}>Generată · {formatDate(label.generatedAt)}</span>;
@@ -147,9 +224,20 @@ export default function AdminFairLabelsPanel() {
     () => ({
       none: items.filter((i) => (i.label?.state || "none") === "none").length,
       outdated: items.filter((i) => i.label?.state === "outdated").length,
+      noFinal: items.filter((i) => i.pricing?.canEditFinalPrice && i.pricing.finalPriceCents == null).length,
     }),
     [items]
   );
+
+  function onFinalSaved(item, res) {
+    setError("");
+    setNotice(
+      res?.labelReprintNeeded
+        ? `Prețul final pentru „${item.title}” a fost salvat. Eticheta tipărită are alt preț: la casă se introduce prețul efectiv (fără retipărire) sau o poți reimprima. Vânzările deja făcute rămân la prețul de atunci.`
+        : `Prețul final pentru „${item.title}” a fost salvat.`
+    );
+    load();
+  }
 
   function toggle(id) {
     setSelected((prev) => {
@@ -241,10 +329,15 @@ export default function AdminFairLabelsPanel() {
             ? "Coli A4 cu 12 etichete duble (70 × 74 mm = două etichete de 70 × 37 suprapuse). Partea de sus (creatorul și Artfest) se taie pe linia punctată și rămâne la client. La imprimare alege scala 100%."
             : "Coli A4 cu 24 de etichete (70 × 37 mm). La imprimare alege scala 100%."}
         </p>
-        {(counts.none > 0 || counts.outdated > 0) && (
+        {(counts.none > 0 || counts.outdated > 0 || counts.noFinal > 0) && (
           <p className={styles.todo}>
+            {counts.noFinal > 0 && <span>{counts.noFinal} fără preț final</span>}
             {counts.none > 0 && <span>{counts.none} fără etichetă</span>}
-            {counts.outdated > 0 && <span>{counts.outdated} cu preț vechi (de reimprimat)</span>}
+            {counts.outdated > 0 && (
+              <span title="Regula nouă: la casă se poate introduce prețul efectiv, fără retipărire. Regula veche: eticheta se reimprimă.">
+                {counts.outdated} cu preț vechi pe etichetă
+              </span>
+            )}
           </p>
         )}
       </section>
@@ -345,13 +438,16 @@ export default function AdminFairLabelsPanel() {
                   </span>
                   <span className={styles.meta}>
                     <span className={rx.code}>{item.barcodeDisplay}</span>
-                    <span>{formatPrice(item.priceCents)}</span>
+                    <span>{formatPrice(item.pricing?.salePriceCents ?? item.priceCents)}</span>
                     <span>
                       Declarat {item.declaredQty}
                       {item.status === "RECEIVED" ? ` · Recepționat ${item.receivedQty}` : ""}
                     </span>
                     <span>{STATUS_LABEL[item.status] || item.status}</span>
                   </span>
+                  {item.pricing?.canEditFinalPrice && (
+                    <FinalPriceEditor item={item} disabled={Boolean(busy)} onSaved={onFinalSaved} onError={setError} />
+                  )}
                 </div>
                 <div className={styles.rowActions}>
                   <LabelBadge label={item.label} />

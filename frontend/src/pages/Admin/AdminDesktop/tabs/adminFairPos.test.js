@@ -1,7 +1,18 @@
 // Rulare: node --test src/pages/Admin/AdminDesktop/tabs/adminFairPos.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canSubmit, cartPayload, formatLei, initialPosState, normalizeBarcode, posReducer } from "./adminFairPos.js";
+import {
+  canSubmit,
+  cartInputProblems,
+  cartPayload,
+  cartSignature,
+  formatLei,
+  isAboveLabel,
+  initialPosState,
+  normalizeBarcode,
+  parseLeiToCents,
+  posReducer,
+} from "./adminFairPos.js";
 
 const scanned = (extra = {}) => ({
   inventoryItemId: "i1",
@@ -128,4 +139,80 @@ test("ciorna returului: doar liniile cu bucăți nereturnate; responsabil + moti
   assert.equal(impactText({ refundResponsibility: "VENDOR", responsibilityRequired: true, vendorNetImpactCents: 1530 }), "Net vendor afectat: -15,30 lei");
   assert.equal(impactText({ refundResponsibility: null, responsibilityRequired: false, vendorNetImpactCents: 3960 }), "Net vendor afectat: -39,60 lei");
   assert.equal(impactText({ refundResponsibility: null, responsibilityRequired: true }), "Alege cine suportă rambursarea.");
+});
+
+/* ---------- regulamentul 2.0.0: prețul efectiv introdus la casă, doar pentru vânzarea curentă ---------- */
+
+const vendorPriceItem = (extra = {}) =>
+  scanned({ pricingModel: "FAIR_PRICE", canEditPrice: true, labelPriceCents: 4333, priceCents: 4333, vendorPriceCents: 3900, suggestedPriceCents: 4333, ...extra });
+
+test("parseLeiToCents: virgulă / punct, gol = fără modificare, invalid = NaN", () => {
+  assert.equal(parseLeiToCents("40"), 4000);
+  assert.equal(parseLeiToCents("40,5"), 4050);
+  assert.equal(parseLeiToCents(" 40.50 "), 4050);
+  assert.equal(parseLeiToCents(""), null);
+  assert.ok(Number.isNaN(parseLeiToCents("4o")));
+  assert.ok(Number.isNaN(parseLeiToCents("40,555")));
+});
+
+test("coș: doar prețul efectiv intră în cerere (banii 10% / 90% se calculează pe server); regula 1.x nu trimite prețuri", () => {
+  let state = posReducer(initialPosState, { type: "SCANNED", item: vendorPriceItem() });
+  state = posReducer(state, { type: "SCANNED", item: scanned({ inventoryItemId: "i2", title: "Cană" }) });
+  assert.deepEqual(cartPayload(state.cart), [
+    { inventoryItemId: "i1", quantity: 1 },
+    { inventoryItemId: "i2", quantity: 1 },
+  ]);
+
+  state = posReducer(state, { type: "SET_PRICE", inventoryItemId: "i1", value: "40,00" });
+  assert.deepEqual(cartPayload(state.cart)[0], { inventoryItemId: "i1", quantity: 1, effectiveUnitPriceCents: 4000 });
+
+  // prețul declarat și sugerat ajung pe rând, pentru afișare
+  assert.equal(state.cart[0].vendorPriceCents, 3900);
+  assert.equal(state.cart[0].suggestedPriceCents, 4333);
+  // nu există câmpuri pentru suma vânzătorului: rezultă din regula de comision
+  assert.deepEqual(Object.keys(cartPayload(state.cart)[0]).sort(), ["effectiveUnitPriceCents", "inventoryItemId", "quantity"]);
+
+  // regula veche: chiar dacă ar exista un preț în stare, nu se trimite
+  const old = { ...state.cart[1], priceInput: "10" };
+  assert.deepEqual(cartPayload([old]), [{ inventoryItemId: "i2", quantity: 1 }]);
+});
+
+test("încasarea: blocată la preț invalid și pe un total calculat pentru alt coș", () => {
+  let state = posReducer(initialPosState, { type: "SCANNED", item: vendorPriceItem() });
+  const sig = cartSignature(state.cart);
+  const preview = { canConfirm: true, signature: sig };
+  assert.equal(canSubmit(state, preview, sig), true);
+
+  // prețul s-a schimbat: totalul afișat e vechi până la noul calcul
+  state = posReducer(state, { type: "SET_PRICE", inventoryItemId: "i1", value: "41" });
+  const newSig = cartSignature(state.cart);
+  assert.notEqual(newSig, sig);
+  assert.equal(canSubmit(state, preview, newSig), false);
+  assert.equal(canSubmit(state, { canConfirm: true, signature: newSig }, newSig), true);
+
+  state = posReducer(state, { type: "SET_PRICE", inventoryItemId: "i1", value: "abc" });
+  assert.equal(canSubmit(state, { canConfirm: true, signature: cartSignature(state.cart) }, cartSignature(state.cart)), false);
+  assert.deepEqual(cartInputProblems(state.cart), ["Spiriduș: prețul efectiv nu este valid."]);
+});
+
+test("preț peste etichetă: cere confirmare explicită; schimbarea prețului anulează confirmarea", () => {
+  let state = posReducer(initialPosState, { type: "SCANNED", item: vendorPriceItem({ salePriceCents: 4333 }) });
+  state = posReducer(state, { type: "SET_PRICE", inventoryItemId: "i1", value: "45" });
+  assert.equal(isAboveLabel(state.cart[0]), true);
+  assert.deepEqual(cartInputProblems(state.cart), ["Spiriduș: confirmă prețul mai mare decât cel de pe etichetă."]);
+  assert.equal(canSubmit(state, { canConfirm: true, signature: cartSignature(state.cart) }, cartSignature(state.cart)), false);
+  // fără confirmare, cererea nu poartă confirmarea
+  assert.deepEqual(cartPayload(state.cart)[0], { inventoryItemId: "i1", quantity: 1, effectiveUnitPriceCents: 4500 });
+
+  state = posReducer(state, { type: "CONFIRM_ABOVE_LABEL", inventoryItemId: "i1", value: true });
+  assert.deepEqual(cartInputProblems(state.cart), []);
+  assert.deepEqual(cartPayload(state.cart)[0], { inventoryItemId: "i1", quantity: 1, effectiveUnitPriceCents: 4500, aboveLabelConfirmed: true });
+
+  // prețul se schimbă => confirmarea se pierde
+  state = posReducer(state, { type: "SET_PRICE", inventoryItemId: "i1", value: "46" });
+  assert.equal(state.cart[0].aboveLabelConfirmed, false);
+  // sub etichetă: fără confirmare
+  state = posReducer(state, { type: "SET_PRICE", inventoryItemId: "i1", value: "40" });
+  assert.equal(isAboveLabel(state.cart[0]), false);
+  assert.deepEqual(cartInputProblems(state.cart), []);
 });

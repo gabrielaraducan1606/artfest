@@ -17,12 +17,53 @@ import {
   PAYMENT_LABEL,
   SALES_API,
   VENDOR_REPORT_API,
+  VENDOR_SUMMARY_API,
   formatLei,
   initialFairDate,
   isValidDate,
   reportUrl,
+  unitPricesText,
 } from "./fairSales.js";
 import styles from "./FairInventory.module.css";
+
+/*
+ * Pe scurt (mereu „azi” = ziua de azi în ora României, indiferent de ziua aleasă mai jos):
+ * ce s-a vândut azi, totalul la târg, suma care îți revine, ce s-a decontat și restul.
+ */
+function SalesSummary({ summary }) {
+  if (!summary) return null;
+  const { today, total, settlement, todayProducts } = summary;
+  return (
+    <div className={styles.summaryBox}>
+      <h3 className={styles.label}>Pe scurt</h3>
+      <dl className={styles.receptionStats}>
+        <Stat label={`Azi (${summary.date})`} value={`${today.net.unitsSold} buc. · ${formatLei(today.net.collectedCents)}`} />
+        <Stat label="Total la târg" value={`${total.net.unitsSold} buc. · ${formatLei(total.net.collectedCents)}`} />
+        <Stat label="Îți revine" value={formatLei(settlement.dueCents)} />
+        <Stat label="Decontat (plătit)" value={formatLei(settlement.paidCents)} />
+        <Stat label="Rest de primit" value={formatLei(settlement.remainingCents)} />
+      </dl>
+      {todayProducts.length > 0 ? (
+        <ul className={styles.receptionMessages}>
+          {todayProducts.map((p) => (
+            <li key={p.inventoryItemId}>
+              Azi: {p.title}
+              {p.variantLabel ? ` (${p.variantLabel})` : ""} · {p.quantity} buc. · preț final {unitPricesText(p.unitPricesCents)} · îți revine{" "}
+              {formatLei(p.vendorNetCents)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className={styles.empty}>Nicio vânzare azi.</p>
+      )}
+      {(total.voids.units > 0 || total.returns.units > 0) && (
+        <p className={styles.hint}>
+          Anulări: {total.voids.units} buc. · Retururi: {total.returns.units} buc. Suma care îți revine ține cont de ele.
+        </p>
+      )}
+    </div>
+  );
+}
 
 function Stat({ label, value }) {
   return (
@@ -38,6 +79,7 @@ export default function FairSalesSection() {
   const [date, setDate] = useState(() => initialFairDate(location.search));
   const [report, setReport] = useState(null);
   const [sales, setSales] = useState(null);
+  const [summary, setSummary] = useState(null);
   const [busy, setBusy] = useState(false);
   const [csvBusy, setCsvBusy] = useState(false);
   const [error, setError] = useState("");
@@ -46,12 +88,14 @@ export default function FairSalesSection() {
     if (!isValidDate(date)) return;
     setBusy(true);
     try {
-      const [rep, list] = await Promise.all([
+      const [rep, list, sum] = await Promise.all([
         api(reportUrl(VENDOR_REPORT_API, date)),
         api(`${SALES_API}?date=${encodeURIComponent(date)}&limit=200`),
+        api(VENDOR_SUMMARY_API),
       ]);
       setReport(rep);
       setSales(list);
+      setSummary(sum);
       setError("");
     } catch (err) {
       setError(err?.data?.message || err?.message || "Nu am putut încărca vânzările.");
@@ -124,6 +168,8 @@ export default function FairSalesSection() {
           {error}
         </div>
       )}
+
+      <SalesSummary summary={summary} />
 
       {report && (
         <>
@@ -236,6 +282,12 @@ export default function FairSalesSection() {
                       </>
                     )}
                   </dl>
+                  {line.priceSetManually && (
+                    <p className={styles.hint}>
+                      Prețul acestei vânzări a fost stabilit la casă ({formatLei(line.effectiveUnitPriceCents)} / buc.); comisionul și netul
+                      tău sunt calculate din acest preț.
+                    </p>
+                  )}
                   {line.returns.length > 0 && (
                     <ul className={styles.receptionMessages}>
                       {line.returns.map((r) => (

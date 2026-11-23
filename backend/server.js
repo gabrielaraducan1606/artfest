@@ -107,10 +107,9 @@ import vendorSamedayDeliveryRoutes from "./src/routes/vendorSamedayDeliveryRoute
 import platformBillingRouter from "./src/routes/platformBillingRoutes.js";
 import adminInvoicesRoutes from "./src/routes/adminInvoicesRoutes.js";
 import adminInfluencersRoutes from "./src/routes/adminInfluencersRoutes.js";
-// Artfest Creators (etapa 1a) - oprit implicit (CREATORS_ENABLED); rutele răspund 404 când e oprit
+// Artfest Creators (etapa 1a) - disponibil permanent (rute autentificate, fără API public)
 import creatorRoutes from "./src/routes/creatorRoutes.js";
 import adminCreatorsRoutes from "./src/routes/adminCreatorsRoutes.js";
-import { isCreatorsEnabled } from "./src/config/creators.js";
 import { retryCreatorProfileEmails } from "./src/services/creators/creatorProfileService.js";
 import adminInfluencerTermsRoutes from "./src/routes/adminInfluencerTermsRoutes.js";
 import adminLegalRoutes from "./src/routes/adminLegalRoutes.js";
@@ -940,10 +939,9 @@ setInterval(() => {
 /*
  * Artfest Creators - reia emailurile de status ale profilului (aprobat /
  * modificări / respins / suspendat) eșuate sau rămase neterminate; cheia de
- * idempotență = evenimentul, deci fără duplicate. Doar cu CREATORS_ENABLED.
+ * idempotență = evenimentul, deci fără duplicate.
  */
 setInterval(() => {
-  if (!isCreatorsEnabled()) return;
   retryCreatorProfileEmails().catch((err) =>
     console.error("creatorProfileEmailRetry (interval) failed:", err?.message || err)
   );

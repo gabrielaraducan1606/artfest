@@ -72,10 +72,39 @@ export function posReducer(state, action) {
             priceCents: item.priceCents,
             availableQty: item.availableQty,
             quantity: 1,
+            // regulamentul 2.0.0: prețul efectiv se poate introduce la casă (doar vânzarea curentă);
+            // banii: comision 10% / vendor 90% din prețul efectiv, calculați pe server
+            pricingModel: item.pricingModel || "COMMISSION",
+            canEditPrice: Boolean(item.canEditPrice),
+            labelPriceCents: item.labelPriceCents ?? item.priceCents,
+            // prețul de vânzare actual (prețul final); peste el, prețul introdus cere confirmare
+            salePriceCents: item.salePriceCents ?? item.priceCents,
+            aboveLabelConfirmed: false,
+            vendorPriceCents: item.vendorPriceCents ?? null,
+            suggestedPriceCents: item.suggestedPriceCents ?? null,
+            // eticheta are alt preț decât cel actual: se vinde cu prețul introdus la casă (fără retipărire);
+            // pornim de la prețul tipărit, pe care îl vede clientul
+            requiresPrice: Boolean(item.requiresPrice),
+            priceInput: item.requiresPrice && item.labelPriceCents != null ? centsToInput(item.labelPriceCents) : "",
           },
         ],
       };
     }
+    case "SET_PRICE":
+      return {
+        ...state,
+        error: "",
+        // prețul nou anulează confirmarea anterioară (se confirmă exact prețul afișat)
+        cart: state.cart.map((l) =>
+          l.inventoryItemId === action.inventoryItemId ? { ...l, priceInput: String(action.value ?? ""), aboveLabelConfirmed: false } : l
+        ),
+      };
+    case "CONFIRM_ABOVE_LABEL":
+      return {
+        ...state,
+        error: "",
+        cart: state.cart.map((l) => (l.inventoryItemId === action.inventoryItemId ? { ...l, aboveLabelConfirmed: Boolean(action.value) } : l)),
+      };
     case "SCAN_ERROR":
       return { ...state, error: action.message };
     case "SET_QTY": {
@@ -116,13 +145,60 @@ export function posReducer(state, action) {
   }
 }
 
-export function canSubmit(state, preview) {
-  return !state.busy && state.cart.length > 0 && Boolean(preview?.canConfirm);
+/** 4290 -> „42,90” (valoarea din câmpul de preț) */
+export function centsToInput(cents) {
+  return (Number(cents || 0) / 100).toFixed(2).replace(".", ",");
 }
 
-// corpul cererii: doar id + cantitate (fără preț / comision / vendor)
+/** „40”, „40,5”, „40.50” -> 4050 bani; gol -> null; invalid -> NaN. */
+export function parseLeiToCents(raw) {
+  const text = String(raw ?? "").trim().replace(/\s/g, "").replace(",", ".");
+  if (!text) return null;
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return Number.NaN;
+  return Math.round(Number(text) * 100);
+}
+
+/** Prețul introdus depășește prețul de vânzare de pe etichetă? */
+export function isAboveLabel(line) {
+  const price = parseLeiToCents(line.priceInput);
+  return Number.isInteger(price) && price > 0 && line.salePriceCents != null && price > line.salePriceCents;
+}
+
+/** Problemele câmpurilor completate în coș (blochează încasarea până la corectare). */
+export function cartInputProblems(cart) {
+  const problems = [];
+  for (const l of cart) {
+    const price = parseLeiToCents(l.priceInput);
+    if (Number.isNaN(price) || price === 0) problems.push(`${l.title}: prețul efectiv nu este valid.`);
+    if (l.requiresPrice && price === null) problems.push(`${l.title}: eticheta are alt preț, introdu prețul efectiv.`);
+    if (isAboveLabel(l) && !l.aboveLabelConfirmed) problems.push(`${l.title}: confirmă prețul mai mare decât cel de pe etichetă.`);
+  }
+  return problems;
+}
+
+/*
+ * Încasarea e permisă doar pe totalul afișat: preview-ul trebuie să fie calculat
+ * pentru EXACT coșul curent (inclusiv prețurile editate).
+ */
+export function canSubmit(state, preview, signature = null) {
+  if (state.busy || !state.cart.length || !preview?.canConfirm) return false;
+  if (cartInputProblems(state.cart).length) return false;
+  return signature === null || preview.signature === signature;
+}
+
+// corpul cererii: id + cantitate; prețul efectiv DOAR când e completat
+// (comisionul și suma vendorului se calculează pe server)
 export function cartPayload(cart) {
-  return cart.map((l) => ({ inventoryItemId: l.inventoryItemId, quantity: l.quantity }));
+  return cart.map((l) => {
+    const line = { inventoryItemId: l.inventoryItemId, quantity: l.quantity };
+    if (!l.canEditPrice) return line;
+    const price = parseLeiToCents(l.priceInput);
+    if (Number.isInteger(price) && price > 0) {
+      line.effectiveUnitPriceCents = price;
+      if (isAboveLabel(l) && l.aboveLabelConfirmed) line.aboveLabelConfirmed = true;
+    }
+    return line;
+  });
 }
 
 export function cartSignature(cart) {

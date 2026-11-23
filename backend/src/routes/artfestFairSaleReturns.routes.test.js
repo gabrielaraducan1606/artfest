@@ -119,7 +119,8 @@ beforeEach(async () => {
 let seq = 0;
 const newKey = (p = "ret") => `${p}-key-${++seq}-${Math.random().toString(36).slice(2, 8)}`;
 const sell = async (lines, paymentMethod = "CASH", now = new Date()) =>
-  (await pos.createSale({ body: { lines, paymentMethod }, idempotencyKey: newKey("sale"), adminId: ctx.admin.id, now })).sale;
+  // legacyArtfestFunding: retururile trebuie să închidă corect și vânzările ISTORICE cu reducere finanțată de Artfest
+  (await pos.createSale({ body: { lines, paymentMethod }, idempotencyKey: newKey("sale"), adminId: ctx.admin.id, now, legacyArtfestFunding: true })).sale;
 
 async function call(method, path, { as = ctx.admin, body, key } = {}) {
   const headers = { "content-type": "application/json" };

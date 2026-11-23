@@ -5,6 +5,8 @@
 
 export const SALES_API = "/api/vendor/artfest-fair/sales";
 export const VENDOR_REPORT_API = "/api/vendor/artfest-fair/reports/daily";
+// situația pe scurt: azi + total la târg + cuvenit / decontat / rest
+export const VENDOR_SUMMARY_API = "/api/vendor/artfest-fair/summary";
 export const FAIR_TIMEZONE = "Europe/Bucharest";
 
 export const PAYMENT_LABEL = { CASH: "Numerar", CARD: "Card" };
@@ -44,4 +46,11 @@ export const DISPOSITION_LABEL = {
 export function initialFairDate(search, now = new Date()) {
   const value = new URLSearchParams(search || "").get("date");
   return isValidDate(value) ? value : todayFairDate(now);
+}
+
+// prețul final pe bucată (unul sau mai multe, dacă s-au aplicat reduceri)
+export function unitPricesText(unitPricesCents = []) {
+  const sorted = [...unitPricesCents].sort((a, b) => a - b);
+  if (!sorted.length) return "—";
+  return sorted.map(formatLei).join(" / ");
 }

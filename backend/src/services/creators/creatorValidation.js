@@ -5,8 +5,9 @@
 
 import crypto from "node:crypto";
 
+import { creatorCategoryOptions } from "./creatorCatalogCategories.js";
+import { validateCategorySelection } from "../../lib/creatorCategorySelection.js";
 import {
-  CREATOR_CATEGORY_GROUPS,
   CREATOR_LANGUAGES,
   CREATOR_LIMITS as L,
   CREATOR_NICHES,
@@ -130,7 +131,38 @@ function intOrNull(value, { min = 0, max }) {
  * se validează doar ce s-a trimis. Cerințele minime de publicare sunt în
  * `publishProblems`, separat.
  */
-export function validateProfilePatch(body = {}) {
+/*
+ * Categoriile de promovat (lib/creatorCategorySelection.js): categorii individuale,
+ * grupe întregi („group:<grupă>”, includ automat subcategoriile viitoare) și
+ * excluderi dintr-o grupă („exclude:<categorie>”). O grupă = o preferință (max 6).
+ * Valorile deja salvate (ex. grupe vechi) se păstrează - nu blochează editarea.
+ */
+function pickCategories(value, existing, fields) {
+  const result = validateCategorySelection(value, { catalog: creatorCategoryOptions(), existing, max: L.categoriesMax });
+  if (!result.ok) {
+    fields.preferredCategories = result.error;
+    return [];
+  }
+  return result.value;
+}
+
+// ca pickKeys, dar valorile deja salvate în profil (ex. o limbă scoasă din listă) rămân permise
+function pickKeysKeeping(value, allowed, existing, max, field, fields, label) {
+  const kept = new Set((Array.isArray(existing) ? existing : []).map((v) => String(v || "")));
+  const list = Array.isArray(value) ? value : [];
+  const out = [...new Set(list.map((v) => String(v || "").trim()).filter(Boolean))];
+  if (out.some((key) => !Object.hasOwn(allowed, key) && !kept.has(key))) {
+    fields[field] = `Alege ${label} din listă.`;
+    return [];
+  }
+  if (out.length > max) {
+    fields[field] = `Poți alege maximum ${max}.`;
+    return [];
+  }
+  return out;
+}
+
+export function validateProfilePatch(body = {}, { existingCategories = [], existingLanguages = [] } = {}) {
   const fields = {};
   const data = {};
 
@@ -162,16 +194,27 @@ export function validateProfilePatch(body = {}) {
 
   if ("niches" in body) data.niches = pickKeys(body.niches, CREATOR_NICHES, L.nichesMax, "niches", fields, "nișele");
   if ("preferredCategories" in body) {
-    data.preferredCategories = pickKeys(body.preferredCategories, CREATOR_CATEGORY_GROUPS, L.categoriesMax, "preferredCategories", fields, "categoriile");
+    data.preferredCategories = pickCategories(body.preferredCategories, existingCategories, fields);
   }
   if ("contentLanguages" in body) {
-    data.contentLanguages = pickKeys(body.contentLanguages, CREATOR_LANGUAGES, L.languagesMax, "contentLanguages", fields, "limba");
+    data.contentLanguages = pickKeysKeeping(body.contentLanguages, CREATOR_LANGUAGES, existingLanguages, L.languagesMax, "contentLanguages", fields, "limba");
   }
 
   for (const key of ["acceptsProducts", "acceptsPaid", "availableForCollabs"]) {
     if (key in body) {
       if (typeof body[key] !== "boolean") fields[key] = "Alege da sau nu.";
       else data[key] = body[key];
+    }
+  }
+
+  // tariful orientativ (lei, opțional): doar informativ, nu e prețul final și nu pornește o plată
+  if ("indicativeFee" in body) {
+    if (body.indicativeFee === null || body.indicativeFee === "") data.indicativeFeeCents = null;
+    else {
+      const cents = leiToCents(body.indicativeFee);
+      if (cents === null || cents < L.feeMinCents || cents > L.feeMaxCents) {
+        fields.indicativeFee = `Introdu o sumă în lei între ${L.feeMinCents / 100} și ${(L.feeMaxCents / 100).toLocaleString("ro-RO")} (ex. 250 sau 249,90).`;
+      } else data.indicativeFeeCents = cents;
     }
   }
 

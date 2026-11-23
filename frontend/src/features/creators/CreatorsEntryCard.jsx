@@ -1,13 +1,13 @@
 // src/features/creators/CreatorsEntryCard.jsx
 //
 // Intrarea în Artfest Creators din dashboardul influencerului (/influencer),
-// încărcată lazy și doar cu VITE_CREATORS_ENABLED. Singura modificare din
+// încărcată lazy, permanent. Singura modificare din
 // dashboardul de afiliere este montarea acestui card.
 //
 //   - influencer nou (invitat după lansare), fără profil -> redirect în onboarding;
 //   - influencer existent fără profil -> invitație clară de configurare;
 //   - draft -> „Continuă configurarea”; în verificare -> status; aprobat -> acces.
-// Orice eroare (ex. backend cu flag oprit) => cardul nu apare (nu afectează dashboardul).
+// Orice eroare la încărcarea stării => cardul nu apare (nu afectează dashboardul).
 
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";

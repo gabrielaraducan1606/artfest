@@ -17,9 +17,11 @@ import {
   RETURN_TYPE_LABEL,
   SALE_STATUS_LABEL,
   canSubmit,
+  cartInputProblems,
   cartPayload,
   cartSignature,
   formatLei,
+  isAboveLabel,
   initialPosState,
   newIdempotencyKey,
   normalizeBarcode,
@@ -44,6 +46,65 @@ function formatDate(value) {
 }
 
 /* ===================== Vânzare ===================== */
+
+/*
+ * Prețul pe rând. Aceeași regulă pentru toți: Artfest 10% din prețul efectiv, vânzătorul 90%
+ * (calculate pe server, la fiecare modificare). Regulamentul 2.0.0: prețul efectiv se poate
+ * introduce la casă, doar pentru vânzarea curentă, fără retipărirea etichetei.
+ */
+function PriceCell({ line: l, priced: p, busy, dispatch }) {
+  const id = l.inventoryItemId;
+  const unit = (cents) => (p && l.quantity ? formatLei(Math.round(cents / l.quantity)) : "…");
+  return (
+    <div className={styles.priceCell}>
+      {l.vendorPriceCents != null && l.canEditPrice && (
+        <span className={shared.subtle}>
+          Declarat {formatLei(l.vendorPriceCents)}
+          {l.suggestedPriceCents != null ? ` · Sugerat ${formatLei(l.suggestedPriceCents)}` : ""}
+        </span>
+      )}
+      <span className={shared.subtle}>Etichetă {formatLei(l.labelPriceCents)}</span>
+      {l.requiresPrice && (
+        <span className={styles.split}>Eticheta are alt preț decât cel actual: vinde cu prețul de mai jos, fără retipărire.</span>
+      )}
+      {l.canEditPrice ? (
+        <label className={styles.priceEdit}>
+          <span>Preț efectiv</span>
+          <input
+            className={styles.priceInput}
+            inputMode="decimal"
+            value={l.priceInput}
+            placeholder={formatLei(l.labelPriceCents).replace(" lei", "")}
+            onChange={(e) => dispatch({ type: "SET_PRICE", inventoryItemId: id, value: e.target.value })}
+            disabled={busy}
+            aria-label={`Preț efectiv pe bucată, ${l.title}`}
+          />
+          <span>lei</span>
+        </label>
+      ) : (
+        <strong>{unit(p?.lineGrossCents ?? l.priceCents * l.quantity)}</strong>
+      )}
+      {l.canEditPrice && isAboveLabel(l) && (
+        <label className={styles.aboveLabel}>
+          <input
+            type="checkbox"
+            checked={l.aboveLabelConfirmed}
+            onChange={(e) => dispatch({ type: "CONFIRM_ABOVE_LABEL", inventoryItemId: id, value: e.target.checked })}
+            disabled={busy}
+          />
+          <span>
+            Prețul introdus ({l.priceInput} lei) este <strong>mai mare</strong> decât prețul de pe etichetă ({formatLei(l.salePriceCents)}).
+            Confirm prețul pentru această vânzare (fără retipărirea etichetei).
+          </span>
+        </label>
+      )}
+      <span className={styles.split}>
+        Artfest 10% {unit(p?.commissionCents ?? 0)} · Vânzător 90% {unit(p?.vendorNetCents ?? 0)}
+        {l.quantity > 1 ? " / buc." : ""}
+      </span>
+    </div>
+  );
+}
 
 function SalePanel({ salesOpen }) {
   const [state, dispatch] = useReducer(posReducer, initialPosState);
@@ -85,7 +146,8 @@ function SalePanel({ salesOpen }) {
       try {
         const res = await api(`${POS_API}/preview`, { method: "POST", body: { lines: JSON.parse(signature) } });
         if (!cancelled) {
-          setPreview(res);
+          // totalul afișat ține minte coșul pentru care a fost calculat
+          setPreview({ ...res, signature });
           setPreviewError("");
         }
       } catch (err) {
@@ -114,7 +176,7 @@ function SalePanel({ salesOpen }) {
   }
 
   async function pay(paymentMethod) {
-    if (!canSubmit(state, preview)) return;
+    if (!canSubmit(state, preview, signature)) return;
     const sig = `${signature}|${paymentMethod}`;
     if (keyRef.current.signature !== sig) keyRef.current = { signature: sig, key: newIdempotencyKey() };
     const total = preview?.totals?.totalPaidCents;
@@ -137,6 +199,8 @@ function SalePanel({ salesOpen }) {
   }
 
   const problems = new Map((preview?.problems || []).map((p) => [p.inventoryItemId, p]));
+  const inputProblems = cartInputProblems(state.cart);
+  const previewFresh = preview?.signature === signature;
   const priced = new Map((preview?.lines || []).map((l) => [l.inventoryItemId, l]));
 
   return (
@@ -221,7 +285,9 @@ function SalePanel({ salesOpen }) {
                       {problem && <div className={styles.errorText}>{problem.messages.join(" ")}</div>}
                     </td>
                     <td>{l.vendorName || "—"}</td>
-                    <td>{formatLei(l.priceCents)}</td>
+                    <td>
+                      <PriceCell line={l} priced={p} busy={state.busy} dispatch={dispatch} />
+                    </td>
                     <td>
                       <div className={styles.qty}>
                         <button type="button" onClick={() => dispatch({ type: "DEC", inventoryItemId: l.inventoryItemId })} disabled={state.busy || l.quantity <= 1} aria-label="Scade">
@@ -276,11 +342,11 @@ function SalePanel({ salesOpen }) {
               </div>
             </dl>
             <details className={styles.breakdown}>
-              <summary>Pe vendor (comision {preview.commissionBps / 100}%)</summary>
+              <summary>Pe vânzător</summary>
               <ul>
                 {preview.vendors.map((v) => (
                   <li key={v.vendorId}>
-                    {v.vendorName || v.vendorId}: {formatLei(v.grossCents)} · comision {formatLei(v.commissionCents)} · net{" "}
+                    {v.vendorName || v.vendorId}: {formatLei(v.grossCents)} · comision Artfest {formatLei(v.commissionCents)} · vânzătorului{" "}
                     {formatLei(v.vendorNetCents)}
                   </li>
                 ))}
@@ -293,13 +359,19 @@ function SalePanel({ salesOpen }) {
                   type="button"
                   className={styles.payBtn}
                   onClick={() => pay(method)}
-                  disabled={!salesOpen || !canSubmit(state, preview)}
+                  disabled={!salesOpen || !canSubmit(state, preview, signature)}
                 >
                   {state.busy ? "Se înregistrează…" : `Încasează ${PAYMENT_LABEL[method].toLowerCase()}`}
                 </button>
               ))}
             </div>
             {!preview.canConfirm && <p className={styles.errorText}>Elimină sau corectează produsele marcate.</p>}
+            {inputProblems.map((msg) => (
+              <p key={msg} className={styles.errorText}>
+                {msg}
+              </p>
+            ))}
+            {!previewFresh && !inputProblems.length && <p className={shared.subtle}>Se recalculează totalul…</p>}
           </>
         ) : (
           <p className={shared.subtle}>—</p>
@@ -739,6 +811,146 @@ function DailyReport() {
 
 /* ===================== Panou ===================== */
 
+/* ===================== Situația (pe vânzător + total târg) ===================== */
+
+// un bloc „azi” / „total”: încasări, cuvenit vânzătorilor, Artfest, anulări și retururi separat
+function SummaryCard({ title, data }) {
+  if (!data) return null;
+  return (
+    <section className={styles.summaryCard}>
+      <h4>{title}</h4>
+      <dl className={styles.totals}>
+        <div>
+          <dt>Vânzări ({data.sales.units} buc.)</dt>
+          <dd>{formatLei(data.sales.grossCents)}</dd>
+        </div>
+        <div>
+          <dt>Anulări ({data.voids.units} buc.)</dt>
+          <dd>−{formatLei(data.voids.refundCents)}</dd>
+        </div>
+        <div>
+          <dt>Retururi ({data.returns.units} buc.)</dt>
+          <dd>−{formatLei(data.returns.refundCents)}</dd>
+        </div>
+        <div className={styles.grand}>
+          <dt>Încasări din produse</dt>
+          <dd>{formatLei(data.net.collectedCents)}</dd>
+        </div>
+        <div>
+          <dt>Cuvenit vânzătorilor</dt>
+          <dd>{formatLei(data.net.vendorDueCents)}</dd>
+        </div>
+        <div>
+          <dt>Comision Artfest</dt>
+          <dd>{formatLei(data.net.artfestCents)}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function FairSummary() {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    try {
+      setData(await api(`${POS_API}/reports/summary`));
+      setError("");
+    } catch (err) {
+      setError(errorMessage(err, "Nu am putut încărca situația."));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <div className={styles.reportWrap}>
+      <div className={styles.reportBar}>
+        <span className={shared.subtle}>
+          Azi = {data?.date || "…"} (ora României). Taxa de participare nu este inclusă: se gestionează separat.
+        </span>
+        <button type="button" className={styles.ghostBtn} onClick={load} disabled={busy}>
+          {busy ? "Se încarcă…" : "Actualizează"}
+        </button>
+      </div>
+      {error && <div className={shared.error}>{error}</div>}
+      {data && (
+        <>
+          <div className={styles.summaryCards}>
+            <SummaryCard title="Azi" data={data.totals.today} />
+            <SummaryCard title="Total târg" data={data.totals.total} />
+            <section className={styles.summaryCard}>
+              <h4>Deconturi</h4>
+              <dl className={styles.totals}>
+                <div>
+                  <dt>Cuvenit (cu ajustări)</dt>
+                  <dd>{formatLei(data.totals.settlement.dueCents)}</dd>
+                </div>
+                <div>
+                  <dt>Decontat (plătit)</dt>
+                  <dd>{formatLei(data.totals.settlement.paidCents)}</dd>
+                </div>
+                <div className={styles.grand}>
+                  <dt>Rest de plătit</dt>
+                  <dd>{formatLei(data.totals.settlement.remainingCents)}</dd>
+                </div>
+              </dl>
+            </section>
+          </div>
+          {data.rows.length === 0 ? (
+            <p className={shared.subtle}>Nicio vânzare încă.</p>
+          ) : (
+            <div className={styles.tableScroll}>
+              <table className={shared.table}>
+                <thead>
+                  <tr>
+                    <th>Vânzător</th>
+                    <th>Azi</th>
+                    <th>Încasări (total)</th>
+                    <th>Cuvenit vânzătorului</th>
+                    <th>Comision Artfest</th>
+                    <th>Anulări / retururi</th>
+                    <th>Decontat</th>
+                    <th>Rest</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.rows.map((r) => (
+                    <tr key={r.vendorId}>
+                      <td>{r.vendorName || r.vendorId}</td>
+                      <td>
+                        {formatLei(r.today.net.collectedCents)}
+                        <div className={shared.subtle}>{r.todayUnits} buc.</div>
+                      </td>
+                      <td>{formatLei(r.total.net.collectedCents)}</td>
+                      <td>{formatLei(r.total.net.vendorDueCents)}</td>
+                      <td>{formatLei(r.total.net.artfestCents)}</td>
+                      <td>
+                        {r.total.voids.units + r.total.returns.units > 0
+                          ? `${r.total.voids.units} / ${r.total.returns.units} buc. · −${formatLei(r.total.voids.refundCents + r.total.returns.refundCents)}`
+                          : "—"}
+                      </td>
+                      <td>{formatLei(r.settlement.paidCents)}</td>
+                      <td>{formatLei(r.settlement.remainingCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function AdminFairPosPanel() {
   const [tab, setTab] = useState("sale");
   const [status, setStatus] = useState(null);
@@ -774,6 +986,7 @@ export default function AdminFairPosPanel() {
             ["sale", "Vânzare"],
             ["history", "Vânzări"],
             ["report", "Raport zilnic"],
+            ["summary", "Situație"],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -802,6 +1015,7 @@ export default function AdminFairPosPanel() {
       {tab === "sale" && <SalePanel salesOpen={Boolean(status?.salesOpen)} />}
       {tab === "history" && <SalesHistory />}
       {tab === "report" && <DailyReport />}
+      {tab === "summary" && <FairSummary />}
     </div>
   );
 }

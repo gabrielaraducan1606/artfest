@@ -11,6 +11,7 @@
 
 import bwipjs from "bwip-js";
 import { renderPdfWithSharedBrowser } from "./pdfBrowser.js";
+import { fairSalePriceCents } from "./artfestFairPricing.js";
 import {
   LABEL_HEIGHT_MM,
   LABEL_SHEET_COLUMNS,
@@ -280,7 +281,8 @@ export function expandLabelCopies(items) {
       title: item.titleSnapshot,
       variantLabel: item.variantLabel || null,
       storeName: item.storeNameSnapshot || null,
-      priceCents: item.priceSnapshotCents,
+      // prețul de vânzare la târg (prețul final stabilit de Admin, dacă există)
+      priceCents: fairSalePriceCents(item),
       barcode: item.barcode,
       store: item.labelStore || null,
     };

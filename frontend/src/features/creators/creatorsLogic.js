@@ -4,6 +4,8 @@
 // creatorsLogic.test.js): pașii onboardingului, mesajele de status, turul ghidat,
 // formatări și mesajele de eroare în limbaj natural.
 
+import { parseCategorySelection } from "../../../../backend/src/lib/creatorCategorySelection.js";
+
 export const CREATORS_API = "/api/creator";
 export const CREATORS_ADMIN_API = "/api/admin/creators";
 
@@ -373,4 +375,66 @@ export function friendlyError(error, fallback = "Nu am putut salva. Încearcă d
 export function fieldErrors(error) {
   const fields = error?.data?.fields;
   return fields && typeof fields === "object" ? fields : {};
+}
+
+/* ---------------- categoriile de produse (din catalogul Artfest) ---------------- */
+
+// modelul selecției (grupe întregi, categorii, excluderi) e comun cu serverul
+export {
+  countCategoryPreferences,
+  toggleCategory,
+  toggleCategoryGroup,
+} from "../../../../backend/src/lib/creatorCategorySelection.js";
+
+const normalizeSearch = (text) =>
+  String(text || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+
+/*
+ * Vizualizarea formularului „Ce categorii de produse ai dori să promovezi?”:
+ *   - groups: grupele oficiale (din options.categories), fiecare cu starea
+ *     „none” | „partial” | „full”, câte sunt alese și categoriile vizibile;
+ *   - căutare după numele categoriei (fără diacritice); dacă se potrivește numele
+ *     grupei, apare toată grupa; grupele fără rezultate se ascund;
+ *   - unknown: valori salvate care nu mai există în catalog (rămân, pot fi scoase);
+ *   - count: câte preferințe ocupă selecția (grupa întreagă = una).
+ */
+export function categoryPickerView(options = {}, selected = [], query = "") {
+  const catalog = Array.isArray(options?.categories) ? options.categories : [];
+  const labels = options?.categoryLabels || {};
+  const sel = parseCategorySelection(selected, catalog);
+  const q = normalizeSearch(query);
+  const groups = [];
+  const byGroup = new Map();
+  for (const item of catalog) {
+    const key = item.group || "alte";
+    if (!byGroup.has(key)) {
+      const group = { key, label: item.groupLabel || "Alte categorii", all: [], items: [] };
+      byGroup.set(key, group);
+      groups.push(group);
+    }
+    byGroup.get(key).all.push(item);
+  }
+  const visible = [];
+  for (const group of groups) {
+    const excluded = sel.groups.get(group.key);
+    const whole = sel.groups.has(group.key);
+    const isOn = (value) => (whole ? !excluded.has(value) : sel.singles.has(value));
+    const selectedCount = group.all.filter((item) => isOn(item.value)).length;
+    const state = whole ? (excluded.size ? "partial" : "full") : selectedCount ? "partial" : "none";
+    const groupMatches = q && normalizeSearch(group.label).includes(q);
+    const items = group.all
+      .filter((item) => !q || groupMatches || normalizeSearch(item.label).includes(q))
+      .map((item) => ({ value: item.value, label: item.label, on: isOn(item.value) }));
+    if (q && !items.length) continue;
+    visible.push({ key: group.key, label: group.label, state, whole, selectedCount, total: group.all.length, items });
+  }
+  return {
+    groups: visible,
+    unknown: sel.unknown.map((value) => ({ value, label: labels[value] || value })),
+    count: sel.groups.size + sel.singles.size + sel.unknown.length,
+  };
 }

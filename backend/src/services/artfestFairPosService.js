@@ -34,6 +34,15 @@ import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { cleanText, lockLine, normalizeScannedBarcode, requireIdempotencyKey } from "./artfestFairReceptionService.js";
 import { notifyVendorsDailySales } from "./artfestFairNotifications.js";
 import { isManualFairItem } from "../lib/artfestFairManualItem.js";
+import {
+  FINAL_PRICE_MESSAGES,
+  PRICING_MODELS,
+  fairSalePriceCents,
+  finalPriceIssues,
+  isFairPriceModel,
+  parseCents,
+  suggestedFinalPriceCents,
+} from "../lib/artfestFairPricing.js";
 
 const BARCODE_RE = /^AF[2-9ABCDEFGHJKMNPQRSTVWX]{8}$/;
 const MAX_LINES = 100;
@@ -55,6 +64,10 @@ export const SALE_BLOCK_MESSAGES = Object.freeze({
   label_missing: "Eticheta lipsește.",
   label_outdated: "Prețul de pe etichetă nu mai corespunde.",
   insufficient_stock: "Stoc insuficient.",
+  ...FINAL_PRICE_MESSAGES,
+  // modelul FAIR_PRICE: prețul editat în POS / suma vendorului
+  price_above_label_unconfirmed: "Prețul introdus este mai mare decât prețul de pe etichetă: confirmă-l explicit.",
+  price_edit_not_allowed: "Prețul se poate introduce la casă doar pentru vânzătorii care au acceptat regulamentul 2.0.0.",
 });
 
 /* ===================== Utilitare ===================== */
@@ -87,17 +100,56 @@ function parseCartLines(rawLines) {
     if (!Number.isInteger(qty) || qty < 1 || qty > MAX_QTY) {
       throw new FairError(400, "invalid_quantity", "Cantitate invalidă.", { fields: { [id]: "Introdu un număr întreg ≥ 1." } });
     }
-    merged.set(id, (merged.get(id) || 0) + qty);
+    const pricing = parseLinePricing(raw, id);
+    const prev = merged.get(id);
+    if (prev && prev.pricingKey !== pricing.pricingKey) {
+      throw new FairError(400, "conflicting_line_price", "Același produs apare în coș cu prețuri diferite.", {
+        fields: { [id]: "Folosește un singur preț pentru produs." },
+      });
+    }
+    merged.set(id, { ...pricing, quantity: (prev?.quantity || 0) + qty });
   }
-  return [...merged.entries()].map(([inventoryItemId, quantity]) => ({ inventoryItemId, quantity })).sort((a, b) =>
-    a.inventoryItemId < b.inventoryItemId ? -1 : 1
-  );
+  return [...merged.entries()]
+    .map(([inventoryItemId, { pricingKey, ...rest }]) => {
+      void pricingKey;
+      return { inventoryItemId, ...rest };
+    })
+    .sort((a, b) => (a.inventoryItemId < b.inventoryItemId ? -1 : 1));
 }
 
-// hash canonic al cererii (aceeași cheie + alt conținut => 409)
+/*
+ * Prețul efectiv introdus în POS (doar vânzarea curentă; înscrieri FAIR_PRICE):
+ *   effectiveUnitPriceCents - prețul unitar încasat (≤ prețul final de pe etichetă).
+ * Lipsă = prețul etichetei (cu reducerea automată, dacă există). Suma vendorului NU
+ * se trimite: rezultă din aceeași regulă de comision (90% din prețul efectiv).
+ */
+function parseLinePricing(raw, id) {
+  const has = (k) => raw?.[k] !== undefined && raw?.[k] !== null && raw?.[k] !== "";
+  const out = { effectiveUnitPriceCents: null, aboveLabelConfirmed: false };
+  if (has("effectiveUnitPriceCents")) {
+    const v = parseCents(raw.effectiveUnitPriceCents);
+    if (v === null || v < 1) {
+      throw new FairError(400, "invalid_unit_price", "Preț unitar invalid.", { fields: { [id]: "Introdu un preț mai mare de 0." } });
+    }
+    out.effectiveUnitPriceCents = v;
+  }
+  // prețul peste etichetă se acceptă doar cu confirmare explicită (aboveLabelConfirmed: true)
+  out.aboveLabelConfirmed = out.effectiveUnitPriceCents != null && raw?.aboveLabelConfirmed === true;
+  out.pricingKey = JSON.stringify([out.effectiveUnitPriceCents, out.aboveLabelConfirmed]);
+  return out;
+}
+
+const hasPriceEdit = (l) => l.effectiveUnitPriceCents != null;
+
+// hash canonic al cererii (aceeași cheie + alt conținut => 409).
+// Liniile fără preț editat păstrează forma veche [id, cantitate].
 export function requestHashFor(lines, paymentMethod, notes) {
   const canonical = JSON.stringify({
-    lines: lines.map((l) => [l.inventoryItemId, l.quantity]),
+    lines: lines.map((l) =>
+      hasPriceEdit(l)
+        ? [l.inventoryItemId, l.quantity, l.effectiveUnitPriceCents, Boolean(l.aboveLabelConfirmed)]
+        : [l.inventoryItemId, l.quantity]
+    ),
     paymentMethod,
     notes: notes || null,
   });
@@ -127,7 +179,7 @@ export function productBlockReasons(product) {
  * Toate condițiile trebuie îndeplinite; NU există override (etichetă, produs).
  * heldQty = bucăți rezervate în retururi către vendor încă în pregătire.
  */
-export function saleBlockReasons({ fair, line, registrationStatus, product, quantity = 1, heldQty = 0 }) {
+export function saleBlockReasons({ fair, line, registrationStatus, pricingModel = PRICING_MODELS.COMMISSION, product, quantity = 1, heldQty = 0 }) {
   const reasons = [];
   if (!fair?.salesOpen) reasons.push("sales_closed");
   if (line.fairId !== fair?.id) reasons.push("other_fair");
@@ -136,8 +188,16 @@ export function saleBlockReasons({ fair, line, registrationStatus, product, quan
   if (line.saleBlockedAt) reasons.push("sale_blocked");
   // produs manual: nu există în catalog, deci nu are stare de moderare / vizibilitate online
   if (!isManualFairItem(line)) reasons.push(...productBlockReasons(product));
-  if (!line.labelGeneratedAt || line.labelPriceCents == null) reasons.push("label_missing");
-  else if (line.labelPriceCents !== line.priceSnapshotCents) reasons.push("label_outdated");
+  // FAIR_PRICE: prețul final lipsă / sub prețul vendorului
+  reasons.push(...finalPriceIssues(line, pricingModel));
+  // eticheta trebuie să aibă prețul folosit de POS pentru regula înscrierii: prețul final (FAIR_PRICE)
+  // sau, în regula veche, prețul declarat. O etichetă pregătită cu prețul final înainte de
+  // acceptarea regulamentului nou e „preț vechi” => nu se vinde la prețul nou înainte de acceptare.
+  const expectedLabel = isFairPriceModel(pricingModel) ? fairSalePriceCents(line) : line.priceSnapshotCents;
+  const label =
+    !line.labelGeneratedAt || line.labelPriceCents == null ? "none" : line.labelPriceCents === expectedLabel ? "valid" : "outdated";
+  if (label === "none") reasons.push("label_missing");
+  else if (label === "outdated") reasons.push("label_outdated");
   const sellableQty = Math.max(0, (line.availableQty || 0) - heldQty);
   if (line.status === "RECEIVED" && sellableQty < quantity) reasons.push("insufficient_stock");
   return reasons;
@@ -145,8 +205,18 @@ export function saleBlockReasons({ fair, line, registrationStatus, product, quan
 
 /* ===================== Reduceri + calcul ===================== */
 
-function discountApplies(discount, line, now) {
+/*
+ * La Târg: întotdeauna Artfest 10% din prețul EFECTIV, vendorul 90%, inclusiv la reduceri.
+ * O reducere marcată „finanțată de Artfest” (vendor neutru, D8) NU se mai aplică: ar reduce
+ * comisionul sub 10% din prețul efectiv. Nu e transformată în reducere pe vendor (ar scădea
+ * suma vendorilor pe regulamentul 1.x, cărora le-a fost promisă neutralitatea). Vânzările
+ * istorice își păstrează valorile salvate. Promoțiile magazinului online nu sunt atinse.
+ */
+export const FAIR_DISCOUNT_FUNDING_ALLOWED = Object.freeze(["VENDOR"]);
+
+function discountApplies(discount, line, now, { legacyArtfestFunding = false } = {}) {
   if (discount.status !== "ACTIVE" || discount.fairId !== line.fairId) return false;
+  if (!legacyArtfestFunding && !FAIR_DISCOUNT_FUNDING_ALLOWED.includes(discount.fundingSource || "VENDOR")) return false;
   if (discount.startsAt && new Date(discount.startsAt) > now) return false;
   if (discount.endsAt && new Date(discount.endsAt) <= now) return false;
   if (discount.scope === "INVENTORY_ITEM") return discount.inventoryItemId === line.id;
@@ -173,13 +243,14 @@ const time = (v) => (v ? new Date(v).getTime() : 0);
  *   2. în același scope, cea mai mare reducere pentru client (pe linia dată);
  *   3. la egalitate: createdAt crescător, apoi id - același coș dă mereu același rezultat.
  */
-export function pickDiscount(discounts, line, quantity, now = new Date()) {
-  const applicable = discounts.filter((d) => discountApplies(d, line, now));
+export function pickDiscount(discounts, line, quantity, now = new Date(), options = {}) {
+  const applicable = discounts.filter((d) => discountApplies(d, line, now, options));
   if (!applicable.length) return null;
   const rank = (d) => (d.scope === "INVENTORY_ITEM" ? 0 : 1);
   return [...applicable].sort((a, b) => {
     if (rank(a) !== rank(b)) return rank(a) - rank(b);
-    const diff = discountAmount(b, line.priceSnapshotCents, quantity) - discountAmount(a, line.priceSnapshotCents, quantity);
+    const unit = fairSalePriceCents(line);
+    const diff = discountAmount(b, unit, quantity) - discountAmount(a, unit, quantity);
     if (diff !== 0) return diff;
     const created = time(a.createdAt) - time(b.createdAt);
     if (created !== 0) return created;
@@ -297,7 +368,10 @@ async function loadContext(db, fair, itemIds, now) {
   const productIds = [...new Set(items.map((i) => i.productId).filter(Boolean))];
   const [registrations, vendors, discounts, held, products] = await Promise.all([
     registrationIds.length
-      ? db.artfestFairRegistration.findMany({ where: { id: { in: registrationIds } }, select: { id: true, status: true } })
+      ? db.artfestFairRegistration.findMany({
+          where: { id: { in: registrationIds } },
+          select: { id: true, status: true, pricingModel: true },
+        })
       : [],
     vendorIds.length ? db.vendor.findMany({ where: { id: { in: vendorIds } }, select: { id: true, displayName: true } }) : [],
     db.artfestFairDiscount.findMany({ where: { fairId: fair.id, status: "ACTIVE" } }),
@@ -313,11 +387,75 @@ async function loadContext(db, fair, itemIds, now) {
   return {
     byId,
     registrations: new Map(registrations.map((r) => [r.id, r.status])),
+    // înscrieri vechi / fără câmp => regula actuală
+    pricingModels: new Map(registrations.map((r) => [r.id, r.pricingModel || PRICING_MODELS.COMMISSION])),
     vendors: new Map(vendors.map((v) => [v.id, v.displayName])),
     products: new Map(products.map((p) => [p.id, p])),
     discounts,
     held,
   };
+}
+
+/*
+ * O linie de coș. UN SINGUR calcul pentru toate înscrierile: computeLine (comisionul
+ * fair.commissionBps din prețul efectiv; vendorul primește restul). Diferă doar prețul:
+ *  - COMMISSION: prețul declarat; prețul nu se poate introduce la casă;
+ *  - FAIR_PRICE: prețul final (etichetă); la casă se poate introduce un preț efectiv
+ *    ≤ prețul final, aplicat ca reducere pe linie (finanțată ca reducerea implicită:
+ *    scade și comisionul, și suma vendorului). Prețul introdus înlocuiește reducerea automată.
+ */
+function priceLine({ fair, line, pricingModel, entry, discounts, now, legacyArtfestFunding = false }) {
+  const discount = pickDiscount(discounts, line, entry.quantity, now, { legacyArtfestFunding });
+  if (!isFairPriceModel(pricingModel)) {
+    const c = computeLine({ listUnitPriceCents: line.priceSnapshotCents, quantity: entry.quantity, commissionBps: fair.commissionBps, discount });
+    return {
+      c: { ...c, pricingModel: PRICING_MODELS.COMMISSION, labelUnitPriceCents: line.priceSnapshotCents, priceSetManually: false },
+      discount,
+      priceReasons: hasPriceEdit(entry) ? ["price_edit_not_allowed"] : [],
+    };
+  }
+
+  const labelUnit = fairSalePriceCents(line);
+  const manual = entry.effectiveUnitPriceCents != null;
+  const aboveLabel = manual && entry.effectiveUnitPriceCents > labelUnit;
+  const priceReasons = [];
+  let applied = discount;
+  // prețul de listă al liniei: eticheta; peste etichetă (confirmat) = prețul introdus, fără reducere
+  let listUnit = labelUnit;
+  if (manual) {
+    if (aboveLabel) {
+      if (!entry.aboveLabelConfirmed) priceReasons.push("price_above_label_unconfirmed");
+      listUnit = entry.effectiveUnitPriceCents;
+      applied = null;
+    } else {
+      const perUnit = labelUnit - entry.effectiveUnitPriceCents;
+      // reducere pe linie, fără regulă salvată (nu se creează alocare de reducere)
+      applied = perUnit > 0 ? { type: "FIXED_AMOUNT", amountCents: perUnit, fundingSource: "VENDOR", manual: true } : null;
+    }
+  }
+  const c = computeLine({ listUnitPriceCents: listUnit, quantity: entry.quantity, commissionBps: fair.commissionBps, discount: applied });
+  return {
+    c: {
+      ...c,
+      pricingModel: PRICING_MODELS.FAIR_PRICE,
+      // prețul de vânzare actual (etichetă) și cel tipărit pe etichetă
+      labelUnitPriceCents: labelUnit,
+      printedLabelPriceCents: line.labelPriceCents ?? null,
+      // prețul declarat de vendor și prețul sugerat (declarat / 0,90)
+      vendorBaseUnitPriceCents: line.priceSnapshotCents,
+      suggestedUnitPriceCents: suggestedFinalPriceCents(line.priceSnapshotCents, fair.commissionBps),
+      priceSetManually: manual,
+      priceAboveLabel: aboveLabel,
+    },
+    // reducerea automată (regulă salvată) doar când prețul nu e introdus manual
+    discount: manual ? null : discount,
+    priceReasons,
+  };
+}
+
+function removeReason(reasons, reason) {
+  const i = reasons.indexOf(reason);
+  if (i >= 0) reasons.splice(i, 1);
 }
 
 /*
@@ -333,24 +471,31 @@ function priceCart(fair, cart, ctx, now) {
       problems.push({ inventoryItemId: entry.inventoryItemId, reasons: ["not_found"], messages: ["Produsul nu există în inventarul târgului."] });
       continue;
     }
+    const pricingModel = ctx.pricingModels?.get(line.registrationId) || PRICING_MODELS.COMMISSION;
     const reasons = saleBlockReasons({
       fair,
       line,
       registrationStatus: ctx.registrations.get(line.registrationId),
+      pricingModel,
       product: line.productId ? ctx.products.get(line.productId) || null : null,
       quantity: entry.quantity,
       heldQty: ctx.held.get(line.id) || 0,
     });
+    const { c, discount, priceReasons } = priceLine({
+      fair,
+      line,
+      pricingModel,
+      entry,
+      discounts: ctx.discounts,
+      now,
+      legacyArtfestFunding: Boolean(ctx.legacyArtfestFunding),
+    });
+    for (const r of priceReasons) if (!reasons.includes(r)) reasons.push(r);
+    // prețul introdus în POS: eticheta doar identifică produsul => o etichetă cu preț vechi nu blochează
+    if (c.priceSetManually) removeReason(reasons, "label_outdated");
     if (reasons.length) {
       problems.push({ inventoryItemId: line.id, title: line.titleSnapshot, reasons, messages: reasons.map((r) => SALE_BLOCK_MESSAGES[r]) });
     }
-    const discount = pickDiscount(ctx.discounts, line, entry.quantity, now);
-    const c = computeLine({
-      listUnitPriceCents: line.priceSnapshotCents,
-      quantity: entry.quantity,
-      commissionBps: fair.commissionBps,
-      discount,
-    });
     computed.push({
       ...c,
       inventoryItemId: line.id,
@@ -404,18 +549,32 @@ export async function scanBarcode({ barcode, db = prisma, now = new Date() }) {
 
   const ctx = await loadContext(db, fair, [line.id], now);
   const heldQty = ctx.held.get(line.id) || 0;
+  const pricingModel = ctx.pricingModels.get(line.registrationId) || PRICING_MODELS.COMMISSION;
   const reasons = saleBlockReasons({
     fair,
     line,
     registrationStatus: ctx.registrations.get(line.registrationId),
+    pricingModel,
     product: line.productId ? ctx.products.get(line.productId) || null : null,
     quantity: 1,
     heldQty,
   });
-  const discount = pickDiscount(ctx.discounts, line, 1, now);
-  const unit = computeLine({ listUnitPriceCents: line.priceSnapshotCents, quantity: 1, commissionBps: fair.commissionBps, discount });
+  const { c: unit, discount } = priceLine({ fair, line, pricingModel, entry: { quantity: 1 }, discounts: ctx.discounts, now });
+  const fairModel = isFairPriceModel(pricingModel);
 
   return {
+    // regula înscrierii + prețurile afișate pe rând (scanarea NU înregistrează vânzarea)
+    pricingModel,
+    canEditPrice: fairModel,
+    labelPriceCents: line.labelPriceCents ?? null,
+    salePriceCents: fairModel ? fairSalePriceCents(line) : line.priceSnapshotCents,
+    // prețul declarat de vendor + prețul sugerat (declarat / 0,90)
+    vendorPriceCents: line.priceSnapshotCents,
+    suggestedPriceCents: fairModel ? suggestedFinalPriceCents(line.priceSnapshotCents, fair.commissionBps) : null,
+    // la prețul de pe etichetă (după reducerea automată, dacă există): comision 10% / vendor 90%
+    commissionBps: fair.commissionBps,
+    artfestUnitCents: unit.commissionCents,
+    vendorUnitCents: unit.vendorNetCents,
     inventoryItemId: line.id,
     barcode: line.barcode,
     barcodeDisplay: formatFairBarcode(line.barcode),
@@ -423,11 +582,13 @@ export async function scanBarcode({ barcode, db = prisma, now = new Date() }) {
     variantLabel: line.variantLabel || null,
     imageUrl: line.imageUrlSnapshot || null,
     vendor: { id: line.vendorId, name: ctx.vendors.get(line.vendorId) || null },
-    priceCents: line.priceSnapshotCents,
+    priceCents: fairModel ? fairSalePriceCents(line) : line.priceSnapshotCents,
     unitPriceAfterDiscountCents: unit.lineGrossCents,
     discount: discountSnapshot(discount),
     availableQty: Math.max(0, (line.availableQty || 0) - heldQty),
-    sellable: reasons.length === 0,
+    sellable: reasons.length === 0 || (fairModel && reasons.every((r) => r === "label_outdated")),
+    // eticheta are alt preț: vânzarea merge doar cu prețul introdus la casă (fără retipărire)
+    requiresPrice: fairModel && reasons.includes("label_outdated"),
     reasons,
     messages: reasons.map((r) => SALE_BLOCK_MESSAGES[r]),
   };
@@ -493,6 +654,10 @@ function serializeSaleRow(sale, lines = [], allocations = [], movements = []) {
       commissionOnListCents: l.commissionOnListCents,
       artfestFundedDiscountCents: l.artfestFundedDiscountCents,
       vendorNetCents: l.vendorNetCents,
+      // regula salvată la vânzare (liniile vechi: COMMISSION)
+      pricingModel: l.pricingModel || PRICING_MODELS.COMMISSION,
+      vendorBaseUnitPriceCents: l.vendorBaseUnitPriceCents ?? null,
+      priceSetManually: Boolean(l.priceSetManually),
       returnedQty: l.returnedQty || 0,
       discount: allocations.find((a) => a.saleLineId === l.id)?.snapshot || null,
       movements: movements.filter((m) => m.saleLineId === l.id).map((m) => ({ id: m.id, type: m.type, quantity: m.quantity })),
@@ -612,7 +777,12 @@ async function findSaleByKey(db, key) {
   return db.artfestFairSale.findUnique({ where: { idempotencyKey: key }, select: { id: true, requestHash: true } });
 }
 
-export async function createSale({ body = {}, idempotencyKey, adminId, db = prisma, now = new Date() }) {
+/*
+ * legacyArtfestFunding: DOAR pentru reproducerea vânzărilor istorice (teste / date vechi),
+ * când reducerile „finanțate de Artfest” încă se aplicau. Nu e expus de nicio rută: POS-ul
+ * real aplică întotdeauna 10% / 90% din prețul efectiv.
+ */
+export async function createSale({ body = {}, idempotencyKey, adminId, db = prisma, now = new Date(), legacyArtfestFunding = false }) {
   const key = requireIdempotencyKey(idempotencyKey);
   const cart = parseCartLines(body.lines);
   const paymentMethod = String(body.paymentMethod || "").trim();
@@ -664,6 +834,7 @@ export async function createSale({ body = {}, idempotencyKey, adminId, db = pris
       const itemIds = cart.map((l) => l.inventoryItemId);
       for (const id of itemIds) await lockLine(tx, id);
       const ctx = await loadContext(tx, fair, itemIds, now);
+      ctx.legacyArtfestFunding = legacyArtfestFunding;
 
       // 5-6. garda + calculul pe server; orice linie invalidă => nimic nu se scrie
       const { computed, problems } = priceCart(fair, cart, ctx, now);
@@ -728,6 +899,14 @@ export async function createSale({ body = {}, idempotencyKey, adminId, db = pris
             commissionOnListCents: c.commissionOnListCents,
             vendorNetCents: c.vendorNetCents,
             artfestFundedDiscountCents: c.artfestFundedDiscountCents,
+            // regula aplicată, salvată pe linie (COMMISSION = valorile implicite, ca înainte)
+            ...(c.pricingModel === PRICING_MODELS.FAIR_PRICE
+              ? {
+                  pricingModel: PRICING_MODELS.FAIR_PRICE,
+                  vendorBaseUnitPriceCents: c.vendorBaseUnitPriceCents,
+                  priceSetManually: c.priceSetManually,
+                }
+              : {}),
           },
         });
 

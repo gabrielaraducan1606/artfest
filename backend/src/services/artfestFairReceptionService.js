@@ -24,6 +24,7 @@ import { lockProductForFair } from "./fairProductLock.js";
 import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { FAIR_TX_OPTIONS, PARTICIPATION_CANCELLED_BLOCK_REASON } from "../config/artfestFair.js";
 import { isManualFairItem } from "../lib/artfestFairManualItem.js";
+import { FINAL_PRICE_MESSAGES, labelStateFor, pricingView } from "../lib/artfestFairPricing.js";
 
 export const RETURN_ONLY_TEXT = "Produs primit doar pentru retur – nu este disponibil pentru vânzare.";
 
@@ -145,13 +146,21 @@ async function loadRelated(db, lines) {
     productIds.length ? db.product.findMany({ where: { id: { in: productIds } }, select: PRODUCT_SELECT }) : [],
     vendorIds.length ? db.vendor.findMany({ where: { id: { in: vendorIds } }, select: { id: true, displayName: true } }) : [],
     registrationIds.length
-      ? db.artfestFairRegistration.findMany({ where: { id: { in: registrationIds } }, select: { id: true, status: true } })
+      ? db.artfestFairRegistration.findMany({
+          where: { id: { in: registrationIds } },
+          select: { id: true, status: true, pricingModel: true },
+        })
       : [],
   ]);
   return {
     products: new Map(products.map((p) => [p.id, p])),
     vendors: new Map(vendors.map((v) => [v.id, v])),
     registrations: new Map(registrations.map((r) => [r.id, r.status])),
+    pricingModels: new Map(registrations.map((r) => [r.id, r.pricingModel || "COMMISSION"])),
+    // comisionul târgului (prețul sugerat și împărțirea 10% / 90% din Admin)
+    commissionBps: lines.length
+      ? (await db.artfestFair.findUnique({ where: { id: lines[0].fairId }, select: { commissionBps: true } }))?.commissionBps ?? null
+      : null,
   };
 }
 
@@ -166,7 +175,7 @@ function serializeMovement(m) {
   };
 }
 
-function warningsFor(line, product, eligibility, registrationStatus) {
+function warningsFor(line, product, eligibility, registrationStatus, pricing = null) {
   const warnings = [];
   if (registrationStatus === "CANCELLED") {
     warnings.push(
@@ -179,7 +188,8 @@ function warningsFor(line, product, eligibility, registrationStatus) {
   if (line.handlingInstructions) warnings.push(`Manipulare: ${line.handlingInstructions}`);
   if (line.isUnique) warnings.push("Unicat - o singură bucată.");
   if (!line.labelGeneratedAt) warnings.push("Vendorul nu a generat încă eticheta.");
-  else if (line.labelPriceCents !== line.priceSnapshotCents) warnings.push("Eticheta are un preț vechi.");
+  else if (labelStateFor(line) === "outdated") warnings.push("Eticheta are un preț vechi.");
+  for (const issue of pricing?.issues || []) warnings.push(FINAL_PRICE_MESSAGES[issue]);
   if (line.status === "DRAFT") warnings.push("Vendorul nu a trimis încă această linie de inventar.");
   if (line.status === "CANCELLED") warnings.push("Linia a fost anulată.");
   if (line.saleBlockedAt && line.saleBlockedReason !== PARTICIPATION_CANCELLED_BLOCK_REASON) {
@@ -194,8 +204,9 @@ function warningsFor(line, product, eligibility, registrationStatus) {
 
 export function serializeAdminLine(
   line,
-  { product = null, vendor = null, movements = null, fairId = null, registrationStatus = "APPROVED" } = {}
+  { product = null, vendor = null, movements = null, fairId = null, registrationStatus = "APPROVED", pricingModel = "COMMISSION", commissionBps = null } = {}
 ) {
+  const pricing = pricingView(line, pricingModel, commissionBps);
   const eligibility = getSaleEligibility(line, product, { registrationStatus });
   const received = line.status === "RECEIVED" || line.status === "REJECTED";
   const participationCancelled = registrationStatus === "CANCELLED";
@@ -211,7 +222,7 @@ export function serializeAdminLine(
     vendor: { id: line.vendorId, name: vendor?.displayName || null },
     productId: line.productId,
     isManual: isManualFairItem(line),
-    priceCents: line.priceSnapshotCents,
+    priceCents: pricing.salePriceCents,
     currency: line.currency,
     declaredQty: line.declaredQty,
     receivedQty: line.receivedQty,
@@ -232,7 +243,7 @@ export function serializeAdminLine(
     receivedAt: line.receivedAt || null,
     // eticheta: aceeași stare ca la vendor (preț vechi => de regenerat)
     label: {
-      state: !line.labelGeneratedAt || line.labelPriceCents == null ? "none" : line.labelPriceCents === line.priceSnapshotCents ? "valid" : "outdated",
+      state: labelStateFor(line),
       generatedAt: line.labelGeneratedAt || null,
       priceCents: line.labelPriceCents ?? null,
     },
@@ -252,7 +263,9 @@ export function serializeAdminLine(
       : null,
     difference: received ? describeDifference(line.declaredQty, line.receivedQty, line.rejectedQty) : { delta: 0, text: null },
     eligibility,
-    warnings: warningsFor(line, product, eligibility, registrationStatus),
+    warnings: warningsFor(line, product, eligibility, registrationStatus, pricing),
+    // prețul vendorului, sugestia +10%, prețul final (FAIR_PRICE) - eticheta = pricing.salePriceCents
+    pricing,
     actions: {
       canReceive: line.status === "SUBMITTED" && (registrationStatus === "APPROVED" || participationCancelled),
       canMarkDamaged: line.status === "RECEIVED" && line.availableQty > 0,
@@ -268,7 +281,7 @@ export function serializeAdminLine(
 async function loadAdminLine(db, id, fairId) {
   const line = await db.artfestFairInventoryItem.findUnique({ where: { id: String(id || "") } });
   if (!line) throw new FairError(404, "inventory_item_not_found", "Linia de inventar nu a fost găsită.");
-  const { products, vendors, registrations } = await loadRelated(db, [line]);
+  const { products, vendors, registrations, pricingModels, commissionBps } = await loadRelated(db, [line]);
   const movements = await db.artfestFairStockMovement.findMany({
     where: { inventoryItemId: line.id },
     orderBy: { createdAt: "asc" },
@@ -279,6 +292,8 @@ async function loadAdminLine(db, id, fairId) {
     movements,
     fairId,
     registrationStatus: registrations.get(line.registrationId),
+    pricingModel: pricingModels.get(line.registrationId),
+    commissionBps,
   });
 }
 
@@ -339,7 +354,7 @@ export async function listAdminInventory({ filter = "all", q = "", db = prisma }
     where: { fairId: fair.id, status: { notIn: ["DRAFT", "CANCELLED"] } },
     orderBy: { submittedAt: "asc" },
   });
-  const { products, vendors, registrations } = await loadRelated(db, lines);
+  const { products, vendors, registrations, pricingModels, commissionBps } = await loadRelated(db, lines);
 
   const term = String(q || "").trim().toLowerCase();
   const searchable = term
@@ -361,6 +376,8 @@ export async function listAdminInventory({ filter = "all", q = "", db = prisma }
         vendor: vendors.get(l.vendorId) || null,
         fairId: fair.id,
         registrationStatus: registrations.get(l.registrationId),
+        pricingModel: pricingModels.get(l.registrationId),
+        commissionBps,
       })
     );
 

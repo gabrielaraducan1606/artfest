@@ -271,6 +271,10 @@ function serializeVendorLine(line, sale, discount, returnViews = []) {
     commissionCents: line.commissionCents,
     artfestFundedDiscountCents: line.artfestFundedDiscountCents || 0,
     vendorNetCents: line.vendorNetCents,
+    // regula salvată la vânzare (FAIR_PRICE: prețul final + preț introdus la casă; același comision)
+    pricingModel: line.pricingModel || "COMMISSION",
+    vendorBaseUnitPriceCents: line.vendorBaseUnitPriceCents ?? null,
+    priceSetManually: Boolean(line.priceSetManually),
     // doar ce privește linia vendorului (fără alte linii / totalul vânzării / date client)
     discount: discount ? { name: discount.name || null, fundingSource: discount.fundingSource || null } : null,
     returnedQty: line.returnedQty || 0,

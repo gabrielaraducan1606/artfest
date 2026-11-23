@@ -3,28 +3,25 @@
 // Artfest Creators - constantele etapei 1a (profil, rețele sociale, portofoliu,
 // oferte, onboarding, tur, moderare). Fără catalog vânzători / plăți (etape ulterioare).
 //
-// Flag: CREATORS_ENABLED=1 (backend) - oprit implicit: toate rutele răspund 404.
+// Disponibil permanent (fără feature flag): rutele cer autentificare + rolul
+// potrivit (influencer / admin); nu există pagini sau API publice de profil / oferte.
 // Separat complet de programul de afiliere (InfluencerProfile.commissionBps,
 // perioada de 3 luni, coduri, colecții): nimic de aici nu le citește sau scrie.
 
-import { CATEGORY_GROUP_LABELS } from "../constants/categories.js";
-
-const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
-
-export function isCreatorsEnabled(env = process.env) {
-  return TRUE_VALUES.has(String(env.CREATORS_ENABLED || "").trim().toLowerCase());
-}
-
 /*
- * Influencerii „noi” (contul de influencer creat după această dată) sunt duși
- * automat în onboarding la prima intrare în dashboard; cei existenți văd doar o
- * invitație de configurare. Nesetat => nimeni nu e redirecționat automat.
+ * Influencerii „noi” = contul de influencer creat ÎNCEPÂND cu această dată (UTC).
+ * Doar ei, fără profil Creators, sunt duși automat în configurare la prima intrare
+ * în dashboard (după acceptarea documentelor obligatorii - vezi CreatorsEntryCard).
+ * Cei existenți văd doar cardul de configurare. Prima intrare în configurare
+ * creează ciorna, deci redirecționarea nu se repetă (nici după „Completez mai târziu”).
+ * Dată fixă în cod (înainte era o variabilă de mediu), fără nicio dependență de mediu.
  */
-export function creatorsOnboardingSince(env = process.env) {
-  const raw = String(env.CREATORS_ONBOARDING_SINCE || "").trim();
-  if (!raw) return null;
-  const date = new Date(raw);
-  return Number.isNaN(date.getTime()) ? null : date;
+export const CREATORS_AUTO_ONBOARDING_SINCE = new Date("2026-11-23T00:00:00.000Z");
+
+export function isNewCreatorsInfluencer(influencerCreatedAt, since = CREATORS_AUTO_ONBOARDING_SINCE) {
+  if (!influencerCreatedAt) return false;
+  const created = new Date(influencerCreatedAt);
+  return !Number.isNaN(created.getTime()) && created >= since;
 }
 
 // versiunea turului ghidat: o creștere îl reafișează o singură dată tuturor
@@ -78,10 +75,12 @@ export const CREATOR_NICHES = Object.freeze({
   local: "Local și comunitate",
 });
 
-// categoriile preferate = grupele de categorii din catalogul Artfest
-export const CREATOR_CATEGORY_GROUPS = Object.freeze({ ...CATEGORY_GROUP_LABELS });
+// categoriile de produse de promovat NU sunt o listă de aici: vin din catalogul
+// oficial Artfest (services/creators/creatorCatalogCategories.js) - toate cele active
 
-export const CREATOR_LANGUAGES = Object.freeze({ ro: "Română", en: "Engleză", hu: "Maghiară" });
+// limbile oferite acum; valorile salvate anterior (ex. „hu”) se păstrează în profil
+export const CREATOR_LANGUAGES = Object.freeze({ ro: "Română", en: "Engleză" });
+export const CREATOR_LEGACY_LANGUAGE_LABELS = Object.freeze({ hu: "Maghiară" });
 
 /* ---------------- oferte ---------------- */
 
@@ -150,8 +149,9 @@ export function creatorOptions() {
   const toList = (obj) => Object.entries(obj).map(([value, label]) => ({ value, label }));
   return {
     niches: toList(CREATOR_NICHES),
-    categories: toList(CREATOR_CATEGORY_GROUPS),
     languages: toList(CREATOR_LANGUAGES),
+    // etichete și pentru limbile scoase din listă, salvate deja în unele profiluri
+    languageLabels: { ...CREATOR_LEGACY_LANGUAGE_LABELS, ...CREATOR_LANGUAGES },
     platforms: Object.entries(SOCIAL_PLATFORMS).map(([value, def]) => ({ value, label: def.label, host: def.hosts[0], hosts: [...def.hosts] })),
     contentTypes: toList(OFFER_CONTENT_TYPES),
     offerTypes: toList(OFFER_TYPES),

@@ -1,7 +1,7 @@
 // backend/src/routes/creatorRoutes.js
 //
 // Artfest Creators (etapa 1a) - rutele influencerului. Montat pe /api/creator.
-// Flag CREATORS_ENABLED oprit => 404 pe tot (funcționalitatea nu există public).
+// Disponibil permanent; toate rutele cer autentificare + cont de influencer.
 //
 //   GET    /state                      starea pentru dashboard / onboarding (entry, profil, tur)
 //   GET    /options                    nișe, categorii, limbi, platforme, tipuri de conținut
@@ -23,7 +23,7 @@ import multer from "multer";
 import sharp from "sharp";
 
 import { authRequired, enforceTokenVersion } from "../api/auth.js";
-import { CREATOR_LIMITS, CREATOR_UPLOAD_FOLDER, creatorOptions, isCreatorsEnabled } from "../config/creators.js";
+import { CREATOR_LIMITS, CREATOR_UPLOAD_FOLDER, creatorOptions } from "../config/creators.js";
 import { enforceInfluencerComplianceGate } from "../middleware/enforceInfluencerComplianceGate.js";
 import { enforceInfluencerTermsGate } from "../middleware/enforceInfluencerTermsGate.js";
 import { UploadBusyError, sendUploadBusy } from "../middleware/uploadLoadGuards.js";
@@ -55,14 +55,14 @@ import {
   updateProfile,
 } from "../services/creators/creatorProfileService.js";
 import { prisma } from "../db.js";
+import { creatorCategoryLabels, creatorCategoryOptions } from "../services/creators/creatorCatalogCategories.js";
+
+// toate categoriile active din catalogul Artfest + etichetele valorilor deja salvate (inclusiv cele vechi)
+export function catalogCategoryOptions() {
+  return { categories: creatorCategoryOptions(), categoryLabels: creatorCategoryLabels() };
+}
 
 const router = Router();
-
-// flag oprit => ruta nu există (404, nu 403: nu dezvăluim funcționalitatea)
-export function creatorsEnabledOnly(req, res, next) {
-  if (!isCreatorsEnabled()) return res.status(404).json({ error: "not_found" });
-  return next();
-}
 
 export function sendCreatorError(res, error, scope) {
   if (error instanceof CreatorError) {
@@ -89,7 +89,7 @@ const handle = (fn) => async (req, res) => {
 // imaginile proprii ale contului: doar acestea pot deveni avatar / fotografie de portofoliu
 const uploadPrefixFor = (userId) => buildPublicUrl(`${CREATOR_UPLOAD_FOLDER}/${userId}/`);
 
-router.use(creatorsEnabledOnly, authRequired, enforceTokenVersion);
+router.use(authRequired, enforceTokenVersion);
 
 router.get(
   "/state",
@@ -102,7 +102,7 @@ router.get(
   "/options",
   handle(async (req, res) => {
     await loadInfluencerAccount(prisma, req.user.sub);
-    res.json(creatorOptions());
+    res.json({ ...creatorOptions(), ...catalogCategoryOptions() });
   })
 );
 

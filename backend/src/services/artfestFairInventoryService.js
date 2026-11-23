@@ -33,6 +33,16 @@ import {
 import { FairError, ensureFair } from "./artfestFairService.js";
 import { lockProductForFair } from "./fairProductLock.js";
 import {
+  FINAL_PRICE_MESSAGES,
+  PRICING_MODELS,
+  fairSalePriceCents,
+  finalPriceIssues,
+  isFairPriceModel,
+  labelStateFor,
+  parseCents,
+  pricingView,
+} from "../lib/artfestFairPricing.js";
+import {
   MANUAL_TITLE_MAX,
   cleanManualTitle,
   isAllowedManualImageUrl,
@@ -166,7 +176,7 @@ async function loadContext(db, vendorId, now) {
   const fair = await ensureFair(db);
   const fullFair = await db.artfestFair.findUnique({
     where: { id: fair.id },
-    select: { id: true, key: true, title: true, inventoryDeadlineAt: true, endsAt: true, startsAt: true },
+    select: { id: true, key: true, title: true, inventoryDeadlineAt: true, endsAt: true, startsAt: true, commissionBps: true },
   });
   const registration = await db.artfestFairRegistration.findUnique({
     where: { fairId_vendorId: { fairId: fair.id, vendorId } },
@@ -256,10 +266,8 @@ async function loadOwnedProduct(db, vendorId, productId) {
 
 /* ===================== Serializare ===================== */
 
-function labelState(item) {
-  if (!item.labelGeneratedAt || item.labelPriceCents == null) return "none";
-  return item.labelPriceCents === item.priceSnapshotCents ? "valid" : "outdated";
-}
+// eticheta trebuie să aibă prețul de vânzare actual (prețul final, în modelul FAIR_PRICE)
+const labelState = labelStateFor;
 
 function plural(n, one, many) {
   return n === 1 ? `1 ${one}` : `${n} ${many}`;
@@ -405,6 +413,8 @@ function serializeItem(item, product, ctx, movements = [], returnInfo = null, is
       generatedAt: item.labelGeneratedAt || null,
       priceCents: item.labelPriceCents ?? null,
     },
+    // prețul declarat de vendor + prețul final de vânzare la târg (FAIR_PRICE), cu împărțirea 10% / 90%
+    pricing: pricingView(item, ctx?.registration?.pricingModel, ctx?.fair?.commissionBps),
     online: {
       mode: item.onlineReservationMode,
       state: onlineReservationState(item),
@@ -1543,6 +1553,29 @@ function assertLabelPriceFresh(ctx, items, productById) {
   }
 }
 
+/*
+ * Modelul FAIR_PRICE: eticheta poartă prețul final stabilit de Admin. Fără el
+ * (sau sub prețul vendorului) PDF-ul nu se generează - adminul vede lista.
+ */
+async function assertFinalPricesReady(db, items) {
+  const registrationIds = [...new Set(items.map((i) => i.registrationId))];
+  if (!registrationIds.length) return;
+  const regs = await db.artfestFairRegistration.findMany({
+    where: { id: { in: registrationIds } },
+    select: { id: true, pricingModel: true },
+  });
+  const models = new Map(regs.map((r) => [r.id, r.pricingModel || PRICING_MODELS.COMMISSION]));
+  const problems = [];
+  for (const item of items) {
+    const issues = finalPriceIssues(item, models.get(item.registrationId));
+    if (issues.length) problems.push({ id: item.id, title: item.titleSnapshot, reason: issues[0] });
+  }
+  if (problems.length) {
+    const reason = problems[0].reason;
+    throw new FairError(409, reason, `${FINAL_PRICE_MESSAGES[reason]} Eticheta nu se poate genera.`, { problems });
+  }
+}
+
 export async function getLabelItems({ vendorId, id = null, db = prisma, now = new Date() }) {
   const ctx = await loadContext(db, vendorId, now);
   if (!ctx.registration || !ctx.approved) {
@@ -1565,6 +1598,7 @@ export async function getLabelItems({ vendorId, id = null, db = prisma, now = ne
   }
 
   assertLabelPriceFresh(ctx, items, await itemsWithProducts(db, items));
+  await assertFinalPricesReady(db, items);
   return items;
 }
 
@@ -1618,6 +1652,7 @@ export async function getAdminLabelItems({ id = null, ids = null, vendorId = nul
   // aceeași regulă ca la vendor: înainte de termen, prețul trebuie sincronizat
   const locked = deadlinePassed(fair, now) || fairEnded(fair, now);
   assertLabelPriceFresh({ deadlinePassed: locked }, items, await itemsWithProducts(db, items));
+  await assertFinalPricesReady(db, items);
   return items;
 }
 
@@ -1659,6 +1694,7 @@ async function getSelectedAdminLabelItems({ ids, db, now }) {
     .sort((a, b) => String(a.vendorId).localeCompare(String(b.vendorId)) || new Date(a.createdAt) - new Date(b.createdAt));
   const locked = deadlinePassed(fair, now) || fairEnded(fair, now);
   assertLabelPriceFresh({ deadlinePassed: locked }, items, await itemsWithProducts(db, items));
+  await assertFinalPricesReady(db, items);
   return items;
 }
 
@@ -1666,13 +1702,82 @@ export async function markLabelsGenerated({ items, userId, db = prisma, now = ne
   for (const item of items) {
     await db.artfestFairInventoryItem.update({
       where: { id: item.id },
-      data: { labelPriceCents: item.priceSnapshotCents, labelGeneratedAt: now },
+      data: { labelPriceCents: fairSalePriceCents(item), labelGeneratedAt: now },
     });
     await writeEvent(db, item, "LABEL_GENERATED", {
-      after: { labelPriceCents: item.priceSnapshotCents, copies: item.labelCopies ?? item.declaredQty },
+      after: { labelPriceCents: fairSalePriceCents(item), copies: item.labelCopies ?? item.declaredQty },
       actorUserId: userId,
     });
   }
+}
+
+/* ===================== Prețul final (Admin, modelul FAIR_PRICE) ===================== */
+
+const FINAL_PRICE_STATUSES = ["DRAFT", "SUBMITTED", "RECEIVED"];
+
+/*
+ * Admin stabilește prețul final de vânzare la târg pentru o linie FAIR_PRICE.
+ *  - nu atinge prețul produsului online și nici prețul vendorului (priceSnapshotCents);
+ *  - minim prețul vendorului (vânzarea sub suma lui e blocată oricum în POS);
+ *  - afectează doar vânzările VIITOARE: liniile vândute își păstrează valorile;
+ *  - dacă eticheta e deja tipărită cu alt preț, devine „preț vechi” și POS-ul
+ *    refuză vânzarea până la reimprimare (labelReprintNeeded în răspuns).
+ * Același lock pe linie ca vânzarea din POS: o vânzare în curs folosește fie
+ * prețul vechi, fie pe cel nou, niciodată un amestec.
+ */
+export async function setFinalPrice({ id, body = {}, adminId, db = prisma, now = new Date() }) {
+  const lineId = String(id || "").trim();
+  const finalPriceCents = parseCents(body.finalPriceCents);
+  if (finalPriceCents === null || finalPriceCents < 1) {
+    throw new FairError(400, "invalid_final_price", "Introdu un preț final valid.", { fields: { finalPriceCents: "Preț mai mare de 0." } });
+  }
+
+  const result = await db.$transaction(async (tx) => {
+    const base = await ensureFair(tx);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`artfest-fair-line:${lineId}`}))`;
+    const item = await tx.artfestFairInventoryItem.findUnique({ where: { id: lineId } });
+    if (!item || item.fairId !== base.id || !FINAL_PRICE_STATUSES.includes(item.status)) {
+      throw new FairError(404, "inventory_item_not_found", "Linia nu este în inventarul valid al târgului activ.");
+    }
+    const registration = await tx.artfestFairRegistration.findUnique({
+      where: { id: item.registrationId },
+      select: { id: true, status: true, pricingModel: true },
+    });
+    // pregătirea etichetelor ÎNAINTE de acceptarea regulamentului nou: prețul final se poate
+    // salva pentru înscrierile trimise / aprobate; NU schimbă regula (pricingModel) și nu
+    // permite vânzarea la el până la acceptare (POS-ul verifică eticheta după regula înscrierii)
+    if (!registration || !["SUBMITTED", "APPROVED"].includes(registration.status)) {
+      throw new FairError(409, "registration_not_active", "Participarea vendorului nu este trimisă sau aprobată.");
+    }
+    // regula unică: comision din prețul efectiv; un preț final sub cel sugerat e permis,
+    // dar Admin vede că vendorul primește mai puțin decât prețul declarat (pricing.vendorNetCents)
+    const fairRow = await tx.artfestFair.findUnique({ where: { id: base.id }, select: { commissionBps: true } });
+    if (item.finalPriceCents === finalPriceCents) return { item, changed: false, commissionBps: fairRow?.commissionBps };
+
+    const updated = await tx.artfestFairInventoryItem.update({
+      where: { id: item.id },
+      data: { finalPriceCents, finalPriceSetAt: now, finalPriceSetById: adminId || null },
+    });
+    await writeEvent(tx, item, "FINAL_PRICE_SET", {
+      before: { finalPriceCents: item.finalPriceCents ?? null, vendorPriceCents: item.priceSnapshotCents },
+      after: { finalPriceCents, vendorPriceCents: item.priceSnapshotCents },
+      actorUserId: adminId || null,
+    });
+    return { item: updated, changed: true, commissionBps: fairRow?.commissionBps };
+  }, FAIR_TX_OPTIONS);
+
+  const { item } = result;
+  const label = labelStateFor(item);
+  return {
+    changed: result.changed,
+    item: {
+      id: item.id,
+      pricing: pricingView(item, PRICING_MODELS.FAIR_PRICE, result.commissionBps),
+      label: { state: label, priceCents: item.labelPriceCents ?? null, generatedAt: item.labelGeneratedAt || null },
+    },
+    // eticheta tipărită are alt preț => trebuie reimprimată înainte de următoarea vânzare
+    labelReprintNeeded: label === "outdated",
+  };
 }
 
 /* ===================== Restricții pentru alte fluxuri ===================== */

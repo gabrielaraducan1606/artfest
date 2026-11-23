@@ -276,3 +276,37 @@
     flex: 1 1 0;
   }
 }
+
+/* ---------- preț final (regula „vânzătorul primește prețul lui”) ---------- */
+.pricing {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px dashed var(--color-border);
+  border-radius: 10px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.finalPrice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.finalPrice input {
+  width: 90px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--input-bg, var(--surface));
+  color: var(--color-text);
+  font: inherit;
+}
+
+.warnText {
+  color: var(--color-warning, #b45309);
+  font-weight: 600;
+}

@@ -20,7 +20,6 @@ import PolicyGate from "../../Admin/AdminDesktop/PolicyGate/PolicyGate.jsx";
 import usePolicyGateController from "../../Admin/AdminDesktop/PolicyGate/usePolicyGateController.js";
 
 import styles from "./InfluencerDashboardPage.module.css";
-import { CREATORS_ENABLED } from "../../../features/creators/creatorsFlag.js";
 
 /*
  * Audit performanță 2026-09-23 - lazy pentru cele 4 modale + cele 2
@@ -53,7 +52,7 @@ const CommunityFeaturesSection = lazy(() =>
   import("./CommunityFeaturesSection.jsx")
 );
 
-// Artfest Creators (profil profesional, separat de afiliere) - doar cu VITE_CREATORS_ENABLED
+// Artfest Creators (profil profesional, separat de afiliere) - permanent în dashboard
 const CreatorsEntryCard = lazy(() =>
   import("../../../features/creators/CreatorsEntryCard.jsx")
 );
@@ -1451,11 +1450,9 @@ export default function InfluencerDashboardPage() {
         )}
 
         {/* Artfest Creators: invitație / status / redirect în onboarding (influencer nou) */}
-        {CREATORS_ENABLED && (
-          <Suspense fallback={null}>
-            <CreatorsEntryCard holdRedirect={Boolean(data?.terms?.outdated) || Boolean(policyGateOpen)} />
-          </Suspense>
-        )}
+        <Suspense fallback={null}>
+          <CreatorsEntryCard holdRedirect={Boolean(data?.terms?.outdated) || Boolean(policyGateOpen)} />
+        </Suspense>
 
         {/* =====================================================
             HEADER

@@ -23,6 +23,8 @@ import {
 } from "../services/artfestFairService.js";
 import { confirmReturn, listReturnsForVendor } from "../services/artfestFairReturnService.js";
 import { listVendorSales, vendorDailyReport, vendorReportCsv } from "../services/artfestFairReportsService.js";
+import { vendorFairSummary } from "../services/artfestFairSummaryService.js";
+import { acceptFairPriceModel, getPricingModelDocument, getPricingModelState } from "../services/artfestFairPricingModelService.js";
 import { getSettlementForVendor, listSettlementsForVendor, settlementCsv } from "../services/artfestFairSettlementService.js";
 import { getRequestIp, handleFair, requireVendor, sendFairRulesDraft } from "./artfestFairHttp.js";
 
@@ -66,7 +68,49 @@ router.post(
 
 router.get("/rules-draft", sendFairRulesDraft);
 
+/* ---------- regulamentul 2.0.0: preț final Artfest + preț la casă, comision 10% (doar cu acceptare explicită) ---------- */
+
+router.get(
+  "/pricing-model",
+  handle(async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json(await getPricingModelState({ vendorId: req.vendorId }));
+  })
+);
+
+// documentul complet (versiunea publicată care conține regula), pentru modalul de acceptare
+router.get(
+  "/pricing-model/document",
+  handle(async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json(await getPricingModelDocument({ vendorId: req.vendorId }));
+  })
+);
+
+router.post(
+  "/pricing-model/accept",
+  handle(async (req, res) => {
+    const result = await acceptFairPriceModel({
+      vendorId: req.vendorId,
+      userId: req.user.sub,
+      body: req.body || {},
+      ip: getRequestIp(req),
+      ua: req.headers["user-agent"] || null,
+    });
+    res.json({ ok: true, ...result });
+  })
+);
+
 const q = (v) => (v ? String(v) : null);
+
+// situația pe scurt: azi, total la târg, cuvenit, decontat, rest de primit (doar liniile vendorului)
+router.get(
+  "/summary",
+  handle(async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json(await vendorFairSummary({ vendorId: req.vendorId }));
+  })
+);
 
 router.get(
   "/sales",

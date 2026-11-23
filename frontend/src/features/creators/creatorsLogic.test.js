@@ -195,3 +195,46 @@ test("cardul „Profilul meu”: în verificare nu cere din nou trimiterea", () 
   assert.equal(profileSectionView({ entry: "approved", profile: { ...base, suspended: true } }).cta, null);
   assert.equal(profileSectionView({ entry: "setup", profile: null }).cta, null);
 });
+
+test("categorii: grupe cu stare (none/partial/full), căutare fără diacritice, numărare, valori vechi", async () => {
+  const { categoryPickerView, toggleCategory, toggleCategoryGroup } = await import("./creatorsLogic.js");
+  const options = {
+    categories: [
+      { value: "bijuterii_bratari", label: "Brățări", group: "bijuterii", groupLabel: "Bijuterii & accesorii" },
+      { value: "bijuterii_cercei", label: "Cercei", group: "bijuterii", groupLabel: "Bijuterii & accesorii" },
+      { value: "papetarie_invitatii-nunta", label: "Invitații nuntă", group: "papetarie", groupLabel: "Papetărie & personalizări" },
+      { value: "papetarie_invitatii-botez", label: "Invitații botez", group: "papetarie", groupLabel: "Papetărie & personalizări" },
+      { value: "cadouri_anime-manga", label: "Anime & Manga", group: "cadouri", groupLabel: "Cadouri & personalizate" },
+    ],
+    categoryLabels: { party: "Candy bar & party", vechi: "Ceva vechi" },
+  };
+  const cat = options.categories;
+  let list = toggleCategoryGroup([], "bijuterii", cat).list;
+  let view = categoryPickerView(options, list);
+  assert.equal(view.groups.find((g) => g.key === "bijuterii").state, "full");
+  assert.ok(view.groups.find((g) => g.key === "bijuterii").items.every((i) => i.on));
+  assert.equal(view.count, 1);
+
+  list = toggleCategory(list, "bijuterii_cercei", cat).list;
+  view = categoryPickerView(options, list);
+  const bij = view.groups.find((g) => g.key === "bijuterii");
+  assert.deepEqual([bij.state, bij.selectedCount, bij.total, view.count], ["partial", 1, 2, 1]);
+
+  list = toggleCategory(list, "cadouri_anime-manga", cat).list;
+  assert.equal(categoryPickerView(options, list).count, 2);
+
+  // căutare: fără diacritice, după numele categoriei sau al grupei
+  assert.deepEqual(categoryPickerView(options, list, "invitatii").groups.map((g) => [g.key, g.items.map((i) => i.value)]), [
+    ["papetarie", ["papetarie_invitatii-nunta", "papetarie_invitatii-botez"]],
+  ]);
+  assert.deepEqual(categoryPickerView(options, list, "BRATARI").groups.map((g) => g.items.length), [1]);
+  assert.deepEqual(categoryPickerView(options, list, "bijuterii").groups[0].items.length, 2);
+  assert.equal(categoryPickerView(options, list, "zzz").groups.length, 0);
+
+  // valoare veche de grupă (fără prefix) = grupă întreagă; necunoscutele rămân separat
+  const legacy = categoryPickerView(options, ["papetarie", "vechi"]);
+  assert.equal(legacy.groups.find((g) => g.key === "papetarie").state, "full");
+  assert.deepEqual(legacy.unknown, [{ value: "vechi", label: "Ceva vechi" }]);
+  assert.equal(legacy.count, 2);
+  assert.deepEqual(categoryPickerView({}, []), { groups: [], unknown: [], count: 0 });
+});

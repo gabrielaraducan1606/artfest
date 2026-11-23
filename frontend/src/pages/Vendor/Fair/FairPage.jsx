@@ -22,6 +22,7 @@ import {
 import FairInventorySection from "./FairInventorySection.jsx";
 import FairReturnsSection from "./FairReturnsSection.jsx";
 import FairSalesSection from "./FairSalesSection.jsx";
+import FairPricingModelSection from "./FairPricingModelSection.jsx";
 import FairSettlementsSection from "./FairSettlementsSection.jsx";
 import styles from "./FairPage.module.css";
 
@@ -384,6 +385,8 @@ export default function FairPage() {
         </section>
       )}
 
+      {/* regula nouă de preț: apare doar dacă serverul o oferă; nimic nu se activează automat */}
+      {(status === "APPROVED" || status === "SUBMITTED") && <FairPricingModelSection />}
       {(status === "APPROVED" || status === "CANCELLED") && <FairSettlementsSection />}
       {(status === "APPROVED" || status === "CANCELLED") && <FairSalesSection />}
       {(status === "APPROVED" || status === "CANCELLED") && <FairReturnsSection />}

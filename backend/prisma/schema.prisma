@@ -839,6 +839,20 @@ enum ArtfestInventoryEventType {
   REGISTRATION_CANCELLED
   RECEIVED_FOR_RETURN_ONLY
   RETURN_CANCELLED
+  FINAL_PRICE_SET // prețul final de vânzare la târg, stabilit de Admin (modelul FAIR_PRICE)
+}
+
+// Regula de împărțire a încasării la Târg, pe înscriere:
+// O SINGURĂ regulă financiară pentru ambele: comisionul fair.commissionBps (10%) din prețul
+// efectiv de vânzare; vendorul primește restul (90%). Diferă doar permisiunile de preț:
+//  - COMMISSION (regulament 1.x): prețul de vânzare = prețul declarat; fără preț introdus la casă;
+//  - FAIR_PRICE (regulament 2.0.0): preț final stabilit de Admin (sugestie = declarat / 0,90) și
+//    preț efectiv introdus la casă, doar pentru vânzarea curentă.
+// Implicit COMMISSION: înscrierile existente NU se schimbă; FAIR_PRICE doar după acceptarea
+// explicită a noii versiuni de regulament (pricingModelAcceptedAt + pricingModelTermsVersion).
+enum ArtfestFairPricingModel {
+  COMMISSION
+  FAIR_PRICE
 }
 
 // ==================== Târg Artfest - retur către vendor ====================
@@ -5507,6 +5521,14 @@ model ArtfestFairRegistration {
   termsVersion          String?                       @db.VarChar(40)
   termsIp               String?                       @db.VarChar(64)
   termsUa               String?                       @db.VarChar(500)
+  // regula de împărțire a încasării (vezi enum ArtfestFairPricingModel); se aplică doar vânzărilor viitoare
+  pricingModel             ArtfestFairPricingModel @default(COMMISSION)
+  pricingModelAcceptedAt   DateTime?
+  pricingModelTermsVersion String?                 @db.VarChar(40)
+  // dovada acceptării (regulament 17.2: versiune, dată, cont, IP, browser) - același tipar ca termsIp / termsUa
+  pricingModelAcceptedById String?
+  pricingModelAcceptIp     String?                 @db.VarChar(64)
+  pricingModelAcceptUa     String?                 @db.VarChar(500)
   submittedAt           DateTime                      @default(now())
   reviewedAt            DateTime?
   reviewedById          String?
@@ -5707,6 +5729,13 @@ model ArtfestFairInventoryItem {
   priceSnapshotCents Int
   currency           String   @default("RON") @db.VarChar(3)
   priceSyncedAt      DateTime @default(now())
+
+  // FAIR_PRICE: priceSnapshotCents = prețul declarat de vendor;
+  // finalPriceCents = prețul de vânzare la târg stabilit de Admin (sugestie = declarat / 0,90).
+  // Nu atinge prețul produsului online. Eticheta afișează finalPriceCents ?? priceSnapshotCents.
+  finalPriceCents   Int?
+  finalPriceSetAt   DateTime?
+  finalPriceSetById String?
 
   barcode          String    @unique @db.VarChar(10)
   labelPriceCents  Int?
@@ -5993,6 +6022,15 @@ model ArtfestFairSaleLine {
   //   vendorNetCents             = vendorNetAfterDiscount + artfestFundedDiscountCents
   vendorNetCents             Int
   artfestFundedDiscountCents Int @default(0)
+
+  // Regula aplicată ACESTEI linii, salvată la vânzare (vânzările vechi rămân COMMISSION).
+  // FAIR_PRICE: același calcul de comision ca mai sus; listUnitPriceCents = prețul final (etichetă),
+  // lineGrossCents = prețul efectiv (după reducerea automată sau prețul introdus la casă).
+  //   vendorBaseUnitPriceCents = prețul declarat de vendor la momentul vânzării (informativ);
+  //   priceSetManually = prețul efectiv a fost introdus la casă.
+  pricingModel             ArtfestFairPricingModel @default(COMMISSION)
+  vendorBaseUnitPriceCents Int?
+  priceSetManually         Boolean                 @default(false)
 
   returnedQty Int      @default(0)
   createdAt   DateTime @default(now())
@@ -6538,6 +6576,9 @@ model CreatorProfile {
   acceptsPaid           Boolean @default(false)
   typicalTurnaroundDays Int?
   availableForCollabs   Boolean @default(true)
+  // tariful ORIENTATIV cerut de influencer pentru o colaborare plătită (bani, RON); doar
+  // informativ - nu e prețul final plătit de vânzător și nu declanșează nicio plată
+  indicativeFeeCents    Int?
 
   // moderare
   approvedSnapshot      Json?

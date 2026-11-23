@@ -392,3 +392,92 @@
     box-sizing: border-box;
   }
 }
+
+/* ---------- prețul pe rând (etichetă, preț efectiv, vânzător, Artfest) ---------- */
+.priceCell {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  font-size: 14px;
+}
+
+.priceEdit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.priceInput {
+  width: 84px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--input-bg, var(--surface));
+  color: var(--color-text);
+  font: inherit;
+}
+
+.split {
+  font-size: 13px;
+  color: var(--color-text);
+  opacity: 0.8;
+}
+
+/* ---------- Situație (pe vânzător + total târg) ---------- */
+.reportWrap {
+  display: grid;
+  gap: 12px;
+}
+
+.reportBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.summaryCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+}
+
+.summaryCard {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.summaryCard h4 {
+  margin: 0 0 8px;
+}
+
+.summaryCard .grand {
+  font-size: 16px;
+}
+
+.tableScroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* prețul introdus peste prețul de pe etichetă: confirmare explicită */
+.aboveLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-warning, #b45309);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.aboveLabel input {
+  margin-top: 2px;
+  flex: none;
+}

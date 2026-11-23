@@ -118,8 +118,9 @@ import {
   ensureUploadMemory,
   estimateImageProcessingBytes,
 } from "../services/uploadMemoryGuard.js";
-import { adminSubmitDraftInventory, getAdminLabelItems, markLabelsGenerated } from "../services/artfestFairInventoryService.js";
+import { adminSubmitDraftInventory, getAdminLabelItems, markLabelsGenerated, setFinalPrice } from "../services/artfestFairInventoryService.js";
 import { adminDailyReport, adminReportCsv } from "../services/artfestFairReportsService.js";
+import { adminFairSummary } from "../services/artfestFairSummaryService.js";
 import { previewSaleReturn, returnSale, voidSale } from "../services/artfestFairSaleReturnService.js";
 import {
   addAdjustment,
@@ -327,6 +328,15 @@ router.get(
   "/pos/sales",
   handle(async (req, res) => {
     res.json(await listSales({ limit: req.query.limit }));
+  })
+);
+
+// situația pe vendor + total târg (azi și total; anulări / retururi separat; decontat / rest)
+router.get(
+  "/pos/reports/summary",
+  handle(async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json(await adminFairSummary());
   })
 );
 
@@ -819,6 +829,14 @@ router.get(
     const pdf = await renderSingleLabelPdf(withStore, { layout });
     await markLabelsGenerated({ items: [item], userId: req.adminUser.id });
     sendPdf(res, pdf, `eticheta-${item.barcode}.pdf`);
+  })
+);
+
+// prețul final de vânzare (doar regula FAIR_PRICE); nu atinge prețul online sau vânzările anterioare
+router.post(
+  "/inventory/:id/final-price",
+  handle(async (req, res) => {
+    res.json({ ok: true, ...(await setFinalPrice({ id: req.params.id, body: req.body || {}, adminId: req.adminUser.id })) });
   })
 );
 

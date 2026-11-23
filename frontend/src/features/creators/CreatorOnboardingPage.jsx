@@ -22,6 +22,11 @@ import {
   parseIntOrNull,
   socialRowErrors,
   statusView,
+  categoryPickerView,
+  centsToInput,
+  isValidLeiInput,
+  toggleCategory,
+  toggleCategoryGroup,
 } from "./creatorsLogic.js";
 import { ConfirmDialog, CreatorProfilePreview, PhotoPicker, SkeletonBlock } from "./creatorsShared.jsx";
 import { cx, useCreatorState } from "./creatorsClient.js";
@@ -75,6 +80,8 @@ function collabFromProfile(profile) {
     typicalTurnaroundDays: profile.typicalTurnaroundDays ? String(profile.typicalTurnaroundDays) : "",
     availableForCollabs: profile.availableForCollabs,
     contentLanguages: profile.contentLanguages?.length ? profile.contentLanguages : ["ro"],
+    // tariful orientativ (lei); rămâne în formular și când se alege temporar „Produse gratuite”
+    indicativeFee: centsToInput(profile.indicativeFeeCents),
   };
 }
 
@@ -94,6 +101,8 @@ export default function CreatorOnboardingPage() {
   const profile = state?.profile || null;
 
   const [about, setAbout] = useState(null);
+  const [categoryQuery, setCategoryQuery] = useState("");
+  const [categoryLimitHit, setCategoryLimitHit] = useState(false);
   const [socials, setSocials] = useState(null);
   const [collab, setCollab] = useState(null);
   const [errors, setErrors] = useState({});
@@ -161,6 +170,14 @@ export default function CreatorOnboardingPage() {
   const showSocialError = (index, field) => (socialsAttempted || socialTouched[`${index}.${field}`] ? socialErrorsAt(index)[field] : null);
   const locked = profile && !profile.canEditContent;
   const limits = options?.limits || {};
+  // categoriile catalogului (grupe întregi / parțiale / individuale) + căutare + selecțiile vechi păstrate
+  const categoriesMax = limits.categoriesMax || 6;
+  const categoryCatalog = options?.categories || [];
+  const categoryView = categoryPickerView(options, about?.preferredCategories || [], categoryQuery);
+  function applyCategoryChange({ list, limited }) {
+    setCategoryLimitHit(Boolean(limited));
+    if (!limited) setAbout({ ...about, preferredCategories: list });
+  }
 
   function goStep(n) {
     setShowPreview(false);
@@ -268,6 +285,11 @@ export default function CreatorOnboardingPage() {
   }
 
   const saveCollab = async () => {
+    // validare imediată (aceeași regulă ca serverul): fără cerere dacă suma nu e validă
+    if (collab.acceptsPaid && collab.indicativeFee.trim() && !isValidLeiInput(collab.indicativeFee)) {
+      setErrors({ indicativeFee: "Introdu o sumă în lei, de exemplu 250 sau 249,90." });
+      return false;
+    }
     const next = await run(() =>
       api(`${CREATORS_API}/profile`, {
         method: "PATCH",
@@ -277,11 +299,13 @@ export default function CreatorOnboardingPage() {
           availableForCollabs: collab.availableForCollabs,
           typicalTurnaroundDays: collab.typicalTurnaroundDays ? Number(collab.typicalTurnaroundDays) : null,
           contentLanguages: collab.contentLanguages,
+          // doar pentru promovarea plătită; la „Produse gratuite” nu se trimite, deci tariful salvat rămâne
+          ...(collab.acceptsPaid ? { indicativeFee: collab.indicativeFee.trim() || null } : {}),
           expectedVersion: profile.version,
         },
       })
     );
-    if (next?.profile) setCollab(collabFromProfile(next.profile));
+    if (next?.profile) setCollab((current) => ({ ...collabFromProfile(next.profile), ...(next.profile.acceptsPaid ? {} : { indicativeFee: current.indicativeFee }) }));
     return Boolean(next);
   };
 
@@ -481,7 +505,12 @@ export default function CreatorOnboardingPage() {
           </label>
 
           <fieldset className={styles.field} style={{ border: 0, padding: 0 }}>
-            <legend className={styles.label}>Nișe (maximum {limits.nichesMax || 5})</legend>
+            <legend className={styles.label}>
+              Nișele tale de conținut <span className={styles.muted}>(maximum {limits.nichesMax || 5})</span>
+            </legend>
+            <p className={styles.hint} style={{ marginBottom: 8 }}>
+              Selectează domeniile despre care postezi în mod obișnuit pe rețelele sociale.
+            </p>
             <div className={styles.chips}>
               {options?.niches?.map((n) => {
                 const active = about.niches.includes(n.value);
@@ -497,18 +526,84 @@ export default function CreatorOnboardingPage() {
 
           <fieldset className={styles.field} style={{ border: 0, padding: 0 }}>
             <legend className={styles.label}>
-              Categorii de produse preferate <span className={styles.muted}>(opțional)</span>
+              Ce categorii de produse ai dori să promovezi?{" "}
+              <span className={styles.muted}>(opțional, maximum {categoriesMax} preferințe)</span>
             </legend>
-            <div className={styles.chips}>
-              {options?.categories?.map((c) => {
-                const active = about.preferredCategories.includes(c.value);
-                return (
-                  <button key={c.value} type="button" aria-pressed={active} className={cx(styles.chip, active && styles.chipActive)} onClick={() => setAbout({ ...about, preferredCategories: toggle(about.preferredCategories, c.value, limits.categoriesMax || 6) })} disabled={locked}>
-                    {c.label}
-                  </button>
-                );
-              })}
+            <p className={styles.hint} style={{ marginBottom: 8 }}>
+              Alege produsele care se potrivesc publicului tău și pe care ai fi interesat(ă) să le prezinți.
+            </p>
+            <div className={styles.categoryTools}>
+              <input
+                type="search"
+                className={styles.input}
+                placeholder="Caută o categorie (ex. invitații, brățări)"
+                aria-label="Caută o categorie de produse"
+                value={categoryQuery}
+                onChange={(e) => setCategoryQuery(e.target.value)}
+                data-category-search
+              />
+              <span className={cx(styles.small, categoryView.count >= categoriesMax ? styles.counterFull : styles.muted)} data-category-count aria-live="polite">
+                {categoryView.count} din {categoriesMax} preferințe · o grupă întreagă contează ca una
+              </span>
             </div>
+            {categoryLimitHit && (
+              <p className={styles.fieldError} role="alert" data-category-limit>
+                Ai atins limita de {categoriesMax} preferințe. Scoate o alegere sau selectează o grupă întreagă în locul mai multor categorii din ea.
+              </p>
+            )}
+            {categoryView.groups.length === 0 && (
+              <p className={styles.hint}>
+                {categoryQuery ? "Nicio categorie nu se potrivește căutării." : "Momentan nu avem categorii de produse disponibile în catalog."}
+              </p>
+            )}
+            {categoryView.groups.map((group) => (
+              <div key={group.key} className={styles.categoryGroup} data-category-group={group.key} data-state={group.state}>
+                <div className={styles.categoryGroupHead}>
+                  <strong className={styles.small}>{group.label}</strong>
+                  {/* buton mare (nu o căsuță de 18 px lângă chipuri): pe telefon, atingerea nu ajunge pe alt element */}
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={group.state === "full" ? "true" : group.state === "partial" ? "mixed" : "false"}
+                    aria-label={`Selectează toate din ${group.label}`}
+                    className={cx(styles.categoryAll, group.state !== "none" && styles.categoryAllOn)}
+                    onClick={() => applyCategoryChange(toggleCategoryGroup(about.preferredCategories, group.key, categoryCatalog, categoriesMax))}
+                    disabled={locked}
+                    data-category-all={group.key}
+                  >
+                    <span className={styles.categoryAllBox} aria-hidden="true">
+                      {group.state === "full" ? "✓" : group.state === "partial" ? "–" : ""}
+                    </span>
+                    Selectează toate
+                  </button>
+                  <span className={cx(styles.small, styles.muted)} data-category-progress>
+                    {group.state === "full" ? "toată grupa" : `${group.selectedCount} din ${group.total}`}
+                  </span>
+                </div>
+                <div className={styles.chips}>
+                  {group.items.map((c) => (
+                    <button key={c.value} type="button" aria-pressed={c.on} className={cx(styles.chip, c.on && styles.chipActive)} onClick={() => applyCategoryChange(toggleCategory(about.preferredCategories, c.value, categoryCatalog, categoriesMax))} disabled={locked}>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {categoryView.unknown.length > 0 && (
+              <div data-category-legacy style={{ marginTop: 4 }}>
+                <p className={cx(styles.small, styles.muted)} style={{ margin: "0 0 6px" }}>
+                  Alese anterior (nu mai sunt disponibile acum în catalog; rămân salvate până le scoți)
+                </p>
+                <div className={styles.chips}>
+                  {categoryView.unknown.map((c) => (
+                    <button key={c.value} type="button" aria-pressed="true" className={cx(styles.chip, styles.chipActive)} onClick={() => applyCategoryChange({ list: about.preferredCategories.filter((v) => v !== c.value), limited: false })} disabled={locked} title="Scoate din selecție">
+                      {c.label} ×
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <FieldError message={errors.preferredCategories} />
           </fieldset>
 
           <details>
@@ -675,6 +770,27 @@ export default function CreatorOnboardingPage() {
             </div>
           </fieldset>
 
+          {collab.acceptsPaid && (
+            <label className={styles.field} data-indicative-fee>
+              <span className={styles.label}>
+                Preț orientativ de promovare (lei) <span className={styles.muted}>(opțional)</span>
+              </span>
+              <input
+                className={cx(styles.input, errors.indicativeFee && styles.inputInvalid)}
+                inputMode="decimal"
+                placeholder="ex. 250 sau 249,90"
+                value={collab.indicativeFee}
+                onChange={(e) => setCollab({ ...collab, indicativeFee: e.target.value.replace(/[^\d.,\s]/g, "") })}
+                aria-invalid={errors.indicativeFee ? "true" : undefined}
+                aria-describedby="indicative-fee-hint"
+              />
+              <span id="indicative-fee-hint" className={styles.hint}>
+                Introdu un tarif orientativ pentru o colaborare plătită. Poți configura ulterior prețuri diferite pentru fiecare pachet de promovare.
+              </span>
+              <FieldError message={errors.indicativeFee} />
+            </label>
+          )}
+
           <div className={cx(styles.grid, styles.grid2)}>
             <label className={styles.field}>
               <span className={styles.label}>
@@ -703,6 +819,14 @@ export default function CreatorOnboardingPage() {
                   </button>
                 );
               })}
+              {/* limbi salvate anterior care nu mai sunt oferite (ex. Maghiară): rămân până le scoți */}
+              {collab.contentLanguages
+                .filter((value) => !options?.languages?.some((l) => l.value === value))
+                .map((value) => (
+                  <button key={value} type="button" aria-pressed="true" className={cx(styles.chip, styles.chipActive)} onClick={() => setCollab({ ...collab, contentLanguages: collab.contentLanguages.filter((v) => v !== value) })} title="Scoate din selecție" data-legacy-language={value}>
+                    {options?.languageLabels?.[value] || value} ×
+                  </button>
+                ))}
             </div>
           </fieldset>
 

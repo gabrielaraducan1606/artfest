@@ -1,7 +1,7 @@
 // backend/src/routes/adminCreatorsRoutes.js
 //
 // Admin -> Artfest Creators (etapa 1a): moderarea profilurilor. Montat pe
-// /api/admin/creators. Flag CREATORS_ENABLED oprit => 404.
+// /api/admin/creators. Disponibil permanent, doar pentru admini.
 //
 //   GET  /options                                   etichetele (nișe, platforme, tipuri de conținut)
 //   GET  /profiles?status=&q=&suspended=1&page=     listă paginată
@@ -22,7 +22,7 @@ import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { adminDeactivateOffer, adminGetProfile, adminListProfiles, adminModerate } from "../services/creators/creatorProfileService.js";
-import { creatorsEnabledOnly, sendCreatorError } from "./creatorRoutes.js";
+import { catalogCategoryOptions, sendCreatorError } from "./creatorRoutes.js";
 import { creatorOptions } from "../config/creators.js";
 
 const router = Router();
@@ -51,10 +51,10 @@ const handle = (fn) => async (req, res) => {
   }
 };
 
-router.use(creatorsEnabledOnly, authRequired, adminOnly);
+router.use(authRequired, adminOnly);
 
 // etichetele (nișe, platforme, tipuri de conținut) - aceeași sursă ca la influencer
-router.get("/options", (_req, res) => res.json(creatorOptions()));
+router.get("/options", (_req, res) => res.json({ ...creatorOptions(), ...catalogCategoryOptions() }));
 
 router.get(
   "/profiles",

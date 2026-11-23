@@ -53,8 +53,30 @@ export function listPublishedFairRules() {
       path: String(entry?.path || ""),
       vars: Number(entry?.vars || 1),
       publishedAt: entry?.publishedAt ? String(entry.publishedAt) : null,
+      // regula de împărțire introdusă de versiune (ex. pricingModel: FAIR_PRICE în versions.yml)
+      pricingModel: String(entry?.pricingModel || "").trim().toUpperCase() === "FAIR_PRICE" ? "FAIR_PRICE" : null,
     }))
     .filter((entry) => entry.version && entry.path);
+}
+
+function compareSemver(a, b) {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i += 1) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+  return 0;
+}
+
+/*
+ * Cea mai nouă versiune PUBLICATĂ care conține regulile de preț ale regulamentului 2.0.0
+ * (preț final stabilit de Artfest, preț introdus la casă) - intrarea din versions.yml
+ * are pricingModel: FAIR_PRICE.
+ * Fără o astfel de intrare => null (nimic de acceptat). Nu există configurare
+ * separată: registrul documentelor publicate e singura sursă.
+ */
+export function latestFairPriceRulesVersion(list = listPublishedFairRules()) {
+  const candidates = list.filter((e) => e.pricingModel === "FAIR_PRICE").map((e) => e.version);
+  if (!candidates.length) return null;
+  return candidates.sort(compareSemver).at(-1);
 }
 
 export function isFairRulesVersionPublished(version) {

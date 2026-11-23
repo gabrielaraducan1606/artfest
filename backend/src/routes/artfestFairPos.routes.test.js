@@ -359,17 +359,25 @@ test("reducere VENDOR aplicată pe linie: alocare + snapshot, artfestFunded 0", 
   assert.equal(l.discount.fundingSource, "VENDOR");
 });
 
-test("reducere ARTFEST: vendorul rămâne neutru; reducerile inactive / expirate / pe alt produs se ignoră", async () => {
+test("reducere „finanțată de Artfest”: NU se aplică la târg (mereu 10% / 90% din prețul efectiv); inactive / expirate / pe alt produs se ignoră", async () => {
   discount({ fundingSource: "ARTFEST" });
   discount({ status: "DRAFT", percentBps: 9000 });
   discount({ endsAt: new Date(Date.now() - DAY), startsAt: new Date(Date.now() - 2 * DAY), percentBps: 9000 });
   discount({ inventoryItemId: ctx.lB.id, percentBps: 9000 });
   const res = await sell([{ inventoryItemId: ctx.lA.id, quantity: 2 }]);
   const l = res.body.sale.lines[0];
-  assert.equal(l.lineDiscountCents, 1560);
-  assert.equal(l.vendorNetCents, 7800 - 780);
-  assert.equal(l.artfestFundedDiscountCents, 7020 - 5616);
-  assert.equal(res.body.sale.totalPaidCents, 6240);
+  assert.equal(l.lineDiscountCents, 0);
+  assert.equal(l.artfestFundedDiscountCents, 0);
+  assert.equal(l.commissionCents, 780); // 10% din 78,00
+  assert.equal(l.vendorNetCents, 7020); // 90%
+  assert.equal(res.body.sale.totalPaidCents, 7800);
+  assert.equal(fake.tables.artfestFairSaleLineDiscount.length, 0);
+  // reducerea pe vendor se aplică în continuare și scade ambele părți (10% / 90% din efectiv)
+  discount({ fundingSource: "VENDOR", percentBps: 2000 });
+  const r2 = await sell([{ inventoryItemId: ctx.lA.id, quantity: 1 }]);
+  assert.equal(r2.body.sale.lines[0].lineGrossCents, 3120);
+  assert.equal(r2.body.sale.lines[0].commissionCents, 312);
+  assert.equal(r2.body.sale.lines[0].vendorNetCents, 2808);
 });
 
 test("o singură reducere pe linie: cea pe produs are prioritate față de cea pe vendor", async () => {
@@ -450,7 +458,7 @@ test("validări: fără cheie, metodă invalidă (inclusiv MIXED), coș gol, can
 });
 
 test("istoric și detaliu vânzare: linii, reduceri, comision, net vendor, mișcări", async () => {
-  discount({ fundingSource: "ARTFEST" });
+  discount({ fundingSource: "VENDOR" });
   const sold = await sell([{ inventoryItemId: ctx.lA.id, quantity: 1 }, { inventoryItemId: ctx.lC.id, quantity: 2 }], "CARD");
   const list = await call("GET", `${POS}/sales`, { as: ctx.admin });
   assert.equal(list.status, 200);
@@ -461,7 +469,7 @@ test("istoric și detaliu vânzare: linii, reduceri, comision, net vendor, mișc
   );
   const detail = await call("GET", `${POS}/sales/${sold.body.sale.id}`, { as: ctx.admin });
   const la = detail.body.item.lines.find((l) => l.inventoryItemId === ctx.lA.id);
-  assert.equal(la.discount.fundingSource, "ARTFEST");
+  assert.equal(la.discount.fundingSource, "VENDOR");
   assert.ok(la.movements[0].id);
   assert.equal(detail.body.item.vendors.length, 2);
 });

@@ -699,6 +699,10 @@ test("regulament: doar versiunile din registru sunt servite (draftul și candida
   assert.deepEqual(rules.listPublishedFairRules().map((v) => v.version), ["1.0.0", "1.1.0"]);
   assert.equal(rules.isFairRulesVersionPublished("1.0.0"), true);
   assert.equal(rules.isFairRulesVersionPublished("1.1.0"), true);
+  // 2.0.0 e doar draft (legal/drafts): nepublicată, deci nici oferită spre acceptare, nici servită
+  assert.equal(rules.isFairRulesVersionPublished("2.0.0"), false);
+  assert.equal(rules.loadPublishedFairRules("2.0.0"), null);
+  assert.equal(rules.latestFairPriceRulesVersion(), null);
   // 1.1.0: etichetarea e făcută de Artfest; scanarea nu scade stocul
   const v110 = rules.loadPublishedFairRules("1.1.0");
   assert.match(v110.html, /Etichetarea produselor este asigurată de Artfest/);

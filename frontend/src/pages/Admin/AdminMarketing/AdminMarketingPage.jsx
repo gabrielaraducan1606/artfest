@@ -11,9 +11,8 @@ import AdminAmbassadorsTab from "./AdminAmbassadorsTab";
 import AdminInfluencersTab from "./AdminInfluencersTab.jsx";
 import AdminVendorDiscountCodesTab from "./AdminVendorDiscountCodesTab.jsx";
 import AdminVendorCampaignsTab from "./AdminVendorCampaignsTab.jsx";
-import { CREATORS_ENABLED } from "../../../features/creators/creatorsFlag.js";
 
-// Artfest Creators (moderarea profilurilor) - lazy, doar cu VITE_CREATORS_ENABLED
+// Artfest Creators (moderarea profilurilor) - lazy, tab permanent
 const AdminCreatorsTab = lazy(() => import("./AdminCreatorsTab.jsx"));
 
 // taburile adresabile prin ?tab= (linkuri directe din meniul admin, inclusiv pe mobil)
@@ -27,7 +26,7 @@ const MARKETING_TAB_IDS = [
   "influencers",
   "vendorDiscountCodes",
   "vendorCampaigns",
-  ...(CREATORS_ENABLED ? ["creators"] : []),
+  "creators",
 ];
 
 function cx(...xs) {
@@ -286,18 +285,16 @@ export default function AdminMarketingTab() {
             Campanii (vendor)
           </button>
 
-          {CREATORS_ENABLED && (
-            <button
-              type="button"
-              className={cx(
-                styles.tabBtn,
-                tab === "creators" && styles.tabBtnActive
-              )}
-              onClick={() => setTab("creators")}
-            >
-              Creators
-            </button>
-          )}
+          <button
+            type="button"
+            className={cx(
+              styles.tabBtn,
+              tab === "creators" && styles.tabBtnActive
+            )}
+            onClick={() => setTab("creators")}
+          >
+            Creators
+          </button>
         </div>
 
         {tab === "campaign" && <AdminAccountEmailTab />}
@@ -330,7 +327,7 @@ export default function AdminMarketingTab() {
           <AdminVendorCampaignsTab />
         )}
 
-        {CREATORS_ENABLED && tab === "creators" && (
+        {tab === "creators" && (
           <Suspense fallback={<p>Se încarcă…</p>}>
             <AdminCreatorsTab />
           </Suspense>

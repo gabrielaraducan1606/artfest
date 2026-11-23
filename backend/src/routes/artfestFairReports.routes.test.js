@@ -136,7 +136,8 @@ beforeEach(async () => {
 
 let seq = 0;
 const sale = (lines, paymentMethod, now) =>
-  pos.createSale({ body: { lines, paymentMethod }, idempotencyKey: `rep-key-${++seq}-abcdef`, adminId: ctx.admin.id, now });
+  // legacyArtfestFunding: reproduce vânzările ISTORICE cu reducere finanțată de Artfest (POS-ul nu le mai aplică)
+  pos.createSale({ body: { lines, paymentMethod }, idempotencyKey: `rep-key-${++seq}-abcdef`, adminId: ctx.admin.id, now, legacyArtfestFunding: true });
 
 async function call(method, path, { as, body } = {}) {
   const headers = {};
@@ -192,8 +193,11 @@ test("vendorul vede DOAR liniile lui; vânzarea multi-vendor e separată corect"
   assert.equal(resB.text.includes(String(s1.sale.totalPaidCents)), false);
   assert.deepEqual(
     Object.keys(lineB).sort(),
-    ["artfestFundedDiscountCents", "barcodeDisplay", "commissionCents", "discount", "effectiveUnitPriceCents", "lineDiscountCents", "lineGrossCents", "lineListCents", "listUnitPriceCents", "localDate", "localTime", "paymentMethod", "quantity", "receiptReference", "returned", "returnedQty", "returns", "saleLineId", "saleNumber", "soldAt", "status", "titleSnapshot", "variantLabel", "vendorNetCents"].sort()
+    ["artfestFundedDiscountCents", "barcodeDisplay", "commissionCents", "discount", "effectiveUnitPriceCents", "lineDiscountCents", "lineGrossCents", "lineListCents", "listUnitPriceCents", "localDate", "localTime", "paymentMethod", "quantity", "receiptReference", "returned", "returnedQty", "returns", "saleLineId", "saleNumber", "soldAt", "status", "titleSnapshot", "variantLabel", "vendorNetCents",
+      // regula salvată pe linia vendorului (modelul FAIR_PRICE) - doar despre linia lui
+      "pricingModel", "vendorBaseUnitPriceCents", "priceSetManually"].sort()
   );
+  assert.equal(lineB.pricingModel, "COMMISSION");
   assert.equal(lineB.discount.fundingSource, "ARTFEST");
 
   // filtrul pe zi (local)

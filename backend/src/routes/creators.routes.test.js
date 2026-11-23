@@ -81,8 +81,6 @@ before(async () => {
 after(() => new Promise((resolve) => server.close(resolve)));
 
 beforeEach(async () => {
-  process.env.CREATORS_ENABLED = "1";
-  process.env.CREATORS_ONBOARDING_SINCE = "2026-11-01T00:00:00Z";
   sentEmails.length = 0;
   uploads.length = 0;
   failEmails = false;
@@ -99,7 +97,7 @@ beforeEach(async () => {
   ]);
   const [newProfile, oldProfile] = fake.seed("influencerProfile", [
     // invitat după lansare => onboarding automat
-    { userId: newInf.id, displayName: "Ana Pop", referralCode: "ANA1", commissionBps: 1000, status: "ACTIVE", anonymizedAt: null, createdAt: new Date("2026-11-10T10:00:00Z") },
+    { userId: newInf.id, displayName: "Ana Pop", referralCode: "ANA1", commissionBps: 1000, status: "ACTIVE", anonymizedAt: null, createdAt: new Date("2026-11-24T10:00:00Z") },
     // influencer vechi, cu perioada de afiliere (3 luni) EXPIRATĂ: Creators rămâne disponibil
     { userId: oldInf.id, displayName: "Ion", referralCode: "ION1", commissionBps: 700, status: "ACTIVE", anonymizedAt: null, createdAt: new Date("2025-01-10T10:00:00Z"), collaborationEndOverride: null },
     { userId: other.id, displayName: "Dan", referralCode: "DAN1", commissionBps: 500, status: "ACTIVE", anonymizedAt: null, createdAt: new Date("2026-11-12T10:00:00Z") },
@@ -131,7 +129,7 @@ const STEP1 = (user) => ({
   displayName: "Ana Creează",
   bio: "Creez conținut despre decorațiuni handmade, cadouri și lifestyle de peste trei ani.",
   niches: ["lifestyle", "home_decor"],
-  preferredCategories: ["decor", "cadouri"],
+  preferredCategories: ["cadouri_anime-manga", "home_lumanari-parfumate"],
   avatarUrl: ownImage(user),
 });
 const SOCIALS = [
@@ -157,10 +155,15 @@ const eventsOf = (profileId, type) => fake.tables.creatorProfileEvent.filter((e)
 
 /* ============================== flag + acces ============================== */
 
-test("flag oprit => 404 pe rutele influencerului și ale Adminului", async () => {
-  process.env.CREATORS_ENABLED = "";
-  assert.equal((await call("GET", `${C}/state`, { as: ctx.newInf })).status, 404);
-  assert.equal((await call("GET", `${A}/profiles`, { as: ctx.admin })).status, 404);
+test("fără feature flag: rutele există permanent, independent de mediu (influencer + Admin)", async () => {
+  for (const legacy of ["", "0", "off"]) {
+    process.env.CREATORS_ENABLED = legacy; // variabila veche nu mai are niciun efect
+    process.env.VITE_CREATORS_ENABLED = legacy;
+    assert.equal((await call("GET", `${C}/state`, { as: ctx.newInf })).status, 200);
+    assert.equal((await call("GET", `${A}/profiles`, { as: ctx.admin })).status, 200);
+  }
+  delete process.env.CREATORS_ENABLED;
+  delete process.env.VITE_CREATORS_ENABLED;
 });
 
 test("acces: neautentificat 401; USER / VENDOR / influencer dezactivat 403; Admin doar pentru ADMIN", async () => {
@@ -181,9 +184,26 @@ test("influencer nou (invitat după lansare) => onboarding automat; cel existent
   const existing = await call("GET", `${C}/state`, { as: ctx.oldInf });
   assert.deepEqual([existing.body.entry, existing.body.autoOnboarding], ["setup", false]);
 
-  // fără dată de lansare setată => nimeni nu e redirecționat automat
+  // variabila veche de mediu nu mai schimbă nimic: criteriul e data fixă din cod
   process.env.CREATORS_ONBOARDING_SINCE = "";
-  assert.equal((await call("GET", `${C}/state`, { as: ctx.newInf })).body.autoOnboarding, false);
+  assert.equal((await call("GET", `${C}/state`, { as: ctx.newInf })).body.autoOnboarding, true);
+  process.env.CREATORS_ONBOARDING_SINCE = "2020-01-01T00:00:00Z";
+  assert.equal((await call("GET", `${C}/state`, { as: ctx.oldInf })).body.autoOnboarding, false);
+  delete process.env.CREATORS_ONBOARDING_SINCE;
+
+  // prima intrare în configurare / „Completez mai târziu” creează ciorna => fără redirecționare repetată
+  assert.equal((await call("POST", `${C}/profile`, { as: ctx.newInf })).status, 201);
+  const later = await call("GET", `${C}/state`, { as: ctx.newInf });
+  assert.deepEqual([later.body.entry, later.body.autoOnboarding], ["draft", false]);
+});
+
+test("data fixă de lansare (UTC): exact la ea = nou; o secundă înainte = existent", async () => {
+  const { CREATORS_AUTO_ONBOARDING_SINCE, isNewCreatorsInfluencer } = await import("../config/creators.js");
+  assert.equal(CREATORS_AUTO_ONBOARDING_SINCE.toISOString(), "2026-11-23T00:00:00.000Z");
+  assert.equal(isNewCreatorsInfluencer(new Date("2026-11-23T00:00:00.000Z")), true);
+  assert.equal(isNewCreatorsInfluencer(new Date("2026-11-22T23:59:59.000Z")), false);
+  assert.equal(isNewCreatorsInfluencer(null), false);
+  assert.equal(isNewCreatorsInfluencer("nu-e-dată"), false);
 });
 
 test("influencer existent cu afilierea expirată își creează profilul fără invitație nouă; afilierea rămâne neatinsă", async () => {
@@ -629,4 +649,130 @@ test("opțiuni: platformele includ toate domeniile acceptate + limita minimă a 
   }
   assert.equal(options.limits.displayNameMin, CREATOR_LIMITS.displayNameMin);
   assert.equal(options.limits.bioMin, CREATOR_LIMITS.bioMin);
+});
+
+/* ============================== categoriile din catalog ============================== */
+
+test("categorii: o valoare nouă trebuie să fie o categorie reală din catalog; grupele vechi / invenții sunt refuzate", async () => {
+  await call("POST", `${C}/profile`, { as: ctx.newInf });
+  for (const bad of [["decor"], ["party"], ["servicii_dj"], ["inventata"]]) {
+    const r = await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { preferredCategories: bad } });
+    assert.equal(r.status, 400, JSON.stringify(bad));
+    assert.ok(r.body.fields?.preferredCategories);
+  }
+  const ok = await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { preferredCategories: ["cadouri_anime-manga"] } });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(profileOf(ctx.newInf).preferredCategories, ["cadouri_anime-manga"]);
+});
+
+test("categorii vechi deja salvate: rămân, nu blochează editarea și se pierd doar dacă influencerul le scoate", async () => {
+  await call("POST", `${C}/profile`, { as: ctx.oldInf });
+  const profile = profileOf(ctx.oldInf);
+  profile.preferredCategories = ["decor", "party", "cadouri_anime-manga"]; // selecții salvate înainte (grupe vechi)
+
+  // editarea altui câmp nu le atinge
+  assert.equal((await call("PATCH", `${C}/profile`, { as: ctx.oldInf, body: { city: "Cluj-Napoca" } })).status, 200);
+  assert.deepEqual(profileOf(ctx.oldInf).preferredCategories, ["decor", "party", "cadouri_anime-manga"]);
+
+  // salvarea pasului cu aceleași valori (inclusiv cele vechi) + o categorie nouă din catalog: acceptată
+  const r = await call("PATCH", `${C}/profile`, { as: ctx.oldInf, body: { preferredCategories: ["decor", "party", "cadouri_anime-manga", "home_lumanari-parfumate"] } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(profileOf(ctx.oldInf).preferredCategories, ["decor", "party", "cadouri_anime-manga", "home_lumanari-parfumate"]);
+
+  // scoasă explicit => dispare; nu mai poate fi adăugată din nou (nu mai e în catalog)
+  assert.equal((await call("PATCH", `${C}/profile`, { as: ctx.oldInf, body: { preferredCategories: ["party", "cadouri_anime-manga"] } })).status, 200);
+  assert.equal((await call("PATCH", `${C}/profile`, { as: ctx.oldInf, body: { preferredCategories: ["decor", "party"] } })).status, 400);
+  assert.deepEqual(profileOf(ctx.oldInf).preferredCategories, ["party", "cadouri_anime-manga"]);
+});
+
+test("opțiuni: toate categoriile active din catalog (inclusiv cele fără produse), cu gruparea oficială", async () => {
+  const { CATEGORIES } = await import("../constants/categories.js");
+  assert.equal(fake.tables.product?.length || 0, 0, "catalogul de test nu are niciun produs");
+  for (const [path, who] of [[`${C}/options`, ctx.newInf], [`${A}/options`, ctx.admin]]) {
+    const r = await call("GET", path, { as: who });
+    assert.equal(r.status, 200, path);
+    const values = r.body.categories.map((c) => c.value);
+    assert.deepEqual(values, CATEGORIES.filter((k) => values.includes(k)));
+    assert.equal(values.length, CATEGORIES.length, path);
+    for (const key of ["papetarie_invitatii-nunta", "papetarie_invitatii-botez", "cadouri_anime-manga"]) assert.ok(values.includes(key), key);
+    assert.ok(r.body.categories.every((c) => c.groupLabel));
+    assert.equal(r.body.categoryLabels.party, "Candy bar & party");
+  }
+});
+
+test("selecție mixtă salvată: grupă întreagă + excludere + categorie; limita de 6 (grupa = una)", async () => {
+  await call("POST", `${C}/profile`, { as: ctx.newInf });
+  const mixed = ["group:bijuterii", "exclude:bijuterii_cercei", "cadouri_anime-manga"];
+  const ok = await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { preferredCategories: mixed } });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(profileOf(ctx.newInf).preferredCategories, mixed);
+  assert.deepEqual(ok.body.profile.preferredCategories, mixed);
+
+  const six = ["group:decor", "group:papetarie", "group:ceremonie", "group:home", "group:bijuterii", "cadouri_anime-manga"];
+  assert.equal((await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { preferredCategories: six } })).status, 200);
+  const seven = await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { preferredCategories: [...six, "group:arta"] } });
+  assert.equal(seven.status, 400);
+  assert.match(seven.body.fields.preferredCategories, /o grupă întreagă contează ca una/);
+  assert.deepEqual(profileOf(ctx.newInf).preferredCategories, six);
+});
+
+/* ============================== pasul 3: tarif orientativ + limbi ============================== */
+
+test("tarif orientativ: opțional, lei cu zecimale, salvat și recuperat; nu atinge moderarea și nu e public", async () => {
+  await call("POST", `${C}/profile`, { as: ctx.newInf });
+  let r = await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { acceptsProducts: false, acceptsPaid: true, indicativeFee: "249,90" } });
+  assert.equal(r.status, 200);
+  assert.equal(profileOf(ctx.newInf).indicativeFeeCents, 24990);
+  assert.equal(r.body.profile.indicativeFeeCents, 24990);
+  assert.equal((await call("GET", `${C}/state`, { as: ctx.newInf })).body.profile.indicativeFeeCents, 24990);
+
+  for (const [input, cents] of [["250", 25000], ["1.5", 150], [99.9, 9990], ["1 000", 100000]]) {
+    r = await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { indicativeFee: input } });
+    assert.equal(r.status, 200, String(input));
+    assert.equal(profileOf(ctx.newInf).indicativeFeeCents, cents, String(input));
+  }
+  for (const bad of ["0", "-5", "abc", "12,345", "0,50", "100000,01", "1e5"]) {
+    r = await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { indicativeFee: bad } });
+    assert.equal(r.status, 400, bad);
+    assert.ok(r.body.fields?.indicativeFee, bad);
+  }
+  assert.equal(profileOf(ctx.newInf).indicativeFeeCents, 100000, "o valoare invalidă nu suprascrie tariful salvat");
+
+  // „Produse gratuite” fără câmpul trimis: tariful rămâne (revenirea la „plătită” îl regăsește)
+  await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { acceptsProducts: true, acceptsPaid: false } });
+  assert.equal(profileOf(ctx.newInf).indicativeFeeCents, 100000);
+  // golit explicit => fără tarif
+  await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { indicativeFee: "" } });
+  assert.equal(profileOf(ctx.newInf).indicativeFeeCents, null);
+
+  // preferință: fără modificări nepublicate / moderare; nu apare în copia publică
+  const p = profileOf(ctx.newInf);
+  assert.equal(p.hasUnpublishedChanges, false);
+  const { buildPublicSnapshot } = await import("../services/creators/creatorProfileService.js");
+  assert.equal("indicativeFeeCents" in buildPublicSnapshot({ ...p, indicativeFeeCents: 5000 }), false);
+});
+
+test("tariful orientativ nu schimbă tarifele ofertelor existente", async () => {
+  await completeOnboarding(ctx.newInf);
+  const created = await call("POST", `${C}/offers`, { as: ctx.newInf, body: OFFER });
+  assert.equal(created.status, 201);
+  await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { indicativeFee: "999" } });
+  const offers = await call("GET", `${C}/offers`, { as: ctx.newInf });
+  const item = (offers.body.items || []).find((o) => o.id === created.body.item.id);
+  assert.equal(item.creatorFeeCents, 19950);
+});
+
+test("limba conținutului: doar Română / Engleză; „Maghiară” salvată anterior se păstrează și nu blochează salvarea", async () => {
+  const { body } = await call("GET", `${C}/options`, { as: ctx.newInf });
+  assert.deepEqual(body.languages.map((l) => l.value), ["ro", "en"]);
+
+  await call("POST", `${C}/profile`, { as: ctx.newInf });
+  assert.equal((await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { contentLanguages: ["ro", "hu"] } })).status, 400, "valoare nouă «hu» refuzată");
+
+  await call("POST", `${C}/profile`, { as: ctx.oldInf });
+  profileOf(ctx.oldInf).contentLanguages = ["ro", "hu"]; // salvată înainte
+  assert.equal((await call("PATCH", `${C}/profile`, { as: ctx.oldInf, body: { contentLanguages: ["ro", "hu"], typicalTurnaroundDays: 5 } })).status, 200);
+  assert.deepEqual(profileOf(ctx.oldInf).contentLanguages, ["ro", "hu"]);
+  assert.equal((await call("PATCH", `${C}/profile`, { as: ctx.oldInf, body: { contentLanguages: ["ro"] } })).status, 200);
+  assert.deepEqual(profileOf(ctx.oldInf).contentLanguages, ["ro"]);
 });

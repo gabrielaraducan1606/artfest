@@ -26,7 +26,7 @@ import {
   CREATOR_LIMITS,
   CREATOR_PATHS,
   CREATOR_TOUR_VERSION,
-  creatorsOnboardingSince,
+  isNewCreatorsInfluencer,
 } from "../../config/creators.js";
 import {
   CreatorError,
@@ -45,7 +45,7 @@ export { CreatorError };
 const TX = { timeout: 20_000, maxWait: 10_000 };
 
 const CONTENT_FIELDS = ["displayName", "slug", "bio", "avatarUrl", "city", "niches", "preferredCategories", "contentLanguages"];
-const PREFERENCE_FIELDS = ["acceptsProducts", "acceptsPaid", "typicalTurnaroundDays", "availableForCollabs"];
+const PREFERENCE_FIELDS = ["acceptsProducts", "acceptsPaid", "typicalTurnaroundDays", "availableForCollabs", "indicativeFeeCents"];
 
 // stările din care influencerul poate trimite spre aprobare
 const SUBMITTABLE = ["DRAFT", "CHANGES_REQUESTED", "APPROVED"];
@@ -160,6 +160,7 @@ function serializeForInfluencer(profile, socials, portfolio, influencer) {
     acceptsPaid: Boolean(profile.acceptsPaid),
     typicalTurnaroundDays: profile.typicalTurnaroundDays ?? null,
     availableForCollabs: profile.availableForCollabs !== false,
+    indicativeFeeCents: profile.indicativeFeeCents ?? null,
     socials: socials.map(serializeSocial),
     portfolio: [...portfolio].sort(sortBy("sort")).map(serializePortfolioItem),
     hasPublishedVersion: Boolean(profile.approvedSnapshot),
@@ -205,14 +206,13 @@ async function loadParts(db, profileId) {
  *   "setup"     - fără profil (autoOnboarding: influencer nou => redirect la onboarding)
  *   "draft" | "pending" | "changes_requested" | "approved" | "rejected"
  */
-export async function getCreatorState({ userId, db = prisma, env = process.env }) {
+export async function getCreatorState({ userId, db = prisma }) {
   const { influencer } = await loadInfluencerAccount(db, userId);
   const profile = await findProfile(db, influencer.id);
   if (!profile) {
-    const since = creatorsOnboardingSince(env);
     return {
       entry: "setup",
-      autoOnboarding: Boolean(since && influencer.createdAt && new Date(influencer.createdAt) >= since),
+      autoOnboarding: isNewCreatorsInfluencer(influencer.createdAt),
       profile: null,
       offersCount: 0,
     };
@@ -295,7 +295,7 @@ export async function updateProfile({ userId, body = {}, uploadPrefix, db = pris
     throw new CreatorError(409, "version_conflict", "Profilul a fost modificat între timp (poate în alt tab). Reîncarcă pagina.");
   }
 
-  const data = validateProfilePatch(body);
+  const data = validateProfilePatch(body, { existingCategories: profile.preferredCategories, existingLanguages: profile.contentLanguages });
   if ("avatarUrl" in body) data.avatarUrl = validateAvatarUrl(body.avatarUrl, { uploadPrefix });
 
   const touchesContent = CONTENT_FIELDS.some((key) => key in data && JSON.stringify(data[key]) !== JSON.stringify(profile[key]));

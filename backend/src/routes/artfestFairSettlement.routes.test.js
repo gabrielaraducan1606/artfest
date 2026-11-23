@@ -121,7 +121,8 @@ const D = "2026-12-20";
 const D2 = "2026-12-22";
 const at = (date, hhmm = "08:00") => new Date(`${date}T${hhmm}:00Z`);
 const sell = async (lines, paymentMethod = "CASH", now = at(D)) =>
-  (await pos.createSale({ body: { lines, paymentMethod }, idempotencyKey: key("sale"), adminId: ctx.admin.id, now })).sale;
+  // legacyArtfestFunding: decontul trebuie să includă corect și vânzările ISTORICE cu reducere finanțată de Artfest
+  (await pos.createSale({ body: { lines, paymentMethod }, idempotencyKey: key("sale"), adminId: ctx.admin.id, now, legacyArtfestFunding: true })).sale;
 const ret = async (saleId, lines, now = at(D, "10:00"), refundMethod = "CASH") =>
   (await returnsSvc.returnSale({ saleId, body: { reason: "Retur test", refundMethod, lines }, idempotencyKey: key("ret"), adminId: ctx.admin.id, now })).saleReturn;
 const lineOf = (sale, itemId) => sale.lines.find((l) => l.inventoryItemId === itemId);
