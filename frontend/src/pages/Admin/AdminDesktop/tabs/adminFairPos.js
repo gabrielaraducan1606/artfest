@@ -72,11 +72,13 @@ export function posReducer(state, action) {
             priceCents: item.priceCents,
             availableQty: item.availableQty,
             quantity: 1,
-            // regulamentul 2.0.0: prețul efectiv se poate introduce la casă (doar vânzarea curentă);
+            // prețul efectiv se poate introduce la casă (orice participant aprobat; doar vânzarea curentă);
             // banii: comision 10% / vendor 90% din prețul efectiv, calculați pe server
             pricingModel: item.pricingModel || "COMMISSION",
             canEditPrice: Boolean(item.canEditPrice),
-            labelPriceCents: item.labelPriceCents ?? item.priceCents,
+            labelPriceCents: item.blankPriceLabel ? null : item.labelPriceCents ?? item.priceCents,
+            // eticheta fără preț tipărit: prețul scris cu pixul se introduce aici
+            blankPriceLabel: Boolean(item.blankPriceLabel),
             // prețul de vânzare actual (prețul final); peste el, prețul introdus cere confirmare
             salePriceCents: item.salePriceCents ?? item.priceCents,
             aboveLabelConfirmed: false,
@@ -160,6 +162,7 @@ export function parseLeiToCents(raw) {
 
 /** Prețul introdus depășește prețul de vânzare de pe etichetă? */
 export function isAboveLabel(line) {
+  if (line.blankPriceLabel) return false; // nu există preț tipărit de comparat
   const price = parseLeiToCents(line.priceInput);
   return Number.isInteger(price) && price > 0 && line.salePriceCents != null && price > line.salePriceCents;
 }
@@ -170,7 +173,13 @@ export function cartInputProblems(cart) {
   for (const l of cart) {
     const price = parseLeiToCents(l.priceInput);
     if (Number.isNaN(price) || price === 0) problems.push(`${l.title}: prețul efectiv nu este valid.`);
-    if (l.requiresPrice && price === null) problems.push(`${l.title}: eticheta are alt preț, introdu prețul efectiv.`);
+    if (l.requiresPrice && price === null) {
+      problems.push(
+        l.blankPriceLabel
+          ? `${l.title}: introdu prețul scris pe etichetă.`
+          : `${l.title}: eticheta are alt preț, introdu prețul efectiv.`
+      );
+    }
     if (isAboveLabel(l) && !l.aboveLabelConfirmed) problems.push(`${l.title}: confirmă prețul mai mare decât cel de pe etichetă.`);
   }
   return problems;

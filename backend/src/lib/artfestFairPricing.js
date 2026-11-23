@@ -9,14 +9,13 @@
 // Reducerile (automate sau prețul introdus la casă) scad prețul efectiv, deci
 // scad și comisionul, și suma vendorului.
 //
-// Ce diferă între înscrieri (ArtfestFairRegistration.pricingModel) sunt doar
-// PERMISIUNILE de preț, nu calculul banilor:
-//  - COMMISSION (regulament 1.x): prețul de vânzare = prețul declarat (prețul de pe
-//    Artfest); prețul nu se editează la casă;
-//  - FAIR_PRICE (regulament 2.0.0, după acceptare explicită): Admin stabilește
-//    prețul final de vânzare (sugestia = prețul declarat / 0,90, ca vendorul să
-//    primească prețul declarat după comision); prețul efectiv se poate introduce
-//    la casă, doar pentru vânzarea curentă, fără retipărirea etichetei.
+// Funcțiile de preț NU depind de acceptarea regulamentului 2.0.0: pentru orice
+// înscriere APPROVED (COMMISSION sau FAIR_PRICE) Admin poate salva prețul final
+// (sugestia = prețul declarat / 0,90), poate genera etichete cu sau fără preț, iar
+// prețul efectiv se poate introduce la casă (doar vânzarea curentă), fără retipărire.
+// Fără preț final, prețul de vânzare = prețul declarat.
+// pricingModel rămâne doar ca evidență (salvat neschimbat pe vânzare); singura
+// diferență: la FAIR_PRICE lipsa prețului final cere prețul introdus la casă.
 //
 // Toate sumele în bani întregi (RON × 100).
 
@@ -54,16 +53,21 @@ export function suggestedFinalPriceCents(vendorPriceCents, commissionBps) {
 
 /**
  * Prețul de vânzare la târg al liniei = prețul care TREBUIE să fie pe etichetă.
- * finalPriceCents se poate seta doar pentru înscrierile FAIR_PRICE; altfel e NULL
- * și prețul rămâne cel declarat (regula 1.x).
+ * finalPriceCents (salvat de Admin, orice înscriere); fără el, prețul declarat.
  */
 export function fairSalePriceCents(item) {
   return item?.finalPriceCents ?? item?.priceSnapshotCents ?? null;
 }
 
-/** Starea etichetei: none | valid | outdated (prețul tipărit ≠ prețul de vânzare actual). */
+/*
+ * Starea etichetei: none | valid | outdated | blank.
+ * „blank” = etichetă generată FĂRĂ preț tipărit (Etichete fără preț, cu cod AF):
+ * labelGeneratedAt setat și labelPriceCents NULL. Prețul efectiv se introduce la casă;
+ * fără schimbări de schemă.
+ */
 export function labelStateFor(item) {
-  if (!item?.labelGeneratedAt || item.labelPriceCents == null) return "none";
+  if (!item?.labelGeneratedAt) return "none";
+  if (item.labelPriceCents == null) return "blank";
   return item.labelPriceCents === fairSalePriceCents(item) ? "valid" : "outdated";
 }
 
@@ -94,7 +98,7 @@ export function pricingView(item, model, commissionBps) {
     commissionCents: split ? split.commissionCents : null,
     vendorNetCents: split ? split.vendorNetCents : null,
     issues: finalPriceIssues(item, model),
-    // prețul final se poate pregăti (și tipări) și înainte de acceptare; vânzarea la el doar după
+    // prețul final se salvează, se tipărește și se vinde indiferent de acceptarea regulamentului 2.0.0
     canEditFinalPrice: true,
     ruleAccepted: fairModel,
   };

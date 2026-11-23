@@ -214,12 +214,19 @@ test("garda: fiecare motiv de blocare are mesaj clar", async () => {
     const snapshot = JSON.parse(JSON.stringify({ i: line(ctx.lA.id), r: fake.tables.artfestFairRegistration, f: fake.tables.artfestFair }));
     mutate();
     const res = await scan(ctx.lA.barcode);
-    assert.equal(res.body.item.sellable, false, reason);
+    // eticheta cu alt preț nu blochează produsul: se vinde doar cu prețul efectiv introdus la casă
+    if (reason === "label_outdated") assert.equal(res.body.item.requiresPrice, true, reason);
+    else assert.equal(res.body.item.sellable, false, reason);
     assert.ok(res.body.item.reasons.includes(reason), `${reason}: ${res.body.item.reasons}`);
     if (message) assert.ok(res.body.item.messages.includes(message), reason);
     // vânzarea e refuzată la fel
     const sold = await sell([{ inventoryItemId: ctx.lA.id, quantity: 1 }]);
     assert.equal(sold.status, 409, reason);
+    // prețul introdus la casă rezolvă doar eticheta: participant inactiv / nerecepționat / blocat / stoc / vânzări închise rămân refuzate
+    if (reason !== "label_outdated") {
+      const priced = await sell([{ inventoryItemId: ctx.lA.id, quantity: 1, effectiveUnitPriceCents: 3000 }]);
+      assert.equal(priced.status, 409, `${reason} cu preț introdus`);
+    }
     // refacere
     Object.assign(line(ctx.lA.id), snapshot.i, {
       receivedAt: new Date(snapshot.i.receivedAt),

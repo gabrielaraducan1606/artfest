@@ -252,10 +252,22 @@ test("prețul sugerat = declarat / 0,90, în bani, consecvent cu comisionul din 
 
 /* ============================== regula 1.x neatinsă ============================== */
 
-test("regula 1.x (COMMISSION): prețul nu se introduce la casă, comision 10% ca înainte", async () => {
+test("COMMISSION fără acceptare 2.0.0: prețul efectiv se introduce la casă; 10% / 90% din prețul efectiv; regula rămâne COMMISSION", async () => {
   const edit = await preview([{ inventoryItemId: ctx.lC.id, quantity: 1, effectiveUnitPriceCents: 4000 }]);
-  assert.equal(edit.body.canConfirm, false);
-  assert.deepEqual(edit.body.problems[0].reasons, ["price_edit_not_allowed"]);
+  assert.equal(edit.body.canConfirm, true, edit.text);
+  const reduced = await sell([{ inventoryItemId: ctx.lC.id, quantity: 1, effectiveUnitPriceCents: 4000 }]);
+  assert.equal(reduced.status, 201, reduced.text);
+  const r = reduced.body.sale.lines[0];
+  assert.equal(r.pricingModel, "COMMISSION");
+  assert.equal(r.lineListCents, 4550);
+  assert.equal(r.lineDiscountCents, 550);
+  assert.equal(r.lineGrossCents, 4000);
+  assert.equal(r.commissionCents, 400);
+  assert.equal(r.vendorNetCents, 3600);
+  // regulamentul nu e marcat acceptat
+  const reg = fake.tables.artfestFairRegistration.find((x) => x.id === ctx.r2.id);
+  assert.equal(reg.pricingModel, "COMMISSION");
+  assert.equal(reg.pricingModelAcceptedAt ?? null, null);
 
   const s = await sell([{ inventoryItemId: ctx.lC.id, quantity: 1 }]);
   assert.equal(s.status, 201, s.text);
@@ -733,22 +745,28 @@ test("acceptare o singură dată: exemplul 10% / 90% cu reducere, dovada salvat�
   assertDbChecks();
 });
 
-test("regula 1.x: etichetă și vânzare fără preț final, ca înainte; eticheta veche blochează (fără preț la casă)", async () => {
+test("COMMISSION: etichetă și vânzare fără preț final, ca înainte; eticheta veche cere prețul introdus la casă", async () => {
   Object.assign(item(ctx.lC.id), { labelGeneratedAt: null, labelPriceCents: null });
   assert.equal((await printLabel(ctx.lC.id)).status, 200);
   assert.equal(item(ctx.lC.id).labelPriceCents, 4550);
   assert.equal(item(ctx.lC.id).finalPriceCents, null);
   const res = await asAdmin("GET", `${POS}/scan?barcode=${item(ctx.lC.id).barcode}`);
   assert.equal(res.body.item.sellable, true);
-  assert.equal(res.body.item.canEditPrice, false);
+  assert.equal(res.body.item.canEditPrice, true);
   const s = await sell([{ inventoryItemId: ctx.lC.id, quantity: 2 }]);
   assert.equal(s.status, 201, s.text);
   assert.equal(s.body.sale.lines[0].commissionCents, 910);
+  // eticheta cu preț vechi: fără preț introdus nu se vinde; cu prețul efectiv, da (fără retipărire)
   Object.assign(item(ctx.lC.id), { availableQty: 1, priceSnapshotCents: 4600 });
   assert.ok((await preview([{ inventoryItemId: ctx.lC.id, quantity: 1 }])).body.problems[0].reasons.includes("label_outdated"));
+  const withPrice = await sell([{ inventoryItemId: ctx.lC.id, quantity: 1, effectiveUnitPriceCents: 4550 }]);
+  assert.equal(withPrice.status, 201, withPrice.text);
+  assert.equal(withPrice.body.sale.lines[0].lineGrossCents, 4550);
+  assert.equal(withPrice.body.sale.lines[0].commissionCents, 455);
+  assert.equal(item(ctx.lC.id).availableQty, 0);
 });
 
-test("pregătire etichete ÎNAINTE de acceptare: prețul final se salvează și se tipărește; regula rămâne veche și nu se vinde la prețul nou", async () => {
+test("COMMISSION fără acceptare: prețul final se salvează, se tipărește și se vinde; regula și vânzarea existentă neschimbate", async () => {
   // vendorul 2: înscriere APPROVED, regula 1.x (neacceptat 2.0.0)
   const before = await sell([{ inventoryItemId: ctx.lC.id, quantity: 1 }]); // vânzare existentă, la prețul declarat
   assert.equal(before.status, 201, before.text);
@@ -769,12 +787,21 @@ test("pregătire etichete ÎNAINTE de acceptare: prețul final se salvează și 
   assert.equal(fake.tables.product.find((x) => x.id === ctx.pC.id).priceCents, 4550);
   assert.deepEqual(saleLines().find((l) => l.id === oldLine.id), oldLine);
 
-  // POS: nu se vinde la prețul nou înainte de acceptare (eticheta nu corespunde regulii 1.x)
+  // POS: se vinde la prețul final, fără acceptare; 10% / 90% din prețul efectiv
   const scan = (await asAdmin("GET", `${POS}/scan?barcode=${item(ctx.lC.id).barcode}`)).body.item;
-  assert.equal(scan.sellable, false);
-  assert.equal(scan.salePriceCents, 4550);
-  assert.ok(scan.reasons.includes("label_outdated"));
-  assert.equal((await sell([{ inventoryItemId: ctx.lC.id, quantity: 1 }])).status, 409);
-  assert.equal((await sell([{ inventoryItemId: ctx.lC.id, quantity: 1, effectiveUnitPriceCents: 5056 }])).status, 409);
-  assert.equal(saleLines().length, 1);
+  assert.equal(scan.sellable, true);
+  assert.equal(scan.requiresPrice, false);
+  assert.equal(scan.salePriceCents, 5056);
+  assert.equal(scan.pricingModel, "COMMISSION");
+  const s = await sell([{ inventoryItemId: ctx.lC.id, quantity: 1 }]);
+  assert.equal(s.status, 201, s.text);
+  const l = s.body.sale.lines[0];
+  assert.equal(l.pricingModel, "COMMISSION");
+  assert.equal(l.lineGrossCents, 5056);
+  assert.equal(l.commissionCents, 506);
+  assert.equal(l.vendorNetCents, 4550);
+  // nicio acceptare înregistrată; vânzarea existentă neatinsă
+  assert.equal(fake.tables.artfestFairRegistration.find((x) => x.id === ctx.r2.id).pricingModelAcceptedAt ?? null, null);
+  assert.deepEqual(saleLines().find((x) => x.id === oldLine.id), oldLine);
+  assertDbChecks();
 });

@@ -110,7 +110,11 @@ function productCellHtml(label, { bar, qr }) {
             <div class="title">${escapeHtml(label.title)}</div>
             ${label.variantLabel ? `<div class="variant">${escapeHtml(label.variantLabel)}</div>` : ""}
             ${label.storeName ? `<div class="store">${escapeHtml(label.storeName)}</div>` : ""}
-            <div class="price">${escapeHtml(formatLabelPrice(label.priceCents))}</div>
+            ${
+              label.blankPrice
+                ? `<div class="price blankPrice">Preț: <span class="blankLine"></span> lei</div>`
+                : `<div class="price">${escapeHtml(formatLabelPrice(label.priceCents))}</div>`
+            }
           </div>
           <div class="qr">${qr}</div>
         </div>
@@ -189,7 +193,9 @@ export function buildLabelsHtml(labels, { mode = "sheet", layout = "standard" } 
     return storeCache.get(url);
   };
   const cells = labels.map((label) => {
-    const product = productCellHtml(label, svgsFor(label.barcode));
+    // qrUrl (Etichete fără preț): QR-ul duce la pagina de promovare; codul de bare rămâne codul AF
+    const codes = svgsFor(label.barcode);
+    const product = productCellHtml(label, label.qrUrl ? { bar: codes.bar, qr: storeSvg(label.qrUrl) } : codes);
     if (!promo) return `\n      <div class="label">${product}\n      </div>`;
     const store = label.store?.url && label.store?.name ? label.store : null;
     return `
@@ -247,7 +253,10 @@ export function buildLabelsHtml(labels, { mode = "sheet", layout = "standard" } 
   .barcode svg { width: 100%; height: 100%; display: block; }
   .bottom { display: flex; justify-content: space-between; font-size: 6.5pt; line-height: 1; }
   .code { font-weight: 700; letter-spacing: 0.3pt; }
-  .site { color: #444; }${promo ? PROMO_CSS : ""}
+  .site { color: #444; }
+  /* fără preț tipărit: loc alb pentru prețul scris cu pixul */
+  .blankPrice { display: flex; align-items: baseline; gap: 1mm; font-size: 9pt; font-weight: 700; }
+  .blankLine { flex: 1 1 auto; min-width: 16mm; height: 4.5mm; border-bottom: 0.3mm solid #000; }${promo ? PROMO_CSS : ""}
 </style>
 </head>
 <body>
@@ -317,7 +326,8 @@ export function isPublicProductStore(service) {
   );
 }
 
-function storeFromService(service, baseUrl) {
+// exportată pentru etichetele fără preț (fairPromoLabels): aceeași adresă publică /magazin/<slug>
+export function storeFromService(service, baseUrl) {
   if (!isPublicProductStore(service)) return null;
   const name = String(service.profile.displayName || service.title || "").trim();
   if (!name) return null;

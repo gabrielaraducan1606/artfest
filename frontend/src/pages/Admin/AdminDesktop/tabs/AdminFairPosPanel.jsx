@@ -49,8 +49,8 @@ function formatDate(value) {
 
 /*
  * Prețul pe rând. Aceeași regulă pentru toți: Artfest 10% din prețul efectiv, vânzătorul 90%
- * (calculate pe server, la fiecare modificare). Regulamentul 2.0.0: prețul efectiv se poate
- * introduce la casă, doar pentru vânzarea curentă, fără retipărirea etichetei.
+ * (calculate pe server, la fiecare modificare). Prețul efectiv se poate introduce la casă
+ * pentru orice participant aprobat, doar pentru vânzarea curentă, fără retipărirea etichetei.
  */
 function PriceCell({ line: l, priced: p, busy, dispatch }) {
   const id = l.inventoryItemId;
@@ -63,8 +63,9 @@ function PriceCell({ line: l, priced: p, busy, dispatch }) {
           {l.suggestedPriceCents != null ? ` · Sugerat ${formatLei(l.suggestedPriceCents)}` : ""}
         </span>
       )}
-      <span className={shared.subtle}>Etichetă {formatLei(l.labelPriceCents)}</span>
-      {l.requiresPrice && (
+      <span className={shared.subtle}>{l.blankPriceLabel ? "Etichetă fără preț tipărit" : `Etichetă ${formatLei(l.labelPriceCents)}`}</span>
+      {l.blankPriceLabel && <span className={styles.split}>Introdu prețul scris pe etichetă.</span>}
+      {l.requiresPrice && !l.blankPriceLabel && (
         <span className={styles.split}>Eticheta are alt preț decât cel actual: vinde cu prețul de mai jos, fără retipărire.</span>
       )}
       {l.canEditPrice ? (
@@ -74,7 +75,7 @@ function PriceCell({ line: l, priced: p, busy, dispatch }) {
             className={styles.priceInput}
             inputMode="decimal"
             value={l.priceInput}
-            placeholder={formatLei(l.labelPriceCents).replace(" lei", "")}
+            placeholder={l.labelPriceCents != null ? formatLei(l.labelPriceCents).replace(" lei", "") : "preț"}
             onChange={(e) => dispatch({ type: "SET_PRICE", inventoryItemId: id, value: e.target.value })}
             disabled={busy}
             aria-label={`Preț efectiv pe bucată, ${l.title}`}

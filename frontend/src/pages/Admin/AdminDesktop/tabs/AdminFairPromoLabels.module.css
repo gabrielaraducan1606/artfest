@@ -1,0 +1,205 @@
+/* Admin → Târg → Etichete → „Etichete fără preț” (modal) */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--overlay-bg, rgba(0, 0, 0, 0.45));
+}
+
+.modal {
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 32px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-md);
+}
+
+.modalHead,
+.modalFoot {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+
+.modalHead {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modalHead h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.modalFoot {
+  justify-content: flex-end;
+  border-top: 1px solid var(--color-border);
+}
+
+.modalBody {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  overflow: auto;
+  padding: 16px;
+  min-width: 0;
+}
+
+.muted {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.kinds {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.option input {
+  margin-top: 3px;
+  flex: none;
+}
+
+.option span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.option small {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field select,
+.field input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--input-bg, var(--surface));
+  color: var(--color-text);
+  font: inherit;
+}
+
+.field .copies {
+  max-width: 140px;
+}
+
+.target {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.target span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.warn {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-warning, #b45309);
+}
+
+.notice,
+.error {
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.notice {
+  background: color-mix(in srgb, var(--color-success, #16a34a) 10%, transparent);
+}
+
+.error {
+  background: color-mix(in srgb, var(--color-danger, #dc2626) 10%, transparent);
+  color: var(--color-danger, #dc2626);
+}
+
+/* „Cu produs din inventar” (cod AF) */
+.check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+}
+
+.check input {
+  margin-top: 3px;
+  flex: none;
+}
+
+.check span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.check small {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.product {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: 10px;
+  min-width: 0;
+}
+
+.segment {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 8px;
+}
+
+.newProduct {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 10px;
+}

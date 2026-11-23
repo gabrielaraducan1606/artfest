@@ -15,6 +15,7 @@ import shared from "../AdminDesktop.module.css";
 import rx from "./AdminFairReception.module.css";
 import styles from "./AdminFairLabels.module.css";
 import { downloadLabelsPdf } from "../../../Vendor/Fair/fairInventory.js";
+import AdminFairPromoLabels from "./AdminFairPromoLabels.jsx";
 
 const API = "/api/admin/artfest-fair/inventory";
 const MAX_SELECTION = 500;
@@ -80,8 +81,9 @@ function parseLei(raw) {
 const leiInput = (cents) => (cents == null ? "" : (cents / 100).toFixed(2).replace(".", ","));
 
 /*
- * Regulamentul 2.0.0: prețul declarat, sugestia (declarat / 0,90) și prețul final (pe etichetă),
- * cu împărțirea comision 10% / vendor 90%. Nu atinge prețul online sau vânzările anterioare.
+ * Prețul declarat, sugestia (declarat / 0,90) și prețul final (pe etichetă), cu împărțirea
+ * comision 10% / vendor 90% - pentru orice participant aprobat, indiferent de regulamentul
+ * acceptat. Nu atinge prețul online sau vânzările anterioare.
  */
 function FinalPriceEditor({ item, disabled, onSaved, onError }) {
   const pricing = item.pricing;
@@ -142,7 +144,12 @@ function FinalPriceEditor({ item, disabled, onSaved, onError }) {
       {!invalid && vendorNet < pricing.vendorPriceCents && (
         <span className={styles.warnText}>Sub prețul sugerat: vânzătorul primește mai puțin decât prețul declarat.</span>
       )}
-      {pricing.finalPriceCents == null && <span className={styles.warnText}>Prețul final nu este salvat: eticheta nu se poate genera.</span>}
+      {pricing.finalPriceCents == null &&
+        (pricing.issues?.includes("final_price_missing") ? (
+          <span className={styles.warnText}>Prețul final nu este salvat: eticheta cu preț nu se poate genera.</span>
+        ) : (
+          <span className={styles.muted}>Fără preț final salvat, eticheta și POS-ul folosesc prețul declarat.</span>
+        ))}
     </div>
   );
 }
@@ -152,6 +159,10 @@ function LabelBadge({ label }) {
     return <span className={`${styles.badge} ${styles.badgeValid}`}>Generată · {formatDate(label.generatedAt)}</span>;
   }
   if (label?.state === "outdated") return <span className={`${styles.badge} ${styles.badgeWarn}`}>Preț vechi</span>;
+  // eticheta fără preț tipărit (cod AF; prețul se introduce în POS)
+  if (label?.state === "blank") {
+    return <span className={`${styles.badge} ${styles.badgeValid}`}>Fără preț · {formatDate(label.generatedAt)}</span>;
+  }
   return <span className={`${styles.badge} ${styles.badgeNone}`}>Negenerată</span>;
 }
 
@@ -169,6 +180,8 @@ export default function AdminFairLabelsPanel() {
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  // „Etichete fără preț” (promovare: magazin participant / Artfest) - separat de etichetele produselor
+  const [promoOpen, setPromoOpen] = useState(false);
 
   // toate liniile târgului (fără ciorne / anulate); căutarea după produs, vendor, cod e pe server
   const load = useCallback(async () => {
@@ -334,7 +347,7 @@ export default function AdminFairLabelsPanel() {
             {counts.noFinal > 0 && <span>{counts.noFinal} fără preț final</span>}
             {counts.none > 0 && <span>{counts.none} fără etichetă</span>}
             {counts.outdated > 0 && (
-              <span title="Regula nouă: la casă se poate introduce prețul efectiv, fără retipărire. Regula veche: eticheta se reimprimă.">
+              <span title="La casă se introduce prețul efectiv, fără retipărire. Reimprimarea e opțională.">
                 {counts.outdated} cu preț vechi pe etichetă
               </span>
             )}
@@ -375,6 +388,9 @@ export default function AdminFairLabelsPanel() {
         </select>
         <button type="button" className={rx.ghostBtn} onClick={printAll} disabled={Boolean(busy) || !items.length}>
           {busy === "all" ? "Se generează…" : vendorId ? "Toate etichetele creatorului" : "Toate etichetele târgului"}
+        </button>
+        <button type="button" className={rx.ghostBtn} onClick={() => setPromoOpen(true)} disabled={Boolean(busy)}>
+          Etichete fără preț
         </button>
         <select className={styles.select} value={labelState} onChange={(e) => setLabelState(e.target.value)} aria-label="Starea etichetei">
           {LABEL_FILTERS.map((f) => (
@@ -472,6 +488,8 @@ export default function AdminFairLabelsPanel() {
           })}
         </ul>
       )}
+
+      {promoOpen && <AdminFairPromoLabels onClose={() => setPromoOpen(false)} />}
 
       {selectedItems.length > 0 && (
         <div className={styles.bulkBar} role="region" aria-label="Etichete pentru produsele selectate">

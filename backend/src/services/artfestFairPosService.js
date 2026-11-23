@@ -65,9 +65,9 @@ export const SALE_BLOCK_MESSAGES = Object.freeze({
   label_outdated: "Prețul de pe etichetă nu mai corespunde.",
   insufficient_stock: "Stoc insuficient.",
   ...FINAL_PRICE_MESSAGES,
-  // modelul FAIR_PRICE: prețul editat în POS / suma vendorului
+  // prețul efectiv introdus în POS (toate înscrierile aprobate)
+  label_blank_price: "Eticheta nu are preț tipărit: introdu prețul efectiv scris pe etichetă.",
   price_above_label_unconfirmed: "Prețul introdus este mai mare decât prețul de pe etichetă: confirmă-l explicit.",
-  price_edit_not_allowed: "Prețul se poate introduce la casă doar pentru vânzătorii care au acceptat regulamentul 2.0.0.",
 });
 
 /* ===================== Utilitare ===================== */
@@ -118,7 +118,7 @@ function parseCartLines(rawLines) {
 }
 
 /*
- * Prețul efectiv introdus în POS (doar vânzarea curentă; înscrieri FAIR_PRICE):
+ * Prețul efectiv introdus în POS (doar vânzarea curentă; orice înscriere aprobată):
  *   effectiveUnitPriceCents - prețul unitar încasat (≤ prețul final de pe etichetă).
  * Lipsă = prețul etichetei (cu reducerea automată, dacă există). Suma vendorului NU
  * se trimite: rezultă din aceeași regulă de comision (90% din prețul efectiv).
@@ -188,16 +188,22 @@ export function saleBlockReasons({ fair, line, registrationStatus, pricingModel 
   if (line.saleBlockedAt) reasons.push("sale_blocked");
   // produs manual: nu există în catalog, deci nu are stare de moderare / vizibilitate online
   if (!isManualFairItem(line)) reasons.push(...productBlockReasons(product));
-  // FAIR_PRICE: prețul final lipsă / sub prețul vendorului
+  // FAIR_PRICE: prețul final lipsă (se rezolvă și prin prețul introdus la casă)
   reasons.push(...finalPriceIssues(line, pricingModel));
-  // eticheta trebuie să aibă prețul folosit de POS pentru regula înscrierii: prețul final (FAIR_PRICE)
-  // sau, în regula veche, prețul declarat. O etichetă pregătită cu prețul final înainte de
-  // acceptarea regulamentului nou e „preț vechi” => nu se vinde la prețul nou înainte de acceptare.
-  const expectedLabel = isFairPriceModel(pricingModel) ? fairSalePriceCents(line) : line.priceSnapshotCents;
-  const label =
-    !line.labelGeneratedAt || line.labelPriceCents == null ? "none" : line.labelPriceCents === expectedLabel ? "valid" : "outdated";
+  // prețul de vânzare actual, pentru ORICE înscriere aprobată: prețul final salvat de Admin,
+  // altfel prețul declarat. O etichetă cu alt preț / fără preț se vinde cu prețul introdus la casă.
+  const expectedLabel = fairSalePriceCents(line);
+  const label = !line.labelGeneratedAt
+    ? "none"
+    : line.labelPriceCents == null
+      ? "blank"
+      : line.labelPriceCents === expectedLabel
+        ? "valid"
+        : "outdated";
   if (label === "none") reasons.push("label_missing");
   else if (label === "outdated") reasons.push("label_outdated");
+  // etichetă FĂRĂ preț tipărit (cu cod AF): prețul efectiv se introduce obligatoriu la casă
+  else if (label === "blank") reasons.push("label_blank_price");
   const sellableQty = Math.max(0, (line.availableQty || 0) - heldQty);
   if (line.status === "RECEIVED" && sellableQty < quantity) reasons.push("insufficient_stock");
   return reasons;
@@ -397,34 +403,28 @@ async function loadContext(db, fair, itemIds, now) {
 }
 
 /*
- * O linie de coș. UN SINGUR calcul pentru toate înscrierile: computeLine (comisionul
- * fair.commissionBps din prețul efectiv; vendorul primește restul). Diferă doar prețul:
- *  - COMMISSION: prețul declarat; prețul nu se poate introduce la casă;
- *  - FAIR_PRICE: prețul final (etichetă); la casă se poate introduce un preț efectiv
- *    ≤ prețul final, aplicat ca reducere pe linie (finanțată ca reducerea implicită:
- *    scade și comisionul, și suma vendorului). Prețul introdus înlocuiește reducerea automată.
+ * O linie de coș. UN SINGUR calcul pentru toate înscrierile aprobate, indiferent de
+ * pricingModel: computeLine (comisionul fair.commissionBps din prețul efectiv; vendorul
+ * primește restul). Prețul de listă = prețul final (Admin) sau, fără el, prețul declarat.
+ * La casă se poate introduce un preț efectiv: sub etichetă = reducere pe linie (scade și
+ * comisionul, și suma vendorului); peste etichetă = doar cu confirmare. Prețul introdus
+ * înlocuiește reducerea automată. pricingModel-ul înscrierii se salvează neschimbat pe linie.
  */
 function priceLine({ fair, line, pricingModel, entry, discounts, now, legacyArtfestFunding = false }) {
   const discount = pickDiscount(discounts, line, entry.quantity, now, { legacyArtfestFunding });
-  if (!isFairPriceModel(pricingModel)) {
-    const c = computeLine({ listUnitPriceCents: line.priceSnapshotCents, quantity: entry.quantity, commissionBps: fair.commissionBps, discount });
-    return {
-      c: { ...c, pricingModel: PRICING_MODELS.COMMISSION, labelUnitPriceCents: line.priceSnapshotCents, priceSetManually: false },
-      discount,
-      priceReasons: hasPriceEdit(entry) ? ["price_edit_not_allowed"] : [],
-    };
-  }
 
   const labelUnit = fairSalePriceCents(line);
   const manual = entry.effectiveUnitPriceCents != null;
   const aboveLabel = manual && entry.effectiveUnitPriceCents > labelUnit;
+  // eticheta fără preț tipărit: nu există un preț de pe etichetă de confirmat
+  const blankLabel = Boolean(line.labelGeneratedAt) && line.labelPriceCents == null;
   const priceReasons = [];
   let applied = discount;
   // prețul de listă al liniei: eticheta; peste etichetă (confirmat) = prețul introdus, fără reducere
   let listUnit = labelUnit;
   if (manual) {
     if (aboveLabel) {
-      if (!entry.aboveLabelConfirmed) priceReasons.push("price_above_label_unconfirmed");
+      if (!entry.aboveLabelConfirmed && !blankLabel) priceReasons.push("price_above_label_unconfirmed");
       listUnit = entry.effectiveUnitPriceCents;
       applied = null;
     } else {
@@ -437,7 +437,8 @@ function priceLine({ fair, line, pricingModel, entry, discounts, now, legacyArtf
   return {
     c: {
       ...c,
-      pricingModel: PRICING_MODELS.FAIR_PRICE,
+      // regula înscrierii, neschimbată (nu se înregistrează acceptări)
+      pricingModel: isFairPriceModel(pricingModel) ? PRICING_MODELS.FAIR_PRICE : PRICING_MODELS.COMMISSION,
       // prețul de vânzare actual (etichetă) și cel tipărit pe etichetă
       labelUnitPriceCents: labelUnit,
       printedLabelPriceCents: line.labelPriceCents ?? null,
@@ -452,6 +453,9 @@ function priceLine({ fair, line, pricingModel, entry, discounts, now, legacyArtf
     priceReasons,
   };
 }
+
+// motivele care dispar când prețul efectiv e introdus la casă (orice înscriere aprobată)
+const PRICE_AT_CHECKOUT_REASONS = Object.freeze(["label_outdated", "label_blank_price", "final_price_missing"]);
 
 function removeReason(reasons, reason) {
   const i = reasons.indexOf(reason);
@@ -491,8 +495,15 @@ function priceCart(fair, cart, ctx, now) {
       legacyArtfestFunding: Boolean(ctx.legacyArtfestFunding),
     });
     for (const r of priceReasons) if (!reasons.includes(r)) reasons.push(r);
-    // prețul introdus în POS: eticheta doar identifică produsul => o etichetă cu preț vechi nu blochează
-    if (c.priceSetManually) removeReason(reasons, "label_outdated");
+    // prețul introdus în POS: eticheta doar identifică produsul => o etichetă cu preț vechi sau fără
+    // preț nu blochează; la eticheta fără preț nici lipsa prețului final (prețul vine de la casă)
+    if (c.priceSetManually) {
+      removeReason(reasons, "label_outdated");
+      if (reasons.includes("label_blank_price")) {
+        removeReason(reasons, "label_blank_price");
+        removeReason(reasons, "final_price_missing");
+      }
+    }
     if (reasons.length) {
       problems.push({ inventoryItemId: line.id, title: line.titleSnapshot, reasons, messages: reasons.map((r) => SALE_BLOCK_MESSAGES[r]) });
     }
@@ -560,17 +571,16 @@ export async function scanBarcode({ barcode, db = prisma, now = new Date() }) {
     heldQty,
   });
   const { c: unit, discount } = priceLine({ fair, line, pricingModel, entry: { quantity: 1 }, discounts: ctx.discounts, now });
-  const fairModel = isFairPriceModel(pricingModel);
-
   return {
     // regula înscrierii + prețurile afișate pe rând (scanarea NU înregistrează vânzarea)
     pricingModel,
-    canEditPrice: fairModel,
+    // prețul efectiv se poate introduce la casă pentru orice înscriere aprobată
+    canEditPrice: true,
     labelPriceCents: line.labelPriceCents ?? null,
-    salePriceCents: fairModel ? fairSalePriceCents(line) : line.priceSnapshotCents,
+    salePriceCents: fairSalePriceCents(line),
     // prețul declarat de vendor + prețul sugerat (declarat / 0,90)
     vendorPriceCents: line.priceSnapshotCents,
-    suggestedPriceCents: fairModel ? suggestedFinalPriceCents(line.priceSnapshotCents, fair.commissionBps) : null,
+    suggestedPriceCents: suggestedFinalPriceCents(line.priceSnapshotCents, fair.commissionBps),
     // la prețul de pe etichetă (după reducerea automată, dacă există): comision 10% / vendor 90%
     commissionBps: fair.commissionBps,
     artfestUnitCents: unit.commissionCents,
@@ -582,13 +592,14 @@ export async function scanBarcode({ barcode, db = prisma, now = new Date() }) {
     variantLabel: line.variantLabel || null,
     imageUrl: line.imageUrlSnapshot || null,
     vendor: { id: line.vendorId, name: ctx.vendors.get(line.vendorId) || null },
-    priceCents: fairModel ? fairSalePriceCents(line) : line.priceSnapshotCents,
+    priceCents: fairSalePriceCents(line),
     unitPriceAfterDiscountCents: unit.lineGrossCents,
     discount: discountSnapshot(discount),
     availableQty: Math.max(0, (line.availableQty || 0) - heldQty),
-    sellable: reasons.length === 0 || (fairModel && reasons.every((r) => r === "label_outdated")),
-    // eticheta are alt preț: vânzarea merge doar cu prețul introdus la casă (fără retipărire)
-    requiresPrice: fairModel && reasons.includes("label_outdated"),
+    sellable: reasons.length === 0 || reasons.every((r) => PRICE_AT_CHECKOUT_REASONS.includes(r)),
+    // eticheta are alt preț sau nu are preț: vânzarea merge doar cu prețul introdus la casă (fără retipărire)
+    requiresPrice: reasons.some((r) => PRICE_AT_CHECKOUT_REASONS.includes(r)),
+    blankPriceLabel: line.labelGeneratedAt != null && line.labelPriceCents == null,
     reasons,
     messages: reasons.map((r) => SALE_BLOCK_MESSAGES[r]),
   };
@@ -899,7 +910,11 @@ export async function createSale({ body = {}, idempotencyKey, adminId, db = pris
             commissionOnListCents: c.commissionOnListCents,
             vendorNetCents: c.vendorNetCents,
             artfestFundedDiscountCents: c.artfestFundedDiscountCents,
-            // regula aplicată, salvată pe linie (COMMISSION = valorile implicite, ca înainte)
+            // regula înscrierii, neschimbată. Sumele de mai sus (preț de listă, reducere, încasat,
+            // comision 10%, vendor 90%) sunt recalculate pe server și salvate pentru ambele reguli.
+            // COMMISSION: CHECK-ul existent AFSL_pricing_model_chk cere vendorBaseUnitPriceCents NULL
+            // și priceSetManually false (fără schimbare de schemă); prețul introdus la casă se vede
+            // în sume (reducerea pe linie fără regulă salvată / prețul de listă peste etichetă).
             ...(c.pricingModel === PRICING_MODELS.FAIR_PRICE
               ? {
                   pricingModel: PRICING_MODELS.FAIR_PRICE,

@@ -121,6 +121,7 @@ import {
 import { adminSubmitDraftInventory, getAdminLabelItems, markLabelsGenerated, setFinalPrice } from "../services/artfestFairInventoryService.js";
 import { adminDailyReport, adminReportCsv } from "../services/artfestFairReportsService.js";
 import { adminFairSummary } from "../services/artfestFairSummaryService.js";
+import { addPromoInventoryItem, listPromoParticipants, renderPromoLabels } from "../services/artfestFairPromoLabelsService.js";
 import { previewSaleReturn, returnSale, voidSale } from "../services/artfestFairSaleReturnService.js";
 import {
   addAdjustment,
@@ -790,6 +791,33 @@ async function sendLabelSheet(req, res, items, mode, filename, layout = "standar
   sendPdf(res, pdf, filename);
 }
 
+// etichete FĂRĂ PREȚ (promovare, nu pentru POS): magazin participant sau Artfest.
+// Doar Admin (router.use(authRequired, adminOnly)); eligibilitatea se verifică pe server.
+router.get(
+  "/labels/promo/participants",
+  handle(async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json(await listPromoParticipants());
+  })
+);
+
+router.post(
+  "/labels/promo.pdf",
+  handle(async (req, res) => {
+    const { pdf, line } = await renderPromoLabels({ body: req.body || {}, adminId: req.adminUser.id });
+    sendPdf(res, pdf, line ? `etichete-fara-pret-${line.barcode}.pdf` : req.body?.kind === "artfest" ? "etichete-artfest.pdf" : "etichete-magazin.pdf");
+  })
+);
+
+// „Adaugă și în inventar”: produs manual pentru participantul ales (fluxul existent; apoi recepție)
+router.post(
+  "/labels/promo/inventory-item",
+  handle(async (req, res) => {
+    const result = await addPromoInventoryItem({ body: req.body || {}, adminId: req.adminUser.id });
+    res.status(result.duplicate ? 200 : 201).json({ ok: true, ...result });
+  })
+);
+
 // ?vendorId= -> etichetele unui vendor; fără parametru -> toate etichetele târgului (A4 3 × 8)
 // ?copies=declared|received|one
 router.get(
@@ -832,7 +860,7 @@ router.get(
   })
 );
 
-// prețul final de vânzare (doar regula FAIR_PRICE); nu atinge prețul online sau vânzările anterioare
+// prețul final de vânzare (orice înscriere trimisă / aprobată); nu atinge prețul online sau vânzările anterioare
 router.post(
   "/inventory/:id/final-price",
   handle(async (req, res) => {

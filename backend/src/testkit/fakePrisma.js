@@ -39,6 +39,7 @@ const MODELS = {
   // Târgul Artfest (artfestFair*.test.js)
   vendorService: { defaults: {}, unique: {} },
   serviceProfile: { defaults: {}, unique: {} },
+  serviceType: { defaults: {}, unique: {} },
   artfestFair: {
     defaults: { registrationOpen: true, nextVendorReturnNumber: 1, nextSaleNumber: 1, nextReturnNumber: 1, salesOpen: false, commissionBps: 1000 },
     unique: { key: ["key"] },
@@ -261,7 +262,11 @@ const RELATIONS = {
   userConsent: { user: { model: "user", local: "userId", many: false } },
   vendorAcceptance: { vendor: { model: "vendor", local: "vendorId", many: false } },
   artfestFairRegistration: { vendor: { model: "vendor", local: "vendorId", many: false } },
-  vendorService: { profile: { model: "serviceProfile", fk: "serviceId", many: false } },
+  vendorService: {
+    profile: { model: "serviceProfile", fk: "serviceId", many: false },
+    type: { model: "serviceType", local: "typeId", many: false },
+    vendor: { model: "vendor", local: "vendorId", many: false },
+  },
   artfestFairInventoryItem: { fair: { model: "artfestFair", local: "fairId", many: false } },
 };
 

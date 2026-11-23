@@ -266,7 +266,7 @@ async function loadOwnedProduct(db, vendorId, productId) {
 
 /* ===================== Serializare ===================== */
 
-// eticheta trebuie să aibă prețul de vânzare actual (prețul final, în modelul FAIR_PRICE)
+// eticheta: prețul de vânzare actual (prețul final salvat de Admin, altfel prețul declarat)
 const labelState = labelStateFor;
 
 function plural(n, one, many) {
@@ -413,7 +413,7 @@ function serializeItem(item, product, ctx, movements = [], returnInfo = null, is
       generatedAt: item.labelGeneratedAt || null,
       priceCents: item.labelPriceCents ?? null,
     },
-    // prețul declarat de vendor + prețul final de vânzare la târg (FAIR_PRICE), cu împărțirea 10% / 90%
+    // prețul declarat de vendor + prețul final de vânzare la târg, cu împărțirea 10% / 90%
     pricing: pricingView(item, ctx?.registration?.pricingModel, ctx?.fair?.commissionBps),
     online: {
       mode: item.onlineReservationMode,
@@ -1299,7 +1299,7 @@ export async function submitInventory({ vendorId, userId, db = prisma, now = new
  *   - expected: { lines, qty } confirmate de Admin; dacă liniile DRAFT s-au schimbat
  *     între timp, nu se trimite nimic (409).
  */
-async function submitDraftLines({ db, registrationId, vendorId, userId, now, onBehalfOf = false, expected = null }) {
+async function submitDraftLines({ db, registrationId, vendorId, userId, now, onBehalfOf = false, expected = null, onlyLineIds = null }) {
   const services = await vendorServiceMap(db, vendorId);
   const submittedNote = onBehalfOf ? "Trimis de Admin în numele participantului" : null;
 
@@ -1314,7 +1314,8 @@ async function submitDraftLines({ db, registrationId, vendorId, userId, now, onB
     }
 
     const lines = await tx.artfestFairInventoryItem.findMany({
-      where: { registrationId, vendorId, status: "DRAFT" },
+      // onlyLineIds: doar liniile date (ex. produsul manual adăugat de Admin); ciornele vendorului rămân neatinse
+      where: { registrationId, vendorId, status: "DRAFT", ...(onlyLineIds ? { id: { in: onlyLineIds } } : {}) },
       orderBy: { createdAt: "asc" },
     });
     if (!lines.length) {
@@ -1711,17 +1712,17 @@ export async function markLabelsGenerated({ items, userId, db = prisma, now = ne
   }
 }
 
-/* ===================== Prețul final (Admin, modelul FAIR_PRICE) ===================== */
+/* ===================== Prețul final (Admin, orice înscriere trimisă / aprobată) ===================== */
 
 const FINAL_PRICE_STATUSES = ["DRAFT", "SUBMITTED", "RECEIVED"];
 
 /*
- * Admin stabilește prețul final de vânzare la târg pentru o linie FAIR_PRICE.
+ * Admin stabilește prețul final de vânzare la târg pentru o linie (indiferent de pricingModel).
  *  - nu atinge prețul produsului online și nici prețul vendorului (priceSnapshotCents);
  *  - minim prețul vendorului (vânzarea sub suma lui e blocată oricum în POS);
  *  - afectează doar vânzările VIITOARE: liniile vândute își păstrează valorile;
- *  - dacă eticheta e deja tipărită cu alt preț, devine „preț vechi” și POS-ul
- *    refuză vânzarea până la reimprimare (labelReprintNeeded în răspuns).
+ *  - dacă eticheta e deja tipărită cu alt preț, NU trebuie retipărită: la casă se
+ *    introduce prețul efectiv (labelReprintNeeded rămâne doar informativ).
  * Același lock pe linie ca vânzarea din POS: o vânzare în curs folosește fie
  * prețul vechi, fie pe cel nou, niciodată un amestec.
  */
@@ -1743,16 +1744,15 @@ export async function setFinalPrice({ id, body = {}, adminId, db = prisma, now =
       where: { id: item.registrationId },
       select: { id: true, status: true, pricingModel: true },
     });
-    // pregătirea etichetelor ÎNAINTE de acceptarea regulamentului nou: prețul final se poate
-    // salva pentru înscrierile trimise / aprobate; NU schimbă regula (pricingModel) și nu
-    // permite vânzarea la el până la acceptare (POS-ul verifică eticheta după regula înscrierii)
+    // prețul final se poate salva pentru înscrierile trimise / aprobate, indiferent de regulă;
+    // NU schimbă pricingModel și nu înregistrează nicio acceptare
     if (!registration || !["SUBMITTED", "APPROVED"].includes(registration.status)) {
       throw new FairError(409, "registration_not_active", "Participarea vendorului nu este trimisă sau aprobată.");
     }
     // regula unică: comision din prețul efectiv; un preț final sub cel sugerat e permis,
     // dar Admin vede că vendorul primește mai puțin decât prețul declarat (pricing.vendorNetCents)
     const fairRow = await tx.artfestFair.findUnique({ where: { id: base.id }, select: { commissionBps: true } });
-    if (item.finalPriceCents === finalPriceCents) return { item, changed: false, commissionBps: fairRow?.commissionBps };
+    if (item.finalPriceCents === finalPriceCents) return { item, changed: false, commissionBps: fairRow?.commissionBps, model: registration.pricingModel };
 
     const updated = await tx.artfestFairInventoryItem.update({
       where: { id: item.id },
@@ -1763,21 +1763,50 @@ export async function setFinalPrice({ id, body = {}, adminId, db = prisma, now =
       after: { finalPriceCents, vendorPriceCents: item.priceSnapshotCents },
       actorUserId: adminId || null,
     });
-    return { item: updated, changed: true, commissionBps: fairRow?.commissionBps };
+    return { item: updated, changed: true, commissionBps: fairRow?.commissionBps, model: registration.pricingModel };
   }, FAIR_TX_OPTIONS);
 
   const { item } = result;
+  const registrationModel = result.model || PRICING_MODELS.COMMISSION;
   const label = labelStateFor(item);
   return {
     changed: result.changed,
     item: {
       id: item.id,
-      pricing: pricingView(item, PRICING_MODELS.FAIR_PRICE, result.commissionBps),
+      pricing: pricingView(item, registrationModel, result.commissionBps),
       label: { state: label, priceCents: item.labelPriceCents ?? null, generatedAt: item.labelGeneratedAt || null },
     },
-    // eticheta tipărită are alt preț => trebuie reimprimată înainte de următoarea vânzare
+    // eticheta tipărită are alt preț: se vinde cu prețul introdus la casă (retipărirea e opțională)
     labelReprintNeeded: label === "outdated",
   };
+}
+
+/* ===================== Produs manual adăugat de Admin (Etichete fără preț) ===================== */
+
+/*
+ * Admin adaugă un produs manual în inventarul unui participant: ACELAȘI flux ca vendorul
+ * (addManualInventoryItem: înscriere aprobată, termenul pentru inventar, cod AF unic,
+ * idempotență prin clientRequestId), apoi trimite DOAR linia nouă (submitDraftLines, în
+ * numele participantului). Linia ajunge SUBMITTED și trebuie recepționată ca orice altă linie.
+ */
+export async function adminAddManualInventoryItem({ vendorId, adminId, body = {}, db = prisma, now = new Date(), randomInt, env }) {
+  const added = await addManualInventoryItem({ vendorId, userId: adminId, body, db, now, randomInt, env });
+  const lineId = added.item.id;
+  const current = await db.artfestFairInventoryItem.findUnique({ where: { id: lineId } });
+  if (current?.status === "DRAFT") {
+    await submitDraftLines({ db, registrationId: current.registrationId, vendorId, userId: adminId, now, onBehalfOf: true, onlyLineIds: [lineId] });
+  }
+  const item = await db.artfestFairInventoryItem.findUnique({ where: { id: lineId } });
+  return { item, duplicate: added.duplicate };
+}
+
+/*
+ * Etichete FĂRĂ preț tipărit (cu codul AF al liniei): labelGeneratedAt setat, labelPriceCents NULL
+ * => starea „blank”. POS-ul cere prețul efectiv la casă (orice înscriere aprobată).
+ */
+export async function markBlankLabelsGenerated({ item, copies, userId, db = prisma, now = new Date() }) {
+  await db.artfestFairInventoryItem.update({ where: { id: item.id }, data: { labelPriceCents: null, labelGeneratedAt: now } });
+  await writeEvent(db, item, "LABEL_GENERATED", { after: { labelPriceCents: null, blankPrice: true, copies }, actorUserId: userId });
 }
 
 /* ===================== Restricții pentru alte fluxuri ===================== */

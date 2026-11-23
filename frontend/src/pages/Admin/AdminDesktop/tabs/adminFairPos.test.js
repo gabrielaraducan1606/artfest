@@ -216,3 +216,17 @@ test("preț peste etichetă: cere confirmare explicită; schimbarea prețului an
   assert.equal(isAboveLabel(state.cart[0]), false);
   assert.deepEqual(cartInputProblems(state.cart), []);
 });
+
+test("etichetă fără preț tipărit: prețul scris pe etichetă e obligatoriu; fără confirmare „peste etichetă”", () => {
+  let state = posReducer(initialPosState, {
+    type: "SCANNED",
+    item: vendorPriceItem({ blankPriceLabel: true, requiresPrice: true, labelPriceCents: null, salePriceCents: 4500, sellable: true }),
+  });
+  assert.equal(state.cart[0].labelPriceCents, null);
+  assert.equal(state.cart[0].priceInput, "");
+  assert.deepEqual(cartInputProblems(state.cart), ["Spiriduș: introdu prețul scris pe etichetă."]);
+  state = posReducer(state, { type: "SET_PRICE", inventoryItemId: "i1", value: "60" }); // peste prețul declarat / final
+  assert.equal(isAboveLabel(state.cart[0]), false);
+  assert.deepEqual(cartInputProblems(state.cart), []);
+  assert.deepEqual(cartPayload(state.cart)[0], { inventoryItemId: "i1", quantity: 1, effectiveUnitPriceCents: 6000 });
+});
