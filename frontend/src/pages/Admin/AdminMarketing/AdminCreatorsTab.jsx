@@ -6,7 +6,7 @@
 // modificări / Respinge / Suspendă / Reactivează (motiv obligatoriu unde e cazul).
 // Moderare doar: fără acțiuni financiare. Link direct: ?tab=creators&profile=<id>.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { api } from "../../../lib/api";
@@ -47,7 +47,7 @@ const EMAIL_LABEL = { SENT: "email trimis", FAILED: "email eșuat (se reîncearc
 
 const ACTIONS = {
   approve: { label: "Aprobă", title: "Aprobi profilul?", confirm: "Aprobă", reason: false, text: "Versiunea trimisă devine publică. Influencerul primește email și notificare." },
-  "request-changes": { label: "Cere modificări", title: "Ceri modificări?", confirm: "Trimite cererea", reason: true, text: "Mesajul tău ajunge la influencer (email + notificare). Dacă profilul era publicat, versiunea publică rămâne." },
+  "request-changes": { label: "Solicită modificări", title: "Soliciți modificări?", confirm: "Trimite cererea", reason: true, text: "Mesajul tău ajunge la influencer (email + notificare). Dacă profilul era publicat, versiunea publică rămâne." },
   reject: { label: "Respinge", title: "Respingi profilul?", confirm: "Respinge", reason: true, danger: true, text: "Profilul nu va putea fi retrimis. Motivul ajunge la influencer." },
   suspend: { label: "Suspendă", title: "Suspenzi profilul?", confirm: "Suspendă", reason: true, danger: true, text: "Profilul dispare imediat din public. Motivul ajunge la influencer." },
   unsuspend: { label: "Reactivează", title: "Reactivezi profilul?", confirm: "Reactivează", reason: false, text: "Profilul redevine vizibil (dacă are o versiune aprobată și nu e pe pauză)." },
@@ -69,6 +69,10 @@ function ProfileDetail({ id, options, onChanged, onClose }) {
   const [pending, setPending] = useState(null); // { action, offerId? }
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  // la deschiderea profilului, detaliul (cu butoanele de moderare) e adus pe ecran -
+  // altfel, pe telefon, butoanele rămâneau sub marginea ecranului, după lista de profiluri
+  const rootRef = useRef(null);
+  const scrolledFor = useRef(null);
 
   const load = useCallback(() => {
     setError("");
@@ -80,6 +84,12 @@ function ProfileDetail({ id, options, onChanged, onClose }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!data || scrolledFor.current === id) return;
+    scrolledFor.current = id;
+    rootRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [data, id]);
 
   async function run() {
     setBusy(true);
@@ -110,7 +120,7 @@ function ProfileDetail({ id, options, onChanged, onClose }) {
   const toPreview = (snapshot) => (snapshot ? { ...snapshot, acceptsProducts: profile.acceptsProducts, acceptsPaid: profile.acceptsPaid, typicalTurnaroundDays: profile.typicalTurnaroundDays } : null);
 
   return (
-    <section className={styles.card} aria-labelledby="creator-detail-title">
+    <section ref={rootRef} className={styles.card} aria-labelledby="creator-detail-title" style={{ scrollMarginTop: 80 }} data-creator-detail>
       <div className={styles.cardHead}>
         <div>
           <h3 id="creator-detail-title" className={styles.cardTitle}>

@@ -343,10 +343,10 @@ html[data-theme="dark"] .cardMuted {
   display: flex;
   gap: 8px;
   border-bottom: 1px solid var(--color-border);
-  /* 9 taburi: un rând cu scroll orizontal, fără să împingă pagina */
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
+  /* 10 taburi: trec pe rândul următor - toate vizibile (cu derulare orizontală și bara
+     ascunsă, ultimul tab, „Creators”, rămânea în afara ecranului fără niciun indiciu) */
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .tabsRow::-webkit-scrollbar {

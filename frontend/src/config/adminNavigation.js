@@ -61,6 +61,8 @@ export const ADMIN_NAV_SECTIONS = [
     icon: "Megaphone",
     items: [
       { label: "Influenceri", to: "/admin/marketing?tab=influencers", icon: "Sparkles" },
+      // moderarea profilurilor Artfest Creators (aprobare / modificări / respingere)
+      { label: "Artfest Creators", to: "/admin/marketing?tab=creators", icon: "Crown" },
       { label: "Coduri de reducere", to: "/admin/marketing?tab=vendorDiscountCodes", icon: "Percent" },
       { label: "Campanii vendori", to: "/admin/marketing?tab=vendorCampaigns", icon: "Megaphone" },
       { label: "Email & newsletter", to: "/admin/marketing", icon: "MessageSquare" },
