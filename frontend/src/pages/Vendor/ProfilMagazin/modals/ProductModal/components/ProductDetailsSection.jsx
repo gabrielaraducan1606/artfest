@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import styles from "../../../components/css/ProductModal.module.css";
 import TagComboField from "./TagComboField";
@@ -9,6 +9,7 @@ import MultiCategoryNewsBanner from "./MultiCategoryNewsBanner";
 const ADDITIONAL_CATEGORIES_INPUT_ID =
   "product-additional-categories";
 import { normalizeAdditionalCategoryKeys } from "../../../../../../utils/additionalCategories.js";
+import { filterCategoryOptions } from "../../../../../../utils/categorySearch.js";
 
 export default function ProductDetailsSection({
   form,
@@ -25,6 +26,23 @@ export default function ProductDetailsSection({
 }) {
   const aiPrimary =
     form.aiSuggestedCategory || "";
+
+  // căutarea filtrează DOAR lista afișată; categoria aleasă rămâne în
+  // formular (și în listă) când căutarea se schimbă sau se șterge
+  const [categoryQuery, setCategoryQuery] =
+    useState("");
+  const categorySearch = useMemo(
+    () =>
+      filterCategoryOptions(
+        categoryProps?.options,
+        categoryQuery,
+        form.category || ""
+      ),
+    [categoryProps?.options, categoryQuery, form.category]
+  );
+  const categoryNoResults =
+    categoryQuery.trim() !== "" &&
+    categorySearch.matches === 0;
 
   const aiPrimaryLabel =
     categoryProps?.options?.find(
@@ -261,6 +279,39 @@ export default function ProductDetailsSection({
               Categorie
             </label>
 
+            <input
+              id="category-search-input"
+              className={`${styles.input} ${styles.categorySearch}`}
+              type="search"
+              value={categoryQuery}
+              onChange={(e) =>
+                setCategoryQuery(
+                  e.target.value
+                )
+              }
+              onKeyDown={(e) => {
+                // Enter nu trimite formularul
+                if (e.key === "Enter")
+                  e.preventDefault();
+              }}
+              placeholder="Caută o categorie…"
+              aria-label="Caută o categorie"
+              aria-controls="category-combobox-input"
+              autoComplete="off"
+              enterKeyHint="search"
+            />
+
+            {categoryNoResults && (
+              <p
+                className={
+                  styles.categorySearchEmpty
+                }
+                role="status"
+              >
+                Nicio categorie găsită
+              </p>
+            )}
+
             <select
               id="category-combobox-input"
               className={styles.input}
@@ -293,7 +344,7 @@ export default function ProductDetailsSection({
                 Alege categorie
               </option>
 
-              {categoryProps.options.map(
+              {categorySearch.options.map(
                 (o) => (
                   <option
                     key={o.key}

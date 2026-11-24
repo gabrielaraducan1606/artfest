@@ -84,6 +84,7 @@ export const CATEGORIES = [
   "marturii_mini-lumanari",
   "marturii_obiecte-gravate",
 
+  "cadouri",
   "cadouri_pentru-miri",
   "cadouri_pentru-nasi",
   "cadouri_pentru-parinti",
@@ -223,6 +224,7 @@ export const CATEGORY_LABELS = {
   "marturii_mini-lumanari": "Mini-lumânări",
   "marturii_obiecte-gravate": "Obiecte gravate",
 
+  "cadouri": "Cadouri",
   "cadouri_pentru-miri": "Cadouri pentru miri",
   "cadouri_pentru-nasi": "Cadouri pentru nași",
   "cadouri_pentru-parinti": "Cadouri pentru părinți",

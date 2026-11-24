@@ -1996,3 +1996,22 @@
     gap: 2px;
   }
 }
+
+/* ===== Căutare în categoria principală (ProductModal) ===== */
+.categorySearch {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.categorySearchEmpty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+@media (max-width: 560px) {
+  /* 16px: iOS nu mai face zoom la focus */
+  .categorySearch {
+    font-size: 16px;
+  }
+}

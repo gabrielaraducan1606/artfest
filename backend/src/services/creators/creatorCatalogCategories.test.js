@@ -46,10 +46,10 @@ test("gruparea oficială: fiecare categorie cu grupa și eticheta grupei din cat
   assert.equal(nunta.groupLabel, CATEGORY_GROUP_LABELS.papetarie);
 });
 
-test("exclus: o etichetă fără categorie validă de produs (ex. „cadouri” simplu) și chei inexistente / de servicii", () => {
+test("exclus: chei inexistente / de servicii; „cadouri” (categorie de produs din catalog) apare automat", () => {
   const values = new Set(creatorCategoryOptions().map((o) => o.value));
-  assert.ok(Object.hasOwn(CATEGORY_LABELS, "cadouri") && !CATEGORY_SET.has("cadouri"));
-  assert.ok(!values.has("cadouri"));
+  // „Cadouri” a devenit categorie selectabilă în catalog => apare și aici
+  assert.ok(CATEGORY_SET.has("cadouri") && values.has("cadouri"));
   for (const bad of ["servicii_dj", "decor", "party", "inexistent"]) {
     assert.equal(values.has(bad), false, bad);
     assert.equal(isCatalogCategoryKey(bad), false, bad);

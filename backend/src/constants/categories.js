@@ -95,7 +95,10 @@ export const CATEGORIES = [
   "marturii_obiecte-gravate",
 
   // Cadouri & personalizate
-   "cadouri_1-iunie",
+  // "cadouri" = categoria generală „Cadouri” (aceeași cheie ca grupa;
+  // eticheta exista deja în CATEGORY_LABELS, acum e și selectabilă).
+  "cadouri",
+  "cadouri_1-iunie",
   "cadouri_final-an-scolar",
   "cadouri_pentru-miri",
   "cadouri_pentru-nasi",

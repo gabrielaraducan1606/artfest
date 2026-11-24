@@ -24,6 +24,9 @@ const STATUS_FILTERS = [
   { value: "", label: "Toate" },
 ];
 
+// lista se reîncarcă periodic doar cât pagina e vizibilă
+const LIST_REFRESH_MS = 30 * 1000;
+
 const STATUS_LABEL = Object.fromEntries(STATUS_FILTERS.filter((s) => s.value).map((s) => [s.value, s.label]));
 const STATUS_TONE = { PENDING: "warning", CHANGES_REQUESTED: "warning", APPROVED: "success", REJECTED: "danger", DRAFT: "muted" };
 
@@ -294,6 +297,31 @@ export default function AdminCreatorsTab() {
     return () => clearTimeout(timer);
   }, [load, q]);
 
+  /*
+   * Lista se încărca o singură dată: un profil trimis cât tabul era deschis nu apărea
+   * până la reîncărcarea paginii. Acum se actualizează la revenirea în pagină, periodic
+   * (doar cât pagina e vizibilă) și la deschiderea unui profil (ex. din notificare).
+   */
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    const timer = setInterval(refreshIfVisible, LIST_REFRESH_MS);
+    return () => {
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      clearInterval(timer);
+    };
+  }, [load]);
+
+  useEffect(() => {
+    if (selected) load();
+    // doar la schimbarea profilului deschis
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
+
   useEffect(() => {
     api(`${CREATORS_ADMIN_API}/options`).then(setOptions).catch(() => null);
   }, []);
@@ -325,6 +353,9 @@ export default function AdminCreatorsTab() {
             ))}
           </select>
           <input className={styles.input} style={{ width: 220 }} placeholder="Caută după nume sau adresă" value={q} onChange={(e) => { setPage(1); setQ(e.target.value); }} aria-label="Caută" />
+          <button type="button" className={styles.btn} onClick={load} data-creators-refresh>
+            Reîmprospătează
+          </button>
         </div>
       </div>
 

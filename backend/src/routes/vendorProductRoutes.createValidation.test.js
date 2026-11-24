@@ -125,6 +125,13 @@ test("payload valid -> validarea trece (ajunge la tranzacție)", async () => {
   assert.equal(r.accepted, true, JSON.stringify(r.body));
 });
 
+test("categoria „Cadouri” (cheia cadouri) e acceptată ca principală și ca suplimentară", async () => {
+  const primary = await post(valid({ category: "cadouri", additionalCategories: ["cadouri_botez"] }));
+  assert.equal(primary.accepted, true, JSON.stringify(primary.body));
+  const extra = await post(valid({ additionalCategories: ["cadouri"] }));
+  assert.equal(extra.accepted, true, JSON.stringify(extra.body));
+});
+
 const INVALID = [
   ["invalid_title", { title: "   " }, "title"],
   ["invalid_category", { category: "categorie_inexistenta" }, "category"],
