@@ -41,6 +41,7 @@ import { FAIR_TX_OPTIONS } from "../config/artfestFair.js";
 import { FairError, ensureFair } from "./artfestFairService.js";
 import { cleanText, lockLine, requireIdempotencyKey } from "./artfestFairReceptionService.js";
 import { POS_PAYMENT_METHODS, getSale } from "./artfestFairPosService.js";
+import { isArtfestOwned } from "../lib/artfestFairOwner.js";
 
 export const RETURN_DISPOSITIONS = Object.freeze(["RESTOCKED", "NOT_RESTOCKED", "NOT_RETURNED"]);
 export const REFUND_RESPONSIBILITIES = Object.freeze(["VENDOR", "ARTFEST"]);
@@ -277,6 +278,10 @@ function planReturn({ type, sale, saleLines, items, requestLines }) {
     if (req.disposition !== "NOT_RETURNED" && (item?.soldQty ?? 0) < (consumed.get(`sold:${item?.id}`) || 0) + req.quantity) {
       messages.push("Stocul vândut al produsului nu corespunde; verifică vânzarea.");
     }
+    // produs Artfest (stoc propriu): nu există vânzător care să suporte rambursarea
+    if (isArtfestOwned(saleLine) && req.refundResponsibility === "VENDOR") {
+      messages.push("Produs Artfest (stoc propriu): rambursarea este suportată de Artfest.");
+    }
     if (messages.length) {
       problems.push({ saleLineId: saleLine.id, title: saleLine.titleSnapshot, messages });
       continue;
@@ -284,7 +289,8 @@ function planReturn({ type, sale, saleLines, items, requestLines }) {
     consumed.set(saleLine.id, used + req.quantity);
     if (req.disposition !== "NOT_RETURNED") consumed.set(`sold:${item.id}`, (consumed.get(`sold:${item.id}`) || 0) + req.quantity);
     const amounts = reversedAmounts(saleLine, from, req.quantity);
-    const vendorAffected = affectsVendor(req);
+    // linia Artfest nu afectează niciun vânzător (partea vânzătorului e 0)
+    const vendorAffected = !isArtfestOwned(saleLine) && affectsVendor(req);
     lines.push({
       saleLine,
       item,

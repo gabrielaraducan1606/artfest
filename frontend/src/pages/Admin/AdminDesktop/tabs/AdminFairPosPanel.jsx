@@ -34,6 +34,7 @@ import {
   scanRejectMessage,
 } from "./adminFairPos.js";
 import PosCameraScanner from "./PosCameraScanner.jsx";
+import { AddProductDialog, ProductsDialog } from "./PosProductTools.jsx";
 import { downloadLabelsPdf } from "../../../Vendor/Fair/fairInventory.js";
 import { SaleReturnModal, SaleVoidModal } from "./AdminFairSaleReturn.jsx";
 import { isValidDate, reportUrl, todayFairDate } from "../../../Vendor/Fair/fairSales.js";
@@ -115,7 +116,7 @@ function PriceCell({ line: l, priced: p, busy, dispatch }) {
   );
 }
 
-function SalePanel({ salesOpen }) {
+function SalePanel({ salesOpen, inventory }) {
   const [state, dispatch] = useReducer(posReducer, initialPosState);
   // scanări trimise la server și încă fără răspuns (doar pentru indicația „Se verifică…”)
   const [pendingScans, setPendingScans] = useState(0);
@@ -131,6 +132,9 @@ function SalePanel({ salesOpen }) {
   // nici el (pe telefon ar deschide tastatura) - până la prima tastă fizică (scanner USB / tastatură)
   const [cameraOpen, setCameraOpen] = useState(false);
   const cameraOpenRef = useRef(false);
+  // „Adaugă produs” / „Produse / Etichete”: aceeași regulă de focus ca la cameră
+  const [tool, setTool] = useState(null); // null | "add" | "products"
+  const toolOpenRef = useRef(false);
   const autoFocusBlockedRef = useRef(false);
 
   // focusul revine pe scanner DOAR dacă nu editezi alt câmp (preț, cantitate, alt câmp text)
@@ -138,7 +142,7 @@ function SalePanel({ salesOpen }) {
     requestAnimationFrame(() => {
       const input = scanRef.current;
       if (!input || input.disabled) return;
-      if (cameraOpenRef.current || autoFocusBlockedRef.current) return;
+      if (cameraOpenRef.current || toolOpenRef.current || autoFocusBlockedRef.current) return;
       const kind = keyTargetKind(document.activeElement, input);
       if (kind === "scanner" || kind === "other") input.focus();
     });
@@ -158,7 +162,7 @@ function SalePanel({ salesOpen }) {
   useEffect(() => {
     const onKey = (e) => {
       const input = scanRef.current;
-      if (!input || input.disabled || cameraOpenRef.current) return;
+      if (!input || input.disabled || cameraOpenRef.current || toolOpenRef.current) return;
       // o tastă fizică (scanner USB / tastatură): focusul automat revine
       autoFocusBlockedRef.current = false;
       if (!shouldRedirectToScanner(e, keyTargetKind(e.target, input))) return;
@@ -265,6 +269,18 @@ function SalePanel({ salesOpen }) {
     setCameraOpen(false);
   }
 
+  function openTool(name) {
+    toolOpenRef.current = true;
+    autoFocusBlockedRef.current = true;
+    if (document.activeElement === scanRef.current) scanRef.current?.blur();
+    setTool(name);
+  }
+
+  const closeTool = useCallback(() => {
+    toolOpenRef.current = false;
+    setTool(null);
+  }, []);
+
   function onScan(event) {
     event.preventDefault();
     submitScan();
@@ -331,6 +347,16 @@ function SalePanel({ salesOpen }) {
           Scanează cu camera
         </button>
         {cameraOpen && <PosCameraScanner onScan={scanFromCamera} onClose={closeCamera} />}
+        <div className={styles.toolButtons}>
+          <button type="button" className={styles.ghostBtn} onClick={() => openTool("add")} disabled={state.busy}>
+            Adaugă produs
+          </button>
+          <button type="button" className={styles.ghostBtn} onClick={() => openTool("products")} disabled={state.busy}>
+            Produse / Etichete
+          </button>
+        </div>
+        {tool === "add" && <AddProductDialog inventory={inventory} onClose={closeTool} onAddToCart={lookupAndAdd} />}
+        {tool === "products" && <ProductsDialog onClose={closeTool} onAddToCart={lookupAndAdd} />}
         <p className={shared.subtle} aria-live="polite">
           {pendingScans > 0
             ? "Se verifică codul…"
@@ -1133,7 +1159,12 @@ export default function AdminFairPosPanel() {
         )}
       </div>
       {error && <div className={shared.error}>{error}</div>}
-      {tab === "sale" && <SalePanel salesOpen={Boolean(status?.salesOpen)} />}
+      {tab === "sale" && (
+        <SalePanel
+          salesOpen={Boolean(status?.salesOpen)}
+          inventory={status ? { open: status.inventoryOpen !== false, deadlineAt: status.inventoryDeadlineAt || null } : null}
+        />
+      )}
       {tab === "history" && <SalesHistory />}
       {tab === "report" && <DailyReport />}
       {tab === "summary" && <FairSummary />}

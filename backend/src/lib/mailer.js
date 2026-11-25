@@ -6391,6 +6391,163 @@ export async function sendSecretSantaAssignmentEmail({ to, toName = null, userId
 }
 
 /* ============================================================
+   SECRET SANTA - invitația vânzătorilor (trimisă manual din Admin)
+   Comunicare promoțională => doar vânzătorilor eligibili cu acord pentru
+   noutăți (vezi services/secretSantaInviteService.js), cu link de dezabonare
+   + List-Unsubscribe; fără link valid emailul NU pleacă. Emailul de test
+   (Admin) e identic, dar are alt template în EmailLog, ca să nu fie confundat
+   cu invitația reală la verificarea „deja trimis”.
+============================================================ */
+
+export function secretSantaInviteTemplate(campaignKey, { test = false } = {}) {
+  return `secret_santa_vendor_invite${test ? "_test" : ""}:${campaignKey}`;
+}
+
+export function buildSecretSantaInviteEmail({
+  firstName = null,
+  vendorName = "",
+  drawDateLabel = "5 decembrie 2026",
+  budgetLabel = "50–80 lei",
+  ctaPath = "/secret-santa",
+  unsubscribeUrl = null,
+} = {}) {
+  const e = escapeEmailHtml;
+  const base = APP_URL || "https://www.artfest.ro";
+  const safePath = String(ctaPath || "").startsWith("/") ? ctaPath : "/secret-santa";
+  const ctaUrl = base + safePath;
+  const ctaLabel = "Înscrie-te la Secret Santa";
+  const greetingName = String(firstName || vendorName || "").trim();
+  const greeting = greetingName ? "Bună, " + greetingName + "," : "Bună,";
+  // „5 decembrie 2026” -> „5 decembrie” în subiect
+  const drawShort = String(drawDateLabel).replace(/\s+\d{4}$/, "");
+
+  const subject = "🎁 Secret Santa " + BRAND_NAME + " – Înscrie-te până la extragerea din " + drawShort + "!";
+  const preheader =
+    "Schimb de cadouri între vânzătorii " + BRAND_NAME + ". Extragerea are loc pe " + drawDateLabel + ", buget " + budgetLabel + ".";
+
+  const intro = [
+    "Anul acesta organizăm <strong>Secret Santa " + e(BRAND_NAME) + "</strong>, un schimb de cadouri între vânzătorii " +
+      e(BRAND_NAME) +
+      ": fiecare participant pregătește un cadou pentru un alt creator din comunitate și primește, la rândul lui, un cadou de la un vânzător extras la întâmplare.",
+    "Este o ocazie frumoasă să descoperi munca altor creatori, să-i susții și să te bucuri de o surpriză pregătită cu grijă de cineva care știe cât suflet e în fiecare lucru făcut de mână.",
+  ];
+  const facts = [
+    ["📅", "Extragerea", drawDateLabel],
+    ["🎁", "Bugetul cadoului", budgetLabel],
+    ["✍️", "Înscrierea", "direct din contul tău de vânzător " + BRAND_NAME],
+  ];
+  const steps = [
+    "Te înscrii din platformă, din contul tău de vânzător.",
+    "Pe " + drawDateLabel + " facem extragerea și afli prin email cui îi pregătești cadoul.",
+    "Pregătești un cadou de " + budgetLabel + " și i-l trimiți creatorului extras.",
+  ];
+
+  const FONT = "font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;";
+  const P = (inner) => '<p style="color:#374151;margin:0 0 14px;line-height:1.6;font-size:16px;">' + inner + "</p>";
+  const factRows = facts
+    .map(
+      ([icon, label, value]) =>
+        '<tr><td style="padding:12px 16px;border-bottom:1px solid #fbe3ec;font-size:15px;line-height:1.5;color:#374151;">' +
+        '<span style="font-size:18px;">' + icon + '</span>&nbsp; <strong style="color:#9f1239;">' + e(label) + ":</strong> " + e(value) +
+        "</td></tr>"
+    )
+    .join("");
+  const footerNote = unsubscribeUrl
+    ? '<p style="color:#9ca3af;font-size:12px;line-height:1.5;margin:0;">Primești acest email pentru că ai un cont de vânzător pe ' +
+      e(BRAND_NAME) +
+      ' și ai acceptat să primești noutăți. <a href="' + e(unsubscribeUrl) + '" style="color:#6b7280;">Dezabonează-te</a> de la emailurile de acest tip.</p>'
+    : "";
+
+  const html = [
+    '<!doctype html><html lang="ro"><head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<meta name="x-apple-disable-message-reformatting">',
+    "<title>" + e(subject) + "</title></head>",
+    '<body style="margin:0;padding:0;background:#fdf6f0;">',
+    '<span style="display:none !important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;mso-hide:all;">' + e(preheader) + "</span>",
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fdf6f0;">',
+    '<tr><td align="center" style="padding:20px 12px;">',
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;' + FONT + '">',
+    // logo
+    '<tr><td align="center" style="padding:0 0 16px;"><img src="' + EMAIL_LOGO_URL + '" alt="' + e(BRAND_NAME) +
+      '" width="96" height="96" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:96px;height:auto;"></td></tr>',
+    // antet festiv (culoare plină + gradient unde e suportat)
+    '<tr><td style="background:#9f1239;background-image:linear-gradient(135deg,#9f1239 0%,#be123c 55%,#166534 100%);border-radius:16px 16px 0 0;padding:28px 22px;text-align:center;">',
+    '<p style="margin:0 0 8px;font-size:28px;line-height:1;">🎄 🎁 ✨</p>',
+    '<h1 style="margin:0;color:#ffffff;font-size:26px;line-height:1.25;font-weight:800;' + FONT + '">Secret Santa ' + e(BRAND_NAME) + "</h1>",
+    '<p style="margin:8px 0 0;color:#fde7ec;font-size:15px;line-height:1.5;' + FONT + '">Schimbul de cadouri dintre vânzătorii ' + e(BRAND_NAME) + "</p>",
+    "</td></tr>",
+    // conținut
+    '<tr><td style="background:#ffffff;border:1px solid #f1d9c7;border-top:0;border-radius:0 0 16px 16px;padding:24px 22px;">',
+    P(e(greeting)),
+    ...intro.map((p) => P(p)),
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fdf2f8;border-radius:12px;margin:6px 0 18px;">' + factRows + "</table>",
+    '<p style="color:#111827;margin:0 0 8px;font-size:16px;font-weight:700;">Cum funcționează</p>',
+    '<ol style="margin:0 0 20px;padding-left:22px;color:#374151;line-height:1.7;font-size:15px;">' +
+      steps.map((s) => '<li style="margin:0 0 4px;">' + e(s) + "</li>").join("") +
+      "</ol>",
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 18px;"><tr>',
+    '<td align="center" style="border-radius:12px;background:#9f1239;">',
+    '<a href="' + e(ctaUrl) + '" style="display:inline-block;padding:14px 26px;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;border-radius:12px;' + FONT + '">' + e(ctaLabel) + "</a>",
+    "</td></tr></table>",
+    '<p style="color:#6b7280;margin:0 0 18px;line-height:1.5;font-size:13px;text-align:center;">Sau deschide: <a href="' + e(ctaUrl) +
+      '" style="color:#9f1239;word-break:break-all;">' + e(ctaUrl) + "</a></p>",
+    '<p style="color:#374151;margin:0;line-height:1.6;font-size:16px;">Sărbători cu drag,<br>Echipa ' + e(BRAND_NAME) + "</p>",
+    "</td></tr>",
+    // footer Artfest
+    '<tr><td style="padding:16px 8px 0;text-align:center;">',
+    '<p style="color:#9ca3af;font-size:12px;line-height:1.5;margin:0 0 6px;"><a href="' + e(base) + '" style="color:#6b7280;text-decoration:none;font-weight:600;">' +
+      e(BRAND_NAME) + "</a> · comunitatea creatorilor de lucruri făcute de mână</p>",
+    footerNote,
+    "</td></tr>",
+    "</table></td></tr></table></body></html>",
+  ].join("\n");
+
+  const strip = (s) => s.replace(/<[^>]+>/g, "");
+  const text = [
+    greeting,
+    "",
+    ...intro.flatMap((p) => [strip(p), ""]),
+    ...facts.map(([, label, value]) => label + ": " + value),
+    "",
+    "Cum funcționează:",
+    ...steps.map((s, i) => i + 1 + ". " + s),
+    "",
+    ctaLabel + ": " + ctaUrl,
+    "",
+    "Sărbători cu drag,",
+    "Echipa " + BRAND_NAME,
+    ...(unsubscribeUrl ? ["", "Dezabonare: " + unsubscribeUrl] : []),
+  ].join("\n");
+
+  return { subject, preheader, html, text, ctaUrl };
+}
+
+export async function sendSecretSantaInviteEmail({ to, userId = null, vendorName = "", firstName = null, campaignKey, test = false, ...content }) {
+  if (!to || !campaignKey) throw new Error("secret_santa_invite_missing_params");
+  // fără link de dezabonare funcțional nu trimitem (preferințele de comunicare trebuie respectate)
+  const unsubscribeUrl = buildApiUnsubscribeUrl(to);
+  if (!unsubscribeUrl) throw new Error("unsubscribe_link_unavailable");
+  const { subject, html, text } = buildSecretSantaInviteEmail({ ...content, firstName, vendorName, unsubscribeUrl });
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: secretSantaInviteTemplate(campaignKey, { test }),
+    userId,
+    toName: vendorName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: { ...AUTO_HEADERS, "List-Unsubscribe": "<" + unsubscribeUrl + ">", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+    },
+  });
+}
+
+/* ============================================================
    ARTFEST CREATORS - emailul de status al profilului (tranzacțional)
    aprobat / modificări solicitate / respins / suspendat
 ============================================================ */

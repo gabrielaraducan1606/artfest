@@ -22,6 +22,7 @@ import { prisma } from "../db.js";
 import { ensureFair } from "./artfestFairService.js";
 import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { localDayRange, todayLocal } from "./artfestFairReportsService.js";
+import { ownerName } from "../lib/artfestFairOwner.js";
 
 const CLOSED_SETTLEMENT_STATUSES = ["FINALIZED", "PAID", "CARRIED_FORWARD"];
 
@@ -179,7 +180,8 @@ async function buildSummary({ db, vendorId = null, now = new Date() }) {
   for (const s of data.settlements) if (s.status === "PAID") vendorBucket(s.vendorId).paidCents += s.finalDueCents;
   for (const a of data.adjustments) vendorBucket(settlementVendor.get(a.settlementId)).adjustmentsCents += a.amountCents;
 
-  const vendorIds = [...vendors.keys()];
+  // liniile Artfest (stoc propriu) au vendorId NULL: rând „Artfest (stoc propriu)”, fără sumă de plătit
+  const vendorIds = [...vendors.keys()].filter(Boolean);
   const names = vendorIds.length
     ? new Map(
         (await db.vendor.findMany({ where: { id: { in: vendorIds } }, select: { id: true, displayName: true } })).map((v) => [
@@ -194,7 +196,8 @@ async function buildSummary({ db, vendorId = null, now = new Date() }) {
     const dueCents = total.net.vendorDueCents + v.adjustmentsCents;
     return {
       vendorId: v.vendorId,
-      vendorName: names.get(v.vendorId) || null,
+      vendorName: ownerName(v.vendorId, names),
+      artfestOwned: !v.vendorId,
       today: finish(v.today),
       total,
       todayProducts: [...v.todayProducts.values()].sort((a, b) => b.quantity - a.quantity || (a.title < b.title ? -1 : 1)),

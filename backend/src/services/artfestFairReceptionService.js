@@ -25,6 +25,7 @@ import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { FAIR_TX_OPTIONS, PARTICIPATION_CANCELLED_BLOCK_REASON } from "../config/artfestFair.js";
 import { isManualFairItem } from "../lib/artfestFairManualItem.js";
 import { FINAL_PRICE_MESSAGES, labelStateFor, pricingView } from "../lib/artfestFairPricing.js";
+import { ARTFEST_OWNER_NAME, distinctIds, isArtfestOwned, lineCommissionBps } from "../lib/artfestFairOwner.js";
 
 export const RETURN_ONLY_TEXT = "Produs primit doar pentru retur – nu este disponibil pentru vânzare.";
 
@@ -140,7 +141,8 @@ const PRODUCT_SELECT = {
 
 async function loadRelated(db, lines) {
   const productIds = [...new Set(lines.map((l) => l.productId).filter(Boolean))];
-  const vendorIds = [...new Set(lines.map((l) => l.vendorId))];
+  // liniile Artfest (stoc propriu): fără vânzător / înscriere
+  const vendorIds = distinctIds(lines, "vendorId");
   const registrationIds = [...new Set(lines.map((l) => l.registrationId).filter(Boolean))];
   const [products, vendors, registrations] = await Promise.all([
     productIds.length ? db.product.findMany({ where: { id: { in: productIds } }, select: PRODUCT_SELECT }) : [],
@@ -206,7 +208,8 @@ export function serializeAdminLine(
   line,
   { product = null, vendor = null, movements = null, fairId = null, registrationStatus = "APPROVED", pricingModel = "COMMISSION", commissionBps = null } = {}
 ) {
-  const pricing = pricingView(line, pricingModel, commissionBps);
+  // Artfest (stoc propriu): 100% Artfest la vânzare; participanții: comisionul târgului
+  const pricing = pricingView(line, pricingModel, Number.isInteger(commissionBps) ? lineCommissionBps(line, commissionBps) : commissionBps);
   const eligibility = getSaleEligibility(line, product, { registrationStatus });
   const received = line.status === "RECEIVED" || line.status === "REJECTED";
   const participationCancelled = registrationStatus === "CANCELLED";
@@ -219,7 +222,10 @@ export function serializeAdminLine(
     variantLabel: line.variantLabel || null,
     storeName: line.storeNameSnapshot || null,
     imageUrl: line.imageUrlSnapshot || null,
-    vendor: { id: line.vendorId, name: vendor?.displayName || null },
+    vendor: { id: line.vendorId || null, name: line.vendorId ? vendor?.displayName || null : ARTFEST_OWNER_NAME },
+    // Artfest - stoc propriu: încasarea integral Artfest (fără împărțire 10% / 90%)
+    artfestOwned: isArtfestOwned(line),
+    serviceId: line.serviceId || null,
     productId: line.productId,
     isManual: isManualFairItem(line),
     priceCents: pricing.salePriceCents,
@@ -359,7 +365,7 @@ export async function listAdminInventory({ filter = "all", q = "", db = prisma }
   const term = String(q || "").trim().toLowerCase();
   const searchable = term
     ? lines.filter((l) => {
-        const vendorName = vendors.get(l.vendorId)?.displayName || "";
+        const vendorName = l.vendorId ? vendors.get(l.vendorId)?.displayName || "" : ARTFEST_OWNER_NAME;
         return [l.titleSnapshot, l.barcode, formatFairBarcode(l.barcode), vendorName, l.variantLabel || ""]
           .join(" ")
           .toLowerCase()
@@ -618,12 +624,11 @@ export async function unblockSale({ id, adminId, db = prisma }) {
     await lockLine(tx, String(id));
     const line = await tx.artfestFairInventoryItem.findUnique({ where: { id: String(id) } });
     if (!line) throw new FairError(404, "inventory_item_not_found", "Linia de inventar nu a fost găsită.");
-    // o linie a unei participări anulate nu mai poate redeveni de vânzare
-    const registration = await tx.artfestFairRegistration.findUnique({
-      where: { id: line.registrationId },
-      select: { status: true },
-    });
-    if (registration?.status !== "APPROVED") {
+    // o linie a unei participări anulate nu mai poate redeveni de vânzare; liniile Artfest nu au înscriere
+    const registration = line.registrationId
+      ? await tx.artfestFairRegistration.findUnique({ where: { id: line.registrationId }, select: { status: true } })
+      : null;
+    if (!isArtfestOwned(line) && registration?.status !== "APPROVED") {
       throw new FairError(
         409,
         "registration_not_approved",

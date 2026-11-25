@@ -619,6 +619,9 @@ model VendorService {
   homepageFeatures HomepageFeature[]
   quoteRequests    QuoteRequest[]
 
+  // Târg Artfest: produse manuale asociate acestui magazin
+  artfestFairInventoryItems ArtfestFairInventoryItem[]
+
   @@index([vendorId, typeId])
   @@index([vendorId, createdAt], map: "vendor_service_vendor_created_idx")
   @@index([typeId, isActive, status, citySlug], map: "vendor_service_filters_idx")
@@ -5714,9 +5717,14 @@ model ArtfestBroadcastDelivery {
 model ArtfestFairInventoryItem {
   id             String  @id @default(cuid())
   fairId         String
-  registrationId String
-  vendorId       String
+  // Proprietarul liniei: participant (registrationId + vendorId) SAU Artfest - stoc propriu
+  // (ambele NULL, CHECK AFII_owner_chk). Liniile Artfest: fără produs online, fără magazin;
+  // la vânzare 100% Artfest (AFSL_artfest_owned_chk).
+  registrationId String?
+  vendorId       String?
   productId      String?
+  // magazinul participantului ales pentru un produs manual (eticheta / afișare); NULL = nespecificat
+  serviceId      String?
 
   // cheia din buildConfigurationKey (aceeași logică ca CartItem/ShipmentItem)
   variantKey      String  @db.VarChar(64)
@@ -5792,9 +5800,10 @@ model ArtfestFairInventoryItem {
   updatedAt    DateTime  @updatedAt
 
   fair         ArtfestFair             @relation(fields: [fairId], references: [id], onDelete: Restrict)
-  registration ArtfestFairRegistration @relation(fields: [registrationId], references: [id], onDelete: Restrict)
-  vendor       Vendor                  @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  product      Product?                @relation(fields: [productId], references: [id], onDelete: SetNull)
+  registration ArtfestFairRegistration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  vendor       Vendor?                  @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  product      Product?                 @relation(fields: [productId], references: [id], onDelete: SetNull)
+  service      VendorService?           @relation(fields: [serviceId], references: [id], onDelete: SetNull)
 
   receivedBy              User? @relation("ArtfestInventoryReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
   vendorReturnConfirmedBy User? @relation("ArtfestInventoryReturnConfirmedBy", fields: [vendorReturnConfirmedById], references: [id], onDelete: SetNull)
@@ -5814,13 +5823,15 @@ model ArtfestFairInventoryItem {
   @@index([productId, status])
   @@index([productId, onlineReservationMode])
   @@index([saleBlockedAt])
+  @@index([serviceId])
 }
 
 model ArtfestFairStockMovement {
   id               String                   @id @default(cuid())
   inventoryItemId  String
   fairId           String
-  vendorId         String
+  // NULL = linie Artfest - stoc propriu
+  vendorId         String?
   type             ArtfestStockMovementType
   quantity         Int
   reason           String?                  @db.Text
@@ -5851,7 +5862,8 @@ model ArtfestFairInventoryEvent {
   id              String                    @id @default(cuid())
   inventoryItemId String
   fairId          String
-  vendorId        String
+  // NULL = linie Artfest - stoc propriu
+  vendorId        String?
   type            ArtfestInventoryEventType
   before          Json?
   after           Json?
@@ -5993,7 +6005,9 @@ model ArtfestFairSaleLine {
   saleId          String
   fairId          String
   inventoryItemId String
-  vendorId        String
+  // NULL = produs Artfest - stoc propriu: încasarea e integral Artfest
+  // (commissionBps 10000, commissionCents = lineGrossCents, vendorNetCents 0 - CHECK în migrație)
+  vendorId        String?
   productId       String?
 
   titleSnapshot   String  @db.VarChar(200)
@@ -6038,7 +6052,7 @@ model ArtfestFairSaleLine {
   sale            ArtfestFairSale              @relation(fields: [saleId], references: [id], onDelete: Restrict)
   fair            ArtfestFair                  @relation(fields: [fairId], references: [id], onDelete: Restrict)
   inventoryItem   ArtfestFairInventoryItem     @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
-  vendor          Vendor                       @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  vendor          Vendor?                      @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   product         Product?                     @relation(fields: [productId], references: [id], onDelete: SetNull)
   discount        ArtfestFairSaleLineDiscount?
   movements       ArtfestFairStockMovement[]
@@ -6134,7 +6148,8 @@ model ArtfestFairSaleReturnLine {
   returnId                   String
   saleLineId                 String
   inventoryItemId            String
-  vendorId                   String
+  // NULL = produs Artfest - stoc propriu (vendorNetReversedCents 0)
+  vendorId                   String?
   quantity                   Int
   // alocare deterministă pe bucăți a lineGrossCents / commissionCents /
   // artfestFundedDiscountCents ai liniei de vânzare: base = floor(total / quantity),
@@ -6156,7 +6171,7 @@ model ArtfestFairSaleReturnLine {
   saleReturn      ArtfestFairSaleReturn       @relation(fields: [returnId], references: [id], onDelete: Restrict)
   saleLine        ArtfestFairSaleLine         @relation(fields: [saleLineId], references: [id], onDelete: Restrict)
   inventoryItem   ArtfestFairInventoryItem    @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
-  vendor          Vendor                      @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  vendor          Vendor?                     @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   movements       ArtfestFairStockMovement[]
   settlementEntry ArtfestFairSettlementEntry?
 

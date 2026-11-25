@@ -43,6 +43,7 @@ import {
   parseCents,
   suggestedFinalPriceCents,
 } from "../lib/artfestFairPricing.js";
+import { distinctIds, isArtfestOwned, lineCommissionBps, ownerName } from "../lib/artfestFairOwner.js";
 
 const BARCODE_RE = /^AF[2-9ABCDEFGHJKMNPQRSTVWX]{8}$/;
 const MAX_LINES = 100;
@@ -183,7 +184,8 @@ export function saleBlockReasons({ fair, line, registrationStatus, pricingModel 
   const reasons = [];
   if (!fair?.salesOpen) reasons.push("sales_closed");
   if (line.fairId !== fair?.id) reasons.push("other_fair");
-  if (registrationStatus !== "APPROVED") reasons.push("registration_inactive");
+  // produs Artfest (stoc propriu): fără înscriere; participanții: doar înscrierea APPROVED
+  if (!isArtfestOwned(line) && registrationStatus !== "APPROVED") reasons.push("registration_inactive");
   if (line.status !== "RECEIVED") reasons.push("not_received");
   if (line.saleBlockedAt) reasons.push("sale_blocked");
   // produs manual: nu există în catalog, deci nu are stare de moderare / vizibilitate online
@@ -347,7 +349,7 @@ async function loadFairForPos(db) {
   const base = await ensureFair(db);
   return db.artfestFair.findUnique({
     where: { id: base.id },
-    select: { id: true, key: true, title: true, salesOpen: true, commissionBps: true, nextSaleNumber: true },
+    select: { id: true, key: true, title: true, salesOpen: true, commissionBps: true, nextSaleNumber: true, inventoryDeadlineAt: true, endsAt: true },
   });
 }
 
@@ -369,8 +371,9 @@ async function heldInPreparingReturns(db, itemIds) {
 async function loadContext(db, fair, itemIds, now) {
   const items = await db.artfestFairInventoryItem.findMany({ where: { id: { in: itemIds } } });
   const byId = new Map(items.map((i) => [i.id, i]));
-  const registrationIds = [...new Set(items.map((i) => i.registrationId))];
-  const vendorIds = [...new Set(items.map((i) => i.vendorId))];
+  // liniile Artfest (stoc propriu) nu au înscriere / vânzător
+  const registrationIds = distinctIds(items, "registrationId");
+  const vendorIds = distinctIds(items, "vendorId");
   const productIds = [...new Set(items.map((i) => i.productId).filter(Boolean))];
   const [registrations, vendors, discounts, held, products] = await Promise.all([
     registrationIds.length
@@ -433,12 +436,14 @@ function priceLine({ fair, line, pricingModel, entry, discounts, now, legacyArtf
       applied = perUnit > 0 ? { type: "FIXED_AMOUNT", amountCents: perUnit, fundingSource: "VENDOR", manual: true } : null;
     }
   }
-  const c = computeLine({ listUnitPriceCents: listUnit, quantity: entry.quantity, commissionBps: fair.commissionBps, discount: applied });
+  // produs Artfest (stoc propriu): încasarea e integral Artfest (100%); participanții: comisionul târgului
+  const c = computeLine({ listUnitPriceCents: listUnit, quantity: entry.quantity, commissionBps: lineCommissionBps(line, fair.commissionBps), discount: applied });
   return {
     c: {
       ...c,
       // regula înscrierii, neschimbată (nu se înregistrează acceptări)
-      pricingModel: isFairPriceModel(pricingModel) ? PRICING_MODELS.FAIR_PRICE : PRICING_MODELS.COMMISSION,
+      pricingModel: !isArtfestOwned(line) && isFairPriceModel(pricingModel) ? PRICING_MODELS.FAIR_PRICE : PRICING_MODELS.COMMISSION,
+      artfestOwned: isArtfestOwned(line),
       // prețul de vânzare actual (etichetă) și cel tipărit pe etichetă
       labelUnitPriceCents: labelUnit,
       printedLabelPriceCents: line.labelPriceCents ?? null,
@@ -511,7 +516,7 @@ function priceCart(fair, cart, ctx, now) {
       ...c,
       inventoryItemId: line.id,
       vendorId: line.vendorId,
-      vendorName: ctx.vendors.get(line.vendorId) || null,
+      vendorName: ownerName(line.vendorId, ctx.vendors),
       title: line.titleSnapshot,
       variantLabel: line.variantLabel || null,
       barcodeDisplay: formatFairBarcode(line.barcode),
@@ -534,7 +539,17 @@ function publicLine(c) {
 
 export async function getPosStatus({ db = prisma } = {}) {
   const fair = await loadFairForPos(db);
-  return { salesOpen: Boolean(fair.salesOpen), commissionBps: fair.commissionBps, fairTitle: fair.title };
+  // termenul pentru inventar (POS -> „Adaugă produs” folosește fluxul de inventar manual, cu aceeași limită)
+  const now = Date.now();
+  const deadlinePassed = Boolean(fair.inventoryDeadlineAt) && now >= new Date(fair.inventoryDeadlineAt).getTime();
+  const ended = Boolean(fair.endsAt) && now > new Date(fair.endsAt).getTime();
+  return {
+    salesOpen: Boolean(fair.salesOpen),
+    commissionBps: fair.commissionBps,
+    fairTitle: fair.title,
+    inventoryDeadlineAt: fair.inventoryDeadlineAt || null,
+    inventoryOpen: !deadlinePassed && !ended,
+  };
 }
 
 export async function setSalesOpen({ open, adminId, db = prisma }) {
@@ -580,9 +595,11 @@ export async function scanBarcode({ barcode, db = prisma, now = new Date() }) {
     salePriceCents: fairSalePriceCents(line),
     // prețul declarat de vendor + prețul sugerat (declarat / 0,90)
     vendorPriceCents: line.priceSnapshotCents,
-    suggestedPriceCents: suggestedFinalPriceCents(line.priceSnapshotCents, fair.commissionBps),
+    suggestedPriceCents: isArtfestOwned(line) ? null : suggestedFinalPriceCents(line.priceSnapshotCents, fair.commissionBps),
     // la prețul de pe etichetă (după reducerea automată, dacă există): comision 10% / vendor 90%
-    commissionBps: fair.commissionBps,
+    commissionBps: unit.commissionBps,
+    // produs Artfest (stoc propriu): încasarea e integral Artfest
+    artfestOwned: isArtfestOwned(line),
     artfestUnitCents: unit.commissionCents,
     vendorUnitCents: unit.vendorNetCents,
     inventoryItemId: line.id,
@@ -591,7 +608,7 @@ export async function scanBarcode({ barcode, db = prisma, now = new Date() }) {
     title: line.titleSnapshot,
     variantLabel: line.variantLabel || null,
     imageUrl: line.imageUrlSnapshot || null,
-    vendor: { id: line.vendorId, name: ctx.vendors.get(line.vendorId) || null },
+    vendor: { id: line.vendorId || null, name: ownerName(line.vendorId, ctx.vendors) },
     priceCents: fairSalePriceCents(line),
     unitPriceAfterDiscountCents: unit.lineGrossCents,
     discount: discountSnapshot(discount),
@@ -684,11 +701,14 @@ async function loadSale(db, saleId) {
   const [allocations, movements, vendors] = await Promise.all([
     lineIds.length ? db.artfestFairSaleLineDiscount.findMany({ where: { saleLineId: { in: lineIds } } }) : [],
     lineIds.length ? db.artfestFairStockMovement.findMany({ where: { saleLineId: { in: lineIds } } }) : [],
-    db.vendor.findMany({ where: { id: { in: [...new Set(lines.map((l) => l.vendorId))] } }, select: { id: true, displayName: true } }),
+    db.vendor.findMany({ where: { id: { in: distinctIds(lines) } }, select: { id: true, displayName: true } }),
   ]);
   const out = serializeSaleRow(sale, lines, allocations, movements);
   const names = new Map(vendors.map((v) => [v.id, v.displayName]));
-  for (const l of out.lines) l.vendorName = names.get(l.vendorId) || null;
+  for (const l of out.lines) {
+    l.vendorName = ownerName(l.vendorId, names);
+    l.artfestOwned = isArtfestOwned(l);
+  }
   out.vendors = summarizeSaleLines(out.lines);
   // retururile / anularea vânzării (clienți)
   const returns = await db.artfestFairSaleReturn.findMany({ where: { saleId: sale.id }, orderBy: { createdAt: "asc" } });
@@ -762,7 +782,7 @@ export async function listSales({ limit = 50, db = prisma } = {}) {
   const lines = rows.length
     ? await db.artfestFairSaleLine.findMany({ where: { saleId: { in: rows.map((r) => r.id) } } })
     : [];
-  const vendorIds = [...new Set(lines.map((l) => l.vendorId))];
+  const vendorIds = distinctIds(lines);
   const vendors = vendorIds.length ? await db.vendor.findMany({ where: { id: { in: vendorIds } }, select: { id: true, displayName: true } }) : [];
   const names = new Map(vendors.map((v) => [v.id, v.displayName]));
   return {
@@ -778,7 +798,7 @@ export async function listSales({ limit = 50, db = prisma } = {}) {
         status: s.status,
         units: own.reduce((sum, l) => sum + l.quantity, 0),
         returnedUnits: own.reduce((sum, l) => sum + (l.returnedQty || 0), 0),
-        vendors: [...new Set(own.map((l) => names.get(l.vendorId) || l.vendorId))],
+        vendors: [...new Set(own.map((l) => ownerName(l.vendorId, names) || l.vendorId))],
       };
     }),
   };

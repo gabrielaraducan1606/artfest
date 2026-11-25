@@ -51,6 +51,7 @@ import {
   manualVariantKey,
   parsePriceRonToCents,
 } from "../lib/artfestFairManualItem.js";
+import { isArtfestOwned, lineCommissionBps } from "../lib/artfestFairOwner.js";
 
 const TEXT_LIMIT = 2000;
 
@@ -1559,7 +1560,8 @@ function assertLabelPriceFresh(ctx, items, productById) {
  * (sau sub prețul vendorului) PDF-ul nu se generează - adminul vede lista.
  */
 async function assertFinalPricesReady(db, items) {
-  const registrationIds = [...new Set(items.map((i) => i.registrationId))];
+  // liniile Artfest (stoc propriu) nu au înscriere / preț final
+  const registrationIds = [...new Set(items.map((i) => i.registrationId).filter(Boolean))];
   if (!registrationIds.length) return;
   const regs = await db.artfestFairRegistration.findMany({
     where: { id: { in: registrationIds } },
@@ -1635,15 +1637,16 @@ export async function getAdminLabelItems({ id = null, ids = null, vendorId = nul
     });
   }
 
-  // doar participări aprobate (o participare anulată nu mai primește etichete de vânzare)
-  const registrationIds = [...new Set(items.map((i) => i.registrationId))];
+  // doar participări aprobate (o participare anulată nu mai primește etichete de vânzare);
+  // liniile Artfest (stoc propriu, fără înscriere) primesc etichete
+  const registrationIds = [...new Set(items.map((i) => i.registrationId).filter(Boolean))];
   const approved = new Set(
     (registrationIds.length
       ? await db.artfestFairRegistration.findMany({ where: { id: { in: registrationIds }, status: "APPROVED" }, select: { id: true } })
       : []
     ).map((r) => r.id)
   );
-  items = items.filter((i) => approved.has(i.registrationId));
+  items = items.filter((i) => !i.registrationId || approved.has(i.registrationId));
   if (!items.length) {
     throw new FairError(id ? 409 : 404, id ? "registration_not_approved" : "no_inventory_items", id
       ? "Participarea vendorului nu este aprobată. Eticheta nu se poate genera."
@@ -1674,14 +1677,14 @@ async function getSelectedAdminLabelItems({ ids, db, now }) {
   const found = await db.artfestFairInventoryItem.findMany({
     where: { id: { in: wanted }, fairId: fair.id, status: { in: ADMIN_LABEL_STATUSES } },
   });
-  const registrationIds = [...new Set(found.map((i) => i.registrationId))];
+  const registrationIds = [...new Set(found.map((i) => i.registrationId).filter(Boolean))];
   const approved = new Set(
     (registrationIds.length
       ? await db.artfestFairRegistration.findMany({ where: { id: { in: registrationIds }, status: "APPROVED" }, select: { id: true } })
       : []
     ).map((r) => r.id)
   );
-  const byId = new Map(found.filter((i) => approved.has(i.registrationId)).map((i) => [i.id, i]));
+  const byId = new Map(found.filter((i) => !i.registrationId || approved.has(i.registrationId)).map((i) => [i.id, i]));
   const invalid = wanted.filter((v) => !byId.has(v));
   if (invalid.length) {
     throw new FairError(409, "label_items_invalid", "Unele produse selectate nu mai sunt în inventarul valid al târgului. Reîncarcă lista.", {
@@ -1740,19 +1743,23 @@ export async function setFinalPrice({ id, body = {}, adminId, db = prisma, now =
     if (!item || item.fairId !== base.id || !FINAL_PRICE_STATUSES.includes(item.status)) {
       throw new FairError(404, "inventory_item_not_found", "Linia nu este în inventarul valid al târgului activ.");
     }
-    const registration = await tx.artfestFairRegistration.findUnique({
-      where: { id: item.registrationId },
-      select: { id: true, status: true, pricingModel: true },
-    });
+    // Artfest (stoc propriu): fără înscriere; prețul de vânzare se poate schimba ca la orice linie
+    const ownedByArtfest = isArtfestOwned(item);
+    const registration = ownedByArtfest
+      ? null
+      : await tx.artfestFairRegistration.findUnique({
+          where: { id: item.registrationId },
+          select: { id: true, status: true, pricingModel: true },
+        });
     // prețul final se poate salva pentru înscrierile trimise / aprobate, indiferent de regulă;
     // NU schimbă pricingModel și nu înregistrează nicio acceptare
-    if (!registration || !["SUBMITTED", "APPROVED"].includes(registration.status)) {
+    if (!ownedByArtfest && (!registration || !["SUBMITTED", "APPROVED"].includes(registration.status))) {
       throw new FairError(409, "registration_not_active", "Participarea vendorului nu este trimisă sau aprobată.");
     }
     // regula unică: comision din prețul efectiv; un preț final sub cel sugerat e permis,
     // dar Admin vede că vendorul primește mai puțin decât prețul declarat (pricing.vendorNetCents)
     const fairRow = await tx.artfestFair.findUnique({ where: { id: base.id }, select: { commissionBps: true } });
-    if (item.finalPriceCents === finalPriceCents) return { item, changed: false, commissionBps: fairRow?.commissionBps, model: registration.pricingModel };
+    if (item.finalPriceCents === finalPriceCents) return { item, changed: false, commissionBps: fairRow?.commissionBps, model: registration?.pricingModel };
 
     const updated = await tx.artfestFairInventoryItem.update({
       where: { id: item.id },
@@ -1763,7 +1770,7 @@ export async function setFinalPrice({ id, body = {}, adminId, db = prisma, now =
       after: { finalPriceCents, vendorPriceCents: item.priceSnapshotCents },
       actorUserId: adminId || null,
     });
-    return { item: updated, changed: true, commissionBps: fairRow?.commissionBps, model: registration.pricingModel };
+    return { item: updated, changed: true, commissionBps: fairRow?.commissionBps, model: registration?.pricingModel };
   }, FAIR_TX_OPTIONS);
 
   const { item } = result;
@@ -1773,7 +1780,7 @@ export async function setFinalPrice({ id, body = {}, adminId, db = prisma, now =
     changed: result.changed,
     item: {
       id: item.id,
-      pricing: pricingView(item, registrationModel, result.commissionBps),
+      pricing: pricingView(item, registrationModel, Number.isInteger(result.commissionBps) ? lineCommissionBps(item, result.commissionBps) : result.commissionBps),
       label: { state: label, priceCents: item.labelPriceCents ?? null, generatedAt: item.labelGeneratedAt || null },
     },
     // eticheta tipărită are alt preț: se vinde cu prețul introdus la casă (retipărirea e opțională)

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../../lib/api";
 import { SS_ADMIN_API } from "../../../SecretSanta/secretSanta.js";
 import styles from "./AdminSecretSantaTab.module.css";
+import AdminSecretSantaInvite from "./AdminSecretSantaInvite.jsx";
 
 const STATUS_LABEL = {
   DRAFT: "Ciornă (nepublicată)",
@@ -63,6 +64,9 @@ export default function AdminSecretSantaTab() {
         </p>
       </header>
       {error ? <p className={styles.error}>{error}</p> : null}
+
+      {/* invitația prin email către vânzători (ediția publică curentă) */}
+      <AdminSecretSantaInvite />
 
       <div className={styles.toolbar}>
         <label className={styles.inline}>

@@ -106,6 +106,7 @@ import {
   unblockSale,
 } from "../services/artfestFairReceptionService.js";
 import { createSale, getPosStatus, getSale, listSales, previewSale, scanBarcode, setSalesOpen } from "../services/artfestFairPosService.js";
+import { addPosProductStock, createPosProduct, listPosProductOwners } from "../services/artfestFairPosProductsService.js";
 import { buildPublicUrl, uploadToR2 } from "../services/r2Storage.js";
 import sharp from "sharp";
 import { heicDecodeMaxPixels } from "../services/heicDecoder.js";
@@ -136,8 +137,8 @@ import {
   settlementCsv,
 } from "../services/artfestFairSettlementService.js";
 import {
-  LABEL_COPY_MODES,
   applyLabelCopies,
+  parseLabelCopies,
   labelLayout,
   renderLabelSheetPdf,
   renderSingleLabelPdf,
@@ -308,6 +309,38 @@ router.post(
   "/pos/status",
   handle(async (req, res) => {
     res.json(await setSalesOpen({ open: req.body?.salesOpen, adminId: req.adminUser.id }));
+  })
+);
+
+// POS -> „Adaugă produs”: proprietarii posibili (Artfest - stoc propriu, participanți APPROVED + magazine)
+router.get(
+  "/pos/products/owners",
+  handle(async (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json(await listPosProductOwners());
+  })
+);
+
+// produs manual cu stocul primit fizic (confirmare obligatorie); Admin: și după termenul de inventar
+router.post(
+  "/pos/products",
+  handle(async (req, res) => {
+    const result = await createPosProduct({ body: req.body || {}, adminId: req.adminUser.id });
+    res.status(result.duplicate ? 200 : 201).json({ ok: true, ...result });
+  })
+);
+
+// suplimentarea stocului primit fizic (Idempotency-Key obligatoriu)
+router.post(
+  "/pos/products/:id/stock",
+  handle(async (req, res) => {
+    const result = await addPosProductStock({
+      id: req.params.id,
+      body: req.body || {},
+      idempotencyKey: req.get("Idempotency-Key"),
+      adminId: req.adminUser.id,
+    });
+    res.json({ ok: true, ...result });
   })
 );
 
@@ -772,10 +805,11 @@ function sendPdf(res, pdf, filename) {
 }
 
 // câte etichete pe linie: declared (implicit) | received | one
+// "declared" | "received" | "one" | un număr de etichete (1 … 240) pentru fiecare produs
 function labelCopyMode(value) {
-  const mode = value ? String(value) : "declared";
-  if (!LABEL_COPY_MODES.includes(mode)) {
-    throw new FairError(400, "invalid_copy_mode", "Alege câte etichete se imprimă pentru fiecare produs.");
+  const mode = parseLabelCopies(value);
+  if (mode === null) {
+    throw new FairError(400, "invalid_copy_mode", "Alege câte etichete se imprimă pentru fiecare produs (între 1 și 240).");
   }
   return mode;
 }

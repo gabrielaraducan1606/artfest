@@ -121,7 +121,8 @@ export async function notifyVendorsDailySales({ saleId, db = prisma }) {
     if (!sale) return [];
     const localDate = todayLocal(new Date(sale.soldAt));
     const range = localDayRange(localDate);
-    const vendorIds = [...new Set((await db.artfestFairSaleLine.findMany({ where: { saleId: sale.id }, select: { vendorId: true } })).map((l) => l.vendorId))].sort();
+    // liniile Artfest (stoc propriu, vendorId NULL) nu au vânzător de notificat
+    const vendorIds = [...new Set((await db.artfestFairSaleLine.findMany({ where: { saleId: sale.id }, select: { vendorId: true } })).map((l) => l.vendorId).filter(Boolean))].sort();
     const out = [];
     for (const vendorId of vendorIds) {
       try {

@@ -422,3 +422,85 @@ async function callKey(method, path, key, { as, body }) {
   try { json = JSON.parse(text); } catch { json = null; }
   return { status: res.status, body: json, text };
 }
+
+/* ============================== POS: „Adaugă produs” + „Produse / Etichete” ============================== */
+
+test("POS „Adaugă produs” (pungă de cadou, participant): creare -> listă/căutare -> N etichete cu preț + AF -> recepție -> scanare -> încasare 10% / 90%, stoc", async () => {
+  const LABELS = "/api/admin/artfest-fair/inventory/labels.pdf";
+  const body = { registrationId: ctx.r1.id, title: "Pungă de cadou mică", priceRon: "4,50", declaredQty: 10, clientRequestId: reqId() };
+  // dublu click: două cereri simultane cu același clientRequestId => o singură linie
+  const [c1, c2] = await Promise.all([call("POST", ADD, { as: ctx.admin, body }), call("POST", ADD, { as: ctx.admin, body })]);
+  assert.deepEqual([c1.status, c2.status].sort(), [200, 201]);
+  assert.equal(fake.tables.artfestFairInventoryItem.filter((l) => l.titleSnapshot === "Pungă de cadou mică").length, 1);
+  const id = c1.body.item.id;
+  assert.equal(inv(id).vendorId, ctx.v1.id); // proprietarul ales, fără vendor fictiv
+  assert.equal(inv(id).status, "SUBMITTED");
+  assert.equal(fake.tables.artfestFairSale.length, 0); // salvarea nu vinde
+
+  // „Produse / Etichete”: căutare după denumire (fără majuscule) și după codul AF afișat
+  const byName = await call("GET", "/api/admin/artfest-fair/inventory?filter=all&q=pung", { as: ctx.admin });
+  assert.equal(byName.status, 200, byName.text);
+  const found = byName.body.items.find((i) => i.id === id);
+  assert.ok(found);
+  assert.equal(found.priceCents, 450);
+  assert.equal(found.actions.canReceive, true);
+  assert.equal(found.actions.canPrintLabel, true);
+  const byCode = await call("GET", `/api/admin/artfest-fair/inventory?filter=all&q=${encodeURIComponent(found.barcodeDisplay)}`, { as: ctx.admin });
+  assert.deepEqual(byCode.body.items.map((i) => i.id), [id]);
+
+  // etichete: număr ales (3), formatul existent: denumire, preț, cod AF (cod de bare + QR); fără vânzare
+  const sheet = await call("POST", LABELS, { as: ctx.admin, body: { ids: [id], copies: 3 } });
+  assert.equal(sheet.status, 200, sheet.text);
+  const html = rendered.at(-1).html;
+  assert.equal(cells(html), 3);
+  assert.ok(html.includes("Pungă de cadou mică") && html.includes(labels.formatLabelPrice(450)));
+  assert.ok(html.includes(labels.barcodeSvg(inv(id).barcode)) && html.includes(labels.formatLabelCode(inv(id).barcode)));
+  assert.equal(inv(id).labelPriceCents, 450);
+  // retipărire din listă: aceleași coduri, alt număr
+  assert.equal((await call("POST", LABELS, { as: ctx.admin, body: { ids: [id], copies: 1 } })).status, 200);
+  assert.equal(cells(rendered.at(-1).html), 1);
+  for (const bad of [0, 241, "abc", 2.5]) {
+    assert.equal((await call("POST", LABELS, { as: ctx.admin, body: { ids: [id], copies: bad } })).status, 400, String(bad));
+  }
+  assert.equal(fake.tables.artfestFairSale.length, 0); // tipărirea nu vinde
+
+  // înainte de recepție: scanarea explică starea și nu se poate vinde
+  let scan = await call("GET", `${POS}/scan?barcode=${inv(id).barcode}`, { as: ctx.admin });
+  assert.equal(scan.body.item.sellable, false);
+  assert.ok(scan.body.item.reasons.includes("not_received"));
+
+  // recepția existentă (Idempotency-Key): stocul = bucățile recepționate
+  const rec = await call("POST", `/api/admin/artfest-fair/inventory/${id}/receive`, { as: ctx.admin, key: "pos-receive-test-0001", body: { receivedQty: 10 } });
+  assert.equal(rec.status, 200, rec.text);
+  assert.equal(inv(id).availableQty, 10);
+  scan = await call("GET", `${POS}/scan?barcode=${inv(id).barcode}`, { as: ctx.admin });
+  assert.equal(scan.body.item.sellable, true);
+  assert.equal(scan.body.item.requiresPrice, false); // eticheta are prețul curent
+  assert.equal(scan.body.item.vendor.id, ctx.v1.id);
+  assert.equal(fake.tables.artfestFairSale.length, 0);
+
+  // încasarea: 3 bucăți la prețul de pe etichetă => 13,50 lei; 10% Artfest / 90% participant
+  const sale = await call("POST", `${POS}/sales`, { as: ctx.admin, key: "pos-prod-sale-0001", body: { lines: [{ inventoryItemId: id, quantity: 3 }], paymentMethod: "CARD" } });
+  assert.equal(sale.status, 201, sale.text);
+  const line = fake.tables.artfestFairSaleLine.find((l) => l.inventoryItemId === id);
+  assert.equal(line.vendorId, ctx.v1.id);
+  assert.equal(line.lineGrossCents, 1350);
+  assert.equal(line.commissionCents, 135);
+  assert.equal(line.vendorNetCents, 1215);
+  assert.equal(inv(id).availableQty, 7);
+  assert.equal(inv(id).soldQty, 3);
+});
+
+test("POS „Adaugă produs”: termenul pentru inventar e respectat și semnalat în starea POS (fără ocolire)", async () => {
+  let status = await call("GET", `${POS}/status`, { as: ctx.admin });
+  assert.equal(status.status, 200, status.text);
+  assert.equal(status.body.inventoryOpen, true);
+  assert.ok(status.body.inventoryDeadlineAt);
+  Object.assign(fake.tables.artfestFair[0], { inventoryDeadlineAt: new Date(Date.now() - 3600000) });
+  status = await call("GET", `${POS}/status`, { as: ctx.admin });
+  assert.equal(status.body.inventoryOpen, false);
+  const late = await call("POST", ADD, { as: ctx.admin, body: { registrationId: ctx.r1.id, title: "Ambalaj", priceRon: "3", declaredQty: 5, clientRequestId: reqId() } });
+  assert.equal(late.status, 409);
+  assert.equal(late.body.error, "inventory_locked");
+  assert.equal(fake.tables.artfestFairInventoryItem.filter((l) => l.titleSnapshot === "Ambalaj").length, 0);
+});

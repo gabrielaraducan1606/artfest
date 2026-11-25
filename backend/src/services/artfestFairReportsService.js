@@ -20,6 +20,7 @@ import { prisma } from "../db.js";
 import { ARTFEST_FAIR_TIMEZONE } from "../config/artfestFair.js";
 import { FairError, ensureFair } from "./artfestFairService.js";
 import { formatFairBarcode } from "./artfestFairInventoryService.js";
+import { ARTFEST_OWNER_NAME } from "../lib/artfestFairOwner.js";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -466,7 +467,8 @@ export async function adminDailyReport({ date = null, db = prisma, now = new Dat
   );
   const lineReversal = (k) => returns.vendorBorne[k] + returns.artfestBorne[k];
 
-  const vendorIds = [...byVendor.keys()];
+  // liniile Artfest (stoc propriu) au vendorId NULL: rând separat „Artfest (stoc propriu)”
+  const vendorIds = [...byVendor.keys()].filter(Boolean);
   const [vendors, services] = vendorIds.length
     ? await Promise.all([
         db.vendor.findMany({ where: { id: { in: vendorIds } }, select: { id: true, displayName: true } }),
@@ -474,6 +476,7 @@ export async function adminDailyReport({ date = null, db = prisma, now = new Dat
       ])
     : [[], []];
   const storeName = (vendorId) =>
+    (vendorId ? null : ARTFEST_OWNER_NAME) ||
     services.find((s) => s.vendorId === vendorId && s.profile?.displayName)?.profile.displayName ||
     vendors.find((v) => v.id === vendorId)?.displayName ||
     null;

@@ -111,3 +111,16 @@ export function participantsLabel(count) {
   const de = n >= 20 && (n % 100 >= 20 || n % 100 === 0) ? " de" : "";
   return `${n}${de} vânzători înscriși`;
 }
+
+/**
+ * Admin -> invitația prin email: de ce butonul „Trimite invitația vânzătorilor” e
+ * dezactivat (null = se poate trimite). Datele vin din GET /api/admin/secret-santa/invite.
+ */
+export function inviteSendDisabledReason(data) {
+  if (!data) return "Se încarcă…";
+  if (data.run?.running) return "Trimiterea este în curs.";
+  if (!data.canSend) return data.blockReason || "Trimiterea nu este disponibilă acum.";
+  if (!data.unsubscribeAvailable) return "Linkul de dezabonare nu poate fi generat (configurare server), deci nu se trimite nimic.";
+  if (!data.willSend) return "Nu există destinatari noi pentru invitație.";
+  return null;
+}

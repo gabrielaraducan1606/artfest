@@ -271,8 +271,19 @@ ${pages.map((page) => `<div class="sheet">${page}</div>`).join("\n")}
  * pe produs. Codul de bare e mereu cel existent al liniei - nu se generează coduri noi.
  */
 export const LABEL_COPY_MODES = Object.freeze(["declared", "received", "one"]);
+// număr ales de etichete pentru fiecare produs (POS -> „Generează etichetă”): 1 … 240 (10 coli A4)
+export const LABEL_MAX_COPIES = 240;
+
+/** "declared" | "received" | "one" | un număr întreg 1 … LABEL_MAX_COPIES; altfel null. */
+export function parseLabelCopies(value) {
+  const raw = value === undefined || value === null || value === "" ? "declared" : value;
+  if (LABEL_COPY_MODES.includes(String(raw))) return String(raw);
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 1 && n <= LABEL_MAX_COPIES ? n : null;
+}
 
 export function applyLabelCopies(items, mode = "declared") {
+  if (typeof mode === "number") return items.map((item) => ({ ...item, labelCopies: mode }));
   if (mode === "one") return items.map((item) => ({ ...item, labelCopies: 1 }));
   if (mode === "received") {
     return items
@@ -359,7 +370,8 @@ export async function resolveLabelStores(items, { db, baseUrl = publicSiteUrl() 
   const base = String(baseUrl).replace(/\/+$/, "");
   const result = new Map();
   const productIds = [...new Set(items.filter((i) => i.productId).map((i) => i.productId))];
-  const manualVendorIds = [...new Set(items.filter((i) => !i.productId).map((i) => i.vendorId))];
+  // produse manuale ale participanților (liniile Artfest nu au magazin)
+  const manualVendorIds = [...new Set(items.filter((i) => !i.productId && i.vendorId).map((i) => i.vendorId))];
 
   const products = productIds.length
     ? await db.product.findMany({ where: { id: { in: productIds } }, select: { id: true, serviceId: true } })
@@ -388,7 +400,8 @@ export async function resolveLabelStores(items, { db, baseUrl = publicSiteUrl() 
       service = serviceById.get(serviceIdByProduct.get(item.productId)) || null;
     } else {
       const stores = storesByVendor.get(item.vendorId) || [];
-      service = stores.length === 1 ? stores[0] : null; // mai multe magazine: nu ghicim
+      // magazinul ales la adăugare (serviceId); altfel doar un magazin unic - mai multe: nu ghicim
+      service = item.serviceId ? stores.find((st) => st.id === item.serviceId) || null : stores.length === 1 ? stores[0] : null;
     }
     result.set(item.id, storeFromService(service, base));
   }

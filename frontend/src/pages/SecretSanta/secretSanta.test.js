@@ -78,3 +78,14 @@ test("butonul „Testează înscrierea”: doar ADMIN și doar înainte de 17 no
   assert.equal(adminTestAvailable({ role: "VENDOR" }, before), false);
   assert.equal(adminTestAvailable(null, before), false);
 });
+
+test("Admin, invitația prin email: butonul de trimitere e activ doar când se poate trimite efectiv", async () => {
+  const { inviteSendDisabledReason } = await import("./secretSanta.js");
+  const ok = { canSend: true, unsubscribeAvailable: true, willSend: 12, run: { running: false } };
+  assert.equal(inviteSendDisabledReason(ok), null);
+  assert.match(inviteSendDisabledReason(null), /Se încarcă/);
+  assert.match(inviteSendDisabledReason({ ...ok, run: { running: true } }), /în curs/);
+  assert.equal(inviteSendDisabledReason({ ...ok, canSend: false, blockReason: "Înscrierile ediției curente nu sunt deschise." }), "Înscrierile ediției curente nu sunt deschise.");
+  assert.match(inviteSendDisabledReason({ ...ok, unsubscribeAvailable: false }), /dezabonare/);
+  assert.match(inviteSendDisabledReason({ ...ok, willSend: 0 }), /Nu există destinatari noi/);
+});

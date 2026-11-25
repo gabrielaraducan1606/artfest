@@ -28,6 +28,15 @@ export const SECRET_SANTA_TEST_STORES = Object.freeze([
   { id: "test-store-2", name: "Magazin de test Artfest 2" },
 ]);
 
+// Invitația prin email către vânzători (Admin -> Secret Santa). Textul emailului folosește
+// aceste valori; CTA = pagina reală de înscriere (ruta /secret-santa din App.jsx).
+export const SECRET_SANTA_VENDOR_INVITE = Object.freeze({
+  campaignKey: "SECRET_SANTA_2026_VENDOR_INVITE",
+  drawDateLabel: "5 decembrie 2026",
+  budgetLabel: "50–80 lei",
+  ctaPath: "/secret-santa",
+});
+
 export function isTestFormAvailable(now = new Date()) {
   const opensAt = registrationOpensAt(SECRET_SANTA_OFFICIAL_KEY);
   return Boolean(opensAt && now < opensAt);

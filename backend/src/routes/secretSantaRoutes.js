@@ -13,6 +13,10 @@
 //                              POST /editions/:id/draw     { confirm: <cheia ediției> }
 //                              POST /editions/:id/resend-emails  doar emailurile netrimise / eșuate
 //                              POST /editions/:id/purge    { confirm } șterge datele de livrare
+//                              GET  /invite                invitația prin email: destinatari eligibili,
+//                                                          excluși (pe motive), rezultate salvate, previzualizare
+//                              POST /invite/test           { email } un singur email de test (același conținut)
+//                              POST /invite/send           { confirm: true, expectedCount } trimitere în fundal
 //
 // vendorId vine EXCLUSIV din sesiune; un expeditor vede doar destinatarul lui,
 // iar un destinatar nu vede niciodată expeditorul.
@@ -22,7 +26,8 @@ import rateLimit from "express-rate-limit";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { clientIpKey } from "../middleware/customizationUploadRateLimit.js";
-import { sendSecretSantaAssignmentEmail } from "../lib/mailer.js";
+import { sendSecretSantaAssignmentEmail, sendSecretSantaInviteEmail } from "../lib/mailer.js";
+import { getInviteRunStatus, previewInvite, renderInvitePreview, sendTestInvite, startInvite } from "../services/secretSantaInviteService.js";
 import {
   SecretSantaError,
   createEdition,
@@ -81,7 +86,13 @@ function writeLimiter(limit) {
   });
 }
 
-export function createSecretSantaRouters({ db = prisma, sendEmail = sendSecretSantaAssignmentEmail, appUrl = APP_URL } = {}) {
+export function createSecretSantaRouters({
+  db = prisma,
+  sendEmail = sendSecretSantaAssignmentEmail,
+  sendInvite = sendSecretSantaInviteEmail,
+  inviteDelayMs = undefined,
+  appUrl = APP_URL,
+} = {}) {
   /* ---------- public ---------- */
   const publicRouter = Router();
   publicRouter.get(
@@ -212,6 +223,39 @@ export function createSecretSantaRouters({ db = prisma, sendEmail = sendSecretSa
   adminRouter.post(
     "/test-form/withdraw",
     handle(async (_req, res) => res.json(await withdrawAdminTestForm({ db })), "testFormWithdraw")
+  );
+
+  // Invitația Secret Santa prin email (vânzători eligibili). Nu atinge ediția / înscrierile / extragerea.
+  const inviteTestLimiter = writeLimiter(Number(process.env.RATE_SECRET_SANTA_INVITE_TEST_MAX || 10));
+  adminRouter.get(
+    "/invite",
+    handle(async (_req, res) => {
+      const preview = await previewInvite({ db });
+      res.json({ ...preview, run: getInviteRunStatus(), email: renderInvitePreview() });
+    }, "inviteGet")
+  );
+  adminRouter.post(
+    "/invite/test",
+    inviteTestLimiter,
+    handle(async (req, res) => {
+      const admin = await db.user.findUnique({ where: { id: req.adminUser.id }, select: { firstName: true } });
+      res.json(await sendTestInvite({ to: req.body?.email, firstName: admin?.firstName || null, send: sendInvite }));
+    }, "inviteTest")
+  );
+  adminRouter.post(
+    "/invite/send",
+    handle(async (req, res) => {
+      const out = await startInvite({
+        db,
+        adminId: req.adminUser.id,
+        confirm: req.body?.confirm === true,
+        expectedCount: req.body?.expectedCount,
+        send: sendInvite,
+        ...(inviteDelayMs !== undefined ? { emailDelayMs: inviteDelayMs } : {}),
+      });
+      if (!out.started) return res.status(409).json({ error: out.reason, message: "Trimiterea este deja în curs.", run: out.status });
+      return res.status(202).json({ started: true, run: out.status });
+    }, "inviteSend")
   );
 
   return { publicRouter, vendorRouter, adminRouter };
