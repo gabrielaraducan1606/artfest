@@ -173,6 +173,11 @@ test("acces: neautentificat 401; USER / VENDOR / influencer dezactivat 403; Admi
   assert.equal((await call("GET", `${C}/state`, { as: ctx.disabled })).body.error, "influencer_inactive");
   assert.equal((await call("GET", `${A}/profiles`, { as: ctx.newInf })).status, 403);
   assert.equal((await call("GET", `${A}/profiles`, { as: ctx.admin })).status, 200);
+  // contorul „în verificare” din Admin: doar ADMIN
+  assert.equal((await call("GET", `${A}/pending-count`)).status, 401);
+  assert.equal((await call("GET", `${A}/pending-count`, { as: ctx.newInf })).status, 403);
+  assert.equal((await call("GET", `${A}/pending-count`, { as: ctx.vendor })).status, 403);
+  assert.equal((await call("GET", `${A}/pending-count`, { as: ctx.admin })).status, 200);
 });
 
 /* ============================== intrarea în Creators ============================== */
@@ -362,7 +367,18 @@ test("trimitere: incomplet => 400 cu pașii lipsă; complet => PENDING, Admin no
 
   const adminNotes = fake.tables.notification.filter((n) => n.userId === ctx.admin.id);
   assert.equal(adminNotes.length, 1);
-  assert.match(adminNotes[0].link, /tab=creators&profile=/);
+  // Admin → Marketing → Influenceri → Profiluri Creators, cu profilul deschis; numele profilului în text
+  assert.equal(adminNotes[0].link, `/admin/marketing?tab=influencers&sub=creators&profile=${encodeURIComponent(profile.id)}`);
+  assert.match(adminNotes[0].body, new RegExp(profile.displayName));
+
+  // contorul real: profilul trimis apare în „în verificare”
+  const pendingNow = fake.tables.creatorProfile.filter((p) => p.status === "PENDING").length;
+  assert.equal((await call("GET", `${A}/pending-count`, { as: ctx.admin })).body.pending, pendingNow);
+  assert.ok(pendingNow >= 1);
+
+  // retrimiterea aceleiași cereri (încă în verificare) => refuzată, fără notificare nouă
+  assert.equal((await call("POST", `${C}/profile/submit`, { as: ctx.newInf })).body.error, "already_pending");
+  assert.equal(fake.tables.notification.filter((n) => n.userId === ctx.admin.id).length, 1);
 
   // în verificare: conținutul nu se poate schimba, preferințele da
   assert.equal((await call("PATCH", `${C}/profile`, { as: ctx.newInf, body: { bio: "Alt text ".repeat(10) } })).body.error, "profile_pending");
@@ -374,8 +390,11 @@ test("aprobare: versiunea trimisă devine publică; notificare + email o singur�
   await call("POST", `${C}/profile/submit`, { as: ctx.newInf });
   const profile = profileOf(ctx.newInf);
 
+  const pendingBefore = (await call("GET", `${A}/pending-count`, { as: ctx.admin })).body.pending;
   const approved = await call("POST", `${A}/profiles/${profile.id}/approve`, { as: ctx.admin });
   assert.equal(approved.status, 200);
+  // contorul scade după decizie
+  assert.equal((await call("GET", `${A}/pending-count`, { as: ctx.admin })).body.pending, pendingBefore - 1);
   assert.equal(approved.body.profile.status, "APPROVED");
   const snapshot = profileOf(ctx.newInf).approvedSnapshot;
   assert.equal(snapshot.displayName, "Ana Creează");

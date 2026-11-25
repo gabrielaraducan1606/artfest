@@ -561,6 +561,11 @@ export async function setOfferActive({ userId, offerId, active, db = prisma }) {
 
 const ADMIN_STATUSES = ["DRAFT", "PENDING", "CHANGES_REQUESTED", "APPROVED", "REJECTED"];
 
+// numărul real de profiluri trimise spre aprobare (contorul din Admin; o singură numărătoare indexată)
+export async function adminPendingCount({ db = prisma } = {}) {
+  return db.creatorProfile.count({ where: { status: "PENDING" } });
+}
+
 export async function adminListProfiles({ status = null, q = "", suspended = null, page = 1, pageSize = 25, db = prisma }) {
   const where = {};
   if (status) {

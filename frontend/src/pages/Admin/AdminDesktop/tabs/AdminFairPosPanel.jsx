@@ -20,13 +20,20 @@ import {
   cartInputProblems,
   cartPayload,
   cartSignature,
+  classifyScan,
   formatLei,
+  invalidCodeMessage,
+  keyTargetKind,
+  PROMO_QR_MESSAGE,
+  scanErrorMessage,
+  shouldRedirectToScanner,
   isAboveLabel,
   initialPosState,
   newIdempotencyKey,
-  normalizeBarcode,
   posReducer,
+  scanRejectMessage,
 } from "./adminFairPos.js";
+import PosCameraScanner from "./PosCameraScanner.jsx";
 import { downloadLabelsPdf } from "../../../Vendor/Fair/fairInventory.js";
 import { SaleReturnModal, SaleVoidModal } from "./AdminFairSaleReturn.jsx";
 import { isValidDate, reportUrl, todayFairDate } from "../../../Vendor/Fair/fairSales.js";
@@ -74,6 +81,7 @@ function PriceCell({ line: l, priced: p, busy, dispatch }) {
           <input
             className={styles.priceInput}
             inputMode="decimal"
+            data-pos-numeric=""
             value={l.priceInput}
             placeholder={l.labelPriceCents != null ? formatLei(l.labelPriceCents).replace(" lei", "") : "preț"}
             onChange={(e) => dispatch({ type: "SET_PRICE", inventoryItemId: id, value: e.target.value })}
@@ -109,31 +117,58 @@ function PriceCell({ line: l, priced: p, busy, dispatch }) {
 
 function SalePanel({ salesOpen }) {
   const [state, dispatch] = useReducer(posReducer, initialPosState);
-  const [code, setCode] = useState("");
+  // scanări trimise la server și încă fără răspuns (doar pentru indicația „Se verifică…”)
+  const [pendingScans, setPendingScans] = useState(0);
   const [preview, setPreview] = useState(null);
   const [previewError, setPreviewError] = useState("");
   const scanRef = useRef(null);
   // o cheie per coș + metodă: retry / dublu click => aceeași vânzare pe server
   const keyRef = useRef({ signature: "", key: "" });
+  // coșul curent, pentru rezultatul arătat în fereastra camerei (fără să aștepte randarea)
+  const cartRef = useRef(state.cart);
+  cartRef.current = state.cart;
+  // camera telefonului: cât e deschisă, focusul NU se mută în câmpul de cod; după închidere,
+  // nici el (pe telefon ar deschide tastatura) - până la prima tastă fizică (scanner USB / tastatură)
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const cameraOpenRef = useRef(false);
+  const autoFocusBlockedRef = useRef(false);
 
+  // focusul revine pe scanner DOAR dacă nu editezi alt câmp (preț, cantitate, alt câmp text)
   const focusScanner = useCallback(() => {
-    requestAnimationFrame(() => scanRef.current?.focus());
+    requestAnimationFrame(() => {
+      const input = scanRef.current;
+      if (!input || input.disabled) return;
+      if (cameraOpenRef.current || autoFocusBlockedRef.current) return;
+      const kind = keyTargetKind(document.activeElement, input);
+      if (kind === "scanner" || kind === "other") input.focus();
+    });
   }, []);
 
   useEffect(() => {
     focusScanner();
-  }, [focusScanner, state.cart.length, state.lastSale]);
+  }, [focusScanner, state.cart.length, state.lastSale, state.busy]);
 
-  // focus permanent: orice tastă apăsată fără un câmp activ merge în scanner
+  /*
+   * Scannerul USB / Bluetooth „tastează” codul foarte repede, urmat de Enter. Ascultăm în faza de
+   * captură, ca nicio literă să nu se piardă: dacă focusul e pe pagină / un buton / o bifă, sau
+   * pe preț / cantitate și vine o literă (codul începe cu „AF”), tasta e mutată SINCRON în
+   * câmpul de scanare (înainte, focusul se muta abia la cadrul următor și primele caractere se
+   * pierdeau). Cifrele tastate în preț / cantitate și orice alt câmp text rămân neatinse.
+   */
   useEffect(() => {
     const onKey = (e) => {
-      const active = document.activeElement;
-      const typing = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
-      if (!typing && e.key.length === 1) focusScanner();
+      const input = scanRef.current;
+      if (!input || input.disabled || cameraOpenRef.current) return;
+      // o tastă fizică (scanner USB / tastatură): focusul automat revine
+      autoFocusBlockedRef.current = false;
+      if (!shouldRedirectToScanner(e, keyTargetKind(e.target, input))) return;
+      e.preventDefault();
+      input.focus();
+      input.value += e.key;
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [focusScanner]);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   const signature = cartSignature(state.cart);
   useEffect(() => {
@@ -161,19 +196,78 @@ function SalePanel({ salesOpen }) {
     };
   }, [signature, state.cart.length]);
 
-  async function onScan(event) {
-    event.preventDefault();
-    const barcode = normalizeBarcode(code);
-    setCode("");
-    if (!barcode) return;
+  /*
+   * O scanare = conținutul câmpului la Enter (sau Tab, dacă scannerul e setat cu Tab la final).
+   * Câmpul e citit și golit SINCRON, deci un Enter / Tab în plus trimis de scanner găsește
+   * câmpul gol și nu mai procesează aceeași scanare a doua oară. Două scanări intenționate ale
+   * aceluiași produs sunt două cereri => coșul crește cantitatea (în limita stocului), ca înainte.
+   */
+  /*
+   * Căutarea codului la server + adăugarea în coș (o bucată): ACEEAȘI funcție pentru câmpul de
+   * cod, scannerul USB / Bluetooth și camera. Întoarce rezultatul, pentru fereastra camerei.
+   */
+  async function lookupAndAdd(barcode) {
+    setPendingScans((n) => n + 1);
     try {
       const res = await api(`${POS_API}/scan?barcode=${encodeURIComponent(barcode)}`);
+      const rejected = scanRejectMessage(cartRef.current, res.item);
       dispatch({ type: "SCANNED", item: res.item });
+      return rejected ? { ok: false, message: rejected } : { ok: true, title: res.item.title };
     } catch (err) {
-      dispatch({ type: "SCAN_ERROR", message: errorMessage(err, "Codul nu a fost găsit.") });
+      const message = scanErrorMessage(err, barcode);
+      dispatch({ type: "SCAN_ERROR", message });
+      return { ok: false, message };
     } finally {
+      setPendingScans((n) => n - 1);
       focusScanner();
     }
+  }
+
+  async function submitScan() {
+    const input = scanRef.current;
+    if (!input) return;
+    const scan = classifyScan(input.value);
+    input.value = "";
+    if (scan.kind === "empty") return;
+    if (scan.kind === "promo") {
+      dispatch({ type: "SCAN_ERROR", message: PROMO_QR_MESSAGE });
+      return;
+    }
+    if (!scan.valid) {
+      dispatch({ type: "SCAN_ERROR", message: invalidCodeMessage(scan) });
+      return;
+    }
+    await lookupAndAdd(scan.barcode);
+  }
+
+  /*
+   * Textul citit de cameră (QR sau Code128): aceeași normalizare și validare ca la câmpul de cod.
+   * QR de promovare / text care nu e cod de produs: doar mesaj în fereastră, scanarea continuă.
+   */
+  async function scanFromCamera(raw) {
+    const scan = classifyScan(raw);
+    if (scan.kind === "empty") return { ok: false, continueScanning: true, message: "" };
+    if (scan.kind === "promo") return { ok: false, continueScanning: true, message: PROMO_QR_MESSAGE };
+    if (!scan.valid) return { ok: false, continueScanning: true, message: invalidCodeMessage(scan) };
+    return lookupAndAdd(scan.barcode);
+  }
+
+  function openCamera() {
+    cameraOpenRef.current = true;
+    autoFocusBlockedRef.current = true;
+    // câmpul de cod nu rămâne activ sub fereastră (pe telefon ar ține tastatura deschisă)
+    if (document.activeElement === scanRef.current) scanRef.current?.blur();
+    setCameraOpen(true);
+  }
+
+  function closeCamera() {
+    cameraOpenRef.current = false;
+    setCameraOpen(false);
+  }
+
+  function onScan(event) {
+    event.preventDefault();
+    submitScan();
   }
 
   async function pay(paymentMethod) {
@@ -208,20 +302,45 @@ function SalePanel({ salesOpen }) {
     <div className={styles.layout}>
       <section className={styles.cartCol} aria-label="Coș">
         <form className={styles.scanRow} onSubmit={onScan}>
+          {/* necontrolat: scannerul tastează mai repede decât randarea; valoarea e citită la Enter */}
           <input
             ref={scanRef}
             className={styles.scanInput}
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="Scanează codul de bare (sau tastează AF… și Enter)"
-            aria-label="Cod de bare"
+            defaultValue=""
+            onKeyDown={(e) => {
+              // scanner setat cu Tab la final: Tab cu un cod în câmp = Enter
+              if (e.key === "Tab" && !e.shiftKey && e.currentTarget.value.trim()) {
+                e.preventDefault();
+                submitScan();
+              }
+            }}
+            placeholder="Scanează sau introdu codul (AF-XXXX-XXXX)"
+            aria-label="Scanează sau introdu codul"
             autoComplete="off"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="go"
             disabled={state.busy}
           />
           <button type="submit" className={styles.ghostBtn} disabled={state.busy}>
             Adaugă
           </button>
         </form>
+        <button type="button" className={styles.cameraBtn} onClick={openCamera} disabled={state.busy}>
+          Scanează cu camera
+        </button>
+        {cameraOpen && <PosCameraScanner onScan={scanFromCamera} onClose={closeCamera} />}
+        <p className={shared.subtle} aria-live="polite">
+          {pendingScans > 0
+            ? "Se verifică codul…"
+            : "Scanează codul de bare de pe eticheta produsului sau tastează codul și apasă Enter. Stocul scade doar la încasare."}
+        </p>
+        {state.notice && !state.error && (
+          <p className={styles.scanNotice} role="status">
+            {state.notice}
+          </p>
+        )}
         {!salesOpen && <p className={styles.warning}>Vânzările sunt închise. Deschide-le din bara de sus.</p>}
         {state.error && (
           <div className={shared.error} role="alert">
@@ -299,6 +418,7 @@ function SalePanel({ salesOpen }) {
                           min={1}
                           max={l.availableQty}
                           value={l.quantity}
+                          data-pos-numeric=""
                           onChange={(e) => dispatch({ type: "SET_QTY", inventoryItemId: l.inventoryItemId, quantity: e.target.value })}
                           disabled={state.busy}
                           aria-label={`Cantitate ${l.title}`}

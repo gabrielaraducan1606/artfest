@@ -5,6 +5,7 @@
 //
 //   GET  /options                                   etichetele (nișe, platforme, tipuri de conținut)
 //   GET  /profiles?status=&q=&suspended=1&page=     listă paginată
+//   GET  /pending-count                             { pending } - profilurile PENDING (contor)
 //   GET  /profiles/:id                              detaliu: versiunea publicată vs. cea trimisă,
 //                                                   oferte, istoric (cu statusul emailurilor)
 //   POST /profiles/:id/approve                      PENDING -> APPROVED (publică versiunea trimisă)
@@ -21,7 +22,7 @@ import { Router } from "express";
 
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
-import { adminDeactivateOffer, adminGetProfile, adminListProfiles, adminModerate } from "../services/creators/creatorProfileService.js";
+import { adminDeactivateOffer, adminGetProfile, adminListProfiles, adminModerate, adminPendingCount } from "../services/creators/creatorProfileService.js";
 import { catalogCategoryOptions, sendCreatorError } from "./creatorRoutes.js";
 import { creatorOptions } from "../config/creators.js";
 
@@ -55,6 +56,14 @@ router.use(authRequired, adminOnly);
 
 // etichetele (nișe, platforme, tipuri de conținut) - aceeași sursă ca la influencer
 router.get("/options", (_req, res) => res.json({ ...creatorOptions(), ...catalogCategoryOptions() }));
+
+// contorul „în verificare” (meniul Admin + subtabul Profiluri Creators)
+router.get(
+  "/pending-count",
+  handle(async (_req, res) => {
+    res.json({ pending: await adminPendingCount() });
+  })
+);
 
 router.get(
   "/profiles",

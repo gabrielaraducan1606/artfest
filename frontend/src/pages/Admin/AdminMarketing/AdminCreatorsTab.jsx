@@ -11,6 +11,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { api } from "../../../lib/api";
 import { CREATORS_ADMIN_API, formatLei, friendlyError } from "../../../features/creators/creatorsLogic.js";
+import { refreshCreatorsPending } from "./creatorsPending.js";
 import { ConfirmDialog, CreatorProfilePreview, SkeletonBlock } from "../../../features/creators/creatorsShared.jsx";
 import { cx, labelOf } from "../../../features/creators/creatorsClient.js";
 import styles from "../../../features/creators/Creators.module.css";
@@ -300,6 +301,8 @@ export default function AdminCreatorsTab() {
     api(`${CREATORS_ADMIN_API}/profiles?${qs}`)
       .then(setData)
       .catch((e) => setError(friendlyError(e, "Nu am putut încărca profilurile Creators.")));
+    // contorul „în verificare” (subtab + meniul Admin) - inclusiv după aprobare/respingere/modificări
+    refreshCreatorsPending(api);
   }, [status, q, page]);
 
   useEffect(() => {

@@ -88,6 +88,7 @@ import {
 import { GUEST_NAV_SECTIONS } from "../../config/guestNavigation.js";
 import { prefetchChunk } from "../../lib/smartPrefetch.js";
 import { getSafeLoginRedirect } from "../../pages/Auth/Login/loginRedirect.js";
+import { CREATORS_PENDING_EVENT } from "../../pages/Admin/AdminMarketing/creatorsPending.js";
 import { usePublicCollections } from "../../hooks/usePublicCollections";
 import { toCollectionCards } from "../../pages/Home/CollectionsSection/collectionCards.js";
 import {
@@ -359,6 +360,7 @@ function VendorDrawer({
   openSections,
   onToggleSection,
   isItemActive,
+  itemBadges = null,
   nextStepCTA,
   theme,
   onToggleTheme,
@@ -493,6 +495,15 @@ function VendorDrawer({
                       >
                         <VendorDrawerIcon name={item.icon} size={16} />
                         {item.label}
+                        {item.badgeKey && itemBadges?.[item.badgeKey] > 0 && (
+                          <span
+                            className={styles.vendorDrawerItemBadge}
+                            aria-label={`${itemBadges[item.badgeKey]} în așteptare`}
+                            data-nav-badge={item.badgeKey}
+                          >
+                            {itemBadges[item.badgeKey] > 99 ? "99+" : itemBadges[item.badgeKey]}
+                          </span>
+                        )}
                       </NavLink>
                     ) : (
                       <button
@@ -1044,17 +1055,32 @@ useEffect(() => {
     me?.role === "ADMIN" && location.pathname.startsWith("/admin");
 
   const [adminReview, setAdminReview] = useState({ total: 0, items: [] });
+  // profiluri Artfest Creators în verificare (badge lângă „Influenceri” în meniul Admin)
+  const [creatorsPending, setCreatorsPending] = useState(0);
   const [adminAssistantOpen, setAdminAssistantOpen] = useState(false);
 
   const refreshAdminBell = useCallback(async () => {
-    const [queue, notif] = await Promise.all([
+    const [queue, notif, creators] = await Promise.all([
       fetchAdminReviewQueue(api),
       api("/api/notifications/unread-count").catch(() => ({ count: 0 })),
+      api("/api/admin/creators/pending-count").catch(() => null),
     ]);
 
     setAdminReview({ total: queue.total, items: queue.items });
     setUnreadNotif(notif?.count || 0);
+    if (creators && Number.isFinite(Number(creators.pending))) setCreatorsPending(Number(creators.pending));
   }, []);
+
+  // actualizare imediată după trimitere (listă reîncărcată) / aprobare / respingere / modificări
+  useEffect(() => {
+    if (!isAdminOnAdminRoute) return undefined;
+    const onPending = (e) => {
+      const n = Number(e?.detail?.pending);
+      if (Number.isFinite(n)) setCreatorsPending(n);
+    };
+    window.addEventListener(CREATORS_PENDING_EVENT, onPending);
+    return () => window.removeEventListener(CREATORS_PENDING_EVENT, onPending);
+  }, [isAdminOnAdminRoute]);
 
   useEffect(() => {
     if (!isAdminOnAdminRoute) return undefined;
@@ -1956,6 +1982,7 @@ const isAdminRoute = location.pathname.startsWith("/admin");
           openSections={adminOpenSections}
           onToggleSection={toggleAdminSection}
           isItemActive={isAdminItemActive}
+          itemBadges={{ creatorsPending }}
           theme={theme}
           onToggleTheme={toggleTheme}
           onLogout={handleLogout}

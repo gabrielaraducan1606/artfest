@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../../lib/api";
 import styles from "./AdminMarketingPage.module.css";
@@ -8,12 +8,11 @@ import AdminMarketplaceWaitlistTab from "./AdminMarketplaceWaitlistTab";
 import AdminNewsletterSubscribersTab from "./AdminNewsletterTab";
 import AdminAccountEmailTab from "./AdminAccountEmailTab";
 import AdminAmbassadorsTab from "./AdminAmbassadorsTab";
-import AdminInfluencersTab from "./AdminInfluencersTab.jsx";
+// Influenceri = Program afiliere (AdminInfluencersTab, neschimbat) + Profiluri Creators (subtaburi)
+import AdminInfluencersHub from "./AdminInfluencersHub.jsx";
+import { legacyCreatorsRedirect } from "./creatorsPending.js";
 import AdminVendorDiscountCodesTab from "./AdminVendorDiscountCodesTab.jsx";
 import AdminVendorCampaignsTab from "./AdminVendorCampaignsTab.jsx";
-
-// Artfest Creators (moderarea profilurilor) - lazy, tab permanent
-const AdminCreatorsTab = lazy(() => import("./AdminCreatorsTab.jsx"));
 
 // taburile adresabile prin ?tab= (linkuri directe din meniul admin, inclusiv pe mobil)
 const MARKETING_TAB_IDS = [
@@ -26,7 +25,6 @@ const MARKETING_TAB_IDS = [
   "influencers",
   "vendorDiscountCodes",
   "vendorCampaigns",
-  "creators",
 ];
 
 function cx(...xs) {
@@ -44,11 +42,18 @@ export default function AdminMarketingTab() {
   // tabul activ = ?tab= din URL (implicit „campaign”), click-ul îl scrie înapoi
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
-  const tab = MARKETING_TAB_IDS.includes(tabFromUrl) ? tabFromUrl : "campaign";
+  // „creators” (linkuri vechi) = Influenceri, până la redirecționarea de mai jos
+  const tab = tabFromUrl === "creators" ? "influencers" : MARKETING_TAB_IDS.includes(tabFromUrl) ? tabFromUrl : "campaign";
   const setTab = useCallback(
     (id) => setSearchParams({ tab: id }, { replace: true }),
     [setSearchParams]
   );
+
+  // linkurile vechi ?tab=creators(&profile=...) -> Influenceri → Profiluri Creators
+  useEffect(() => {
+    const next = legacyCreatorsRedirect(searchParams.toString());
+    if (next) setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const [prefs, setPrefs] = useState([]);
   const [prefsPage, setPrefsPage] = useState(1);
@@ -285,16 +290,6 @@ export default function AdminMarketingTab() {
             Campanii (vendor)
           </button>
 
-          <button
-            type="button"
-            className={cx(
-              styles.tabBtn,
-              tab === "creators" && styles.tabBtnActive
-            )}
-            onClick={() => setTab("creators")}
-          >
-            Creators
-          </button>
         </div>
 
         {tab === "campaign" && <AdminAccountEmailTab />}
@@ -316,7 +311,7 @@ export default function AdminMarketingTab() {
         )}
 
         {tab === "influencers" && (
-          <AdminInfluencersTab />
+          <AdminInfluencersHub />
         )}
 
         {tab === "vendorDiscountCodes" && (
@@ -325,12 +320,6 @@ export default function AdminMarketingTab() {
 
         {tab === "vendorCampaigns" && (
           <AdminVendorCampaignsTab />
-        )}
-
-        {tab === "creators" && (
-          <Suspense fallback={<p>Se încarcă…</p>}>
-            <AdminCreatorsTab />
-          </Suspense>
         )}
 
         {tab === "prefs" && (

@@ -370,6 +370,23 @@ html[data-theme="dark"] .cardMuted {
   background: var(--hover-bg, var(--surface-muted));
 }
 
+/* contor pe un (sub)tab - ex. profiluri Creators în verificare */
+.tabCount {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--color-primary);
+  color: var(--on-primary);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  vertical-align: 1px;
+}
+
 .tabBtnActive {
   background: var(--surface);
   border-bottom-color: var(--color-primary);

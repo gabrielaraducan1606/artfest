@@ -13,6 +13,17 @@ import {
   parseLeiToCents,
   posReducer,
 } from "./adminFairPos.js";
+import {
+  PROMO_QR_MESSAGE,
+  classifyScan,
+  formatBarcodeDisplay,
+  invalidCodeMessage,
+  keyTargetKind,
+  scanErrorMessage,
+  shouldRedirectToScanner,
+  scanRejectMessage,
+  unsellableMessage,
+} from "./adminFairPos.js";
 
 const scanned = (extra = {}) => ({
   inventoryItemId: "i1",
@@ -229,4 +240,109 @@ test("etichetă fără preț tipărit: prețul scris pe etichetă e obligatoriu;
   assert.equal(isAboveLabel(state.cart[0]), false);
   assert.deepEqual(cartInputProblems(state.cart), []);
   assert.deepEqual(cartPayload(state.cart)[0], { inventoryItemId: "i1", quantity: 1, effectiveUnitPriceCents: 6000 });
+});
+
+/* ===================== Scanner USB / Bluetooth (mod tastatură) ===================== */
+
+test("scanner: caracterele de final (CR, LF, Tab, NUL), spațiile, cratimele și literele mici sunt eliminate", () => {
+  for (const raw of ["AF2345678 9", "af-2345-6789\r", "AF23456789\n", "AF23456789\r\n", "\tAF-2345-6789\t", "AF23456789\u0000", " af 2345 6789 "]) {
+    const scan = classifyScan(raw);
+    assert.equal(scan.kind, "code", JSON.stringify(raw));
+    assert.equal(scan.barcode, "AF23456789", JSON.stringify(raw));
+    assert.equal(scan.valid, true, JSON.stringify(raw));
+  }
+  assert.equal(formatBarcodeDisplay("AF23456789"), "AF-2345-6789");
+});
+
+test("scanner: câmp gol / doar Enter sau Tab în plus => ignorat (nicio a doua procesare)", () => {
+  for (const raw of ["", "   ", "\r", "\n", "\t", null, undefined]) assert.equal(classifyScan(raw).kind, "empty");
+});
+
+test("scanner: QR-ul de promovare (adresă web) e recunoscut și explicat, fără cerere la server", () => {
+  for (const raw of ["https://www.artfest.ro", "https://artfest.ro/magazin/atelier-ana", "HTTPS://WWW.ARTFEST.RO", "www.artfest.ro", "httpsÖ--www.artfest.ro"]) {
+    assert.equal(classifyScan(raw).kind, "promo", raw);
+  }
+  assert.match(PROMO_QR_MESSAGE, /QR-ul de promovare/);
+  assert.match(PROMO_QR_MESSAGE, /nu codul produsului/);
+});
+
+test("scanner: cod cu alt format => „Cod negăsit”, cu ce s-a citit (ex. tastatură greșită)", () => {
+  const scan = classifyScan("AF1234");
+  assert.equal(scan.valid, false);
+  assert.match(invalidCodeMessage(scan), /^Cod negăsit: „AF1234” nu este un cod de produs Artfest/);
+  // 0/1/I/L/O/U/Y/Z nu apar în coduri (aceeași regulă ca serverul)
+  assert.equal(classifyScan("AF2345678O").valid, false);
+  assert.equal(classifyScan("5941234567890").valid, false);
+});
+
+test("scanner: mesaje clare pentru cod negăsit, conexiune, sesiune, server", () => {
+  assert.equal(scanErrorMessage({ status: 404 }, "AF23456789"), "Cod negăsit: AF-2345-6789 nu există în inventarul târgului.");
+  assert.match(scanErrorMessage(new TypeError("Failed to fetch"), "AF23456789"), /^Eroare de conexiune: codul AF-2345-6789 nu a fost verificat/);
+  assert.match(scanErrorMessage({ status: 401 }, "AF23456789"), /Autentifică-te din nou/);
+  assert.match(scanErrorMessage({ status: 503 }, "AF23456789"), /Eroare de server/);
+});
+
+test("scanner: produs nerecepționat / lipsă stoc => mesaj clar, nimic în coș", () => {
+  const notReceived = scanned({ sellable: false, reasons: ["not_received"], messages: ["Produsul nu a fost recepționat (nu este în stocul târgului)."] });
+  assert.match(unsellableMessage(notReceived), /^Spiriduș: produs nerecepționat/);
+  let s = posReducer(initialPosState, { type: "SCANNED", item: notReceived });
+  assert.equal(s.cart.length, 0);
+  assert.match(s.error, /nerecepționat/);
+  const noStock = scanned({ sellable: false, availableQty: 0, reasons: ["insufficient_stock"], messages: ["Stoc insuficient."] });
+  s = posReducer(initialPosState, { type: "SCANNED", item: noStock });
+  assert.equal(s.error, "Spiriduș: lipsă stoc (disponibil 0).");
+  assert.equal(s.cart.length, 0);
+});
+
+test("scanner: confirmare la scanare reușită; a doua scanare intenționată crește cantitatea (în limita stocului)", () => {
+  let s = posReducer(initialPosState, { type: "SCANNED", item: scanned() });
+  assert.equal(s.notice, "Adăugat în coș: Spiriduș");
+  s = posReducer(s, { type: "SCANNED", item: scanned() });
+  assert.equal(s.cart[0].quantity, 2);
+  assert.equal(s.notice, "Adăugat în coș: Spiriduș (cantitate 2)");
+  s = posReducer(s, { type: "SCANNED", item: scanned() });
+  assert.equal(s.cart[0].quantity, 2);
+  assert.match(s.error, /stoc insuficient/);
+  assert.equal(s.notice, "");
+});
+
+const el = (tagName, extra = {}) => ({ tagName, dataset: {}, closest: () => null, ...extra });
+
+test("scanner: ținta tastei (scanner, preț/cantitate, alt câmp, pagină/buton, fereastră)", () => {
+  const scanner = el("INPUT");
+  assert.equal(keyTargetKind(scanner, scanner), "scanner");
+  assert.equal(keyTargetKind(el("INPUT", { dataset: { posNumeric: "" } }), scanner), "posNumeric");
+  assert.equal(keyTargetKind(el("INPUT", { type: "date" }), scanner), "text");
+  assert.equal(keyTargetKind(el("TEXTAREA"), scanner), "text");
+  assert.equal(keyTargetKind(el("INPUT", { type: "checkbox" }), scanner), "other");
+  assert.equal(keyTargetKind(el("BUTTON"), scanner), "other");
+  assert.equal(keyTargetKind(el("BODY"), scanner), "other");
+  assert.equal(keyTargetKind(null, scanner), "other");
+  assert.equal(keyTargetKind(el("INPUT", { closest: () => ({}) }), scanner), "dialog");
+});
+
+test("scanner: ce se mută în câmpul de scanare (fără a fura focusul la editarea prețului)", () => {
+  const k = (key, extra = {}) => ({ key, ...extra });
+  // pagină / buton / bifă: orice caracter, nu spațiul (apasă butonul), nu scurtăturile
+  assert.equal(shouldRedirectToScanner(k("A"), "other"), true);
+  assert.equal(shouldRedirectToScanner(k("7"), "other"), true);
+  assert.equal(shouldRedirectToScanner(k(" "), "other"), false);
+  assert.equal(shouldRedirectToScanner(k("c", { ctrlKey: true }), "other"), false);
+  assert.equal(shouldRedirectToScanner(k("Enter"), "other"), false);
+  // preț / cantitate: literele (începutul unui cod AF) da, cifrele / virgula / ștergerea nu
+  assert.equal(shouldRedirectToScanner(k("A"), "posNumeric"), true);
+  assert.equal(shouldRedirectToScanner(k("f"), "posNumeric"), true);
+  for (const key of ["4", ",", ".", "Backspace", "ArrowLeft", "Tab", "Enter"]) {
+    assert.equal(shouldRedirectToScanner(k(key), "posNumeric"), false, key);
+  }
+  // câmpul de scanare, alt câmp text, o fereastră: niciodată
+  for (const kind of ["scanner", "text", "dialog"]) assert.equal(shouldRedirectToScanner(k("A"), kind), false, kind);
+});
+
+test("camera și scanner: aceeași regulă de adăugare (o bucată; refuz la stoc / nevandabil)", () => {
+  assert.equal(scanRejectMessage([], scanned()), "");
+  const cart = posReducer(posReducer(initialPosState, { type: "SCANNED", item: scanned() }), { type: "SCANNED", item: scanned() }).cart;
+  assert.equal(cart[0].quantity, 2);
+  assert.equal(scanRejectMessage(cart, scanned()), "Spiriduș: stoc insuficient (disponibil 2).");
+  assert.match(scanRejectMessage([], scanned({ sellable: false, reasons: ["not_received"] })), /nerecepționat/);
 });

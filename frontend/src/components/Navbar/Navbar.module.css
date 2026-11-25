@@ -675,6 +675,22 @@
   padding: 2px 4px 6px 30px;
 }
 
+/* contor lângă un element din meniu (ex. profiluri Creators în verificare) */
+.vendorDrawerItemBadge {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--color-primary);
+  color: var(--on-primary);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .vendorDrawerItem {
   display: flex;
   align-items: center;

@@ -481,3 +481,115 @@
   margin-top: 2px;
   flex: none;
 }
+
+/* confirmarea ultimei scanări reușite */
+.scanNotice {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-success, #1f7a3a);
+}
+
+/* ===== POS: „Scanează cu camera” (telefon) ===== */
+.cameraBtn {
+  justify-self: start;
+  padding: 10px 14px;
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--color-primary, var(--color-border));
+  background: var(--surface);
+  color: var(--color-primary, var(--color-text));
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cameraBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.7);
+  overflow-y: auto;
+}
+.cameraBox {
+  display: grid;
+  gap: 10px;
+  width: min(520px, 100%);
+  box-sizing: border-box;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--color-text);
+}
+.cameraHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cameraView {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #000;
+  aspect-ratio: 3 / 4;
+  max-height: 60vh;
+  width: 100%;
+}
+.cameraVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.cameraOverlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.35);
+}
+/* zona de încadrare: lată, pentru codul de bare și QR */
+.cameraFrame {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 30%;
+  bottom: 30%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: 10px;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+.cameraHint {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+.cameraError {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-danger, #b42318);
+}
+@media (max-width: 640px) {
+  .cameraBtn {
+    justify-self: stretch;
+    width: 100%;
+    font-size: 16px;
+  }
+  .cameraBackdrop {
+    padding: 0;
+    place-items: stretch;
+  }
+  .cameraBox {
+    width: 100%;
+    min-height: 100%;
+    border-radius: 0;
+    align-content: start;
+  }
+}

@@ -31,7 +31,8 @@ export const CREATOR_PATHS = Object.freeze({
   home: "/influencer/creatori",
   onboarding: "/influencer/creatori/configurare",
   offers: "/influencer/creatori/oferte",
-  admin: (profileId) => `/admin/marketing?tab=creators&profile=${encodeURIComponent(profileId)}`,
+  // Admin → Marketing → Influenceri → Profiluri Creators, cu profilul deschis
+  admin: (profileId) => `/admin/marketing?tab=influencers&sub=creators&profile=${encodeURIComponent(profileId)}`,
 });
 
 /* ---------------- rețele sociale ---------------- */
