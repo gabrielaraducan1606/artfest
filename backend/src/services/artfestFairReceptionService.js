@@ -23,6 +23,7 @@ import { FairError, ensureFair } from "./artfestFairService.js";
 import { lockProductForFair } from "./fairProductLock.js";
 import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { FAIR_TX_OPTIONS, PARTICIPATION_CANCELLED_BLOCK_REASON } from "../config/artfestFair.js";
+import { accessoriesOf } from "../lib/artfestFairAccessories.js";
 import { isManualFairItem } from "../lib/artfestFairManualItem.js";
 import { FINAL_PRICE_MESSAGES, labelStateFor, pricingView } from "../lib/artfestFairPricing.js";
 import { ARTFEST_OWNER_NAME, distinctIds, isArtfestOwned, lineCommissionBps } from "../lib/artfestFairOwner.js";
@@ -272,6 +273,12 @@ export function serializeAdminLine(
     warnings: warningsFor(line, product, eligibility, registrationStatus, pricing),
     // prețul vendorului, sugestia +10%, prețul final (FAIR_PRICE) - eticheta = pricing.salePriceCents
     pricing,
+    // „Ambalare și accesorii” (Artfest) per bucată: reținute din partea vânzătorului la vânzările viitoare
+    accessories: {
+      ...accessoriesOf(line),
+      updatedById: line.accessoriesUpdatedById || null,
+      editable: !isArtfestOwned(line) && ["DRAFT", "SUBMITTED", "RECEIVED"].includes(line.status),
+    },
     actions: {
       canReceive: line.status === "SUBMITTED" && (registrationStatus === "APPROVED" || participationCancelled),
       canMarkDamaged: line.status === "RECEIVED" && line.availableQty > 0,
@@ -407,6 +414,7 @@ export async function receiveInventoryLine({
   const rejectedReason = cleanText(body.rejectedReason, 500);
   const adminNotes = body.adminNotes === undefined ? undefined : cleanText(body.adminNotes);
   const photoUrls = validatePhotoUrls(body.photoUrls, photoPrefix);
+  const posSale = body.posSale === true;
 
   if (receivedQty + rejectedQty < 1) {
     throw new FairError(400, "invalid_quantity", "Introdu cel puțin o bucată primită sau refuzată.", {
@@ -457,6 +465,24 @@ export async function receiveInventoryLine({
       select: { status: true },
     });
     const returnOnly = registration?.status === "CANCELLED";
+    // recepția din POS („Salvează, recepționează și adaugă în coș”): doar pentru vânzare -
+    // participant APPROVED, produs neblocat, fără depășirea cantității declarate (marfa în plus
+    // intră prin fluxul de suplimentare). Panoul „Recepție” păstrează regulile lui.
+    if (posSale) {
+      if (registration?.status !== "APPROVED") {
+        throw new FairError(409, "registration_not_approved", "Participarea vânzătorului nu este activă: produsul nu se recepționează pentru vânzare.", {
+          currentStatus: registration?.status || null,
+        });
+      }
+      if (line.saleBlockedAt) {
+        throw new FairError(409, "sale_blocked", "Produs blocat de la vânzare: recepția din POS nu este permisă.");
+      }
+      if (receivedQty + rejectedQty > line.declaredQty) {
+        throw new FairError(409, "received_above_declared", `Cel mult ${line.declaredQty} buc. (cantitatea declarată). Pentru marfă suplimentară folosește suplimentarea stocului.`, {
+          fields: { receivedQty: `Maximum ${line.declaredQty} buc.` },
+        });
+      }
+    }
     if (!returnOnly && registration?.status !== "APPROVED") {
       throw new FairError(409, "registration_not_approved", "Înscrierea vendorului nu este aprobată. Produsul nu poate fi recepționat.", {
         currentStatus: registration?.status || null,

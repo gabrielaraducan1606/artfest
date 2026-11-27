@@ -7,6 +7,10 @@
 // Rulare: node --experimental-test-module-mocks --test src/routes/artfestFairInventory.routes.test.js
 
 process.env.DATABASE_URL = "postgresql://test:test@127.0.0.1:5";
+// regula financiară ISTORICĂ (comision 10% din prețul efectiv): testele de mai jos verifică mecanismele
+// pe vânzări cu regula veche; regula actuală (declarat + adaos + accesorii): artfestFairDeclaredMarkup.routes.test.js
+process.env.NODE_ENV = "test";
+process.env.ARTFEST_FAIR_LEGACY_COMMISSION_RULE = "1";
 process.env.JWT_SECRET = "test-secret";
 
 import { test, mock, before, after, beforeEach } from "node:test";

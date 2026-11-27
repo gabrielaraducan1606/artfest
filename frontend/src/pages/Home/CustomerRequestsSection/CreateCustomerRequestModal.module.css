@@ -1813,3 +1813,11 @@
       0.25
     );
 }
+/* Mobil (vizitatorii din QR): text de 16px în câmpuri - iOS nu mai
+   mărește pagina la focus. */
+@media (max-width: 600px) {
+  .input,
+  .textarea {
+    font-size: 16px;
+  }
+}

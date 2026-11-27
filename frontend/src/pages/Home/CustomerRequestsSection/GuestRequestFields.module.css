@@ -1,0 +1,199 @@
+/* Câmpurile vizitatorului fără cont (GuestRequestFields.jsx).
+   Mobil întâi: ținte de atingere de minimum 44px, text de 16px în câmpuri
+   (iOS nu mai mărește pagina la focus). */
+
+.box {
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border, #e6e1ea);
+  border-radius: 16px;
+  background: var(--surface-muted, #faf8fc);
+  display: grid;
+  gap: 14px;
+}
+
+.box:disabled {
+  opacity: 0.7;
+}
+
+.legend {
+  padding: 0 6px;
+  color: var(--color-text, #39343f);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.loginLink {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted, #6f6876);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.loginLink strong {
+  color: var(--color-primary, #7c3aed);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.input {
+  min-height: 48px;
+}
+
+.invalid {
+  border-color: #dc2626 !important;
+}
+
+.trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.account {
+  display: grid;
+  gap: 8px;
+}
+
+.accountQuestion {
+  margin: 0;
+  color: var(--color-text, #39343f);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.choice {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border, #dedbe2);
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--color-text, #39343f);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.choiceActive {
+  border-color: var(--color-primary, #7c3aed);
+  background: rgba(124, 58, 237, 0.08);
+  color: var(--color-primary, #6d28d9);
+}
+
+.accountHint {
+  margin: 0;
+  color: var(--color-muted, #6f6876);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.consent {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  align-items: start;
+  color: var(--color-muted, #5f5866);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.consent input {
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--color-primary, #7c3aed);
+}
+
+.consent a {
+  color: var(--color-primary, #6d28d9);
+}
+
+.consentInvalid {
+  color: #b91c1c;
+}
+
+/* „Verifică-ți emailul” */
+.sent {
+  padding: 28px 22px 24px;
+  text-align: center;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+
+.sentIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  background: rgba(124, 58, 237, 0.08);
+}
+
+.sentTitle {
+  margin: 0;
+  font-size: 20px;
+}
+
+.sentText {
+  margin: 0;
+  max-width: 440px;
+  color: var(--color-text, #39343f);
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.sentList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  max-width: 440px;
+  color: var(--color-muted, #6f6876);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+@media (max-width: 600px) {
+  .box {
+    padding: 14px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .input {
+    font-size: 16px !important;
+  }
+
+  .choice {
+    flex: 1 1 140px;
+  }
+}

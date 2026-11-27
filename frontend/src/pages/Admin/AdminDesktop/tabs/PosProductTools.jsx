@@ -8,7 +8,8 @@
 //  - doar Admin, inclusiv după termenul de inventar (vânzătorii rămân limitați);
 //  - etichetele: formatul existent (denumire, preț, cod de bare AF), număr ales;
 //  - salvarea / tipărirea NU înregistrează vânzări; banii la încasare: Artfest = integral
-//    Artfest, participant = 10% Artfest / 90% vânzător. Nimic nu e publicat online.
+//    Artfest, participant = prețul declarat pentru vânzător + adaos 10% și accesorii pentru Artfest.
+//    Nimic nu e publicat online.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../../lib/api";
@@ -16,6 +17,9 @@ import shared from "../AdminDesktop.module.css";
 import styles from "./AdminFairPos.module.css";
 import { formatLei, newIdempotencyKey } from "./adminFairPos.js";
 import { downloadLabelsPdf } from "../../../Vendor/Fair/fairInventory.js";
+import { accessoriesListText, emptyRow, liveUnitTotal, parseLeiToCents, proposedPrice, splitAtPrice, validateAccessoryRows } from "../../../Vendor/Fair/fairAccessories.js";
+import FairAccessoriesButton, { AccessoryRowsEditor } from "./FairAccessoriesDialog.jsx";
+import { findSimilarProducts } from "./posReceiveSheet.js";
 import {
   LABEL_COPIES_MAX,
   OWNER_ARTFEST,
@@ -224,7 +228,14 @@ function ProductActions({ line, onChanged, onAddToCart, compact = false }) {
         <button type="button" className={styles.primaryBtn} onClick={addToCart} disabled={Boolean(busy)}>
           {busy === "cart" ? "Se adaugă…" : "Adaugă în coș"}
         </button>
+        <FairAccessoriesButton line={line} onSaved={() => onChanged?.()} />
       </div>
+      {line.accessories?.unitCents > 0 && (
+        <p className={styles.accSplit}>
+          Ambalare și accesorii (Artfest), pe bucată: {accessoriesListText(line.accessories.items)} = {formatLei(line.accessories.unitCents)}. Se rețin din
+          suma vânzătorului la vânzare.
+        </p>
+      )}
       {canAddStock(line) && <AddStock line={line} onDone={onChanged} />}
       {message.text && (
         <p className={message.tone === "error" ? styles.cameraError : styles.stateOk} role={message.tone === "error" ? "alert" : "status"}>
@@ -239,10 +250,22 @@ function ProductActions({ line, onChanged, onAddToCart, compact = false }) {
 
 const EMPTY_FORM = { owner: "", registrationId: "", serviceId: "", title: "", priceRon: "", receivedQty: "", confirmReceived: false };
 
-export function AddProductDialog({ inventory, onClose, onAddToCart }) {
+/*
+ * mode = "store": „Adaugă produs într-un magazin” (după „Cod negăsit”): doar participanți APPROVED,
+ * cu preț final propus și accesorii opționale, salvate după creare prin serviciile existente
+ * (pași reluabili, fără dubluri). Codul scanat necunoscut NU devine cod AF: codul se generează
+ * prin mecanismul existent. Înainte de creare: produsele asemănătoare ale participantului.
+ */
+export function AddProductDialog({ inventory, onClose, onAddToCart, mode = "any", onOpenReceiveSheet }) {
+  const storeMode = mode === "store";
   const [owners, setOwners] = useState(null);
   const [loadError, setLoadError] = useState("");
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(storeMode ? { ...EMPTY_FORM, owner: OWNER_PARTICIPANT } : EMPTY_FORM);
+  // opționale (participant): prețul final propus de Artfest și „Ambalare și accesorii”
+  const [finalPriceText, setFinalPriceText] = useState("");
+  const [accRows, setAccRows] = useState([emptyRow()]);
+  const [extras, setExtras] = useState({ plan: null, done: [], failure: "", busy: false });
+  const [pickedExisting, setPickedExisting] = useState(false);
   const [fields, setFields] = useState({});
   const [error, setError] = useState("");
   const [duplicateOk, setDuplicateOk] = useState(false);
@@ -274,6 +297,10 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
   const stores = participant?.stores || [];
   const ownerLines = form.owner === OWNER_ARTFEST ? owners?.artfest?.lines : form.owner === OWNER_PARTICIPANT ? participant?.lines : null;
   const sameTitle = ownerLines ? findSameTitle(ownerLines, form.title) : null;
+  // posibile produse existente ale aceluiași proprietar (inclusiv denumirea identică)
+  const similar = ownerLines ? findSimilarProducts(ownerLines, form.title) : [];
+  if (sameTitle && !similar.some((l) => l.id === sameTitle.id)) similar.unshift(sameTitle);
+  const participantExtras = form.owner === OWNER_PARTICIPANT;
   const qtyN = parseReceivedQty(form.receivedQty);
   const deadlinePassed = inventory && inventory.open === false;
 
@@ -293,9 +320,21 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
     const check = validateNewProduct(form, { clientRequestId: requestIdRef.current, stores });
     setFields(check.fields);
     if (!check.ok) return;
-    if (sameTitle && !duplicateOk) {
-      setError("Confirmă că este un produs diferit de cel existent cu aceeași denumire.");
+    if (similar.length && !duplicateOk) {
+      setError("Există produse asemănătoare: alege unul existent sau confirmă că este un produs diferit.");
       return;
+    }
+    // opționale: verificate ÎNAINTE de creare (nimic nu se salvează pe jumătate din cauza lor)
+    let plan = { finalPriceCents: null, accessories: [] };
+    if (participantExtras) {
+      if (finalPriceText.trim()) {
+        const cents = parseLeiToCents(finalPriceText);
+        if (cents === null) return setFields((f) => ({ ...f, finalPrice: "Preț final invalid (ex. 120 sau 99,90)." }));
+        plan.finalPriceCents = cents;
+      }
+      const acc = validateAccessoryRows(accRows);
+      if (!acc.ok) return setFields((f) => ({ ...f, ...Object.fromEntries(Object.entries(acc.fields).map(([k, v]) => [`acc.${k}`, v])), accessories: "Verifică accesoriile." }));
+      plan.accessories = acc.items;
     }
     savingRef.current = true;
     setSaving(true);
@@ -304,6 +343,7 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
       const res = await api(`${FAIR_API}/pos/products`, { method: "POST", body: check.body });
       setSaved(res.item);
       loadOwners();
+      await runExtras(res.item, plan, []);
     } catch (err) {
       setError(apiMessage(err, "Produsul nu a putut fi salvat."));
     } finally {
@@ -312,8 +352,54 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
     }
   }
 
+  /*
+   * Pașii opționali după creare (serviciile existente): prețul final, apoi accesoriile. La eroare se
+   * arată exact ce s-a salvat; „Reia” face doar pașii rămași (ambele servicii sunt idempotente).
+   */
+  async function runExtras(item, plan, already) {
+    const steps = [];
+    if (plan.finalPriceCents != null && plan.finalPriceCents !== item.pricing?.salePriceCents) steps.push("price");
+    if (plan.accessories.length) steps.push("accessories");
+    const done = [...already];
+    setExtras({ plan, done, failure: "", busy: true });
+    try {
+      for (const step of steps.filter((x) => !done.includes(x))) {
+        if (step === "price") {
+          await api(`${FAIR_API}/inventory/${encodeURIComponent(item.id)}/final-price`, { method: "POST", body: { finalPriceCents: plan.finalPriceCents } });
+        } else {
+          await api(`${FAIR_API}/inventory/${encodeURIComponent(item.id)}/accessories`, { method: "PUT", body: { items: plan.accessories } });
+        }
+        done.push(step);
+        setExtras({ plan, done: [...done], failure: "", busy: true });
+      }
+      setExtras({ plan, done, failure: "", busy: false });
+    } catch (err) {
+      setExtras({ plan, done, failure: apiMessage(err, "Pasul nu a reușit."), busy: false });
+    }
+    await refreshSaved(item.id).catch(() => {});
+  }
+
+  // produs existent ales din lista celor asemănătoare: fără creare; nerecepționat => fișa de recepție
+  async function pickExisting(id) {
+    try {
+      const res = await api(`${FAIR_API}/inventory/${encodeURIComponent(id)}`);
+      if (res.item.status === "SUBMITTED" && onOpenReceiveSheet) {
+        onOpenReceiveSheet(id);
+        return;
+      }
+      setPickedExisting(true);
+      setSaved(res.item);
+    } catch (err) {
+      setError(apiMessage(err, "Produsul nu a putut fi încărcat."));
+    }
+  }
+
   function another() {
     requestIdRef.current = crypto.randomUUID();
+    setPickedExisting(false);
+    setExtras({ plan: null, done: [], failure: "", busy: false });
+    setFinalPriceText("");
+    setAccRows([emptyRow()]);
     setSaved(null);
     setForm((f) => ({ ...EMPTY_FORM, owner: f.owner, registrationId: f.registrationId, serviceId: f.serviceId }));
     setFields({});
@@ -322,11 +408,13 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
   }
 
   return (
-    <Dialog title="Adaugă produs" onClose={onClose}>
+    <Dialog title={storeMode ? "Adaugă produs într-un magazin" : "Adaugă produs"} onClose={onClose}>
       {saved ? (
         <div className={styles.savedProduct}>
           <p className={styles.stateOk} role="status">
-            Produs salvat și intrat în stocul târgului (nicio vânzare înregistrată).
+            {pickedExisting
+              ? "Produs existent selectat (nimic nou creat)."
+              : "Produs salvat și intrat în stocul târgului (nicio vânzare înregistrată). Nu este publicat online."}
           </p>
           <strong className={styles.savedTitle}>{saved.title}</strong>
           <span className={shared.subtle}>
@@ -334,6 +422,31 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
             {!saved.artfestOwned && saved.storeName ? ` · ${saved.storeName}` : ""} · {formatLei(saved.priceCents)} · {saved.receivedQty} buc. primite
           </span>
           <span className={shared.subtle}>{ownerSplitText(saved)}</span>
+          {!saved.artfestOwned && saved.pricing?.salePriceCents != null && (
+            <span className={shared.subtle}>
+              Preț declarat {formatLei(saved.pricing.vendorPriceCents)} · adaos Artfest {formatLei(Math.max(0, saved.pricing.markupCents ?? 0))}
+              {saved.accessories?.unitCents > 0 ? ` · accesorii ${formatLei(saved.accessories.unitCents)}` : ""} · total client{" "}
+              {formatLei(saved.pricing.salePriceCents)} · vânzătorul primește {formatLei(saved.pricing.vendorNetCents)} / buc.
+              {saved.pricing.finalDiffersFromProposed ? ` (preț propus: ${formatLei(saved.pricing.proposedFinalPriceCents)})` : ""}
+            </span>
+          )}
+          {extras.plan && (extras.done.length > 0 || extras.failure) && (
+            <ul className={styles.sheetSteps} aria-label="Ce s-a salvat">
+              <li className={styles.stateOk}>✓ Produs creat și recepționat ({saved.receivedQty} buc.)</li>
+              {extras.done.includes("price") && <li className={styles.stateOk}>✓ Preț final salvat</li>}
+              {extras.done.includes("accessories") && <li className={styles.stateOk}>✓ Ambalare și accesorii salvate</li>}
+            </ul>
+          )}
+          {extras.failure && (
+            <div className={styles.addStockForm}>
+              <p className={styles.cameraError} role="alert">
+                {extras.failure}
+              </p>
+              <button type="button" className={styles.primaryBtn} onClick={() => runExtras(saved, extras.plan, extras.done)} disabled={extras.busy}>
+                {extras.busy ? "Se salvează…" : "Reia (doar pașii rămași)"}
+              </button>
+            </div>
+          )}
           <span className={styles.codeBig} aria-label="Cod AF">
             {saved.barcodeDisplay}
           </span>
@@ -364,6 +477,7 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
           )}
           <fieldset className={styles.ownerChoice} disabled={saving || !owners}>
             <legend>Proprietar</legend>
+            {!storeMode && (
             <label className={styles.checkRow}>
               <input
                 type="radio"
@@ -373,6 +487,7 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
               />
               <span>Artfest - stoc propriu (încasare integral Artfest)</span>
             </label>
+            )}
             <label className={styles.checkRow}>
               <input
                 type="radio"
@@ -380,7 +495,7 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
                 checked={form.owner === OWNER_PARTICIPANT}
                 onChange={() => { update({ owner: OWNER_PARTICIPANT }, ["owner"]); setDuplicateOk(false); }}
               />
-              <span>Magazinul unui participant (10% Artfest / 90% vânzător)</span>
+              <span>Magazinul unui participant (vânzătorul primește prețul declarat; Artfest adaos 10% + accesorii)</span>
             </label>
             {fields.owner && <small className={styles.fieldError}>{fields.owner}</small>}
           </fieldset>
@@ -430,10 +545,24 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
             />
             {fields.title && <small className={styles.fieldError}>{fields.title}</small>}
           </label>
-          {sameTitle && (
+          {similar.length > 0 && (
             <div className={styles.warning} role="alert">
-              Există deja „{sameTitle.title}” la acest proprietar ({sameTitle.barcodeDisplay}). Pentru mai multe bucăți folosește „Suplimentează stocul” la
-              produsul existent (din „Produse / Etichete”).
+              {sameTitle
+                ? `Există deja „${sameTitle.title}” la acest proprietar (${sameTitle.barcodeDisplay}). Pentru mai multe bucăți folosește „Suplimentează stocul” la produsul existent (din „Produse / Etichete”).`
+                : "Produse asemănătoare la acest proprietar - poate fi unul dintre ele:"}
+              <ul className={styles.similarList}>
+                {similar.map((l) => (
+                  <li key={l.id}>
+                    <span>
+                      {l.title} · {l.barcodeDisplay}
+                      {l.status === "SUBMITTED" ? " · trimis, nerecepționat" : ""}
+                    </span>
+                    <button type="button" className={styles.ghostBtn} onClick={() => pickExisting(l.id)} disabled={saving}>
+                      Este acesta
+                    </button>
+                  </li>
+                ))}
+              </ul>
               <label className={styles.checkRow}>
                 <input type="checkbox" checked={duplicateOk} onChange={(e) => setDuplicateOk(e.target.checked)} />
                 <span>Este un produs diferit, salvează-l</span>
@@ -442,7 +571,7 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
           )}
           <div className={styles.fieldRow}>
             <label className={styles.field}>
-              <span>Preț (lei)</span>
+              <span>{form.owner === OWNER_PARTICIPANT ? "Preț declarat (lei)" : "Preț (lei)"}</span>
               <input value={form.priceRon} onChange={(e) => update({ priceRon: e.target.value }, ["priceRon"])} inputMode="decimal" placeholder="Ex. 5 sau 4,50" disabled={saving} />
               {fields.priceRon && <small className={styles.fieldError}>{fields.priceRon}</small>}
             </label>
@@ -472,6 +601,54 @@ export function AddProductDialog({ inventory, onClose, onAddToCart }) {
             </span>
           </label>
           {fields.confirmReceived && <small className={styles.fieldError}>{fields.confirmReceived}</small>}
+          {participantExtras && (
+            <details className={styles.breakdown} open={storeMode}>
+              <summary>Opțional: preț final propus și ambalare / accesorii</summary>
+              <label className={styles.field}>
+                <span>Preț final (lei, opțional; gol = prețul propus: declarat + 10% + accesorii)</span>
+                <input
+                  value={finalPriceText}
+                  onChange={(e) => {
+                    setFinalPriceText(e.target.value);
+                    update({}, ["finalPrice"]);
+                  }}
+                  inputMode="decimal"
+                  placeholder="Ex. 120"
+                  disabled={saving}
+                  aria-label="Preț final propus de Artfest"
+                />
+                {fields.finalPrice && <small className={styles.fieldError}>{fields.finalPrice}</small>}
+              </label>
+              <small className={shared.subtle}>Ambalare și accesorii adăugate de Artfest, PER BUCATĂ de produs (se rețin din suma vânzătorului):</small>
+              <AccessoryRowsEditor
+                rows={accRows}
+                onChange={(next) => {
+                  setAccRows(next);
+                  setFields((f) => Object.fromEntries(Object.entries(f).filter(([k]) => !k.startsWith("acc"))));
+                }}
+                fields={Object.fromEntries(Object.entries(fields).filter(([k]) => k.startsWith("acc.")).map(([k, v]) => [k.slice(4), v]))}
+                disabled={saving}
+              />
+              {(() => {
+                const declared = parseLeiToCents(form.priceRon);
+                const acc = liveUnitTotal(accRows);
+                const proposed = proposedPrice(declared, acc);
+                const split = splitAtPrice(parseLeiToCents(finalPriceText) ?? proposed, declared, acc);
+                return split ? (
+                  <small className={split.negative ? styles.fieldError : shared.subtle}>
+                    Pe bucată: preț declarat {formatLei(split.declaredCents)} · {split.markupReduced ? "comision 10%" : "adaos Artfest"} {formatLei(Math.max(0, split.markupCents))} ·
+                    accesorii {formatLei(split.accessoriesCents)} · total client {formatLei(split.priceCents)}
+                    {split.priceCents !== proposed ? ` (propus ${formatLei(proposed)})` : ""}
+                    {split.negative
+                      ? " - nu acoperă accesoriile: vânzarea ar fi blocată la casă"
+                      : split.markupReduced
+                        ? ` - sub prețul propus: accesorii, apoi 10% din rest; vânzătorului ${formatLei(split.vendorNetCents)}`
+                        : ""}
+                  </small>
+                ) : null;
+              })()}
+            </details>
+          )}
           {error && (
             <p className={styles.cameraError} role="alert">
               {error}

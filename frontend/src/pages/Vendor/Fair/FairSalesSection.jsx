@@ -11,6 +11,7 @@ import { useLocation } from "react-router-dom";
 import { BarChart3, Download, RefreshCw } from "lucide-react";
 import { api } from "../../../lib/api";
 import { downloadLabelsPdf } from "./fairInventory.js";
+import { accessoriesListText } from "./fairAccessories.js";
 import {
   DISPOSITION_LABEL,
   LINE_STATUS_LABEL,
@@ -182,7 +183,8 @@ export default function FairSalesSection() {
             <Stat label="Încasat" value={formatLei(report.grossCents)} />
             <Stat label="Numerar" value={formatLei(report.cashCents)} />
             <Stat label="Card" value={formatLei(report.cardCents)} />
-            <Stat label="Comision" value={formatLei(report.commissionCents)} />
+            <Stat label="Comision / adaos Artfest" value={formatLei(report.commissionCents)} />
+            {report.accessoriesCents > 0 && <Stat label="Ambalare și accesorii (Artfest)" value={formatLei(report.accessoriesCents)} />}
             {report.artfestFundedDiscountCents > 0 && (
               <Stat label="Reduceri suportate de Artfest" value={formatLei(report.artfestFundedDiscountCents)} />
             )}
@@ -271,17 +273,47 @@ export default function FairSalesSection() {
                     />
                     <Stat label="Preț efectiv / buc." value={formatLei(line.effectiveUnitPriceCents)} />
                     <Stat label="Total" value={formatLei(line.lineGrossCents)} />
-                    <Stat label="Comision" value={formatLei(line.commissionCents)} />
+                    {line.declaredUnitPriceCents != null && (
+                      <Stat label="Preț declarat / buc." value={formatLei(line.declaredUnitPriceCents)} />
+                    )}
+                    <Stat
+                      label={line.financeRule === "DECLARED_PLUS_MARKUP" ? "Adaos Artfest" : line.financeRule === "DISCOUNTED_COMMISSION" ? "Comision 10% (după accesorii)" : "Comision"}
+                      value={formatLei(line.commissionCents)}
+                    />
+                    {line.accessoriesCents > 0 && <Stat label="Ambalare și accesorii (Artfest)" value={formatLei(line.accessoriesCents)} />}
                     <Stat label="Net" value={formatLei(line.vendorNetCents)} />
                     {line.returnedQty > 0 && (
                       <>
                         <Stat label="Returnat" value={`${line.returnedQty} buc.`} />
                         <Stat label="Sumă returnată" value={formatLei(line.returned.refundCents)} />
                         <Stat label="Comision inversat" value={formatLei(line.returned.commissionReversedCents)} />
+                        {line.returned.accessoriesReversedCents > 0 && (
+                          <Stat label="Accesorii restituite" value={formatLei(line.returned.accessoriesReversedCents)} />
+                        )}
                         <Stat label="Scăzut din netul tău" value={formatLei(line.returned.vendorNetImpactCents)} />
                       </>
                     )}
                   </dl>
+                  {line.accessoriesCents > 0 && (
+                    <p className={styles.hint}>
+                      Ambalare și accesorii adăugate de Artfest: {accessoriesListText(line.accessories)} pe bucată × {line.quantity} buc. ={" "}
+                      {formatLei(line.accessoriesCents)}
+                      {line.financeRule === "DECLARED_PLUS_MARKUP" || line.financeRule === "DISCOUNTED_COMMISSION"
+                        ? " (plătite de client, revin Artfest)."
+                        : " (reținute din suma ta, pe lângă comisionul de 10% - regula de la data vânzării)."}
+                    </p>
+                  )}
+                  {line.financeRule === "DECLARED_PLUS_MARKUP" && (
+                    <p className={styles.hint}>
+                      Regula vânzării: primești prețul declarat ({formatLei(line.declaredUnitPriceCents)} / buc.); Artfest primește adaosul și accesoriile.
+                    </p>
+                  )}
+                  {line.financeRule === "DISCOUNTED_COMMISSION" && (
+                    <p className={styles.hint}>
+                      Vândut sub prețul propus ({formatLei(line.proposedUnitPriceCents)} / buc.): din încasare s-au scăzut accesoriile, apoi comisionul Artfest de 10%
+                      din rest; ai primit {formatLei(line.vendorNetCents)} (preț declarat {formatLei(line.declaredUnitPriceCents)} / buc.).
+                    </p>
+                  )}
                   {line.priceSetManually && (
                     <p className={styles.hint}>
                       Prețul acestei vânzări a fost stabilit la casă ({formatLei(line.effectiveUnitPriceCents)} / buc.); comisionul și netul

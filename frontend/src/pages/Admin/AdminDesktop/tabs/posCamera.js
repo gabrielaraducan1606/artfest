@@ -146,8 +146,10 @@ export async function createFrameDetector() {
  *  - "retry":  cod necunoscut / nerecepționat / fără stoc / eroare de conexiune ->
  *              mesaj, scanarea se oprește până la „Reîncearcă” (fără cereri repetate).
  */
+// handoff: POS continuă în altă fereastră (fișa de recepție pentru un produs nerecepționat sau
+// „Cod negăsit” cu „Adaugă produs într-un magazin”) -> camera se închide, ca la „added”.
 export function cameraResultAction(outcome) {
-  if (outcome?.ok) return "added";
+  if (outcome?.ok || outcome?.handoff) return "added";
   if (outcome?.continueScanning) return "continue";
   return "retry";
 }

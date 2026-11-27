@@ -120,6 +120,7 @@ import {
   estimateImageProcessingBytes,
 } from "../services/uploadMemoryGuard.js";
 import { adminSubmitDraftInventory, getAdminLabelItems, markLabelsGenerated, setFinalPrice } from "../services/artfestFairInventoryService.js";
+import { getInventoryAccessories, setInventoryAccessories } from "../services/artfestFairAccessoriesService.js";
 import { adminDailyReport, adminReportCsv } from "../services/artfestFairReportsService.js";
 import { adminFairSummary } from "../services/artfestFairSummaryService.js";
 import { addPromoInventoryItem, listPromoParticipants, renderPromoLabels } from "../services/artfestFairPromoLabelsService.js";
@@ -899,6 +900,21 @@ router.post(
   "/inventory/:id/final-price",
   handle(async (req, res) => {
     res.json({ ok: true, ...(await setFinalPrice({ id: req.params.id, body: req.body || {}, adminId: req.adminUser.id })) });
+  })
+);
+
+// „Ambalare și accesorii” (per bucată de produs): doar vânzările viitoare; istoric cu autor
+router.get(
+  "/inventory/:id/accessories",
+  handle(async (req, res) => {
+    res.json(await getInventoryAccessories({ id: req.params.id }));
+  })
+);
+
+router.put(
+  "/inventory/:id/accessories",
+  handle(async (req, res) => {
+    res.json({ ok: true, ...(await setInventoryAccessories({ id: req.params.id, body: req.body || {}, adminId: req.adminUser.id })) });
   })
 );
 

@@ -29,6 +29,7 @@ import { api } from "../../../lib/api";
 import { canRetryImageUpload, prepareAndUploadImage } from "../../../lib/productImages/prepareAndUploadImage.js";
 import { PRODUCT_IMAGE_ACCEPT } from "../../../lib/productImages/productImageRules.js";
 import { inventoryErrorMessage } from "./fairInventoryErrors.js";
+import { accessoriesListText, formatLeiPlain } from "./fairAccessories.js";
 import { centsToPriceInput, newClientRequestId, validateManualItem } from "./fairManualItem.js";
 import {
   INVENTORY_API,
@@ -1317,6 +1318,25 @@ export default function FairInventorySection() {
                     {item.isLimitedEdition && <li>Serie limitată</li>}
                     {item.canBeRemade && <li>Poate fi refăcut</li>}
                   </ul>
+                )}
+
+                {/* regula pentru vânzările viitoare: prețul declarat e integral al vânzătorului; peste el, adaos Artfest + accesorii */}
+                {(item.pricing?.financeRule === "DECLARED_PLUS_MARKUP" || item.pricing?.financeRule === "DISCOUNTED_COMMISSION") && item.pricing.salePriceCents != null && (
+                  <div className={styles.hint} role="note">
+                    Preț declarat <strong>{formatLeiPlain(item.pricing.vendorPriceCents)}</strong>
+                    {item.pricing.financeRule === "DISCOUNTED_COMMISSION" ? " (prețul de vânzare e sub cel propus)" : " (îl primești integral)"} ·{" "}
+                    {item.pricing.financeRule === "DISCOUNTED_COMMISSION" ? "comision Artfest 10% după accesorii" : "adaos Artfest"}{" "}
+                    {formatLeiPlain(Math.max(0, item.pricing.markupCents ?? 0))}
+                    {item.pricing.accessoriesUnitCents > 0 ? ` · ambalare și accesorii ${formatLeiPlain(item.pricing.accessoriesUnitCents)}` : ""} · total client{" "}
+                    <strong>{formatLeiPlain(item.pricing.salePriceCents)}</strong> · primești <strong>{formatLeiPlain(item.pricing.vendorNetCents)}</strong> pe bucată.
+                    {item.accessories?.unitCents > 0 && (
+                      <>
+                        {" "}
+                        Ambalare și accesorii adăugate de Artfest (pe bucată): {accessoriesListText(item.accessories.items)} = {formatLeiPlain(item.accessories.unitCents)}; se
+                        adaugă la prețul pentru client, nu se scad din suma ta.
+                      </>
+                    )}
+                  </div>
                 )}
 
                 {!readOnly && item.status !== "DRAFT" && <QuantityFacts item={item} />}

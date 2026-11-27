@@ -12,10 +12,12 @@
 //
 // Sumele vin EXCLUSIV din snapshot-urile liniilor (nu se recalculează reduceri / comision):
 //   vânzare:  listSales += lineList, discounts += lineDiscount, grossSales += lineGross,
-//             commission += commissionCents, vendorNet += vendorNetCents (D8 deja aplicat)
+//             commission += commissionCents, accessories += accessoriesCents („Ambalare și accesorii”
+//             reținute, deja scăzute din vendorNetCents), vendorNet += vendorNetCents (D8 deja aplicat)
 //   retur:    returnsRefund += refundCents (TOATE, indiferent cine suportă)
 //             dacă afectează vendorul (RESTOCKED sau responsabil VENDOR):
-//               commissionReversed += commissionReversedCents, vendorNetReversed += vendorNetReversedCents
+//               commissionReversed += commissionReversedCents, accessoriesReversed += accessoriesReversedCents,
+//               vendorNetReversed += vendorNetReversedCents
 //             dacă responsabil ARTFEST: artfestBorneRefund += refundCents; vendorul rămâne neafectat
 //   finalDue = vendorNet − vendorNetReversed + adjustments + carriedIn   (CHECK AFST_finalDue_chk)
 //
@@ -32,6 +34,7 @@ import { FairError, ensureFair } from "./artfestFairService.js";
 import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { cleanText } from "./artfestFairReceptionService.js";
 import { localDayRange, todayLocal } from "./artfestFairReportsService.js";
+import { accessoriesText, accessoryItems } from "../lib/artfestFairAccessories.js";
 
 export const SETTLEMENT_STATUS_LABEL = Object.freeze({
   DRAFT: "Ciornă",
@@ -76,10 +79,12 @@ function emptyTotals() {
     discountsCents: 0,
     grossSalesCents: 0,
     commissionCents: 0,
+    accessoriesCents: 0,
     vendorNetCents: 0,
     artfestFundedDiscountCents: 0,
     returnsRefundCents: 0,
     commissionReversedCents: 0,
+    accessoriesReversedCents: 0,
     vendorNetReversedCents: 0,
     artfestBorneRefundCents: 0,
     saleUnits: 0,
@@ -124,10 +129,18 @@ async function collect(db, { fairId, vendorId, periodFrom, periodTo, selfId = nu
     totals.discountsCents += l.lineDiscountCents;
     totals.grossSalesCents += l.lineGrossCents;
     totals.commissionCents += l.commissionCents;
+    totals.accessoriesCents += l.accessoriesCents || 0;
     totals.vendorNetCents += l.vendorNetCents;
     totals.artfestFundedDiscountCents += l.artfestFundedDiscountCents || 0;
     totals.saleUnits += l.quantity;
-    entries.push({ saleLineId: l.id, returnLineId: null, grossCents: l.lineGrossCents, commissionCents: l.commissionCents, vendorNetCents: l.vendorNetCents });
+    entries.push({
+      saleLineId: l.id,
+      returnLineId: null,
+      grossCents: l.lineGrossCents,
+      commissionCents: l.commissionCents,
+      accessoriesCents: l.accessoriesCents || 0,
+      vendorNetCents: l.vendorNetCents,
+    });
   }
   for (const rl of returnLines) {
     const hitsVendor = affectsVendor(rl);
@@ -135,6 +148,7 @@ async function collect(db, { fairId, vendorId, periodFrom, periodTo, selfId = nu
     totals.returnUnits += rl.quantity;
     if (hitsVendor) {
       totals.commissionReversedCents += rl.commissionReversedCents;
+      totals.accessoriesReversedCents += rl.accessoriesReversedCents || 0;
       totals.vendorNetReversedCents += rl.vendorNetReversedCents;
     } else {
       totals.artfestBorneRefundCents += rl.refundCents;
@@ -145,6 +159,7 @@ async function collect(db, { fairId, vendorId, periodFrom, periodTo, selfId = nu
       returnLineId: rl.id,
       grossCents: -rl.refundCents,
       commissionCents: hitsVendor ? -rl.commissionReversedCents : 0,
+      accessoriesCents: hitsVendor ? -(rl.accessoriesReversedCents || 0) : 0,
       vendorNetCents: hitsVendor ? -rl.vendorNetReversedCents : 0,
     });
   }
@@ -189,9 +204,11 @@ async function calculate(db, { fair, vendorId, periodFrom, periodTo, selfId = nu
       discountsCents: t.discountsCents,
       grossSalesCents: t.grossSalesCents,
       commissionCents: t.commissionCents,
+      accessoriesCents: t.accessoriesCents,
       vendorNetCents: t.vendorNetCents,
       returnsRefundCents: t.returnsRefundCents,
       commissionReversedCents: t.commissionReversedCents,
+      accessoriesReversedCents: t.accessoriesReversedCents,
       vendorNetReversedCents: t.vendorNetReversedCents,
       artfestBorneRefundCents: t.artfestBorneRefundCents,
       adjustmentsCents,
@@ -341,8 +358,8 @@ export async function addAdjustment({ id, body = {}, adminId, db = prisma }) {
 }
 
 const sameHeader = (a, b) =>
-  ["listSalesCents", "discountsCents", "grossSalesCents", "commissionCents", "vendorNetCents", "returnsRefundCents", "commissionReversedCents",
-    "vendorNetReversedCents", "artfestBorneRefundCents", "adjustmentsCents", "carriedInCents", "finalDueCents", "previousSettlementId"].every(
+  ["listSalesCents", "discountsCents", "grossSalesCents", "commissionCents", "accessoriesCents", "vendorNetCents", "returnsRefundCents", "commissionReversedCents",
+    "accessoriesReversedCents", "vendorNetReversedCents", "artfestBorneRefundCents", "adjustmentsCents", "carriedInCents", "finalDueCents", "previousSettlementId"].every(
     (k) => (a[k] ?? null) === (b[k] ?? null)
   );
 
@@ -448,6 +465,9 @@ function serializeHeader(s, { admin }) {
     discountsCents: s.discountsCents,
     grossSalesCents: s.grossSalesCents,
     commissionCents: s.commissionCents,
+    // „Ambalare și accesorii” reținute (deja scăzute din vendorNetCents) / restituite la retururi
+    accessoriesCents: s.accessoriesCents || 0,
+    accessoriesReversedCents: s.accessoriesReversedCents || 0,
     vendorNetCents: s.vendorNetCents,
     returnsRefundCents: s.returnsRefundCents,
     artfestBorneRefundCents: s.artfestBorneRefundCents,
@@ -465,6 +485,9 @@ function serializeHeader(s, { admin }) {
     ...(admin ? { finalizedById: s.finalizedById, paidById: s.paidById, notes: s.notes || null } : {}),
   };
 }
+
+const entryView = (e) =>
+  e ? { grossCents: e.grossCents, commissionCents: e.commissionCents, accessoriesCents: e.accessoriesCents || 0, vendorNetCents: e.vendorNetCents } : null;
 
 async function loadDetail(db, s, { admin }) {
   const entries = await db.artfestFairSettlementEntry.findMany({ where: { settlementId: s.id } });
@@ -509,8 +532,16 @@ async function loadDetail(db, s, { admin }) {
           lineGrossCents: l.lineGrossCents,
           commissionCents: l.commissionCents,
           artfestFundedDiscountCents: l.artfestFundedDiscountCents || 0,
+          accessoriesUnitCents: l.accessoriesUnitCents || 0,
+          accessoriesCents: l.accessoriesCents || 0,
+          accessories: accessoryItems(l.accessoriesSnapshot),
+          // regula financiară salvată la vânzare: preț declarat (al vânzătorului), adaos Artfest, total propus
+          financeRule: l.financeRule || "COMMISSION_PERCENT",
+          declaredUnitPriceCents: l.declaredUnitPriceCents ?? null,
+          markupUnitCents: l.markupUnitCents ?? null,
+          proposedUnitPriceCents: l.proposedUnitPriceCents ?? null,
           vendorNetCents: l.vendorNetCents,
-          entry: entryBy.get(l.id) ? { grossCents: entryBy.get(l.id).grossCents, commissionCents: entryBy.get(l.id).commissionCents, vendorNetCents: entryBy.get(l.id).vendorNetCents } : null,
+          entry: entryView(entryBy.get(l.id)),
         };
       })
       .sort((a, b) => new Date(a.soldAt) - new Date(b.soldAt) || a.saleNumber - b.saleNumber),
@@ -531,8 +562,9 @@ async function loadDetail(db, s, { admin }) {
           refundCents: rl.refundCents,
           commissionReversedCents: rl.commissionReversedCents,
           artfestFundedReversedCents: rl.artfestFundedReversedCents || 0,
+          accessoriesReversedCents: rl.accessoriesReversedCents || 0,
           vendorNetReversedCents: rl.vendorNetReversedCents,
-          entry: e ? { grossCents: e.grossCents, commissionCents: e.commissionCents, vendorNetCents: e.vendorNetCents } : null,
+          entry: entryView(e),
           // doar Admin: cine suportă + motivul intern
           ...(admin ? { refundResponsibility: rl.refundResponsibility || null, responsibilityReason: rl.responsibilityReason || null, returnReason: r?.reason || null } : {}),
         };
@@ -631,6 +663,12 @@ const lei = (cents) => (Number(cents || 0) / 100).toFixed(2).replace(".", ",");
 const signedLei = (cents) => `${cents > 0 ? "+" : ""}${lei(cents)}`;
 const toCsv = (rows) => "﻿" + rows.map((r) => r.map(csvCell).join(";")).join("\r\n") + "\r\n";
 const localDate = (d) => (d ? todayLocal(new Date(d)) : "");
+const RULE_CSV = {
+  COMMISSION_PERCENT: "comision 10% (istoric)",
+  DECLARED_PLUS_MARKUP: "declarat + adaos 10% + accesorii",
+  DISCOUNTED_COMMISSION: "sub prețul propus: accesorii + 10% din rest",
+  ARTFEST_OWN: "produs Artfest",
+};
 const DISPOSITION_CSV = { RESTOCKED: "Returnat, revandabil", NOT_RESTOCKED: "Returnat, nevandabil", NOT_RETURNED: "Rambursare fără produs" };
 
 function totalsRows(d) {
@@ -641,11 +679,13 @@ function totalsRows(d) {
     ["Vânzări - valoare de listă (lei)", lei(d.listSalesCents)],
     ["Reduceri (lei)", lei(d.discountsCents)],
     ["Vânzări brute încasate (lei)", lei(d.grossSalesCents)],
-    ["Comision Artfest (lei)", lei(d.commissionCents)],
+    ["Comision / adaos Artfest (lei)", lei(d.commissionCents)],
+    ["Ambalare și accesorii reținute (lei)", lei(d.accessoriesCents)],
     ["Net din vânzări (lei)", lei(d.vendorNetCents)],
     ["Rambursări către clienți - total (lei)", lei(d.returnsRefundCents)],
     ["Rambursări suportate de Artfest (lei)", lei(d.artfestBorneRefundCents)],
     ["Comision inversat - imputat vendorului (lei)", lei(d.commissionReversedCents)],
+    ["Accesorii restituite la retururi (lei)", lei(d.accessoriesReversedCents)],
     ["Net retur care afectează vendorul (lei)", lei(d.vendorNetReversedCents)],
     ["Ajustări (lei)", signedLei(d.adjustmentsCents)],
     ["Sold reportat (lei)", lei(d.carriedInCents)],
@@ -664,16 +704,20 @@ export function settlementCsv(d, { admin }) {
     ["Indicator", "Valoare"],
     ...totalsRows(d),
     [],
-    ["Vânzare", "Data", "Produs", "Variantă", "Cantitate", "Listă (lei)", "Reducere (lei)", "Încasat (lei)", "Comision (lei)", "Net (lei)"],
-    ...d.saleLines.map((l) => [l.receiptReference, localDate(l.soldAt), l.title, l.variantLabel || "", l.quantity, lei(l.lineListCents), lei(l.lineDiscountCents), lei(l.lineGrossCents), lei(l.commissionCents), lei(l.vendorNetCents)]),
+    ["Vânzare", "Data", "Produs", "Variantă", "Cantitate", "Regula", "Preț declarat / buc. (lei)", "Listă (lei)", "Reducere (lei)", "Total client (lei)", "Comision / adaos Artfest (lei)", "Accesorii reținute (lei)", "Accesorii pe bucată", "Suma vânzătorului (lei)"],
+    ...d.saleLines.map((l) => [
+      l.receiptReference, localDate(l.soldAt), l.title, l.variantLabel || "", l.quantity, RULE_CSV[l.financeRule] || l.financeRule,
+      l.declaredUnitPriceCents != null ? lei(l.declaredUnitPriceCents) : "", lei(l.lineListCents), lei(l.lineDiscountCents), lei(l.lineGrossCents),
+      lei(l.commissionCents), lei(l.accessoriesCents), accessoriesText(l.accessories), lei(l.vendorNetCents),
+    ]),
     [],
     [
-      "Retur", "Data", "Produs", "Cantitate", "Stare", "Rambursat (lei)", "Îți afectează netul", "Comision inversat aplicat (lei)", "Net inversat aplicat (lei)",
+      "Retur", "Data", "Produs", "Cantitate", "Stare", "Rambursat (lei)", "Îți afectează netul", "Comision inversat aplicat (lei)", "Accesorii restituite (lei)", "Net inversat aplicat (lei)",
       ...(admin ? ["Suportat de", "Motiv intern"] : []),
     ],
     ...d.returnLines.map((r) => [
       r.reference, localDate(r.createdAt), r.title || "", r.quantity, DISPOSITION_CSV[r.disposition] || r.disposition, lei(r.refundCents),
-      r.affectsVendorNet ? "Da" : "Nu (suportat de Artfest)", lei(-(r.entry?.commissionCents || 0)), lei(-(r.entry?.vendorNetCents || 0)),
+      r.affectsVendorNet ? "Da" : "Nu (suportat de Artfest)", lei(-(r.entry?.commissionCents || 0)), lei(-(r.entry?.accessoriesCents || 0)), lei(-(r.entry?.vendorNetCents || 0)),
       ...(admin ? [r.refundResponsibility || (r.disposition === "RESTOCKED" ? "retur normal" : ""), r.responsibilityReason || ""] : []),
     ]),
     [],

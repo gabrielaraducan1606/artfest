@@ -127,6 +127,7 @@ model User {
   quoteRequests QuoteRequest[]
 
   customerRequests           CustomerRequest[]
+  customerRequestGuests      CustomerRequestGuest[]     @relation("CustomerRequestGuestLinkedUser")
   submittedFairRegistrations ArtfestFairRegistration[]  @relation("ArtfestFairSubmittedBy")
   reviewedFairRegistrations  ArtfestFairRegistration[]  @relation("ArtfestFairReviewedBy")
   fairBroadcastDeliveries    ArtfestBroadcastDelivery[]
@@ -457,20 +458,20 @@ model Vendor {
   productImports        ProductImport[]
 
   // ==================== Costuri & Profit ====================
-  costItems               VendorCostItem[]
-  CourierAccount          CourierAccount[]
-  VendorPickupAddress     VendorPickupAddress[]
-  fairRegistrations       ArtfestFairRegistration[]
+  costItems                 VendorCostItem[]
+  CourierAccount            CourierAccount[]
+  VendorPickupAddress       VendorPickupAddress[]
+  fairRegistrations         ArtfestFairRegistration[]
   secretSantaParticipations SecretSantaParticipant[]
-  fairBroadcastDeliveries ArtfestBroadcastDelivery[]
-  fairInventoryItems      ArtfestFairInventoryItem[]
-  fairSaleLines           ArtfestFairSaleLine[]
-  fairSaleReturnLines     ArtfestFairSaleReturnLine[]
-  fairDiscounts           ArtfestFairDiscount[]
-  fairSettlements         ArtfestFairSettlement[]
-  fairReturns             ArtfestFairReturn[]
-  fairDeliveryNotes       ArtfestFairDeliveryNote[]
-  deliveryNoteSeries      ArtfestDeliveryNoteSeries[]
+  fairBroadcastDeliveries   ArtfestBroadcastDelivery[]
+  fairInventoryItems        ArtfestFairInventoryItem[]
+  fairSaleLines             ArtfestFairSaleLine[]
+  fairSaleReturnLines       ArtfestFairSaleReturnLine[]
+  fairDiscounts             ArtfestFairDiscount[]
+  fairSettlements           ArtfestFairSettlement[]
+  fairReturns               ArtfestFairReturn[]
+  fairDeliveryNotes         ArtfestFairDeliveryNote[]
+  deliveryNoteSeries        ArtfestDeliveryNoteSeries[]
 
   externalStoreConnections ExternalStoreConnection[]
 
@@ -843,6 +844,7 @@ enum ArtfestInventoryEventType {
   RECEIVED_FOR_RETURN_ONLY
   RETURN_CANCELLED
   FINAL_PRICE_SET // prețul final de vânzare la târg, stabilit de Admin (modelul FAIR_PRICE)
+  ACCESSORIES_SET // „Ambalare și accesorii” adăugate de Artfest (before / after + autor)
 }
 
 // Regula de împărțire a încasării la Târg, pe înscriere:
@@ -979,11 +981,11 @@ model Product {
   limitedEditionNumber Int?
   isHidden             Boolean @default(false)
 
-  materialMain     String?  @db.VarChar(120)
-  technique        String?  @db.VarChar(160)
-  styleTags        String[]
-  occasionTags     String[]
-  dimensions       String?  @db.VarChar(120)
+  materialMain String?  @db.VarChar(120)
+  technique    String?  @db.VarChar(160)
+  styleTags    String[]
+  occasionTags String[]
+  dimensions   String?  @db.VarChar(120)
 
   // profil logistic: produsul AMBALAT, gata de expediere (tariful Sameday la
   // checkout); nu dimensiunile afișate clientului (dimensions). null =
@@ -992,8 +994,8 @@ model Product {
   shippingLengthCm    Int? // cm, 1..300 (toate trei sau niciuna)
   shippingWidthCm     Int?
   shippingHeightCm    Int?
-  careInstructions String?
-  specialNotes     String?
+  careInstructions    String?
+  specialNotes        String?
 
   // ==================== GPSR / Siguranță produs ====================
 
@@ -2042,8 +2044,8 @@ model Shipment {
   // alegerea livrării validată la checkout (Sameday: adresă / easybox / Sameday Point)
   delivery               ShipmentDelivery?
   trackingEvents         ShipmentTrackingEvent[]
-  returnRequest          ReturnRequest?  @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
-  originalReturnRequests ReturnRequest[] @relation("ReturnOriginalShipment")
+  returnRequest          ReturnRequest?          @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+  originalReturnRequests ReturnRequest[]         @relation("ReturnOriginalShipment")
 
   @@index([deliveredAt])
   @@index([refusedAt])
@@ -2982,9 +2984,9 @@ enum DeliveryMethod {
 /**
  * Livrarea aleasă și validată la checkout, per shipment (un magazin din coș).
  * Snapshot complet pentru „Generează AWB” (vendorul nu mai completează nimic):
- *   HOME   -> destinatar + adresă (+ ID-urile Sameday de județ / localitate);
- *   LOCKER -> easybox (oohType 0), oohId = oohLastMile la AWB;
- *   PUDO   -> Sameday Point (oohType 1), oohId = oohLastMile la AWB.
+ * HOME   -> destinatar + adresă (+ ID-urile Sameday de județ / localitate);
+ * LOCKER -> easybox (oohType 0), oohId = oohLastMile la AWB;
+ * PUDO   -> Sameday Point (oohType 1), oohId = oohLastMile la AWB.
  * serviceId = serviceId-ul Sameday ACTIV pe contul Artfest la momentul comenzii.
  * Costul e cel recalculat pe server (pricingSource). Shipment.method rămâne
  * câmpul vechi (COURIER / LOCKER) pentru compatibilitate.
@@ -2998,10 +3000,10 @@ model ShipmentDelivery {
   serviceId       String?        @db.VarChar(32)
 
   // transport - valori monetare în RON (tratamentul TVA se stabilește la etapa de facturare)
-  shippingCost         Decimal   @db.Decimal(10, 2) // suma taxată clientului pentru acest shipment; fixă după plasare
-  carrierCost          Decimal?  @db.Decimal(10, 2) // costul real al curierului (Sameday) pentru acest shipment; null până e cunoscut
-  carrierCostUpdatedAt DateTime?                    // când a fost completat / actualizat carrierCost (reconciliere)
-  vendorShippingCost   Decimal?  @db.Decimal(10, 2) // suma de refacturat vendorului; null până e cunoscut carrierCost
+  shippingCost           Decimal   @db.Decimal(10, 2) // suma taxată clientului pentru acest shipment; fixă după plasare
+  carrierCost            Decimal?  @db.Decimal(10, 2) // costul real al curierului (Sameday) pentru acest shipment; null până e cunoscut
+  carrierCostUpdatedAt   DateTime? // când a fost completat / actualizat carrierCost (reconciliere)
+  vendorShippingCost     Decimal?  @db.Decimal(10, 2) // suma de refacturat vendorului; null până e cunoscut carrierCost
   // evidența separată a costului curierului (doar date, fără documente):
   //   carrierCost (mai sus)   = la plasare: ESTIMAREA Sameday (estimate-cost);
   //   carrierCostAwbReported  = awbCost raportat de Sameday la emiterea AWB - informativ, NU factură;
@@ -3010,12 +3012,12 @@ model ShipmentDelivery {
   carrierCostFinal       Decimal?  @db.Decimal(10, 2)
   carrierCostFinalSource String?   @db.VarChar(32) // SAMEDAY_INVOICE | MANUAL
   carrierCostFinalAt     DateTime?
-  pricingSource        String    @db.VarChar(32)    // SAMEDAY | VENDOR_FALLBACK | ARTFEST_RULE
-  fallbackReason       String?   @db.VarChar(64)    // motivul tarifului de rezervă; doar la VENDOR_FALLBACK
+  pricingSource          String    @db.VarChar(32) // SAMEDAY | VENDOR_FALLBACK | ARTFEST_RULE
+  fallbackReason         String?   @db.VarChar(64) // motivul tarifului de rezervă; doar la VENDOR_FALLBACK
   // retur (Shipment RETURN): shippingCost = partea clientului, vendorShippingCost = partea vendorului,
   // artfestSubsidyAmount = partea Artfest din carrierCost; null = nedecis / livrare veche
-  artfestSubsidyAmount Decimal?  @db.Decimal(10, 2) // partea din carrierCost suportată de Artfest
-  eligibleUntil        DateTime?                    // Easybox Return: termenul de depunere trimis la Sameday
+  artfestSubsidyAmount   Decimal?  @db.Decimal(10, 2) // partea din carrierCost suportată de Artfest
+  eligibleUntil          DateTime? // Easybox Return: termenul de depunere trimis la Sameday
 
   recipientName  String? @db.VarChar(160)
   recipientPhone String? @db.VarChar(40)
@@ -3843,7 +3845,12 @@ enum CustomerRequestBudgetType {
 
 model CustomerRequest {
   id               String                     @id @default(cuid())
-  userId           String
+  /// Proprietarul cu cont. NULL doar pentru o cerere trimisă de un vizitator
+  /// fără cont (guestId); CHECK în DB: userId sau guestId (cel puțin unul).
+  userId           String?
+  /// Vizitatorul fără cont care a trimis cererea (QR flyere). Rămâne și după
+  /// asocierea cu un cont (userId completat), pentru istoric și numele afișat.
+  guestId          String?
   title            String                     @db.VarChar(180)
   description      String
   category         String?                    @db.VarChar(64)
@@ -3863,14 +3870,98 @@ model CustomerRequest {
   createdAt        DateTime                   @default(now())
   updatedAt        DateTime                   @updatedAt
 
-  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guest         CustomerRequestGuest?  @relation(fields: [guestId], references: [id], onDelete: Restrict)
   offers        CustomerRequestOffer[] @relation("CustomerRequestOffers")
   acceptedOffer CustomerRequestOffer?  @relation("AcceptedCustomerRequestOffer", fields: [acceptedOfferId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
+  @@index([guestId, createdAt])
   @@index([status, createdAt])
   @@index([category, status, createdAt])
   @@index([citySlug, status, createdAt])
+  @@index([expiresAt])
+}
+
+/// Vizitator fără cont care trimite o cerere de ofertă (ex. QR de pe flyere).
+/// NU este un cont: nu are parolă și nu se poate autentifica. Emailul devine
+/// „confirmat” doar prin linkul trimis pe email. Asocierea cu un cont se face
+/// doar când contul are ACELAȘI email, verificat (linkedUserId).
+model CustomerRequestGuest {
+  id               String    @id @default(cuid())
+  /// email normalizat (trim + lowercase); nu se afișează niciodată public
+  email            String    @unique @db.VarChar(320)
+  displayName      String    @db.VarChar(60)
+  emailVerifiedAt  DateTime?
+  /// crește la revocarea sesiunilor de acces (linkurile vechi nu mai merg)
+  accessVersion    Int       @default(0)
+  linkedUserId     String?
+  linkedAt         DateTime?
+  /// anti-spam: următorul email „ofertă nouă” pleacă doar după o vizită
+  lastOfferEmailAt DateTime?
+  lastAccessAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  linkedUser User?                       @relation("CustomerRequestGuestLinkedUser", fields: [linkedUserId], references: [id], onDelete: SetNull)
+  requests   CustomerRequest[]
+  pendings   CustomerRequestPending[]
+  tokens     CustomerRequestGuestToken[]
+
+  @@index([linkedUserId])
+}
+
+/// Cerere trimisă de un vizitator, încă NEconfirmată prin email. Nu apare
+/// nicăieri public și nu ajunge la vânzători; după confirmare devine un
+/// CustomerRequest (publishedRequestId). Expiră după 48 de ore.
+model CustomerRequestPending {
+  id                 String    @id @default(cuid())
+  guestId            String
+  displayName        String    @db.VarChar(60)
+  /// câmpurile cererii, deja validate pe server
+  payload            Json
+  /// sha256(email + titlu + descriere + categorie normalizate) - duplicate
+  payloadHash        String    @db.VarChar(64)
+  wantsAccount       Boolean   @default(false)
+  consentVersion     String    @db.VarChar(40)
+  consentAt          DateTime
+  /// sha256(IP + secret) - limitare / investigare abuz, fără IP în clar
+  ipHash             String?   @db.VarChar(64)
+  source             String?   @db.VarChar(40)
+  expiresAt          DateTime
+  lastEmailAt        DateTime?
+  emailCount         Int       @default(1)
+  publishedRequestId String?   @unique
+  publishedAt        DateTime?
+  createdAt          DateTime  @default(now())
+
+  guest  CustomerRequestGuest        @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  tokens CustomerRequestGuestToken[]
+
+  @@index([guestId, createdAt])
+  @@index([guestId, payloadHash])
+  @@index([ipHash, createdAt])
+  @@index([expiresAt])
+}
+
+/// Linkuri din email pentru vizitatori: "confirm" (publică o cerere pending,
+/// o singură folosire) și "access" (deschide cererile vizitatorului). În DB
+/// stă doar sha256 al tokenului.
+model CustomerRequestGuestToken {
+  id        String    @id @default(cuid())
+  guestId   String
+  pendingId String?
+  purpose   String    @db.VarChar(16)
+  tokenHash String    @unique @db.VarChar(64)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  guest   CustomerRequestGuest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  pending CustomerRequestPending? @relation(fields: [pendingId], references: [id], onDelete: Cascade)
+
+  @@index([guestId, purpose, createdAt])
+  @@index([pendingId])
   @@index([expiresAt])
 }
 
@@ -5118,7 +5209,7 @@ model CourierAccount {
   vendor        Vendor?              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   pickupAddress VendorPickupAddress? @relation(fields: [pickupAddressId], references: [id], onDelete: SetNull)
 
-  awbs CourierAwb[]
+  awbs              CourierAwb[]
   statusSyncCursors CourierStatusSyncCursor[]
 
   @@index([vendorId, provider])
@@ -5508,35 +5599,35 @@ model ArtfestFair {
 }
 
 model ArtfestFairRegistration {
-  id                    String                        @id @default(cuid())
-  fairId                String
-  vendorId              String
-  submittedByUserId     String
-  status                ArtfestFairRegistrationStatus @default(SUBMITTED)
-  participationType     ArtfestFairParticipationType
-  contactName           String                        @db.VarChar(160)
-  contactPhone          String                        @db.VarChar(50)
-  contactEmail          String                        @db.VarChar(320)
-  productTypes          String[]                      @default([])
-  estimatedProductCount Int?
-  notes                 String?                       @db.Text
-  termsAcceptedAt       DateTime
-  termsVersion          String?                       @db.VarChar(40)
-  termsIp               String?                       @db.VarChar(64)
-  termsUa               String?                       @db.VarChar(500)
+  id                       String                        @id @default(cuid())
+  fairId                   String
+  vendorId                 String
+  submittedByUserId        String
+  status                   ArtfestFairRegistrationStatus @default(SUBMITTED)
+  participationType        ArtfestFairParticipationType
+  contactName              String                        @db.VarChar(160)
+  contactPhone             String                        @db.VarChar(50)
+  contactEmail             String                        @db.VarChar(320)
+  productTypes             String[]                      @default([])
+  estimatedProductCount    Int?
+  notes                    String?                       @db.Text
+  termsAcceptedAt          DateTime
+  termsVersion             String?                       @db.VarChar(40)
+  termsIp                  String?                       @db.VarChar(64)
+  termsUa                  String?                       @db.VarChar(500)
   // regula de împărțire a încasării (vezi enum ArtfestFairPricingModel); se aplică doar vânzărilor viitoare
-  pricingModel             ArtfestFairPricingModel @default(COMMISSION)
+  pricingModel             ArtfestFairPricingModel       @default(COMMISSION)
   pricingModelAcceptedAt   DateTime?
-  pricingModelTermsVersion String?                 @db.VarChar(40)
+  pricingModelTermsVersion String?                       @db.VarChar(40)
   // dovada acceptării (regulament 17.2: versiune, dată, cont, IP, browser) - același tipar ca termsIp / termsUa
   pricingModelAcceptedById String?
-  pricingModelAcceptIp     String?                 @db.VarChar(64)
-  pricingModelAcceptUa     String?                 @db.VarChar(500)
-  submittedAt           DateTime                      @default(now())
-  reviewedAt            DateTime?
-  reviewedById          String?
-  rejectionReason       String?                       @db.Text
-  withdrawnAt           DateTime?
+  pricingModelAcceptIp     String?                       @db.VarChar(64)
+  pricingModelAcceptUa     String?                       @db.VarChar(500)
+  submittedAt              DateTime                      @default(now())
+  reviewedAt               DateTime?
+  reviewedById             String?
+  rejectionReason          String?                       @db.Text
+  withdrawnAt              DateTime?
 
   // anulare după APPROVED; cancellationReason e intern (nu se trimite vendorului)
   cancelledAt                  DateTime?
@@ -5745,6 +5836,16 @@ model ArtfestFairInventoryItem {
   finalPriceSetAt   DateTime?
   finalPriceSetById String?
 
+  // „Ambalare și accesorii” adăugate de Artfest (cutii, funde, pungi), PER BUCATĂ DE PRODUS:
+  // accessories = [{ name, quantity, unitPriceCents, totalCents }], accessoriesUnitCents = suma
+  // totalCents. La vânzare se rețin din partea vânzătorului și revin integral Artfest
+  // (snapshot pe linia de vânzare). Nu schimbă prețul final / online și nici stocul Artfest.
+  // Doar produsele participanților (CHECK AFII_accessories_chk). Istoric: event ACCESSORIES_SET.
+  accessories            Json?
+  accessoriesUnitCents   Int       @default(0)
+  accessoriesUpdatedAt   DateTime?
+  accessoriesUpdatedById String?
+
   barcode          String    @unique @db.VarChar(10)
   labelPriceCents  Int?
   labelGeneratedAt DateTime?
@@ -5799,7 +5900,7 @@ model ArtfestFairInventoryItem {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  fair         ArtfestFair             @relation(fields: [fairId], references: [id], onDelete: Restrict)
+  fair         ArtfestFair              @relation(fields: [fairId], references: [id], onDelete: Restrict)
   registration ArtfestFairRegistration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
   vendor       Vendor?                  @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   product      Product?                 @relation(fields: [productId], references: [id], onDelete: SetNull)
@@ -5809,12 +5910,12 @@ model ArtfestFairInventoryItem {
   vendorReturnConfirmedBy User? @relation("ArtfestInventoryReturnConfirmedBy", fields: [vendorReturnConfirmedById], references: [id], onDelete: SetNull)
   saleBlockedBy           User? @relation("ArtfestInventorySaleBlockedBy", fields: [saleBlockedById], references: [id], onDelete: SetNull)
 
-  movements       ArtfestFairStockMovement[]
-  events          ArtfestFairInventoryEvent[]
-  saleLines       ArtfestFairSaleLine[]
-  saleReturnLines ArtfestFairSaleReturnLine[]
-  discounts       ArtfestFairDiscount[]
-  returnLines     ArtfestFairReturnLine[]
+  movements         ArtfestFairStockMovement[]
+  events            ArtfestFairInventoryEvent[]
+  saleLines         ArtfestFairSaleLine[]
+  saleReturnLines   ArtfestFairSaleReturnLine[]
+  discounts         ArtfestFairDiscount[]
+  returnLines       ArtfestFairReturnLine[]
   deliveryNoteLines ArtfestFairDeliveryNoteLine[]
 
   @@unique([registrationId, productId, variantKey])
@@ -5961,11 +6062,13 @@ model ArtfestFairSale {
   status           ArtfestSaleStatus @default(COMPLETED)
   currency         String            @default("RON") @db.VarChar(3)
 
-  listCents       Int
-  discountCents   Int
-  totalPaidCents  Int
-  commissionCents Int
-  vendorNetCents  Int
+  listCents        Int
+  discountCents    Int
+  totalPaidCents   Int
+  commissionCents  Int
+  vendorNetCents   Int
+  // suma accesoriilor reținute pe liniile vânzării (revin integral Artfest)
+  accessoriesCents Int @default(0)
 
   paymentMethod ArtfestPaymentMethod
   cashCents     Int?
@@ -6036,6 +6139,29 @@ model ArtfestFairSaleLine {
   //   vendorNetCents             = vendorNetAfterDiscount + artfestFundedDiscountCents
   vendorNetCents             Int
   artfestFundedDiscountCents Int @default(0)
+
+  // „Ambalare și accesorii” aplicate la vânzare (snapshot; modificările ulterioare nu le schimbă):
+  //   accessoriesSnapshot  = lista exactă [{ name, quantity, unitPriceCents, totalCents }] per bucată
+  //   accessoriesUnitCents = totalul pe bucată; accessoriesCents = accessoriesUnitCents × quantity
+  // Se rețin din partea vânzătorului și revin integral Artfest (CHECK AFSL_vendorNet_chk):
+  //   vendorNetCents = lineGrossCents − commissionCents − accessoriesCents + artfestFundedDiscountCents
+  accessoriesSnapshot  Json?
+  accessoriesUnitCents Int   @default(0)
+  accessoriesCents     Int   @default(0)
+
+  // Regula financiară aplicată la vânzare (salvată; vânzările vechi rămân COMMISSION_PERCENT):
+  //  - COMMISSION_PERCENT: commissionCents = comisionul din prețul efectiv (istoric);
+  //  - DECLARED_PLUS_MARKUP (încasat ≥ propus × cantitate): vânzătorul primește declaredUnitPriceCents × quantity;
+  //    Artfest diferența (commissionCents = încasat − accesorii − declarat × cantitate);
+  //  - DISCOUNTED_COMMISSION (încasat < propus × cantitate): bază = încasat − accesorii; commissionCents =
+  //    10% din bază (round_half_up); vânzătorul restul (vendorNetCents = bază − comision);
+  //    markupUnitCents = 10% din declarat (adaosul planificat), proposedUnitPriceCents = declarat + adaos + accesorii;
+  //  - ARTFEST_OWN: produs propriu Artfest, integral Artfest. CHECK AFSL_finance_rule_chk.
+  financeRule            String @default("COMMISSION_PERCENT") @db.VarChar(32)
+  declaredUnitPriceCents Int?
+  markupBps              Int?
+  markupUnitCents        Int?
+  proposedUnitPriceCents Int?
 
   // Regula aplicată ACESTEI linii, salvată la vânzare (vânzările vechi rămân COMMISSION).
   // FAIR_PRICE: același calcul de comision ca mai sus; listUnitPriceCents = prețul final (etichetă),
@@ -6127,7 +6253,9 @@ model ArtfestFairSaleReturn {
   commissionReversedCents    Int
   // partea inversată din compensația finanțată de Artfest (D8 a)
   artfestFundedReversedCents Int                   @default(0)
-  // = refundCents − commissionReversedCents + artfestFundedReversedCents
+  // accesoriile inversate (proporțional cu bucățile returnate, din valorile salvate la vânzare)
+  accessoriesReversedCents   Int                   @default(0)
+  // = refundCents − commissionReversedCents − accessoriesReversedCents + artfestFundedReversedCents
   vendorNetReversedCents     Int
   idempotencyKey             String                @unique @db.VarChar(100)
   createdById                String
@@ -6158,7 +6286,9 @@ model ArtfestFairSaleReturnLine {
   refundCents                Int
   commissionReversedCents    Int
   artfestFundedReversedCents Int                          @default(0)
-  // = refundCents − commissionReversedCents + artfestFundedReversedCents
+  // accesoriile inversate = accessoriesUnitCents × quantity (valorile salvate pe linia de vânzare)
+  accessoriesReversedCents   Int                          @default(0)
+  // = refundCents − commissionReversedCents − accessoriesReversedCents + artfestFundedReversedCents
   vendorNetReversedCents     Int
   disposition                ArtfestReturnDisposition
   conditionNote              String?                      @db.Text
@@ -6192,25 +6322,29 @@ model ArtfestFairSettlement {
   status     ArtfestSettlementStatus @default(DRAFT)
   currency   String                  @default("RON") @db.VarChar(3)
 
-  listSalesCents          Int
-  discountsCents          Int
-  grossSalesCents         Int
-  commissionCents         Int
-  vendorNetCents          Int
+  listSalesCents           Int
+  discountsCents           Int
+  grossSalesCents          Int
+  commissionCents          Int
+  // accesoriile reținute pe liniile de vânzare ale decontului (deja scăzute din vendorNetCents)
+  accessoriesCents         Int     @default(0)
+  vendorNetCents           Int
   // rambursările către clienți pe liniile vendorului, TOTAL (vendor + Artfest);
   // rambursat de vendor = returnsRefundCents − artfestBorneRefundCents
-  returnsRefundCents      Int
+  returnsRefundCents       Int
   // doar liniile care afectează vendorul (RESTOCKED + responsabil VENDOR)
-  commissionReversedCents Int
+  commissionReversedCents  Int
+  // doar liniile care afectează vendorul: accesoriile inversate (restituite vendorului)
+  accessoriesReversedCents Int     @default(0)
   // doar liniile care afectează vendorul (RESTOCKED + responsabil VENDOR); intră în finalDueCents
-  vendorNetReversedCents  Int
-  adjustmentsCents        Int     @default(0)
+  vendorNetReversedCents   Int
+  adjustmentsCents         Int     @default(0)
   // valoarea rambursării către client suportată de Artfest = suma refundCents a liniilor
   // de retur cu refundResponsibility = ARTFEST (NU vendorNetReversedCents)
-  artfestBorneRefundCents Int     @default(0)
-  carriedInCents          Int     @default(0)
-  finalDueCents           Int
-  previousSettlementId    String? @unique
+  artfestBorneRefundCents  Int     @default(0)
+  carriedInCents           Int     @default(0)
+  finalDueCents            Int
+  previousSettlementId     String? @unique
 
   finalizedAt      DateTime?
   finalizedById    String?
@@ -6258,13 +6392,15 @@ model ArtfestFairSettlementAdjustment {
 }
 
 model ArtfestFairSettlementEntry {
-  id              String  @id @default(cuid())
-  settlementId    String
-  saleLineId      String? @unique
-  returnLineId    String? @unique
-  grossCents      Int
-  commissionCents Int
-  vendorNetCents  Int
+  id               String  @id @default(cuid())
+  settlementId     String
+  saleLineId       String? @unique
+  returnLineId     String? @unique
+  grossCents       Int
+  commissionCents  Int
+  // accesoriile reținute (vânzare: ≥ 0; retur care afectează vendorul: ≤ 0)
+  accessoriesCents Int     @default(0)
+  vendorNetCents   Int
 
   settlement ArtfestFairSettlement      @relation(fields: [settlementId], references: [id], onDelete: Restrict)
   saleLine   ArtfestFairSaleLine?       @relation(fields: [saleLineId], references: [id], onDelete: Restrict)
@@ -6612,8 +6748,8 @@ model CreatorProfile {
 
   onboardingCompletedAt DateTime?
   // turul ghidat: versiunea finalizată / omisă (0 = niciodată)
-  tourSeenVersion Int       @default(0)
-  tourSeenAt      DateTime?
+  tourSeenVersion       Int       @default(0)
+  tourSeenAt            DateTime?
 
   // concurență optimistă pentru editări din două tab-uri
   version Int @default(1)
@@ -6632,11 +6768,11 @@ model CreatorProfile {
 }
 
 model CreatorSocialAccount {
-  id        String                @id @default(cuid())
-  profileId String
-  platform  CreatorSocialPlatform
-  url       String                @db.VarChar(300)
-  handle    String                @db.VarChar(100)
+  id                String                @id @default(cuid())
+  profileId         String
+  platform          CreatorSocialPlatform
+  url               String                @db.VarChar(300)
+  handle            String                @db.VarChar(100)
   // DECLARATE de influencer, nu verificate
   followersDeclared Int
   avgViewsDeclared  Int?
@@ -6670,10 +6806,10 @@ model CreatorPortfolioItem {
 /// Oferta (pachetul) e doar un pointer; conținutul stă în versiuni IMUABILE,
 /// astfel încât o colaborare acceptată păstrează exact condițiile de atunci.
 model CreatorOffer {
-  id             String  @id @default(cuid())
-  profileId      String
-  isActive       Boolean @default(true)
-  currentVersion Int     @default(1)
+  id                String    @id @default(cuid())
+  profileId         String
+  isActive          Boolean   @default(true)
+  currentVersion    Int       @default(1)
   // dezactivată de Admin (moderare): influencerul nu o poate reactiva
   disabledByAdminAt DateTime?
 
@@ -6687,22 +6823,22 @@ model CreatorOffer {
 }
 
 model CreatorOfferVersion {
-  id              String           @id @default(cuid())
+  id              String                @id @default(cuid())
   offerId         String
   version         Int
-  title           String           @db.VarChar(120)
-  description     String?          @db.Text
+  title           String                @db.VarChar(120)
+  description     String?               @db.Text
   platform        CreatorSocialPlatform
-  contentType     String           @db.VarChar(40)
+  contentType     String                @db.VarChar(40)
   // [{ "type": "REEL", "count": 1 }, { "type": "STORY", "count": 3 }]
   deliverables    Json
   turnaroundDays  Int
   type            CreatorOfferType
   // remunerația dorită de influencer, în bani (fără marja Artfest)
   creatorFeeCents Int?
-  acceptsProduct  Boolean          @default(false)
-  conditions      String?          @db.Text
-  contentHash     String           @db.VarChar(64)
+  acceptsProduct  Boolean               @default(false)
+  conditions      String?               @db.Text
+  contentHash     String                @db.VarChar(64)
   createdByUserId String?
 
   createdAt DateTime @default(now())

@@ -5,6 +5,10 @@
 // Rulare: node --experimental-test-module-mocks --test src/routes/artfestFairReports.routes.test.js
 
 process.env.DATABASE_URL = "postgresql://test:test@127.0.0.1:5";
+// regula financiară ISTORICĂ (comision 10% din prețul efectiv): testele de mai jos verifică mecanismele
+// pe vânzări cu regula veche; regula actuală (declarat + adaos + accesorii): artfestFairDeclaredMarkup.routes.test.js
+process.env.NODE_ENV = "test";
+process.env.ARTFEST_FAIR_LEGACY_COMMISSION_RULE = "1";
 process.env.JWT_SECRET = "test-secret";
 
 import { test, mock, before, after, beforeEach } from "node:test";
@@ -195,7 +199,11 @@ test("vendorul vede DOAR liniile lui; vânzarea multi-vendor e separată corect"
     Object.keys(lineB).sort(),
     ["artfestFundedDiscountCents", "barcodeDisplay", "commissionCents", "discount", "effectiveUnitPriceCents", "lineDiscountCents", "lineGrossCents", "lineListCents", "listUnitPriceCents", "localDate", "localTime", "paymentMethod", "quantity", "receiptReference", "returned", "returnedQty", "returns", "saleLineId", "saleNumber", "soldAt", "status", "titleSnapshot", "variantLabel", "vendorNetCents",
       // regula salvată pe linia vendorului (modelul FAIR_PRICE) - doar despre linia lui
-      "pricingModel", "vendorBaseUnitPriceCents", "priceSetManually"].sort()
+      "pricingModel", "vendorBaseUnitPriceCents", "priceSetManually",
+      // „Ambalare și accesorii” reținute pe linia LUI (lista + valorile salvate la vânzare)
+      "accessories", "accessoriesUnitCents", "accessoriesCents",
+      // regula financiară salvată pe linia LUI (preț declarat, adaos, preț propus)
+      "financeRule", "declaredUnitPriceCents", "markupUnitCents", "proposedUnitPriceCents"].sort()
   );
   assert.equal(lineB.pricingModel, "COMMISSION");
   assert.equal(lineB.discount.fundingSource, "ARTFEST");

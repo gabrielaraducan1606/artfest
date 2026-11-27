@@ -23,9 +23,11 @@
 // schema POS: pentru un total T al liniei și Q bucăți, bucata i (0-based)
 // primește floor(T / Q) + (i < T % Q ? 1 : 0). Un retur inversează următoarele
 // bucăți nereturnate, începând de la saleLine.returnedQty. Se aplică separat
-// pe lineGrossCents, commissionCents și artfestFundedDiscountCents; netul
-// vendorului inversat = refund − commission + artfestFunded. Suma tuturor
+// pe lineGrossCents, commissionCents, artfestFundedDiscountCents și accessoriesCents
+// (accesoriile: aceeași valoare pe fiecare bucată, salvată la vânzare); netul vendorului
+// inversat = refund − commission − accessories + artfestFunded. Suma tuturor
 // retururilor unei linii = exact valorile liniei (fără diferențe de 1 ban).
+// Accesoriile se inversează DOAR din valorile salvate pe linia de vânzare (nu din cele curente).
 //
 // Tranzacție (aceeași ordine de lock-uri ca vânzarea): târgul (POS), vânzarea,
 // liniile de inventar sortate; recitire după lock; orice eroare => rollback.
@@ -42,6 +44,7 @@ import { FairError, ensureFair } from "./artfestFairService.js";
 import { cleanText, lockLine, requireIdempotencyKey } from "./artfestFairReceptionService.js";
 import { POS_PAYMENT_METHODS, getSale } from "./artfestFairPosService.js";
 import { isArtfestOwned } from "../lib/artfestFairOwner.js";
+import { allocateUnits as allocateUnitsShared } from "../lib/artfestFairAccessories.js";
 
 export const RETURN_DISPOSITIONS = Object.freeze(["RESTOCKED", "NOT_RESTOCKED", "NOT_RETURNED"]);
 export const REFUND_RESPONSIBILITIES = Object.freeze(["VENDOR", "ARTFEST"]);
@@ -81,10 +84,7 @@ export function returnReferenceFor(returnNumber, date = new Date()) {
  * `quantity` bucăți: bucata i = floor(total / quantity) + (i < total % quantity).
  */
 export function allocateUnits(total, quantity, from, qty) {
-  const base = Math.floor(total / quantity);
-  const rest = total % quantity;
-  const extra = Math.max(0, Math.min(from + qty, rest) - Math.min(from, rest));
-  return base * qty + extra;
+  return allocateUnitsShared(total, quantity, from, qty);
 }
 
 // sumele inversate pentru `qty` bucăți ale liniei, începând de la bucata `from`
@@ -92,11 +92,14 @@ export function reversedAmounts(saleLine, from, qty) {
   const refundCents = allocateUnits(saleLine.lineGrossCents, saleLine.quantity, from, qty);
   const commissionReversedCents = allocateUnits(saleLine.commissionCents, saleLine.quantity, from, qty);
   const artfestFundedReversedCents = allocateUnits(saleLine.artfestFundedDiscountCents || 0, saleLine.quantity, from, qty);
+  // „Ambalare și accesorii” salvate la vânzare: proporțional cu bucățile returnate
+  const accessoriesReversedCents = allocateUnits(saleLine.accessoriesCents || 0, saleLine.quantity, from, qty);
   return {
     refundCents,
     commissionReversedCents,
     artfestFundedReversedCents,
-    vendorNetReversedCents: refundCents - commissionReversedCents + artfestFundedReversedCents,
+    accessoriesReversedCents,
+    vendorNetReversedCents: refundCents - commissionReversedCents - accessoriesReversedCents + artfestFundedReversedCents,
   };
 }
 
@@ -314,11 +317,12 @@ function planReturn({ type, sale, saleLines, items, requestLines }) {
       refundCents: t.refundCents + l.refundCents,
       commissionReversedCents: t.commissionReversedCents + l.commissionReversedCents,
       artfestFundedReversedCents: t.artfestFundedReversedCents + l.artfestFundedReversedCents,
+      accessoriesReversedCents: t.accessoriesReversedCents + l.accessoriesReversedCents,
       vendorNetReversedCents: t.vendorNetReversedCents + l.vendorNetReversedCents,
       vendorNetImpactCents: t.vendorNetImpactCents + l.vendorNetImpactCents,
       artfestBorneRefundCents: t.artfestBorneRefundCents + l.artfestBorneRefundCents,
     }),
-    { units: 0, refundCents: 0, commissionReversedCents: 0, artfestFundedReversedCents: 0, vendorNetReversedCents: 0, vendorNetImpactCents: 0, artfestBorneRefundCents: 0 }
+    { units: 0, refundCents: 0, commissionReversedCents: 0, artfestFundedReversedCents: 0, accessoriesReversedCents: 0, vendorNetReversedCents: 0, vendorNetImpactCents: 0, artfestBorneRefundCents: 0 }
   );
 
   // statusul vânzării după retur
@@ -354,6 +358,7 @@ function publicPlan(plan, refundMethod) {
       refundCents: l.refundCents,
       commissionReversedCents: l.commissionReversedCents,
       artfestFundedReversedCents: l.artfestFundedReversedCents,
+      accessoriesReversedCents: l.accessoriesReversedCents,
       vendorNetReversedCents: l.vendorNetReversedCents,
       vendorAffected: l.vendorAffected,
       vendorNetImpactCents: l.vendorNetImpactCents,
@@ -485,6 +490,7 @@ async function createSaleReturn({ type, saleId, body = {}, idempotencyKey, admin
           refundCents: plan.totals.refundCents,
           commissionReversedCents: plan.totals.commissionReversedCents,
           artfestFundedReversedCents: plan.totals.artfestFundedReversedCents,
+          accessoriesReversedCents: plan.totals.accessoriesReversedCents,
           vendorNetReversedCents: plan.totals.vendorNetReversedCents,
           idempotencyKey: key,
           createdById: adminId,
@@ -504,6 +510,7 @@ async function createSaleReturn({ type, saleId, body = {}, idempotencyKey, admin
             refundCents: l.refundCents,
             commissionReversedCents: l.commissionReversedCents,
             artfestFundedReversedCents: l.artfestFundedReversedCents,
+            accessoriesReversedCents: l.accessoriesReversedCents,
             vendorNetReversedCents: l.vendorNetReversedCents,
             disposition: l.disposition,
             conditionNote: l.conditionNote,
@@ -614,6 +621,7 @@ export function serializeReturnLine(l) {
     refundCents: l.refundCents,
     commissionReversedCents: l.commissionReversedCents,
     artfestFundedReversedCents: l.artfestFundedReversedCents,
+    accessoriesReversedCents: l.accessoriesReversedCents || 0,
     vendorNetReversedCents: l.vendorNetReversedCents,
     vendorAffected,
     vendorNetImpactCents: vendorAffected ? l.vendorNetReversedCents : 0,
@@ -633,6 +641,7 @@ export function serializeReturn(r, lines) {
     refundCents: r.refundCents,
     commissionReversedCents: r.commissionReversedCents,
     artfestFundedReversedCents: r.artfestFundedReversedCents,
+    accessoriesReversedCents: r.accessoriesReversedCents || 0,
     vendorNetReversedCents: r.vendorNetReversedCents,
     vendorNetImpactCents: serialized.reduce((s, l) => s + l.vendorNetImpactCents, 0),
     artfestBorneRefundCents: serialized.reduce((s, l) => s + l.artfestBorneRefundCents, 0),

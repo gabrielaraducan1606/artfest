@@ -188,7 +188,7 @@ export function posReducer(state, action) {
             availableQty: item.availableQty,
             quantity: 1,
             // prețul efectiv se poate introduce la casă (orice participant aprobat; doar vânzarea curentă);
-            // banii: comision 10% / vendor 90% din prețul efectiv, calculați pe server
+            // banii (pe server): vânzătorul = prețul declarat; Artfest = adaosul + accesoriile
             pricingModel: item.pricingModel || "COMMISSION",
             canEditPrice: Boolean(item.canEditPrice),
             labelPriceCents: item.blankPriceLabel ? null : item.labelPriceCents ?? item.priceCents,

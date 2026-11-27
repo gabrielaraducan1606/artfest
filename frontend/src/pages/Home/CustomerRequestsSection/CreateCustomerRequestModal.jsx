@@ -15,6 +15,20 @@ import {
 
 import styles from "./CreateCustomerRequestModal.module.css";
 
+import {
+  GuestRequestFields,
+  GuestRequestSentPanel,
+} from "./GuestRequestFields.jsx";
+
+import {
+  buildGuestSubmitPayload,
+  clearRequestDraft,
+  guestApi,
+  guestFieldsError,
+  readRequestDraft,
+  saveRequestDraft,
+} from "./guestRequest.js";
+
 /* =========================================================
    HELPERS
 ========================================================= */
@@ -394,31 +408,96 @@ export default function CreateCustomerRequestModal({
   onUpdated,
   initialMode = "manual",
   editingRequest = null,
+  // vizitator fără cont: nume + email, publicare după confirmarea emailului
+  guestMode = false,
+  onLoginRequest,
+  source = null,
 }) {
   const isEditing =
     Boolean(
       editingRequest?.id
     );
 
+  /*
+   * Ciorna salvată înainte de „Autentifică-te” (doar în tabul curent):
+   * formularul revine completat, cu sau fără cont.
+   */
+  const [initialDraft] =
+    useState(() =>
+      isEditing
+        ? null
+        : readRequestDraft()
+    );
+
   const [
     form,
     setForm,
   ] =
-    useState(() =>
-      createInitialForm(
-        editingRequest
-      )
-    );
+    useState(() => {
+      const base =
+        createInitialForm(
+          editingRequest
+        );
+
+      return initialDraft?.form
+        ? {
+            ...base,
+            ...initialDraft.form,
+            images: [],
+          }
+        : base;
+    });
 
   const [
     categoryQuery,
     setCategoryQuery,
   ] =
     useState(() =>
-      getCategoryDisplayValue(
-        editingRequest?.category
-      )
+      initialDraft
+        ? initialDraft.categoryQuery ||
+          ""
+        : getCategoryDisplayValue(
+            editingRequest?.category
+          )
     );
+
+  const [
+    guest,
+    setGuest,
+  ] =
+    useState(() => ({
+      displayName:
+        initialDraft?.guest
+          ?.displayName ||
+        "",
+      email:
+        initialDraft?.guest
+          ?.email ||
+        "",
+      wantsAccount:
+        initialDraft?.guest
+          ?.wantsAccount ??
+        null,
+      consent: false,
+      website: "",
+    }));
+
+  const [startedAt] =
+    useState(() =>
+      Date.now()
+    );
+
+  const [
+    guestSent,
+    setGuestSent,
+  ] =
+    useState(null);
+
+  const [
+    guestFieldError,
+    setGuestFieldError,
+  ] =
+    useState("");
 
   const [
     categoryOpen,
@@ -444,6 +523,8 @@ export default function CreateCustomerRequestModal({
   ] =
     useState(
       !isEditing &&
+      !guestMode &&
+      !initialDraft &&
       initialMode ===
         "ai"
     );
@@ -496,7 +577,20 @@ export default function CreateCustomerRequestModal({
           .length >= DESCRIPTION_MIN_LENGTH &&
         !submitting &&
         !aiLoading &&
-        !imageChecking
+        !imageChecking &&
+        (
+          !guestMode ||
+          (
+            guest.displayName
+              .trim()
+              .length >= 2 &&
+            guest.email
+              .trim()
+              .length > 0 &&
+            guest.consent ===
+              true
+          )
+        )
       );
     }, [
       form.title,
@@ -504,6 +598,10 @@ export default function CreateCustomerRequestModal({
       submitting,
       aiLoading,
       imageChecking,
+      guestMode,
+      guest.displayName,
+      guest.email,
+      guest.consent,
     ]);
 
   const categorySuggestions =
@@ -601,6 +699,7 @@ export default function CreateCustomerRequestModal({
       !aiLoading &&
       !imageChecking
     ) {
+      clearRequestDraft();
       onClose?.();
     }
   }
@@ -614,7 +713,31 @@ export default function CreateCustomerRequestModal({
       return;
     }
 
+    clearRequestDraft();
     onClose?.();
+  }
+
+  /*
+   * „Ai deja cont? Autentifică-te”: păstrăm ce s-a completat (fără
+   * fotografii și fără bifa de acord) și lăsăm pagina să deschidă login-ul;
+   * la revenire formularul se redeschide completat.
+   */
+  function handleLoginRequest() {
+    saveRequestDraft({
+      form,
+      categoryQuery,
+      guest,
+    });
+
+    onLoginRequest?.();
+  }
+
+  function updateGuest(
+    next
+  ) {
+    setGuest(next);
+    setGuestFieldError("");
+    setError("");
   }
 
   /* =========================================================
@@ -1191,7 +1314,9 @@ export default function CreateCustomerRequestModal({
        CONFIRMARE FĂRĂ POZĂ
     ========================= */
 
+    // vizitatorul adaugă fotografiile după confirmarea emailului
     if (
+      !guestMode &&
       form.images.length ===
       0
     ) {
@@ -1279,6 +1404,77 @@ export default function CreateCustomerRequestModal({
         imageUrls,
     };
 
+    /* =========================
+       VIZITATOR FĂRĂ CONT
+    ========================= */
+
+    if (
+      guestMode &&
+      !isEditing
+    ) {
+      const invalid =
+        guestFieldsError(
+          guest
+        );
+
+      if (invalid) {
+        setGuestFieldError(
+          invalid.field
+        );
+        setError(
+          invalid.message
+        );
+        return;
+      }
+
+      try {
+        setSubmitting(true);
+        setError("");
+
+        await guestApi.submit(
+          buildGuestSubmitPayload({
+            requestPayload:
+              payload,
+            guest,
+            startedAt,
+            source,
+          })
+        );
+
+        clearRequestDraft();
+
+        setGuestSent({
+          email:
+            guest.email
+              .trim()
+              .toLowerCase(),
+          wantsAccount:
+            guest.wantsAccount ===
+            true,
+        });
+      } catch (err) {
+        console.error(
+          "[CreateCustomerRequestModal] guest submit failed:",
+          err
+        );
+
+        setGuestFieldError(
+          err?.data?.field ||
+            ""
+        );
+
+        setError(
+          err?.data?.message ||
+            err?.message ||
+            "Cererea nu a putut fi trimisă."
+        );
+      } finally {
+        setSubmitting(false);
+      }
+
+      return;
+    }
+
     try {
       setSubmitting(
         true
@@ -1338,6 +1534,8 @@ export default function CreateCustomerRequestModal({
         onCreated?.(
           saved
         );
+
+        clearRequestDraft();
       }
 
       onClose?.();
@@ -1424,7 +1622,9 @@ export default function CreateCustomerRequestModal({
             >
               {isEditing
                 ? "Actualizează informațiile cererii tale."
-                : "Creatorii îți pot trimite oferte direct în Artfest."}
+                : guestMode
+                  ? "Fără cont: completezi, confirmi emailul și artizanii îți trimit oferte."
+                  : "Creatorii îți pot trimite oferte direct în Artfest."}
             </p>
           </div>
 
@@ -1448,10 +1648,28 @@ export default function CreateCustomerRequestModal({
         </div>
 
         {/* ==================================================
+            VIZITATOR: CEREREA A FOST TRIMISĂ
+        ================================================== */}
+
+        {guestSent ? (
+          <GuestRequestSentPanel
+            email={
+              guestSent.email
+            }
+            wantsAccount={
+              guestSent.wantsAccount
+            }
+            onClose={() =>
+              onClose?.()
+            }
+          />
+        ) : (
+        <>
+        {/* ==================================================
             MODE
         ================================================== */}
 
-        {!isEditing && (
+        {!isEditing && !guestMode && (
           <div
             className={
               styles.modeTabs
@@ -2185,6 +2403,30 @@ export default function CreateCustomerRequestModal({
 
            {/* PHOTOS */}
 
+{guestMode ? (
+  <div
+    className={
+      styles.field
+    }
+  >
+    <label
+      className={
+        styles.label
+      }
+    >
+      Fotografii de inspirație
+    </label>
+
+    <p
+      className={
+        styles.fieldHelp
+      }
+    >
+      Le poți adăuga după ce confirmi emailul, din pagina cererii
+      (deschisă din linkul primit). Nu ai nevoie de cont.
+    </p>
+  </div>
+) : (
 <div
   className={
     styles.field
@@ -2316,6 +2558,27 @@ export default function CreateCustomerRequestModal({
     </div>
   )}
 </div>
+)}
+
+            {/* VIZITATOR FĂRĂ CONT */}
+
+            {guestMode && !isEditing && (
+              <GuestRequestFields
+                guest={guest}
+                onChange={
+                  updateGuest
+                }
+                onLoginRequest={
+                  handleLoginRequest
+                }
+                disabled={
+                  submitting
+                }
+                fieldError={
+                  guestFieldError
+                }
+              />
+            )}
 
             {/* ERROR */}
 
@@ -2368,16 +2631,22 @@ export default function CreateCustomerRequestModal({
                     ? (
                         isEditing
                           ? "Se salvează..."
-                          : "Se publică..."
+                          : guestMode
+                            ? "Se trimite..."
+                            : "Se publică..."
                       )
                     : (
                         isEditing
                           ? "Salvează modificările"
-                          : "Publică cererea"
+                          : guestMode
+                            ? "Trimite cererea"
+                            : "Publică cererea"
                       )}
               </button>
             </div>
           </form>
+        )}
+        </>
         )}
       </div>
     </div>

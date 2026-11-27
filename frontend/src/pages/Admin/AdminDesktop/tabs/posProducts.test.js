@@ -81,7 +81,7 @@ test("starea explicată, împărțirea banilor, suplimentarea stocului", () => {
   assert.match(productSaleState({ status: "RECEIVED", availableQty: 3, saleBlocked: { reason: "verificare" } }).text, /Blocat de la vânzare: verificare/);
   assert.match(productSaleState({ status: "RECEIVED", availableQty: 3, registrationStatus: "CANCELLED" }).text, /Participarea/);
   assert.match(ownerSplitText({ artfestOwned: true }), /integral Artfest/);
-  assert.match(ownerSplitText({ artfestOwned: false }), /10% Artfest, 90% vânzătorul/);
+  assert.match(ownerSplitText({ artfestOwned: false }), /vânzătorul primește prețul declarat; Artfest adaosul de 10% din declarat și accesoriile/);
   assert.equal(canAddStock({ isManual: true, status: "RECEIVED", artfestOwned: true }), true);
   assert.equal(canAddStock({ isManual: true, status: "RECEIVED", registrationStatus: "APPROVED" }), true);
   assert.equal(canAddStock({ isManual: true, status: "RECEIVED", registrationStatus: "CANCELLED" }), false);

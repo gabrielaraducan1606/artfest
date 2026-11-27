@@ -41,9 +41,10 @@ import {
   finalPriceIssues,
   isFairPriceModel,
   parseCents,
-  suggestedFinalPriceCents,
 } from "../lib/artfestFairPricing.js";
 import { distinctIds, isArtfestOwned, lineCommissionBps, ownerName } from "../lib/artfestFairOwner.js";
+import { accessoryItems, minUnitVendorNetCents } from "../lib/artfestFairAccessories.js";
+import { ARTFEST_MARKUP_BPS, FINANCE_RULES, fairLineSplit, legacyCommissionRuleActive, proposedFinalPriceCents, suggestedFinalPriceCents } from "../lib/artfestFairPricing.js";
 
 const BARCODE_RE = /^AF[2-9ABCDEFGHJKMNPQRSTVWX]{8}$/;
 const MAX_LINES = 100;
@@ -69,6 +70,10 @@ export const SALE_BLOCK_MESSAGES = Object.freeze({
   // prețul efectiv introdus în POS (toate înscrierile aprobate)
   label_blank_price: "Eticheta nu are preț tipărit: introdu prețul efectiv scris pe etichetă.",
   price_above_label_unconfirmed: "Prețul introdus este mai mare decât prețul de pe etichetă: confirmă-l explicit.",
+  // „Ambalare și accesorii”: suma vânzătorului nu poate fi negativă
+  price_below_accessories: "Prețul efectiv nu acoperă ambalajele / accesoriile Artfest. Mărește prețul.",
+  accessories_exceed_vendor_net:
+    "Accesoriile depășesc suma vânzătorului după comision: vânzătorul ar primi o sumă negativă. Mărește prețul efectiv sau modifică accesoriile.",
 });
 
 /* ===================== Utilitare ===================== */
@@ -266,7 +271,13 @@ export function pickDiscount(discounts, line, quantity, now = new Date(), option
   })[0];
 }
 
-export function computeLine({ listUnitPriceCents, quantity, commissionBps, discount = null }) {
+/*
+ * accessoriesUnitCents = „Ambalare și accesorii” pe bucată (Artfest), reținute SUPLIMENTAR din
+ * partea vânzătorului: accessoriesCents = unit × cantitate; comisionul rămâne pe prețul efectiv.
+ *   vendorNet = lineGross − commission − accessoriesCents (+ compensația istorică D8)
+ * Fără accesorii (0) calculul e identic cu cel de dinainte.
+ */
+export function computeLine({ listUnitPriceCents, quantity, commissionBps, discount = null, accessoriesUnitCents = 0, declaredUnitPriceCents = null, markupBps = ARTFEST_MARKUP_BPS }) {
   const lineListCents = listUnitPriceCents * quantity;
   const lineDiscountCents = discountAmount(discount, listUnitPriceCents, quantity);
   const lineGrossCents = lineListCents - lineDiscountCents;
@@ -280,8 +291,55 @@ export function computeLine({ listUnitPriceCents, quantity, commissionBps, disco
     const vendorNetWithoutDiscount = lineListCents - commissionOnListCents;
     artfestFundedDiscountCents = Math.max(0, vendorNetWithoutDiscount - vendorNetAfterDiscount);
   }
+  const accUnit = Number.isInteger(accessoriesUnitCents) && accessoriesUnitCents > 0 ? accessoriesUnitCents : 0;
+  const accessoriesCents = accUnit * quantity;
+
+  /*
+   * Regula actuală pentru produsele participanților (fairLineSplit, două trepte, pe linie):
+   *   încasat ≥ propus × q  (DECLARED_PLUS_MARKUP): vânzătorul = declarat × q; Artfest diferența;
+   *   încasat < propus × q  (DISCOUNTED_COMMISSION): bază = încasat − accesorii; comision 10% din bază
+   *                          (round_half_up); vânzătorul restul.
+   * commissionCents = partea Artfest FĂRĂ accesorii, deci CHECK-urile existente rămân valabile:
+   * vendorNet = încasat − comision − accesorii. Încasare sub accesorii => blocat în priceLine.
+   */
+  if (Number.isInteger(declaredUnitPriceCents) && declaredUnitPriceCents > 0) {
+    const split = fairLineSplit({ grossCents: lineGrossCents, quantity, declaredUnitPriceCents, accessoriesUnitCents: accUnit, markupBps });
+    return {
+      listUnitPriceCents,
+      quantity,
+      lineListCents,
+      lineDiscountCents,
+      lineGrossCents,
+      effectiveUnitPriceCents,
+      financeRule: split.financeRule,
+      commissionBps: markupBps,
+      commissionCents: split.commissionCents,
+      // comisionul „la listă” păstrează CHECK-urile de plafon: listă − accesorii − suma vânzătorului
+      commissionOnListCents: lineListCents - split.accessoriesCents - split.vendorNetCents,
+      artfestFundedDiscountCents: 0,
+      accessoriesUnitCents: accUnit,
+      accessoriesCents: split.accessoriesCents,
+      vendorNetCents: split.vendorNetCents,
+      declaredUnitPriceCents,
+      markupBps,
+      markupUnitCents: split.markupUnitCents,
+      plannedMarkupCents: split.plannedMarkupCents,
+      markupCents: split.commissionCents,
+      proposedUnitPriceCents: split.proposedUnitPriceCents,
+      baseCents: split.baseCents,
+      declaredLineCents: split.declaredCents,
+      // pentru afișare: suma vânzătorului dacă s-ar fi vândut la prețul propus
+      vendorReduced: split.vendorReduced,
+      markupReduced: split.vendorReduced,
+      belowAccessories: split.belowAccessories,
+      belowFloor: split.belowAccessories,
+      floorUnitPriceCents: accUnit,
+      minUnitVendorNetCents: minUnitVendorNetCents({ lineGrossCents, commissionCents: Math.max(0, split.commissionCents), quantity, accessoriesUnitCents: accUnit }),
+    };
+  }
 
   return {
+    financeRule: commissionBps === 10000 ? FINANCE_RULES.ARTFEST_OWN : FINANCE_RULES.COMMISSION_PERCENT,
     listUnitPriceCents,
     quantity,
     lineListCents,
@@ -292,8 +350,31 @@ export function computeLine({ listUnitPriceCents, quantity, commissionBps, disco
     commissionCents,
     commissionOnListCents,
     artfestFundedDiscountCents,
-    vendorNetCents: vendorNetAfterDiscount + artfestFundedDiscountCents,
+    accessoriesUnitCents: accUnit,
+    accessoriesCents,
+    vendorNetCents: vendorNetAfterDiscount + artfestFundedDiscountCents - accessoriesCents,
+    // cea mai mică sumă a vânzătorului pe bucată (alocarea folosită la retururi)
+    minUnitVendorNetCents: minUnitVendorNetCents({ lineGrossCents, commissionCents, artfestFundedDiscountCents, quantity, accessoriesUnitCents: accUnit }),
   };
+}
+
+const leiText = (cents) => (Number(cents || 0) / 100).toFixed(2).replace(".", ",");
+
+// motivul „sumă negativă pentru vânzător”, explicat cu sumele liniei
+export function floorBlockMessage(c) {
+  return (
+    `Prețul efectiv (${leiText(c.effectiveUnitPriceCents)} lei/buc.) nu acoperă ambalajele / accesoriile Artfest ` +
+    `(${leiText(c.accessoriesUnitCents)} lei/buc.). Mărește prețul.`
+  );
+}
+
+export function accessoriesBlockMessage(c) {
+  const afterCommission = c.lineGrossCents - c.commissionCents + (c.artfestFundedDiscountCents || 0);
+  return (
+    `Accesoriile (${leiText(c.accessoriesCents)} lei) depășesc suma vânzătorului după comision ` +
+    `(${leiText(afterCommission)} lei): vânzătorul ar primi o sumă negativă. ` +
+    "Mărește prețul efectiv sau modifică accesoriile produsului."
+  );
 }
 
 function discountSnapshot(d) {
@@ -311,15 +392,30 @@ function discountSnapshot(d) {
 }
 
 function summarize(computed) {
-  const totals = { listCents: 0, discountCents: 0, totalPaidCents: 0, commissionCents: 0, vendorNetCents: 0, artfestFundedDiscountCents: 0 };
+  const totals = {
+    listCents: 0,
+    discountCents: 0,
+    totalPaidCents: 0,
+    commissionCents: 0,
+    accessoriesCents: 0,
+    vendorNetCents: 0,
+    artfestFundedDiscountCents: 0,
+    // partea Artfest, separat: comision (participanți), accesorii, produse proprii; total fără dublare
+    artfest: { commissionCents: 0, accessoriesCents: 0, ownProductsCents: 0, totalCents: 0 },
+  };
   const byVendor = new Map();
   for (const c of computed) {
     totals.listCents += c.lineListCents;
     totals.discountCents += c.lineDiscountCents;
     totals.totalPaidCents += c.lineGrossCents;
     totals.commissionCents += c.commissionCents;
+    totals.accessoriesCents += c.accessoriesCents || 0;
     totals.vendorNetCents += c.vendorNetCents;
     totals.artfestFundedDiscountCents += c.artfestFundedDiscountCents;
+    if (c.artfestOwned) totals.artfest.ownProductsCents += c.commissionCents;
+    else totals.artfest.commissionCents += c.commissionCents;
+    totals.artfest.accessoriesCents += c.accessoriesCents || 0;
+    totals.artfest.totalCents += c.commissionCents + (c.accessoriesCents || 0);
     const v = byVendor.get(c.vendorId) || {
       vendorId: c.vendorId,
       vendorName: c.vendorName || null,
@@ -327,6 +423,7 @@ function summarize(computed) {
       discountCents: 0,
       grossCents: 0,
       commissionCents: 0,
+      accessoriesCents: 0,
       vendorNetCents: 0,
       artfestFundedDiscountCents: 0,
       units: 0,
@@ -335,6 +432,7 @@ function summarize(computed) {
     v.discountCents += c.lineDiscountCents;
     v.grossCents += c.lineGrossCents;
     v.commissionCents += c.commissionCents;
+    v.accessoriesCents += c.accessoriesCents || 0;
     v.vendorNetCents += c.vendorNetCents;
     v.artfestFundedDiscountCents += c.artfestFundedDiscountCents;
     v.units += c.quantity;
@@ -437,19 +535,38 @@ function priceLine({ fair, line, pricingModel, entry, discounts, now, legacyArtf
     }
   }
   // produs Artfest (stoc propriu): încasarea e integral Artfest (100%); participanții: comisionul târgului
-  const c = computeLine({ listUnitPriceCents: listUnit, quantity: entry.quantity, commissionBps: lineCommissionBps(line, fair.commissionBps), discount: applied });
+  // + „Ambalare și accesorii” (doar participanții), valorile curente ale liniei
+  const ownedByArtfest = isArtfestOwned(line);
+  const accessoriesUnitCents = ownedByArtfest ? 0 : Number(line.accessoriesUnitCents) || 0;
+  // participanți, vânzări noi: prețul declarat integral vânzătorului + adaos 10% + accesorii (Artfest).
+  // legacyArtfestFunding (doar reproducerea vânzărilor istorice): regula veche, comision din prețul efectiv.
+  const useDeclaredRule = !ownedByArtfest && !legacyArtfestFunding && !legacyCommissionRuleActive() && Number(line.priceSnapshotCents) > 0;
+  const c = computeLine({
+    listUnitPriceCents: listUnit,
+    quantity: entry.quantity,
+    commissionBps: lineCommissionBps(line, fair.commissionBps),
+    discount: applied,
+    accessoriesUnitCents,
+    ...(useDeclaredRule ? { declaredUnitPriceCents: line.priceSnapshotCents, markupBps: ARTFEST_MARKUP_BPS } : {}),
+  });
+  // regula actuală: încasarea trebuie să acopere accesoriile (și pe fiecare bucată, la retururi)
+  if (c.financeRule === FINANCE_RULES.DECLARED_PLUS_MARKUP || c.financeRule === FINANCE_RULES.DISCOUNTED_COMMISSION) {
+    if (c.belowAccessories || c.vendorNetCents < 0 || c.minUnitVendorNetCents < 0) priceReasons.push("price_below_accessories");
+  } else if (c.accessoriesCents > 0 && (c.vendorNetCents < 0 || c.minUnitVendorNetCents < 0)) priceReasons.push("accessories_exceed_vendor_net");
   return {
     c: {
       ...c,
+      // lista exactă a accesoriilor pe bucată (snapshot la vânzare)
+      accessories: accessoriesUnitCents > 0 ? accessoryItems(line.accessories) : [],
       // regula înscrierii, neschimbată (nu se înregistrează acceptări)
       pricingModel: !isArtfestOwned(line) && isFairPriceModel(pricingModel) ? PRICING_MODELS.FAIR_PRICE : PRICING_MODELS.COMMISSION,
       artfestOwned: isArtfestOwned(line),
       // prețul de vânzare actual (etichetă) și cel tipărit pe etichetă
       labelUnitPriceCents: labelUnit,
       printedLabelPriceCents: line.labelPriceCents ?? null,
-      // prețul declarat de vendor și prețul sugerat (declarat / 0,90)
+      // prețul declarat de vendor și prețul propus (declarat + 10% + accesorii)
       vendorBaseUnitPriceCents: line.priceSnapshotCents,
-      suggestedUnitPriceCents: suggestedFinalPriceCents(line.priceSnapshotCents, fair.commissionBps),
+      suggestedUnitPriceCents: ownedByArtfest ? null : legacyCommissionRuleActive() ? suggestedFinalPriceCents(line.priceSnapshotCents, fair.commissionBps) : proposedFinalPriceCents(line),
       priceSetManually: manual,
       priceAboveLabel: aboveLabel,
     },
@@ -510,7 +627,12 @@ function priceCart(fair, cart, ctx, now) {
       }
     }
     if (reasons.length) {
-      problems.push({ inventoryItemId: line.id, title: line.titleSnapshot, reasons, messages: reasons.map((r) => SALE_BLOCK_MESSAGES[r]) });
+      problems.push({
+        inventoryItemId: line.id,
+        title: line.titleSnapshot,
+        reasons,
+        messages: reasons.map((r) => (r === "accessories_exceed_vendor_net" ? accessoriesBlockMessage(c) : r === "price_below_accessories" ? floorBlockMessage(c) : SALE_BLOCK_MESSAGES[r])),
+      });
     }
     computed.push({
       ...c,
@@ -585,7 +707,11 @@ export async function scanBarcode({ barcode, db = prisma, now = new Date() }) {
     quantity: 1,
     heldQty,
   });
-  const { c: unit, discount } = priceLine({ fair, line, pricingModel, entry: { quantity: 1 }, discounts: ctx.discounts, now });
+  const { c: unit, discount, priceReasons } = priceLine({ fair, line, pricingModel, entry: { quantity: 1 }, discounts: ctx.discounts, now });
+  // accesorii mai mari decât suma vânzătorului la prețul etichetei: explicat de la scanare
+  // (un preț efectiv mai mare introdus la casă poate rezolva; verificarea finală e la încasare)
+  // la fel prețul etichetei sub declarat + accesorii (regula actuală)
+  for (const r of ["accessories_exceed_vendor_net", "price_below_accessories"]) if (priceReasons.includes(r)) reasons.push(r);
   return {
     // regula înscrierii + prețurile afișate pe rând (scanarea NU înregistrează vânzarea)
     pricingModel,
@@ -593,16 +719,35 @@ export async function scanBarcode({ barcode, db = prisma, now = new Date() }) {
     canEditPrice: true,
     labelPriceCents: line.labelPriceCents ?? null,
     salePriceCents: fairSalePriceCents(line),
-    // prețul declarat de vendor + prețul sugerat (declarat / 0,90)
+    // prețul declarat de vendor (integral al lui) + prețul propus (declarat + 10% + accesorii)
     vendorPriceCents: line.priceSnapshotCents,
-    suggestedPriceCents: isArtfestOwned(line) ? null : suggestedFinalPriceCents(line.priceSnapshotCents, fair.commissionBps),
-    // la prețul de pe etichetă (după reducerea automată, dacă există): comision 10% / vendor 90%
+    suggestedPriceCents: isArtfestOwned(line) ? null : legacyCommissionRuleActive() ? suggestedFinalPriceCents(line.priceSnapshotCents, fair.commissionBps) : proposedFinalPriceCents(line),
+    // regula aplicată la vânzare + valorile la prețul de pe etichetă (după reducerea automată, dacă există)
+    financeRule: unit.financeRule,
+    declaredUnitPriceCents: unit.declaredUnitPriceCents ?? null,
+    markupUnitCents: unit.markupUnitCents ?? null,
+    proposedUnitPriceCents: unit.proposedUnitPriceCents ?? null,
+    floorUnitPriceCents: unit.floorUnitPriceCents ?? null,
+    markupReduced: Boolean(unit.markupReduced),
     commissionBps: unit.commissionBps,
     // produs Artfest (stoc propriu): încasarea e integral Artfest
     artfestOwned: isArtfestOwned(line),
-    artfestUnitCents: unit.commissionCents,
+    artfestUnitCents: unit.commissionCents + unit.accessoriesCents,
+    commissionUnitCents: unit.commissionCents,
+    // „Ambalare și accesorii” pe bucată (reținute din partea vânzătorului, revin Artfest)
+    accessoriesUnitCents: unit.accessoriesUnitCents,
+    accessories: unit.accessories,
     vendorUnitCents: unit.vendorNetCents,
     inventoryItemId: line.id,
+    // starea liniei: SUBMITTED = „Produs în inventar, nerecepționat” (POS deschide fișa de recepție;
+    // prezența fizică o confirmă Adminul, nu scanarea)
+    status: line.status,
+    notReceived: line.status === "SUBMITTED",
+    declaredQty: line.declaredQty,
+    receivedQty: line.receivedQty || 0,
+    registrationStatus: isArtfestOwned(line) ? null : ctx.registrations.get(line.registrationId) || null,
+    saleBlocked: Boolean(line.saleBlockedAt),
+    storeName: line.storeNameSnapshot || null,
     barcode: line.barcode,
     barcodeDisplay: formatFairBarcode(line.barcode),
     title: line.titleSnapshot,
@@ -613,12 +758,12 @@ export async function scanBarcode({ barcode, db = prisma, now = new Date() }) {
     unitPriceAfterDiscountCents: unit.lineGrossCents,
     discount: discountSnapshot(discount),
     availableQty: Math.max(0, (line.availableQty || 0) - heldQty),
-    sellable: reasons.length === 0 || reasons.every((r) => PRICE_AT_CHECKOUT_REASONS.includes(r)),
+    sellable: reasons.length === 0 || reasons.every((r) => PRICE_AT_CHECKOUT_REASONS.includes(r) || r === "accessories_exceed_vendor_net" || r === "price_below_accessories"),
     // eticheta are alt preț sau nu are preț: vânzarea merge doar cu prețul introdus la casă (fără retipărire)
     requiresPrice: reasons.some((r) => PRICE_AT_CHECKOUT_REASONS.includes(r)),
     blankPriceLabel: line.labelGeneratedAt != null && line.labelPriceCents == null,
     reasons,
-    messages: reasons.map((r) => SALE_BLOCK_MESSAGES[r]),
+    messages: reasons.map((r) => (r === "accessories_exceed_vendor_net" ? accessoriesBlockMessage(unit) : r === "price_below_accessories" ? floorBlockMessage(unit) : SALE_BLOCK_MESSAGES[r])),
   };
 }
 
@@ -655,6 +800,7 @@ function serializeSaleRow(sale, lines = [], allocations = [], movements = []) {
     discountCents: sale.discountCents,
     totalPaidCents: sale.totalPaidCents,
     commissionCents: sale.commissionCents,
+    accessoriesCents: sale.accessoriesCents || 0,
     vendorNetCents: sale.vendorNetCents,
     paymentMethod: sale.paymentMethod,
     cashCents: sale.cashCents ?? null,
@@ -681,6 +827,15 @@ function serializeSaleRow(sale, lines = [], allocations = [], movements = []) {
       commissionCents: l.commissionCents,
       commissionOnListCents: l.commissionOnListCents,
       artfestFundedDiscountCents: l.artfestFundedDiscountCents,
+      // „Ambalare și accesorii” salvate la vânzare (lista exactă, pe bucată + totalul liniei)
+      accessoriesUnitCents: l.accessoriesUnitCents || 0,
+      accessoriesCents: l.accessoriesCents || 0,
+      accessories: accessoryItems(l.accessoriesSnapshot),
+      // regula financiară salvată la vânzare (liniile vechi: COMMISSION_PERCENT) + valorile ei
+      financeRule: l.financeRule || FINANCE_RULES.COMMISSION_PERCENT,
+      declaredUnitPriceCents: l.declaredUnitPriceCents ?? null,
+      markupUnitCents: l.markupUnitCents ?? null,
+      proposedUnitPriceCents: l.proposedUnitPriceCents ?? null,
       vendorNetCents: l.vendorNetCents,
       // regula salvată la vânzare (liniile vechi: COMMISSION)
       pricingModel: l.pricingModel || PRICING_MODELS.COMMISSION,
@@ -724,6 +879,7 @@ async function loadSale(db, saleId) {
     refundCents: r.refundCents,
     commissionReversedCents: r.commissionReversedCents,
     artfestFundedReversedCents: r.artfestFundedReversedCents,
+    accessoriesReversedCents: r.accessoriesReversedCents || 0,
     vendorNetReversedCents: r.vendorNetReversedCents,
     createdAt: r.createdAt,
     lines: returnLines
@@ -740,6 +896,7 @@ async function loadSale(db, saleId) {
         refundCents: l.refundCents,
         commissionReversedCents: l.commissionReversedCents,
         artfestFundedReversedCents: l.artfestFundedReversedCents,
+        accessoriesReversedCents: l.accessoriesReversedCents || 0,
         vendorNetReversedCents: l.vendorNetReversedCents,
         vendorAffected: l.refundResponsibility !== "ARTFEST",
         vendorNetImpactCents: l.refundResponsibility === "ARTFEST" ? 0 : l.vendorNetReversedCents,
@@ -757,9 +914,10 @@ async function loadSale(db, saleId) {
 function summarizeSaleLines(lines) {
   const map = new Map();
   for (const l of lines) {
-    const v = map.get(l.vendorId) || { vendorId: l.vendorId, vendorName: l.vendorName || null, grossCents: 0, commissionCents: 0, vendorNetCents: 0, artfestFundedDiscountCents: 0, units: 0 };
+    const v = map.get(l.vendorId) || { vendorId: l.vendorId, vendorName: l.vendorName || null, grossCents: 0, commissionCents: 0, accessoriesCents: 0, vendorNetCents: 0, artfestFundedDiscountCents: 0, units: 0 };
     v.grossCents += l.lineGrossCents;
     v.commissionCents += l.commissionCents;
+    v.accessoriesCents += l.accessoriesCents || 0;
     v.vendorNetCents += l.vendorNetCents;
     v.artfestFundedDiscountCents += l.artfestFundedDiscountCents;
     v.units += l.quantity;
@@ -894,6 +1052,7 @@ export async function createSale({ body = {}, idempotencyKey, adminId, db = pris
           totalPaidCents: totals.totalPaidCents,
           commissionCents: totals.commissionCents,
           vendorNetCents: totals.vendorNetCents,
+          accessoriesCents: totals.accessoriesCents,
           paymentMethod,
           // Artfest încasează integral; împărțirea pe vendor e contabilă (linii / decont)
           cashCents: paymentMethod === "CASH" ? totals.totalPaidCents : null,
@@ -930,6 +1089,21 @@ export async function createSale({ body = {}, idempotencyKey, adminId, db = pris
             commissionOnListCents: c.commissionOnListCents,
             vendorNetCents: c.vendorNetCents,
             artfestFundedDiscountCents: c.artfestFundedDiscountCents,
+            // „Ambalare și accesorii”: lista exactă + valorile aplicate ACUM (modificările ulterioare
+            // ale accesoriilor nu schimbă această vânzare); fără accesorii => NULL / 0, ca înainte
+            ...(c.accessoriesCents > 0
+              ? { accessoriesSnapshot: c.accessories, accessoriesUnitCents: c.accessoriesUnitCents, accessoriesCents: c.accessoriesCents }
+              : {}),
+            // regula financiară aplicată ACUM + valorile ei (vânzările vechi păstrează COMMISSION_PERCENT)
+            financeRule: c.financeRule,
+            ...(c.financeRule === FINANCE_RULES.DECLARED_PLUS_MARKUP || c.financeRule === FINANCE_RULES.DISCOUNTED_COMMISSION
+              ? {
+                  declaredUnitPriceCents: c.declaredUnitPriceCents,
+                  markupBps: c.markupBps,
+                  markupUnitCents: c.markupUnitCents,
+                  proposedUnitPriceCents: c.proposedUnitPriceCents,
+                }
+              : {}),
             // regula înscrierii, neschimbată. Sumele de mai sus (preț de listă, reducere, încasat,
             // comision 10%, vendor 90%) sunt recalculate pe server și salvate pentru ambele reguli.
             // COMMISSION: CHECK-ul existent AFSL_pricing_model_chk cere vendorBaseUnitPriceCents NULL

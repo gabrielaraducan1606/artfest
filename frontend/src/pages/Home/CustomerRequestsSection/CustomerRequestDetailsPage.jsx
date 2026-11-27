@@ -22,6 +22,14 @@ import CustomerRequestOfferModal
 
 import styles from "./CustomerRequestDetailsPage.module.css";
 
+import GuestRequestOwnerPanel, {
+  GuestAccountPrompt,
+} from "./GuestRequestOwnerPanel.jsx";
+
+import {
+  linkGuestRequestsOnce,
+} from "./guestRequest.js";
+
 /* =========================================================
    HELPERS
 ========================================================= */
@@ -334,6 +342,20 @@ export default function CustomerRequestDetailsPage() {
   ] =
     useState(true);
 
+  // reîncărcare după asocierea cererilor trimise fără cont cu contul
+  const [
+    reloadKey,
+    setReloadKey,
+  ] =
+    useState(0);
+
+  // vizitator fără cont: „Continuă cu oferta” cere cont
+  const [
+    guestContinuePrompt,
+    setGuestContinuePrompt,
+  ] =
+    useState(false);
+
   const [
     error,
     setError,
@@ -457,6 +479,7 @@ const [
     };
   }, [
     id,
+    reloadKey,
   ]);
 
   /* =======================================================
@@ -489,6 +512,69 @@ const [
       currentUserId,
       request,
     ]);
+
+  /*
+   * Vizitatorul fără cont care a trimis cererea (sesiune din linkul de
+   * email, verificată pe server): vede ofertele, adaugă fotografii;
+   * conversația / comanda cer cont.
+   */
+  const isGuestOwner =
+    Boolean(
+      request?.viewerIsGuestOwner
+    ) &&
+    !isOwner;
+
+  useEffect(() => {
+    const userId =
+      me?.id ||
+      me?.sub ||
+      null;
+
+    if (!userId) {
+      return undefined;
+    }
+
+    let active = true;
+
+    linkGuestRequestsOnce(
+      userId
+    ).then((result) => {
+      if (
+        active &&
+        result.linked > 0
+      ) {
+        setReloadKey(
+          (current) =>
+            current + 1
+        );
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    me,
+  ]);
+
+  function handleGuestImagesChange(
+    images
+  ) {
+    setRequest(
+      (current) =>
+        current
+          ? {
+              ...current,
+              images,
+            }
+          : current
+    );
+
+    setActiveImage(
+      images[0] ||
+        null
+    );
+  }
 
   const isVendor =
     me?.role ===
@@ -574,6 +660,14 @@ const [
 async function handleContinueWithOffer(
   offer
 ) {
+  if (isGuestOwner) {
+    setGuestContinuePrompt(
+      true
+    );
+
+    return;
+  }
+
   if (
     !isOwner ||
     !request?.id ||
@@ -1235,7 +1329,7 @@ async function handleContinueWithOffer(
                   OFFERS RECEIVED - OWNER ONLY
               ================================================== */}
 
-              {isOwner && (
+              {(isOwner || isGuestOwner) && (
                 <section
                   aria-label="Oferte primite"
                   style={{
@@ -1296,6 +1390,16 @@ async function handleContinueWithOffer(
     }}
   >
     {continueOfferError}
+  </div>
+)}
+
+{guestContinuePrompt && isGuestOwner && (
+  <div style={{ marginTop: 12 }}>
+    <GuestAccountPrompt
+      requestId={
+        request.id
+      }
+    />
   </div>
 )}
                     </div>
@@ -1752,6 +1856,15 @@ async function handleContinueWithOffer(
                         : "Când un creator trimite o ofertă, aceasta va apărea automat în pagina cererii."}
                     </div>
                   </>
+                ) : isGuestOwner ? (
+                  <GuestRequestOwnerPanel
+                    request={
+                      request
+                    }
+                    onImagesChange={
+                      handleGuestImagesChange
+                    }
+                  />
                 ) : canSendOffer ? (
                   /* =============================
                      VENDOR

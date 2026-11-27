@@ -3,8 +3,8 @@
 // Târgul Artfest - vânzările văzute de vendor și rapoartele zilnice (vendor / Admin).
 //
 // Sursa financiară: ArtfestFairSale + ArtfestFairSaleLine (+ alocările de reducere).
-// Comisionul, netul vendorului și compensația Artfest se iau DIN SNAPSHOT-urile
-// liniilor (nu se recalculează). Inventarul și mișcările de stoc NU intră în bani.
+// Comisionul, „Ambalare și accesorii” reținute, netul vendorului și compensația Artfest se
+// iau DIN SNAPSHOT-urile liniilor (nu se recalculează). Inventarul și mișcările de stoc NU intră în bani.
 //
 // Ziua raportului = ziua locală a târgului (Europe/Bucharest):
 //   [D 00:00 local, D+1 00:00 local), convertit corect în UTC (inclusiv la schimbarea orei).
@@ -21,6 +21,7 @@ import { ARTFEST_FAIR_TIMEZONE } from "../config/artfestFair.js";
 import { FairError, ensureFair } from "./artfestFairService.js";
 import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { ARTFEST_OWNER_NAME } from "../lib/artfestFairOwner.js";
+import { accessoriesText, accessoryItems, artfestShareOf } from "../lib/artfestFairAccessories.js";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -106,6 +107,7 @@ function emptyMoney() {
     discountCents: 0,
     grossCents: 0,
     commissionCents: 0,
+    accessoriesCents: 0,
     vendorNetCents: 0,
     artfestFundedDiscountCents: 0,
     cashCents: 0,
@@ -120,6 +122,7 @@ function addLine(total, line, sale) {
   total.discountCents += line.lineDiscountCents;
   total.grossCents += line.lineGrossCents;
   total.commissionCents += line.commissionCents;
+  total.accessoriesCents += line.accessoriesCents || 0;
   total.vendorNetCents += line.vendorNetCents;
   total.artfestFundedDiscountCents += line.artfestFundedDiscountCents || 0;
   total.units += line.quantity;
@@ -150,7 +153,7 @@ function sortProducts(map) {
 /* ===================== Retururi (ziua returului) ===================== */
 
 function emptyReversal() {
-  return { units: 0, refundCents: 0, commissionReversedCents: 0, artfestFundedReversedCents: 0, vendorNetReversedCents: 0 };
+  return { units: 0, refundCents: 0, commissionReversedCents: 0, artfestFundedReversedCents: 0, accessoriesReversedCents: 0, vendorNetReversedCents: 0 };
 }
 
 /*
@@ -181,6 +184,7 @@ function addReversal(target, rl) {
   target.refundCents += rl.refundCents;
   target.commissionReversedCents += rl.commissionReversedCents;
   target.artfestFundedReversedCents += rl.artfestFundedReversedCents || 0;
+  target.accessoriesReversedCents += rl.accessoriesReversedCents || 0;
   target.vendorNetReversedCents += rl.vendorNetReversedCents;
 }
 
@@ -203,6 +207,7 @@ function finishReturns(total, returnsById, returnIds) {
 function dayNet(salesTotals, returns) {
   return {
     dayCommissionCents: salesTotals.commissionCents - returns.vendorBorne.commissionReversedCents,
+    dayAccessoriesCents: (salesTotals.accessoriesCents || 0) - returns.vendorBorne.accessoriesReversedCents,
     dayVendorNetCents: salesTotals.vendorNetCents - returns.vendorBorne.vendorNetReversedCents,
     dayArtfestFundedCents: salesTotals.artfestFundedDiscountCents - returns.vendorBorne.artfestFundedReversedCents,
   };
@@ -231,6 +236,7 @@ function vendorReturnView(rl, saleReturn) {
     refundCents: rl.refundCents,
     commissionReversedCents: rl.commissionReversedCents,
     artfestFundedReversedCents: rl.artfestFundedReversedCents || 0,
+    accessoriesReversedCents: rl.accessoriesReversedCents || 0,
     vendorNetReversedCents: rl.vendorNetReversedCents,
     // dacă rambursarea i-a afectat netul (false = suportată de Artfest); fără motivul intern
     affectsVendorNet: rl.refundResponsibility !== "ARTFEST",
@@ -246,10 +252,11 @@ function serializeVendorLine(line, sale, discount, returnViews = []) {
       refundCents: t.refundCents + r.refundCents,
       commissionReversedCents: t.commissionReversedCents + r.commissionReversedCents,
       artfestFundedReversedCents: t.artfestFundedReversedCents + r.artfestFundedReversedCents,
+      accessoriesReversedCents: t.accessoriesReversedCents + r.accessoriesReversedCents,
       vendorNetReversedCents: t.vendorNetReversedCents + r.vendorNetReversedCents,
       vendorNetImpactCents: t.vendorNetImpactCents + r.vendorNetImpactCents,
     }),
-    { quantity: 0, refundCents: 0, commissionReversedCents: 0, artfestFundedReversedCents: 0, vendorNetReversedCents: 0, vendorNetImpactCents: 0 }
+    { quantity: 0, refundCents: 0, commissionReversedCents: 0, artfestFundedReversedCents: 0, accessoriesReversedCents: 0, vendorNetReversedCents: 0, vendorNetImpactCents: 0 }
   );
   return {
     saleLineId: line.id,
@@ -271,6 +278,15 @@ function serializeVendorLine(line, sale, discount, returnViews = []) {
     effectiveUnitPriceCents: line.effectiveUnitPriceCents,
     commissionCents: line.commissionCents,
     artfestFundedDiscountCents: line.artfestFundedDiscountCents || 0,
+    // „Ambalare și accesorii” reținute la vânzare (lista exactă pe bucată + totalul liniei)
+    accessoriesUnitCents: line.accessoriesUnitCents || 0,
+    accessoriesCents: line.accessoriesCents || 0,
+    accessories: accessoryItems(line.accessoriesSnapshot),
+    // regula financiară salvată la vânzare: preț declarat (al vânzătorului), adaos Artfest, total propus
+    financeRule: line.financeRule || "COMMISSION_PERCENT",
+    declaredUnitPriceCents: line.declaredUnitPriceCents ?? null,
+    markupUnitCents: line.markupUnitCents ?? null,
+    proposedUnitPriceCents: line.proposedUnitPriceCents ?? null,
     vendorNetCents: line.vendorNetCents,
     // regula salvată la vânzare (FAIR_PRICE: prețul final + preț introdus la casă; același comision)
     pricingModel: line.pricingModel || "COMMISSION",
@@ -385,6 +401,20 @@ export async function vendorDailyReport({ vendorId, date = null, db = prisma, no
     salesCount: ownSales.size,
     ...totals,
     products: sortProducts(products),
+    // fiecare reținere „Ambalare și accesorii” din vânzările zilei, cu motivul (lista accesoriilor)
+    accessoryLines: lines
+      .filter((l) => (l.accessoriesCents || 0) > 0)
+      .map((l) => ({
+        saleLineId: l.id,
+        saleNumber: salesById.get(l.saleId)?.saleNumber ?? null,
+        receiptReference: salesById.get(l.saleId)?.receiptReference ?? null,
+        titleSnapshot: l.titleSnapshot,
+        variantLabel: l.variantLabel || null,
+        quantity: l.quantity,
+        accessories: accessoryItems(l.accessoriesSnapshot),
+        accessoriesUnitCents: l.accessoriesUnitCents || 0,
+        accessoriesCents: l.accessoriesCents || 0,
+      })),
     returns,
     returnLines: rls
       .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
@@ -434,12 +464,13 @@ export async function adminDailyReport({ date = null, db = prisma, now = new Dat
       acc.discountCents += s.discountCents;
       acc.totalPaidCents += s.totalPaidCents;
       acc.commissionCents += s.commissionCents;
+      acc.accessoriesCents += s.accessoriesCents || 0;
       acc.vendorNetCents += s.vendorNetCents;
       acc.cashCents += s.cashCents || 0;
       acc.cardCents += s.cardCents || 0;
       return acc;
     },
-    { listCents: 0, discountCents: 0, totalPaidCents: 0, commissionCents: 0, vendorNetCents: 0, cashCents: 0, cardCents: 0 }
+    { listCents: 0, discountCents: 0, totalPaidCents: 0, commissionCents: 0, accessoriesCents: 0, vendorNetCents: 0, cashCents: 0, cardCents: 0 }
   );
 
   // retururile zilei (ziua returului)
@@ -461,9 +492,10 @@ export async function adminDailyReport({ date = null, db = prisma, now = new Dat
     (acc, r) => ({
       refundCents: acc.refundCents + r.refundCents,
       commissionReversedCents: acc.commissionReversedCents + r.commissionReversedCents,
+      accessoriesReversedCents: acc.accessoriesReversedCents + (r.accessoriesReversedCents || 0),
       vendorNetReversedCents: acc.vendorNetReversedCents + r.vendorNetReversedCents,
     }),
-    { refundCents: 0, commissionReversedCents: 0, vendorNetReversedCents: 0 }
+    { refundCents: 0, commissionReversedCents: 0, accessoriesReversedCents: 0, vendorNetReversedCents: 0 }
   );
   const lineReversal = (k) => returns.vendorBorne[k] + returns.artfestBorne[k];
 
@@ -493,8 +525,12 @@ export async function adminDailyReport({ date = null, db = prisma, now = new Dat
     cashCents: headerTotals.cashCents,
     cardCents: headerTotals.cardCents,
     commissionCents: totals.commissionCents,
+    accessoriesCents: totals.accessoriesCents,
     vendorNetCents: totals.vendorNetCents,
     artfestFundedDiscountCents: totals.artfestFundedDiscountCents,
+    // partea Artfest, separat: comision (participanți), recuperare accesorii (NU profit net),
+    // produse proprii; „sales” = vânzările zilei, „day” = după retururile zilei; total fără dublare
+    artfest: { sales: artfestShareOf(lines, []), day: artfestShareOf(lines, rls) },
     returns,
     // încasat net al zilei = încasări − toate rambursările (banii ieșiți din casă)
     netCollectedCents: totals.grossCents - returns.refundCents,
@@ -508,7 +544,9 @@ export async function adminDailyReport({ date = null, db = prisma, now = new Dat
       headerTotals.totalPaidCents === totals.grossCents &&
       headerTotals.commissionCents === totals.commissionCents &&
       headerTotals.vendorNetCents === totals.vendorNetCents &&
+      headerTotals.accessoriesCents === totals.accessoriesCents &&
       returnHeaderTotals.refundCents === lineReversal("refundCents") &&
+      returnHeaderTotals.accessoriesReversedCents === lineReversal("accessoriesReversedCents") &&
       returnHeaderTotals.commissionReversedCents === lineReversal("commissionReversedCents") &&
       returnHeaderTotals.vendorNetReversedCents === lineReversal("vendorNetReversedCents"),
     vendors: [...byVendor.values()]
@@ -535,6 +573,7 @@ export async function adminDailyReport({ date = null, db = prisma, now = new Dat
         reason: r.reason,
         refundCents: r.refundCents,
         commissionReversedCents: r.commissionReversedCents,
+        accessoriesReversedCents: r.accessoriesReversedCents || 0,
         vendorNetReversedCents: r.vendorNetReversedCents,
         vendorBorneRefundCents: own.filter((l) => l.refundResponsibility !== "ARTFEST").reduce((s, l) => s + l.refundCents, 0),
         artfestBorneRefundCents: own.filter((l) => l.refundResponsibility === "ARTFEST").reduce((s, l) => s + l.refundCents, 0),
@@ -571,6 +610,7 @@ function returnRows(returns) {
     ["Rambursări suportate de vendor (lei)", lei(returns.vendorBorne.refundCents)],
     ["Rambursări suportate de Artfest (lei)", lei(returns.artfestBorne.refundCents)],
     ["Comision inversat - imputat vendorului (lei)", lei(returns.vendorBorne.commissionReversedCents)],
+    ["Accesorii restituite - retururi imputate vendorului (lei)", lei(returns.vendorBorne.accessoriesReversedCents)],
     ["Net vendor inversat - imputat vendorului (lei)", lei(returns.vendorBorne.vendorNetReversedCents)],
   ];
 }
@@ -586,7 +626,8 @@ export function vendorReportCsv(report) {
     ["Valoare brută (lei)", lei(report.listCents)],
     ["Reduceri (lei)", lei(report.discountCents)],
     ["Încasat pentru produsele tale (lei)", lei(report.grossCents)],
-    ["Comision Artfest (lei)", lei(report.commissionCents)],
+    ["Comision / adaos Artfest (lei)", lei(report.commissionCents)],
+    ["Ambalare și accesorii reținute (lei)", lei(report.accessoriesCents)],
     ["Compensație Artfest pentru reduceri (lei)", lei(report.artfestFundedDiscountCents)],
     ["Net vendor din vânzări (lei)", lei(report.vendorNetCents)],
     ["Numerar (lei)", lei(report.cashCents)],
@@ -596,6 +637,12 @@ export function vendorReportCsv(report) {
     [],
     ["Produs", "Variantă", "Cod", "Cantitate", "Total (lei)"],
     ...report.products.map((p) => [p.title, p.variantLabel || "", p.barcodeDisplay, p.quantity, lei(p.grossCents)]),
+    [],
+    ["Reținere ambalare și accesorii", "Bon intern", "Produs", "Variantă", "Cantitate", "Accesorii pe bucată", "Pe bucată (lei)", "Total reținut (lei)"],
+    ...(report.accessoryLines || []).map((a) => [
+      "Ambalare și accesorii", a.receiptReference || "", a.titleSnapshot || "", a.variantLabel || "", a.quantity, accessoriesText(a.accessories),
+      lei(a.accessoriesUnitCents), lei(a.accessoriesCents),
+    ]),
     [],
     ["Retur", "Ora", "Vânzare", "Produs", "Variantă", "Cantitate", "Stare", "Rambursat (lei)", "Îți afectează netul", "Net scăzut din netul tău (lei)"],
     ...report.returnLines.map((r) => [
@@ -619,7 +666,11 @@ export function adminReportCsv(report) {
     ["Total încasat (lei)", lei(report.totalPaidCents)],
     ["Numerar (lei)", lei(report.cashCents)],
     ["Card (lei)", lei(report.cardCents)],
-    ["Comision Artfest (lei)", lei(report.commissionCents)],
+    ["Comision / adaos Artfest - total, inclusiv produse proprii (lei)", lei(report.commissionCents)],
+    ["Artfest - adaos (comision la vânzările vechi) din produsele participanților (lei)", lei(report.artfest?.sales.commissionCents)],
+    ["Artfest - recuperare ambalare și accesorii, nu este profit net (lei)", lei(report.artfest?.sales.accessoriesCents)],
+    ["Artfest - vânzări produse proprii (lei)", lei(report.artfest?.sales.ownProductsCents)],
+    ["Artfest - total din vânzări, fără dublare (lei)", lei(report.artfest?.sales.totalCents)],
     ["Net datorat vendorilor din vânzări (lei)", lei(report.vendorNetCents)],
     ["Compensații Artfest pentru reduceri (lei)", lei(report.artfestFundedDiscountCents)],
     ...returnRows(report.returns),
@@ -627,11 +678,13 @@ export function adminReportCsv(report) {
     ["Numerar net (lei)", lei(report.netCashCents)],
     ["Card net (lei)", lei(report.netCardCents)],
     ["Comision net al zilei (lei)", lei(report.dayCommissionCents)],
+    ["Accesorii nete ale zilei (lei)", lei(report.dayAccessoriesCents)],
+    ["Artfest - total net al zilei, fără dublare (lei)", lei(report.artfest?.day.totalCents)],
     ["Net vendori al zilei (lei)", lei(report.dayVendorNetCents)],
     [],
-    ["Magazin", "Vânzări", "Bucăți", "Brut (lei)", "Reduceri (lei)", "Încasat (lei)", "Comision (lei)", "Net vendor (lei)", "Rambursat total (lei)", "Rambursat - suportat de vendor (lei)", "Rambursat - suportat de Artfest (lei)", "Net inversat imputat (lei)", "Net al zilei (lei)"],
+    ["Magazin", "Vânzări", "Bucăți", "Brut (lei)", "Reduceri (lei)", "Încasat (lei)", "Comision (lei)", "Accesorii (lei)", "Net vendor (lei)", "Rambursat total (lei)", "Rambursat - suportat de vendor (lei)", "Rambursat - suportat de Artfest (lei)", "Net inversat imputat (lei)", "Net al zilei (lei)"],
     ...report.vendors.map((v) => [
-      v.storeName || v.vendorId, v.salesCount, v.units, lei(v.listCents), lei(v.discountCents), lei(v.grossCents), lei(v.commissionCents), lei(v.vendorNetCents),
+      v.storeName || v.vendorId, v.salesCount, v.units, lei(v.listCents), lei(v.discountCents), lei(v.grossCents), lei(v.commissionCents), lei(v.accessoriesCents), lei(v.vendorNetCents),
       lei(v.returns.refundCents), lei(v.returns.vendorBorne.refundCents), lei(v.returns.artfestBorne.refundCents), lei(v.returns.vendorBorne.vendorNetReversedCents), lei(v.dayVendorNetCents),
     ]),
     [],

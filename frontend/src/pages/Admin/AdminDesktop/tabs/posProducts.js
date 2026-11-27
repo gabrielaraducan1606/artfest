@@ -4,7 +4,8 @@
 // de denumire dublată, starea de vânzare explicată și numărul de etichete. Fără React -
 // testabil cu node --test. Produsul se salvează prin fluxul EXISTENT de inventar manual
 // (POST /labels/promo/inventory-item -> addManualInventoryItem + trimitere), apoi trece
-// prin recepție ca orice altă linie; banii la vânzare: 10% Artfest / 90% participant (neschimbat).
+// prin recepție ca orice altă linie; banii la vânzare: prețul declarat integral participantului,
+// adaos 10% din declarat + accesorii pentru Artfest (regula pentru vânzările viitoare).
 
 // aceleași limite ca serverul (lib/artfestFairManualItem.js, config/artfestFair.js)
 export const TITLE_MAX = 200;
@@ -95,7 +96,7 @@ export function validateNewProduct(form, { clientRequestId, stores = [] } = {}) 
 export function ownerSplitText(line) {
   return line?.artfestOwned
     ? "Produs Artfest (stoc propriu): încasarea este integral Artfest."
-    : "Produs al participantului: 10% Artfest, 90% vânzătorul.";
+    : "Produs al participantului: vânzătorul primește prețul declarat; Artfest adaosul de 10% din declarat și accesoriile.";
 }
 
 /** Se poate suplimenta stocul din POS: produs manual, în stoc, proprietar activ. */

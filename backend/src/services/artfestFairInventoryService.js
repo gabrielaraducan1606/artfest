@@ -52,6 +52,7 @@ import {
   parsePriceRonToCents,
 } from "../lib/artfestFairManualItem.js";
 import { isArtfestOwned, lineCommissionBps } from "../lib/artfestFairOwner.js";
+import { accessoriesOf } from "../lib/artfestFairAccessories.js";
 
 const TEXT_LIMIT = 2000;
 
@@ -415,7 +416,11 @@ function serializeItem(item, product, ctx, movements = [], returnInfo = null, is
       priceCents: item.labelPriceCents ?? null,
     },
     // prețul declarat de vendor + prețul final de vânzare la târg, cu împărțirea 10% / 90%
+    // (pricing.vendorNetCents = după comision ȘI după accesoriile Artfest de mai jos)
     pricing: pricingView(item, ctx?.registration?.pricingModel, ctx?.fair?.commissionBps),
+    // „Ambalare și accesorii” adăugate de Artfest, PER BUCATĂ: vizibile înainte de vânzare;
+    // la vânzare se rețin din suma ta, alături de comision (valorile se salvează pe vânzare)
+    accessories: accessoriesOf(item),
     online: {
       mode: item.onlineReservationMode,
       state: onlineReservationState(item),

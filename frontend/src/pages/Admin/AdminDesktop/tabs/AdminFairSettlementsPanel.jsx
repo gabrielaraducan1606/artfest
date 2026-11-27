@@ -10,6 +10,7 @@ import { api } from "../../../../lib/api";
 import shared from "../AdminDesktop.module.css";
 import styles from "./AdminArtfestFairTab.module.css";
 import { downloadLabelsPdf } from "../../../Vendor/Fair/fairInventory.js";
+import { accessoriesListText } from "../../../Vendor/Fair/fairAccessories.js";
 import {
   ADMIN_SETTLEMENTS_API as API,
   SETTLEMENT_STATUS_LABEL,
@@ -33,12 +34,14 @@ function Totals({ s }) {
     ["Vânzări - valoare de listă", formatLei(s.listSalesCents)],
     ["Reduceri", formatLei(s.discountsCents)],
     ["Vânzări brute încasate", formatLei(s.grossSalesCents)],
-    ["Comision Artfest", formatLei(s.commissionCents)],
+    ["Comision / adaos Artfest", formatLei(s.commissionCents)],
+    ["Ambalare și accesorii reținute", formatLei(s.accessoriesCents || 0)],
     ["Net din vânzări", formatLei(s.vendorNetCents)],
     ["Rambursări către clienți (total)", formatLei(s.returnsRefundCents)],
     ["  din care suportate de vendor", formatLei(s.returnsRefundCents - s.artfestBorneRefundCents)],
     ["  din care suportate de Artfest", formatLei(s.artfestBorneRefundCents)],
     ["Comision inversat (imputat vendorului)", formatLei(s.commissionReversedCents)],
+    ["Accesorii restituite la retururi", formatLei(s.accessoriesReversedCents || 0)],
     ["Net retur care afectează vendorul", `-${formatLei(s.vendorNetReversedCents)}`],
     ["Ajustări", signedLei(s.adjustmentsCents)],
     ["Sold reportat", signedLei(s.carriedInCents)],
@@ -389,7 +392,8 @@ function SettlementDetail({ id, onChanged, onClose }) {
               <th>Listă</th>
               <th>Reducere</th>
               <th>Încasat</th>
-              <th>Comision</th>
+              <th>Comision / adaos</th>
+              <th>Accesorii</th>
               <th>Net</th>
             </tr>
           </thead>
@@ -408,7 +412,18 @@ function SettlementDetail({ id, onChanged, onClose }) {
                   {l.artfestFundedDiscountCents ? <div className={shared.subtle}>compensație Artfest {formatLei(l.artfestFundedDiscountCents)}</div> : null}
                 </td>
                 <td>{formatLei(l.lineGrossCents)}</td>
-                <td>{formatLei(l.commissionCents)}</td>
+                <td>
+                  {formatLei(l.commissionCents)}
+                  {(l.financeRule === "DECLARED_PLUS_MARKUP" || l.financeRule === "DISCOUNTED_COMMISSION") && (
+                    <div className={shared.subtle}>
+                      {l.financeRule === "DISCOUNTED_COMMISSION" ? "sub propus: 10% după accesorii" : "adaos"} · declarat {formatLei(l.declaredUnitPriceCents)} / buc.
+                    </div>
+                  )}
+                </td>
+                <td>
+                  {(l.accessoriesCents || 0) > 0 ? formatLei(l.accessoriesCents) : "—"}
+                  {(l.accessoriesCents || 0) > 0 && <div className={shared.subtle}>{accessoriesListText(l.accessories)} / buc.</div>}
+                </td>
                 <td>{formatLei(l.vendorNetCents)}</td>
               </tr>
             ))}
@@ -539,7 +554,7 @@ export default function AdminFairSettlementsPanel() {
                 <th>Decont</th>
                 <th>Perioadă</th>
                 <th>Brut</th>
-                <th>Comision</th>
+                <th>Comision / adaos</th>
                 <th>Retururi</th>
                 <th>Suportat de Artfest</th>
                 <th>Net</th>

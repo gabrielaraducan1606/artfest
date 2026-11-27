@@ -646,8 +646,23 @@ export default function Register({
 
   /* ---------------- Form fields ---------------- */
 
+  // ?email= - precompletat din fluxul „cerere fără cont” (doar valoarea inițială)
   const [email, setEmail] =
-    useState("");
+    useState(() => {
+      try {
+        const fromUrl = new URLSearchParams(
+          window.location.search
+        ).get("email");
+
+        return fromUrl &&
+          fromUrl.length <= 254 &&
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fromUrl)
+          ? fromUrl.trim()
+          : "";
+      } catch {
+        return "";
+      }
+    });
 
   const [
     emailHint,

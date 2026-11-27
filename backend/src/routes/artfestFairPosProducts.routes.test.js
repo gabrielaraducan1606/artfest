@@ -7,6 +7,10 @@
 // Rulare: node --experimental-test-module-mocks --test src/routes/artfestFairPosProducts.routes.test.js
 
 process.env.DATABASE_URL = "postgresql://test:test@127.0.0.1:5";
+// regula financiară ISTORICĂ (comision 10% din prețul efectiv): testele de mai jos verifică mecanismele
+// pe vânzări cu regula veche; regula actuală (declarat + adaos + accesorii): artfestFairDeclaredMarkup.routes.test.js
+process.env.NODE_ENV = "test";
+process.env.ARTFEST_FAIR_LEGACY_COMMISSION_RULE = "1";
 process.env.JWT_SECRET = "test-secret";
 process.env.APP_URL = "https://www.artfest.ro";
 
@@ -118,7 +122,7 @@ const artfestBody = (extra = {}) => ({ owner: "ARTFEST", title: "Pungă de cadou
 const anaBody = (extra = {}) => ({ owner: "PARTICIPANT", registrationId: ctx.r1.id, serviceId: ctx.sA2.id, title: "Felicitare", priceRon: "20", receivedQty: 4, confirmReceived: true, clientRequestId: reqId(), ...extra });
 const sell = (lines, key, method = "CASH") => call("POST", `${POS}/sales`, { as: ctx.admin, key, body: { lines, paymentMethod: method } });
 
-// aceleași reguli ca CHECK-urile din DB (migrațiile POS + 20261125120000_artfest_fair_own_stock)
+// aceleași reguli ca CHECK-urile din DB (migrațiile POS + 20261125120000_artfest_fair_own_stock + 20261127120000_artfest_fair_accessories)
 function assertDbChecks() {
   for (const l of fake.tables.artfestFairInventoryItem) {
     assert.equal(l.registrationId == null, l.vendorId == null, "AFII_owner_chk");
@@ -126,7 +130,7 @@ function assertDbChecks() {
     assert.equal(l.availableQty, l.receivedQty - (l.soldQty || 0) - (l.damagedQty || 0) - (l.lostQty || 0) - (l.returnedQty || 0), "AFII_availableQty_formula_chk");
   }
   for (const l of fake.tables.artfestFairSaleLine) {
-    assert.equal(l.vendorNetCents, l.lineGrossCents - l.commissionCents + (l.artfestFundedDiscountCents || 0), "AFSL_vendorNet_chk");
+    assert.equal(l.vendorNetCents, l.lineGrossCents - l.commissionCents - (l.accessoriesCents || 0) + (l.artfestFundedDiscountCents || 0), "AFSL_vendorNet_chk");
     assert.ok(l.commissionCents <= l.commissionOnListCents, "AFSL_commissionOnList_chk");
     if (!l.vendorId) {
       assert.equal(l.commissionBps, 10000);
@@ -137,7 +141,7 @@ function assertDbChecks() {
     }
   }
   for (const rl of fake.tables.artfestFairSaleReturnLine || []) {
-    assert.equal(rl.vendorNetReversedCents, rl.refundCents - rl.commissionReversedCents + (rl.artfestFundedReversedCents || 0), "AFSRL_vendorNet_chk");
+    assert.equal(rl.vendorNetReversedCents, rl.refundCents - rl.commissionReversedCents - (rl.accessoriesReversedCents || 0) + (rl.artfestFundedReversedCents || 0), "AFSRL_vendorNet_chk");
     if (!rl.vendorId) assert.equal(rl.vendorNetReversedCents, 0, "AFSRL_artfest_owned_chk");
   }
 }

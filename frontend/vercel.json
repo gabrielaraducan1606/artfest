@@ -149,6 +149,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/cerere",
+      "destination": "/index.html"
+    },
+    {
       "source": "/checkout",
       "destination": "/index.html"
     },

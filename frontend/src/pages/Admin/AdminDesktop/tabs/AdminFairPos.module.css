@@ -823,3 +823,128 @@
     min-height: 44px;
   }
 }
+
+/* „Ambalare și accesorii” (per bucată de produs) */
+.accRows {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.accHead,
+.accRow {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) 90px auto;
+  gap: 8px;
+  align-items: start;
+}
+.accHead {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+.accLabel {
+  display: none;
+}
+.accTotal {
+  padding-top: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.accSplit {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+@media (max-width: 640px) {
+  .accHead {
+    display: none;
+  }
+  .accRow {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .accRow > label:first-child {
+    grid-column: 1 / -1;
+  }
+  .accLabel {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--color-muted);
+  }
+}
+
+/* POS -> fișa produsului nerecepționat */
+.sheetHead {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.sheetPhoto {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  flex: none;
+}
+.sheetQty {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 6px 0 0;
+}
+.sheetQty div {
+  display: flex;
+  gap: 4px;
+}
+.sheetQty dt {
+  color: var(--color-muted);
+}
+.sheetQty dd {
+  margin: 0;
+  font-weight: 600;
+}
+.sheetSteps {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: grid;
+  gap: 4px;
+}
+.notFoundBox {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+.similarList {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+  display: grid;
+  gap: 6px;
+}
+.similarList li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+@media (max-width: 480px) {
+  .sheetPhoto {
+    width: 64px;
+    height: 64px;
+  }
+}
+
+/* POS: reducerea sub prețul propus afectează suma vânzătorului */
+.vendorReduced {
+  display: block;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: color-mix(in srgb, var(--color-warning, #d97706) 12%, transparent);
+  color: var(--color-text);
+}

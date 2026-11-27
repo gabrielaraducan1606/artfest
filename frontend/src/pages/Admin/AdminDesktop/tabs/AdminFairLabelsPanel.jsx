@@ -15,6 +15,7 @@ import shared from "../AdminDesktop.module.css";
 import rx from "./AdminFairReception.module.css";
 import styles from "./AdminFairLabels.module.css";
 import { downloadLabelsPdf } from "../../../Vendor/Fair/fairInventory.js";
+import { splitAtPrice } from "../../../Vendor/Fair/fairAccessories.js";
 import AdminFairPromoLabels from "./AdminFairPromoLabels.jsx";
 
 const API = "/api/admin/artfest-fair/inventory";
@@ -81,9 +82,10 @@ function parseLei(raw) {
 const leiInput = (cents) => (cents == null ? "" : (cents / 100).toFixed(2).replace(".", ","));
 
 /*
- * Prețul declarat, sugestia (declarat / 0,90) și prețul final (pe etichetă), cu împărțirea
- * comision 10% / vendor 90% - pentru orice participant aprobat, indiferent de regulamentul
- * acceptat. Nu atinge prețul online sau vânzările anterioare.
+ * Prețul declarat (integral al vânzătorului), prețul PROPUS (declarat + adaos Artfest 10% din
+ * declarat + accesorii) și prețul final (pe etichetă = totalul pentru client). Prețul final salvat
+ * nu se modifică automat: diferența față de propus e semnalată. Nu atinge prețul online sau
+ * vânzările anterioare (care își păstrează regula de atunci).
  */
 function FinalPriceEditor({ item, disabled, onSaved, onError }) {
   const pricing = item.pricing;
@@ -95,10 +97,8 @@ function FinalPriceEditor({ item, disabled, onSaved, onError }) {
 
   const cents = parseLei(value);
   const invalid = cents === null || cents < 1;
-  // aceeași regulă ca la vânzare: comision rotunjit half-up din prețul efectiv; vendorul primește restul
-  const bps = pricing.commissionBps ?? 1000;
-  const commission = cents !== null ? Math.floor((2 * cents * bps + 10000) / 20000) : null;
-  const vendorNet = cents !== null ? cents - commission : null;
+  // aceeași regulă ca la vânzare: vânzătorul primește prețul declarat; Artfest adaosul + accesoriile
+  const split = cents !== null ? splitAtPrice(cents, pricing.vendorPriceCents, pricing.accessoriesUnitCents || 0) : null;
   const unchanged = cents === pricing.finalPriceCents;
 
   async function save() {
@@ -117,8 +117,14 @@ function FinalPriceEditor({ item, disabled, onSaved, onError }) {
   return (
     <div className={styles.pricing}>
       <span>
-        Preț declarat <strong>{formatPrice(pricing.vendorPriceCents)}</strong> · Sugerat (declarat / 0,90){" "}
-        <strong>{formatPrice(pricing.suggestedFinalPriceCents)}</strong>
+        Preț declarat <strong>{formatPrice(pricing.vendorPriceCents)}</strong> · adaos Artfest 10% <strong>{formatPrice(pricing.markupUnitCents)}</strong>
+        {pricing.accessoriesUnitCents > 0 ? (
+          <>
+            {" "}
+            · accesorii <strong>{formatPrice(pricing.accessoriesUnitCents)}</strong>
+          </>
+        ) : null}{" "}
+        · Propus <strong>{formatPrice(pricing.proposedFinalPriceCents ?? pricing.suggestedFinalPriceCents)}</strong>
       </span>
       <label className={styles.finalPrice}>
         <span>Preț final (etichetă)</span>
@@ -135,20 +141,34 @@ function FinalPriceEditor({ item, disabled, onSaved, onError }) {
           {saving ? "Se salvează…" : "Salvează"}
         </button>
       </label>
-      {cents !== null && !invalid && (
+      {split && !invalid && (
         <span className={styles.muted}>
-          La acest preț: Artfest {bps / 100}% {formatPrice(commission)} · vânzătorul {100 - bps / 100}% {formatPrice(vendorNet)}
+          Total client {formatPrice(split.priceCents)} · vânzătorul {formatPrice(split.vendorNetCents)} · {split.markupReduced ? "comision 10% după accesorii" : "adaos Artfest"}{" "}
+          {formatPrice(Math.max(0, split.markupCents))}
+          {split.accessoriesCents > 0 ? ` · accesorii ${formatPrice(split.accessoriesCents)}` : ""}
         </span>
       )}
       {invalid && <span className={styles.warnText}>Introdu un preț valid (lei, cu cel mult două zecimale).</span>}
-      {!invalid && vendorNet < pricing.vendorPriceCents && (
-        <span className={styles.warnText}>Sub prețul sugerat: vânzătorul primește mai puțin decât prețul declarat.</span>
+      {split?.negative && !invalid && (
+        <span className={styles.warnText}>Prețul nu acoperă ambalajele / accesoriile Artfest: vânzarea ar fi blocată la casă.</span>
+      )}
+      {split && !split.negative && split.markupReduced && !invalid && (
+        <span className={styles.warnText}>
+          Sub prețul propus: se scad accesoriile, apoi Artfest primește 10% din rest; vânzătorul primește {formatPrice(split.vendorNetCents)} în loc de
+          prețul declarat {formatPrice(split.declaredCents)}.
+        </span>
+      )}
+      {pricing.finalDiffersFromProposed && (
+        <span className={styles.warnText}>
+          Prețul final salvat ({formatPrice(pricing.finalPriceCents)}) diferă de noul preț propus ({formatPrice(pricing.proposedFinalPriceCents)}); nu se
+          modifică automat.
+        </span>
       )}
       {pricing.finalPriceCents == null &&
         (pricing.issues?.includes("final_price_missing") ? (
           <span className={styles.warnText}>Prețul final nu este salvat: eticheta cu preț nu se poate genera.</span>
         ) : (
-          <span className={styles.muted}>Fără preț final salvat, eticheta și POS-ul folosesc prețul declarat.</span>
+          <span className={styles.muted}>Fără preț final salvat, eticheta și POS-ul folosesc prețul propus.</span>
         ))}
     </div>
   );

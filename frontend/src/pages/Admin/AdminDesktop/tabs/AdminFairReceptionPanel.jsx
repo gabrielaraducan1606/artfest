@@ -15,6 +15,8 @@ import shared from "../AdminDesktop.module.css";
 import styles from "./AdminFairReception.module.css";
 import FairCameraScanner from "./FairCameraScanner.jsx";
 import { downloadLabelsPdf } from "../../../Vendor/Fair/fairInventory.js";
+import { accessoriesListText, formatLeiPlain } from "../../../Vendor/Fair/fairAccessories.js";
+import FairAccessoriesButton from "./FairAccessoriesDialog.jsx";
 
 const API = "/api/admin/artfest-fair/inventory";
 
@@ -480,6 +482,19 @@ function ItemCard({ item, onUpdated, onError }) {
             <button type="button" className={styles.ghostBtn} onClick={() => post("unblock", {}, "Produsul a fost deblocat.")} disabled={busy}>
               Deblochează
             </button>
+          )}
+        </div>
+      )}
+
+      {/* „Ambalare și accesorii” (Artfest), per bucată: doar produsele participanților */}
+      {item.accessories?.editable && (
+        <div className={styles.actions}>
+          <FairAccessoriesButton line={item} onSaved={(updated) => updated && onUpdated(updated, "Accesoriile au fost salvate (doar vânzările viitoare).")} />
+          {item.accessories.unitCents > 0 && (
+            <span>
+              {accessoriesListText(item.accessories.items)} = {formatLeiPlain(item.accessories.unitCents)} / buc.
+              {item.pricing?.vendorNetCents != null ? ` · vânzătorul primește ${formatLeiPlain(item.pricing.vendorNetCents)} / buc. la prețul etichetei` : ""}
+            </span>
           )}
         </div>
       )}

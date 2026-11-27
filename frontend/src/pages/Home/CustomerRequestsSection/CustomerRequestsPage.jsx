@@ -6,6 +6,7 @@ import React, {
 } from "react";
 
 import {
+  useLocation,
   useNavigate,
 } from "react-router-dom";
 
@@ -22,6 +23,11 @@ import CreateCustomerRequestModal
 
 import CustomerRequestOfferModal
   from "./CustomerRequestOfferModal.jsx";
+
+import {
+  linkGuestRequestsOnce,
+  useGuestRequestsEnabled,
+} from "./guestRequest.js";
 
 import styles from "./CustomerRequestsPage.module.css";
 
@@ -259,8 +265,28 @@ export default function CustomerRequestsPage() {
 
   const {
     me,
+    loading: authLoading,
   } =
     useAuth();
+
+  const location =
+    useLocation();
+
+  // cereri fără cont (vizitatori din QR): activ dacă serverul îl permite
+  const guestEnabled =
+    useGuestRequestsEnabled();
+
+  const [
+    guestModalMode,
+    setGuestModalMode,
+  ] =
+    useState(false);
+
+  const [
+    requestSource,
+    setRequestSource,
+  ] =
+    useState(null);
 
   const currentUserId =
     me?.id ||
@@ -606,7 +632,7 @@ export default function CustomerRequestsPage() {
   ]);
 
   useEffect(() => {
-  if (!me) {
+  if (authLoading) {
     return;
   }
 
@@ -614,6 +640,20 @@ export default function CustomerRequestsPage() {
     new URLSearchParams(
       window.location.search
     );
+
+  /*
+   * Fără cont: formularul se deschide direct (QR flyere), dacă fluxul
+   * pentru vizitatori e activ și nu e deschisă autentificarea.
+   */
+  if (
+    !me &&
+    (
+      guestEnabled !== true ||
+      params.get("auth")
+    )
+  ) {
+    return;
+  }
 
   const action =
     params.get(
@@ -651,6 +691,13 @@ export default function CustomerRequestsPage() {
     "auth"
   );
 
+  const source =
+    params.get("src");
+
+  params.delete(
+    "src"
+  );
+
   const nextSearch =
     params.toString();
 
@@ -673,6 +720,16 @@ export default function CustomerRequestsPage() {
     null
   );
 
+  setGuestModalMode(
+    !me
+  );
+
+  setRequestSource(
+    source
+      ? source.slice(0, 40)
+      : null
+  );
+
   setModalMode(
     mode
   );
@@ -687,8 +744,49 @@ export default function CustomerRequestsPage() {
   );
 }, [
   me,
+  authLoading,
+  guestEnabled,
+  location.search,
   navigate,
 ]);
+  /*
+   * Cont autentificat: cererile trimise anterior fără cont, cu ACELAȘI
+   * email verificat, trec în cont (verificat pe server). O dată pe tab.
+   */
+  useEffect(() => {
+    const userId =
+      me?.id ||
+      me?.sub ||
+      null;
+
+    if (!userId) {
+      return undefined;
+    }
+
+    let active = true;
+
+    linkGuestRequestsOnce(
+      userId
+    ).then((result) => {
+      if (
+        active &&
+        result.linked > 0
+      ) {
+        loadRequests({
+          showLoading:
+            false,
+        });
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    me,
+    loadRequests,
+  ]);
+
   /* =======================================================
      NORMALIZED REQUESTS
   ======================================================= */
@@ -805,6 +903,31 @@ export default function CustomerRequestsPage() {
    * nu deschidem formularul,
    * îl trimitem la autentificare.
    */
+if (!me && guestEnabled === true) {
+  setEditingRequest(
+    null
+  );
+
+  setGuestModalMode(
+    true
+  );
+
+  setModalMode(
+    "manual"
+  );
+
+  setModalKey(
+    (current) =>
+      current + 1
+  );
+
+  setModalOpen(
+    true
+  );
+
+  return;
+}
+
 if (!me) {
   const params =
     new URLSearchParams();
@@ -835,6 +958,10 @@ if (!me) {
    * User autentificat:
    * deschidem formularul normal.
    */
+  setGuestModalMode(
+    false
+  );
+
   setEditingRequest(
     null
   );
@@ -852,6 +979,20 @@ if (!me) {
     true
   );
 }
+
+  /*
+   * „Ai deja cont? Autentifică-te” din formular: modalul a salvat ciorna;
+   * după login, efectul de mai sus redeschide formularul completat.
+   */
+  function handleGuestLoginRequest() {
+    setModalOpen(
+      false
+    );
+
+    navigate(
+      "/cereri?auth=login&action=create-customer-request&mode=manual"
+    );
+  }
 
   function closeModal() {
     setModalOpen(
@@ -1993,6 +2134,16 @@ if (!me) {
         }
         onUpdated={
           handleRequestSaved
+        }
+        guestMode={
+          !me &&
+          guestModalMode
+        }
+        onLoginRequest={
+          handleGuestLoginRequest
+        }
+        source={
+          requestSource
         }
       />
 

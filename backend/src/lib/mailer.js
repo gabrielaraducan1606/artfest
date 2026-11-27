@@ -6657,3 +6657,201 @@ export async function sendCreatorProfileStatusEmail({ to, toName = null, userId 
     },
   });
 }
+
+/* =========================================================
+   Cereri de ofertă trimise de vizitatori fără cont
+   (services/customerRequestGuestService.js). Linkurile conțin un token
+   în fragmentul URL (#t=...), nu în query: nu ajunge în jurnalele
+   serverului și nici în Referer. Nu conțin date despre vânzători în afara
+   numelui public al magazinului.
+========================================================= */
+
+function buildGuestRequestEmailHtml({ heading, paragraphs = [], buttonText, buttonUrl, footer }) {
+  const body = paragraphs
+    .filter(Boolean)
+    .map((p) => `<p style="color:#374151;margin:0 0 14px;line-height:1.6;">${p}</p>`)
+    .join("\n    ");
+
+  return `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px;">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:22px;">
+    <h2 style="color:#111827;margin:0 0 12px;font-size:22px;">${heading}</h2>
+    ${body}
+    ${
+      buttonUrl
+        ? `<p style="text-align:center;margin:24px 0 8px;">
+      <a href="${buttonUrl}" style="display:inline-block;background:#111827;color:#ffffff;padding:14px 22px;border-radius:8px;text-decoration:none;font-weight:600;">${buttonText}</a>
+    </p>`
+        : ""
+    }
+  </div>
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:20px 0 0;line-height:1.5;">
+    ${footer}
+  </p>
+</div>`.trim();
+}
+
+function sendGuestRequestMail({ to, toName, subject, template, html, text }) {
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template,
+    toName: toName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
+/*
+ * Confirmarea unei cereri trimise fără cont. Două variante, alese pe
+ * server; pagina vizitatorului arată ACELAȘI mesaj în ambele cazuri:
+ *  - email fără cont: „Confirmă și publică”;
+ *  - email care are deja cont Artfest: „Autentifică-te pentru a publica”
+ *    (cererea se publică în cont doar după autentificare).
+ */
+export async function sendGuestCustomerRequestConfirmEmail({
+  to,
+  displayName,
+  requestTitle,
+  confirmUrl,
+  accountExists = false,
+  expiresHours = 48,
+}) {
+  if (!to || !confirmUrl) return;
+
+  const name = escapeEmailHtml(displayName || "");
+  const title = escapeEmailHtml(requestTitle || "cererea ta");
+  const safeUrl = escapeEmailHtml(confirmUrl);
+
+  const subject = accountExists
+    ? `Autentifică-te pentru a publica cererea pe ${BRAND_NAME}`
+    : `Confirmă cererea ta pe ${BRAND_NAME}`;
+
+  const heading = accountExists ? "Ai deja un cont Artfest" : "Confirmă-ți cererea";
+
+  const paragraphs = accountExists
+    ? [
+        `Bună${name ? `, ${name}` : ""}! Am primit cererea „${title}”, trimisă cu această adresă de email.`,
+        `Adresa are deja un cont ${BRAND_NAME}. Ca să publicăm cererea în contul tău, deschide linkul de mai jos și autentifică-te. Cererea completată te așteaptă.`,
+        `Linkul este valabil ${expiresHours} de ore.`,
+      ]
+    : [
+        `Bună${name ? `, ${name}` : ""}! Am primit cererea „${title}”.`,
+        `Confirmă adresa de email ca să publicăm cererea. Abia după confirmare o vor vedea artizanii potriviți și îți vor putea trimite oferte.`,
+        `Linkul este valabil ${expiresHours} de ore. Nu ai nevoie de cont sau de parolă.`,
+      ];
+
+  const html = buildGuestRequestEmailHtml({
+    heading,
+    paragraphs,
+    buttonText: accountExists ? "Autentifică-te și publică cererea" : "Confirmă și publică cererea",
+    buttonUrl: safeUrl,
+    footer: `Dacă nu tu ai trimis această cerere, ignoră emailul: fără confirmare, cererea nu se publică și se șterge automat. Email generat automat de ${BRAND_NAME}.`,
+  });
+
+  const text = [
+    heading,
+    "",
+    `Am primit cererea „${requestTitle || "cererea ta"}”.`,
+    accountExists
+      ? "Adresa are deja un cont Artfest. Autentifică-te din linkul de mai jos ca să publicăm cererea în contul tău."
+      : "Confirmă adresa de email ca să publicăm cererea. Nu ai nevoie de cont sau de parolă.",
+    "",
+    confirmUrl,
+    "",
+    `Linkul este valabil ${expiresHours} de ore.`,
+    "Dacă nu tu ai trimis cererea, ignoră acest email.",
+  ].join("\n");
+
+  return sendGuestRequestMail({
+    to,
+    toName: displayName,
+    subject,
+    template: accountExists ? "guest_customer_request_confirm_account" : "guest_customer_request_confirm",
+    html,
+    text,
+  });
+}
+
+/* Link nou de acces la cererile vizitatorului („Trimite-mi linkul din nou”). */
+export async function sendGuestCustomerRequestAccessEmail({ to, displayName, accessUrl, expiresDays = 14 }) {
+  if (!to || !accessUrl) return;
+
+  const name = escapeEmailHtml(displayName || "");
+  const subject = `Linkul către cererile tale pe ${BRAND_NAME}`;
+
+  const html = buildGuestRequestEmailHtml({
+    heading: "Cererile tale de ofertă",
+    paragraphs: [
+      `Bună${name ? `, ${name}` : ""}! Ai cerut un link nou către cererile tale.`,
+      `Din link vezi ofertele primite și poți adăuga fotografii. Linkul este valabil ${expiresDays} zile; nu îl trimite altor persoane.`,
+    ],
+    buttonText: "Vezi cererile și ofertele",
+    buttonUrl: escapeEmailHtml(accessUrl),
+    footer: `Dacă nu tu ai cerut linkul, ignoră emailul. Email generat automat de ${BRAND_NAME}.`,
+  });
+
+  const text = [
+    "Cererile tale de ofertă",
+    "",
+    "Ai cerut un link nou către cererile tale. Nu îl trimite altor persoane.",
+    "",
+    accessUrl,
+    "",
+    `Linkul este valabil ${expiresDays} zile.`,
+  ].join("\n");
+
+  return sendGuestRequestMail({ to, toName: displayName, subject, template: "guest_customer_request_access", html, text });
+}
+
+/*
+ * Ofertă nouă la cererea unui vizitator. Doar numele public al magazinului
+ * și titlul cererii (deja public); prețul și detaliile se văd pe pagină.
+ */
+export async function sendGuestCustomerRequestOfferEmail({
+  to,
+  displayName,
+  requestTitle,
+  vendorName,
+  accessUrl,
+  expiresDays = 14,
+}) {
+  if (!to || !accessUrl) return;
+
+  const name = escapeEmailHtml(displayName || "");
+  const subject = `Ai primit o ofertă nouă pe ${BRAND_NAME}`;
+
+  const html = buildGuestRequestEmailHtml({
+    heading: "Ai primit o ofertă nouă",
+    paragraphs: [
+      `Bună${name ? `, ${name}` : ""}! ${escapeEmailHtml(vendorName || "Un artizan Artfest")} a răspuns la cererea „${escapeEmailHtml(requestTitle || "cererea ta")}”.`,
+      "Deschide linkul ca să vezi oferta. Pentru a discuta cu artizanul sau a continua spre comandă, îți poți crea un cont gratuit cu același email.",
+      "Ca să nu primești prea multe emailuri, următoarea notificare pleacă după ce deschizi cererea.",
+    ],
+    buttonText: "Vezi oferta",
+    buttonUrl: escapeEmailHtml(accessUrl),
+    footer: `Linkul este personal și valabil ${expiresDays} zile. Email generat automat de ${BRAND_NAME}.`,
+  });
+
+  const text = [
+    "Ai primit o ofertă nouă",
+    "",
+    `${vendorName || "Un artizan Artfest"} a răspuns la cererea „${requestTitle || "cererea ta"}”.`,
+    "",
+    accessUrl,
+    "",
+    "Linkul este personal; nu îl trimite altor persoane.",
+  ].join("\n");
+
+  return sendGuestRequestMail({ to, toName: displayName, subject, template: "guest_customer_request_offer", html, text });
+}

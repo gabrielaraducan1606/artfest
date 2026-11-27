@@ -35,9 +35,11 @@ import {
 } from "./adminFairPos.js";
 import PosCameraScanner from "./PosCameraScanner.jsx";
 import { AddProductDialog, ProductsDialog } from "./PosProductTools.jsx";
+import PosReceiveSheet from "./PosReceiveSheet.jsx";
 import { downloadLabelsPdf } from "../../../Vendor/Fair/fairInventory.js";
 import { SaleReturnModal, SaleVoidModal } from "./AdminFairSaleReturn.jsx";
 import { isValidDate, reportUrl, todayFairDate } from "../../../Vendor/Fair/fairSales.js";
+import { accessoriesListText } from "../../../Vendor/Fair/fairAccessories.js";
 
 function errorMessage(err, fallback) {
   const problems = err?.data?.problems;
@@ -56,8 +58,9 @@ function formatDate(value) {
 /* ===================== Vânzare ===================== */
 
 /*
- * Prețul pe rând. Aceeași regulă pentru toți: Artfest 10% din prețul efectiv, vânzătorul 90%
- * (calculate pe server, la fiecare modificare). Prețul efectiv se poate introduce la casă
+ * Prețul pe rând (calculat pe server, la fiecare modificare). Regula actuală pentru participanți:
+ * vânzătorul primește prețul DECLARAT integral; Artfest adaosul (10% din declarat) + accesoriile.
+ * O reducere la casă diminuează doar adaosul; sub declarat + accesorii vânzarea se blochează. Prețul efectiv se poate introduce la casă
  * pentru orice participant aprobat, doar pentru vânzarea curentă, fără retipărirea etichetei.
  */
 function PriceCell({ line: l, priced: p, busy, dispatch }) {
@@ -68,7 +71,7 @@ function PriceCell({ line: l, priced: p, busy, dispatch }) {
       {l.vendorPriceCents != null && l.canEditPrice && (
         <span className={shared.subtle}>
           Declarat {formatLei(l.vendorPriceCents)}
-          {l.suggestedPriceCents != null ? ` · Sugerat ${formatLei(l.suggestedPriceCents)}` : ""}
+          {l.suggestedPriceCents != null ? ` · Propus ${formatLei(l.suggestedPriceCents)}` : ""}
         </span>
       )}
       <span className={shared.subtle}>{l.blankPriceLabel ? "Etichetă fără preț tipărit" : `Etichetă ${formatLei(l.labelPriceCents)}`}</span>
@@ -109,9 +112,38 @@ function PriceCell({ line: l, priced: p, busy, dispatch }) {
         </label>
       )}
       <span className={styles.split}>
-        Artfest 10% {unit(p?.commissionCents ?? 0)} · Vânzător 90% {unit(p?.vendorNetCents ?? 0)}
+        {p?.artfestOwned ? (
+          <>Produs Artfest: integral Artfest {unit(p?.commissionCents ?? 0)}</>
+        ) : p?.financeRule === "DECLARED_PLUS_MARKUP" ? (
+          <>
+            Vânzător (preț declarat) {unit(p.vendorNetCents)} · Adaos Artfest {unit(Math.max(0, p.commissionCents))}
+            {(p.accessoriesCents || 0) > 0 && <> · Accesorii {unit(p.accessoriesCents)}</>}
+          </>
+        ) : p?.financeRule === "DISCOUNTED_COMMISSION" ? (
+          <>
+            Accesorii {unit(p.accessoriesCents || 0)} · Comision 10% {unit(Math.max(0, p.commissionCents))} · Vânzător {unit(p.vendorNetCents)}
+          </>
+        ) : (
+          <>
+            Comision 10% {unit(p?.commissionCents ?? 0)}
+            {/* „Ambalare și accesorii” Artfest: reținute din partea vânzătorului */}
+            {(p?.accessoriesCents || 0) > 0 && <> · Ambalare și accesorii {unit(p.accessoriesCents)}</>} · Vânzător {unit(p?.vendorNetCents ?? 0)}
+          </>
+        )}
         {l.quantity > 1 ? " / buc." : ""}
       </span>
+      {(p?.accessoriesCents || 0) > 0 && p.accessories?.length > 0 && (
+        <span className={shared.subtle}>Accesorii pe bucată: {accessoriesListText(p.accessories)}</span>
+      )}
+      {/* sub prețul propus: reducerea afectează suma vânzătorului - calculul complet, înainte de confirmare */}
+      {p?.financeRule === "DISCOUNTED_COMMISSION" && p.baseCents >= 0 && (
+        <span className={styles.vendorReduced} role="note">
+          Sub prețul propus ({formatLei(p.proposedUnitPriceCents * l.quantity)}{l.quantity > 1 ? ` pentru ${l.quantity} buc.` : ""}): reducerea afectează suma vânzătorului.
+          Încasat {formatLei(p.lineGrossCents)} − accesorii {formatLei(p.accessoriesCents || 0)} = bază {formatLei(p.baseCents)}; comision Artfest 10%{" "}
+          {formatLei(p.commissionCents)}; vânzătorul {formatLei(p.vendorNetCents)} în loc de {formatLei(p.declaredLineCents)}; Artfest{" "}
+          {formatLei(p.lineGrossCents - p.vendorNetCents)}.
+        </span>
+      )}
     </div>
   );
 }
@@ -133,7 +165,10 @@ function SalePanel({ salesOpen, inventory }) {
   const [cameraOpen, setCameraOpen] = useState(false);
   const cameraOpenRef = useRef(false);
   // „Adaugă produs” / „Produse / Etichete”: aceeași regulă de focus ca la cameră
-  const [tool, setTool] = useState(null); // null | "add" | "products"
+  const [tool, setTool] = useState(null); // null | "add" | "addStore" | "products" | "receive"
+  // fișa produsului nerecepționat (id-ul liniei) și ultimul cod AF negăsit
+  const [sheetLineId, setSheetLineId] = useState(null);
+  const [notFoundCode, setNotFoundCode] = useState(null);
   const toolOpenRef = useRef(false);
   const autoFocusBlockedRef = useRef(false);
 
@@ -210,16 +245,35 @@ function SalePanel({ salesOpen, inventory }) {
    * Căutarea codului la server + adăugarea în coș (o bucată): ACEEAȘI funcție pentru câmpul de
    * cod, scannerul USB / Bluetooth și camera. Întoarce rezultatul, pentru fereastra camerei.
    */
-  async function lookupAndAdd(barcode) {
+  async function lookupAndAdd(barcode, { effectivePriceCents = null } = {}) {
     setPendingScans((n) => n + 1);
     try {
       const res = await api(`${POS_API}/scan?barcode=${encodeURIComponent(barcode)}`);
+      setNotFoundCode(null);
+      // trimis de vânzător, dar nerecepționat: aceeași linie, fișa de recepție (fără produs nou / alt cod)
+      if (res.item.notReceived) {
+        const message = `${res.item.title}: produs în inventar, nerecepționat. Completează fișa de recepție.`;
+        dispatch({ type: "SCAN_ERROR", message });
+        setSheetLineId(res.item.inventoryItemId);
+        openTool("receive");
+        return { ok: false, handoff: true, message };
+      }
       const rejected = scanRejectMessage(cartRef.current, res.item);
       dispatch({ type: "SCANNED", item: res.item });
+      // din fișă: eticheta are alt preț => prețul final ca preț efectiv (fără retipărire)
+      if (!rejected && effectivePriceCents && res.item.requiresPrice) {
+        dispatch({ type: "SET_PRICE", inventoryItemId: res.item.inventoryItemId, value: (effectivePriceCents / 100).toFixed(2).replace(".", ",") });
+      }
       return rejected ? { ok: false, message: rejected } : { ok: true, title: res.item.title };
     } catch (err) {
       const message = scanErrorMessage(err, barcode);
       dispatch({ type: "SCAN_ERROR", message });
+      // „Cod negăsit”: fără creare automată; se poate adăuga manual un produs într-un magazin
+      // (camera rămâne deschisă cu „Reîncearcă”, ca înainte; butonul apare în POS după închidere)
+      if (Number(err?.status) === 404) {
+        setNotFoundCode(barcode);
+        return { ok: false, message: `${message} Închide camera pentru „Adaugă produs într-un magazin”.` };
+      }
       return { ok: false, message };
     } finally {
       setPendingScans((n) => n - 1);
@@ -355,7 +409,34 @@ function SalePanel({ salesOpen, inventory }) {
             Produse / Etichete
           </button>
         </div>
-        {tool === "add" && <AddProductDialog inventory={inventory} onClose={closeTool} onAddToCart={lookupAndAdd} />}
+        {tool === "add" && (
+          <AddProductDialog inventory={inventory} onClose={closeTool} onAddToCart={lookupAndAdd} onOpenReceiveSheet={(id) => { setSheetLineId(id); openTool("receive"); }} />
+        )}
+        {tool === "addStore" && (
+          <AddProductDialog
+            mode="store"
+            inventory={inventory}
+            onClose={() => {
+              setNotFoundCode(null);
+              closeTool();
+            }}
+            onAddToCart={lookupAndAdd}
+            onOpenReceiveSheet={(id) => {
+              setSheetLineId(id);
+              openTool("receive");
+            }}
+          />
+        )}
+        {tool === "receive" && sheetLineId && (
+          <PosReceiveSheet
+            lineId={sheetLineId}
+            onClose={() => {
+              setSheetLineId(null);
+              closeTool();
+            }}
+            onAddToCart={lookupAndAdd}
+          />
+        )}
         {tool === "products" && <ProductsDialog onClose={closeTool} onAddToCart={lookupAndAdd} />}
         <p className={shared.subtle} aria-live="polite">
           {pendingScans > 0
@@ -371,6 +452,14 @@ function SalePanel({ salesOpen, inventory }) {
         {state.error && (
           <div className={shared.error} role="alert">
             {state.error}
+          </div>
+        )}
+        {notFoundCode && (
+          <div className={styles.notFoundBox}>
+            <span className={shared.subtle}>Codul scanat nu devine cod AF și nu se asociază cu niciun produs.</span>
+            <button type="button" className={styles.primaryBtn} onClick={() => openTool("addStore")} disabled={state.busy}>
+              Adaugă produs într-un magazin
+            </button>
           </div>
         )}
 
@@ -493,10 +582,17 @@ function SalePanel({ salesOpen, inventory }) {
               <ul>
                 {preview.vendors.map((v) => (
                   <li key={v.vendorId}>
-                    {v.vendorName || v.vendorId}: {formatLei(v.grossCents)} · comision Artfest {formatLei(v.commissionCents)} · vânzătorului{" "}
+                    {v.vendorName || v.vendorId}: {formatLei(v.grossCents)} · comision Artfest {formatLei(v.commissionCents)}
+                    {(v.accessoriesCents || 0) > 0 ? ` · ambalare și accesorii ${formatLei(v.accessoriesCents)}` : ""} · vânzătorului{" "}
                     {formatLei(v.vendorNetCents)}
                   </li>
                 ))}
+                {preview.totals.artfest && (
+                  <li>
+                    Artfest total {formatLei(preview.totals.artfest.totalCents)} = comision {formatLei(preview.totals.artfest.commissionCents)} + accesorii{" "}
+                    {formatLei(preview.totals.artfest.accessoriesCents)} + produse proprii {formatLei(preview.totals.artfest.ownProductsCents)}
+                  </li>
+                )}
               </ul>
             </details>
             <div className={styles.payRow}>
@@ -647,7 +743,8 @@ function SalesHistory() {
                 <th>Listă</th>
                 <th>Reducere</th>
                 <th>Încasat</th>
-                <th>Comision</th>
+                <th>Comision / adaos</th>
+                <th>Accesorii</th>
                 <th>Net vendor</th>
                 <th>Mișcare stoc</th>
               </tr>
@@ -672,7 +769,18 @@ function SalesHistory() {
                     )}
                   </td>
                   <td>{formatLei(l.lineGrossCents)}</td>
-                  <td>{formatLei(l.commissionCents)}</td>
+                  <td>
+                    {formatLei(l.commissionCents)}
+                    {(l.financeRule === "DECLARED_PLUS_MARKUP" || l.financeRule === "DISCOUNTED_COMMISSION") && (
+                      <div className={shared.subtle}>
+                        {l.financeRule === "DISCOUNTED_COMMISSION" ? "sub propus: 10% după accesorii" : "adaos"} · declarat {formatLei(l.declaredUnitPriceCents)} / buc.
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    {(l.accessoriesCents || 0) > 0 ? formatLei(l.accessoriesCents) : "—"}
+                    {(l.accessoriesCents || 0) > 0 && <div className={shared.subtle}>{accessoriesListText(l.accessories)} / buc.</div>}
+                  </td>
                   <td>{formatLei(l.vendorNetCents)}</td>
                   <td className={shared.subtle}>{l.movements.map((m) => `${m.type} ${m.quantity} · ${m.id}`).join(", ")}</td>
                 </tr>
@@ -768,7 +876,11 @@ function DailyReport() {
         ["Încasat", formatLei(report.totalPaidCents)],
         ["Numerar", formatLei(report.cashCents)],
         ["Card", formatLei(report.cardCents)],
-        ["Comision Artfest", formatLei(report.commissionCents)],
+        ["Comision / adaos Artfest (inclusiv produse proprii)", formatLei(report.commissionCents)],
+        ["Artfest - adaos din produsele participanților (comision la vânzările vechi)", formatLei(report.artfest?.sales.commissionCents)],
+        ["Artfest - recuperare ambalare și accesorii (nu este profit net)", formatLei(report.artfest?.sales.accessoriesCents)],
+        ["Artfest - vânzări produse proprii", formatLei(report.artfest?.sales.ownProductsCents)],
+        ["Artfest - total din vânzări (fără dublare)", formatLei(report.artfest?.sales.totalCents)],
         ["Net datorat vendorilor (vânzări)", formatLei(report.vendorNetCents)],
         ["Compensații Artfest (reduceri Artfest)", formatLei(report.artfestFundedDiscountCents)],
       ]
@@ -787,6 +899,8 @@ function DailyReport() {
         ["Numerar net", formatLei(report.netCashCents)],
         ["Card net", formatLei(report.netCardCents)],
         ["Comision net al zilei", formatLei(report.dayCommissionCents)],
+        ["Accesorii nete ale zilei", formatLei(report.dayAccessoriesCents)],
+        ["Artfest - total net al zilei (fără dublare)", formatLei(report.artfest?.day.totalCents)],
         ["Net vendori al zilei", formatLei(report.dayVendorNetCents)],
       ]
     : [];
@@ -849,7 +963,8 @@ function DailyReport() {
                   <th>Listă</th>
                   <th>Reduceri</th>
                   <th>Încasat</th>
-                  <th>Comision</th>
+                  <th>Comision / adaos</th>
+                  <th>Accesorii</th>
                   <th>Net</th>
                   <th>Rambursat</th>
                   <th>Net al zilei</th>
@@ -865,6 +980,7 @@ function DailyReport() {
                     <td>{v.discountCents ? `−${formatLei(v.discountCents)}` : "—"}</td>
                     <td>{formatLei(v.grossCents)}</td>
                     <td>{formatLei(v.commissionCents)}</td>
+                    <td>{(v.accessoriesCents || 0) > 0 ? formatLei(v.accessoriesCents) : "—"}</td>
                     <td>
                       {formatLei(v.vendorNetCents)}
                       {v.artfestFundedDiscountCents ? (
@@ -961,7 +1077,40 @@ function DailyReport() {
 /* ===================== Situația (pe vânzător + total târg) ===================== */
 
 // un bloc „azi” / „total”: încasări, cuvenit vânzătorilor, Artfest, anulări și retururi separat
-function SummaryCard({ title, data }) {
+// partea Artfest, separat (comision / recuperare accesorii / produse proprii); total fără dublare
+function ArtfestShareRows({ share }) {
+  if (!share) return null;
+  return (
+    <>
+      <div>
+        <dt>· adaos din produsele participanților (comision la vânzările vechi)</dt>
+        <dd>{formatLei(share.commissionCents)}</dd>
+      </div>
+      <div>
+        <dt>· recuperare ambalare și accesorii (nu este profit net)</dt>
+        <dd>{formatLei(share.accessoriesCents)}</dd>
+      </div>
+      <div>
+        <dt>· vânzări produse proprii Artfest</dt>
+        <dd>{formatLei(share.ownProductsCents)}</dd>
+      </div>
+      {share.artfestBorneRefundCents > 0 && (
+        <div>
+          <dt>· rambursări suportate de Artfest</dt>
+          <dd>−{formatLei(share.artfestBorneRefundCents)}</dd>
+        </div>
+      )}
+      {share.artfestFundedCents !== 0 && (
+        <div>
+          <dt>· compensații Artfest pentru reduceri</dt>
+          <dd>−{formatLei(share.artfestFundedCents)}</dd>
+        </div>
+      )}
+    </>
+  );
+}
+
+function SummaryCard({ title, data, share }) {
   if (!data) return null;
   return (
     <section className={styles.summaryCard}>
@@ -988,9 +1137,10 @@ function SummaryCard({ title, data }) {
           <dd>{formatLei(data.net.vendorDueCents)}</dd>
         </div>
         <div>
-          <dt>Comision Artfest</dt>
+          <dt>Partea Artfest (total)</dt>
           <dd>{formatLei(data.net.artfestCents)}</dd>
         </div>
+        <ArtfestShareRows share={share} />
       </dl>
     </section>
   );
@@ -1031,8 +1181,8 @@ function FairSummary() {
       {data && (
         <>
           <div className={styles.summaryCards}>
-            <SummaryCard title="Azi" data={data.totals.today} />
-            <SummaryCard title="Total târg" data={data.totals.total} />
+            <SummaryCard title="Azi" data={data.totals.today} share={data.artfest?.today} />
+            <SummaryCard title="Total târg" data={data.totals.total} share={data.artfest?.total} />
             <section className={styles.summaryCard}>
               <h4>Deconturi</h4>
               <dl className={styles.totals}>
@@ -1062,7 +1212,7 @@ function FairSummary() {
                     <th>Azi</th>
                     <th>Încasări (total)</th>
                     <th>Cuvenit vânzătorului</th>
-                    <th>Comision Artfest</th>
+                    <th>Partea Artfest</th>
                     <th>Anulări / retururi</th>
                     <th>Decontat</th>
                     <th>Rest</th>
@@ -1078,7 +1228,12 @@ function FairSummary() {
                       </td>
                       <td>{formatLei(r.total.net.collectedCents)}</td>
                       <td>{formatLei(r.total.net.vendorDueCents)}</td>
-                      <td>{formatLei(r.total.net.artfestCents)}</td>
+                      <td>
+                        {formatLei(r.total.net.artfestCents)}
+                        {(r.total.net.accessoriesCents || 0) > 0 && (
+                          <div className={shared.subtle}>din care ambalare și accesorii {formatLei(r.total.net.accessoriesCents)}</div>
+                        )}
+                      </td>
                       <td>
                         {r.total.voids.units + r.total.returns.units > 0
                           ? `${r.total.voids.units} / ${r.total.returns.units} buc. · −${formatLei(r.total.voids.refundCents + r.total.returns.refundCents)}`

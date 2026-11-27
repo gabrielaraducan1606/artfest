@@ -26,6 +26,7 @@ import CustomerRequestOfferModal
 
 import styles from "./CustomerRequestsSection.module.css";
 import { CREATE_REQUEST_EVENT } from "../homeActions.js";
+import { useGuestRequestsEnabled } from "./guestRequest.js";
 
 /* =========================================================
    HELPERS
@@ -270,6 +271,16 @@ export default function CustomerRequestsSection() {
     me,
   } =
     useAuth();
+
+  // cereri fără cont: formularul se deschide direct, fără login
+  const guestEnabled =
+    useGuestRequestsEnabled();
+
+  const [
+    guestModalMode,
+    setGuestModalMode,
+  ] =
+    useState(false);
 
   const currentUserId =
     me?.id ||
@@ -643,6 +654,34 @@ useEffect(() => {
  function openCreateModal(
   mode = "manual"
 ) {
+  if (
+    !me &&
+    guestEnabled === true
+  ) {
+    setEditingRequest(
+      null
+    );
+
+    setGuestModalMode(
+      true
+    );
+
+    setCreateMode(
+      "manual"
+    );
+
+    setModalKey(
+      (current) =>
+        current + 1
+    );
+
+    setCreateModalOpen(
+      true
+    );
+
+    return;
+  }
+
   if (!me) {
     /*
      * Unde vrem să ajungă DUPĂ login.
@@ -700,6 +739,10 @@ useEffect(() => {
 
     return;
   }
+
+  setGuestModalMode(
+    false
+  );
 
   setEditingRequest(
     null
@@ -759,6 +802,40 @@ useEffect(() => {
       );
     };
   }, []);
+
+  /*
+   * „Ai deja cont? Autentifică-te” din formular: modalul a salvat ciorna;
+   * după login formularul se redeschide completat (efectul de mai sus).
+   */
+  function handleGuestLoginRequest() {
+    setCreateModalOpen(
+      false
+    );
+
+    const params =
+      new URLSearchParams(
+        window.location.search
+      );
+
+    params.set(
+      "auth",
+      "login"
+    );
+
+    params.set(
+      "redirect",
+      `${window.location.pathname}?action=create-customer-request&mode=manual#cereri-clienti`
+    );
+
+    navigate({
+      pathname:
+        window.location.pathname,
+      search:
+        `?${params.toString()}`,
+      hash:
+        "#cereri-clienti",
+    });
+  }
 
   function closeCreateModal() {
     setCreateModalOpen(
@@ -1853,6 +1930,13 @@ useEffect(() => {
         }
         onUpdated={
           handleRequestSaved
+        }
+        guestMode={
+          !me &&
+          guestModalMode
+        }
+        onLoginRequest={
+          handleGuestLoginRequest
         }
       />
 

@@ -3,7 +3,7 @@
 // Târgul Artfest - situația pe scurt (doar citire), pentru vendor și Admin:
 //   - azi (ziua locală Europe/Bucharest) și total la târg;
 //   - încasări din produse, suma cuvenită vendorului, partea Artfest
-//     (comisionul de 10% din prețul efectiv, pentru toate vânzările);
+//     (comisionul de 10% din prețul efectiv + „Ambalare și accesorii” reținute, separat);
 //   - anulările (VOID) și retururile (RETURN), separat;
 //   - decontat (deconturi PLĂTITE) și rest de primit.
 //
@@ -23,15 +23,16 @@ import { ensureFair } from "./artfestFairService.js";
 import { formatFairBarcode } from "./artfestFairInventoryService.js";
 import { localDayRange, todayLocal } from "./artfestFairReportsService.js";
 import { ownerName } from "../lib/artfestFairOwner.js";
+import { artfestShareOf } from "../lib/artfestFairAccessories.js";
 
 const CLOSED_SETTLEMENT_STATUSES = ["FINALIZED", "PAID", "CARRIED_FORWARD"];
 
 function emptySales() {
-  return { units: 0, grossCents: 0, vendorNetCents: 0, artfestCents: 0 };
+  return { units: 0, grossCents: 0, vendorNetCents: 0, artfestCents: 0, commissionCents: 0, accessoriesCents: 0 };
 }
 
 function emptyReversals() {
-  return { count: 0, units: 0, refundCents: 0, vendorNetReversedCents: 0, artfestReversedCents: 0 };
+  return { count: 0, units: 0, refundCents: 0, vendorNetReversedCents: 0, artfestReversedCents: 0, accessoriesReversedCents: 0 };
 }
 
 function emptyBucket() {
@@ -42,7 +43,10 @@ function addSale(bucket, line) {
   bucket.sales.units += line.quantity;
   bucket.sales.grossCents += line.lineGrossCents;
   bucket.sales.vendorNetCents += line.vendorNetCents;
-  bucket.sales.artfestCents += line.commissionCents;
+  // partea Artfest = comisionul + accesoriile reținute (fără dublare: vendorNet le-a scăzut deja)
+  bucket.sales.artfestCents += line.commissionCents + (line.accessoriesCents || 0);
+  bucket.sales.commissionCents += line.commissionCents;
+  bucket.sales.accessoriesCents += line.accessoriesCents || 0;
 }
 
 // suma inversată a vendorului: doar dacă rambursarea îl privește (nu ARTFEST)
@@ -55,6 +59,8 @@ function addReversal(target, rl) {
   target.refundCents += rl.refundCents;
   target.vendorNetReversedCents += vendorImpact(rl);
   target.artfestReversedCents += rl.refundCents - vendorImpact(rl);
+  // accesoriile restituite vânzătorului (doar retururile care îl privesc)
+  if (rl.refundResponsibility !== "ARTFEST") target.accessoriesReversedCents += rl.accessoriesReversedCents || 0;
 }
 
 function finish(bucket) {
@@ -69,8 +75,10 @@ function finish(bucket) {
       collectedCents,
       // suma cuvenită vendorului / vendorilor
       vendorDueCents,
-      // partea cuvenită Artfest (comisionul, după anulări / retururi)
+      // partea cuvenită Artfest (comision + accesorii, după anulări / retururi)
       artfestCents: collectedCents - vendorDueCents,
+      // din care „Ambalare și accesorii” reținute (după retururile imputate vânzătorului)
+      accessoriesCents: bucket.sales.accessoriesCents - bucket.voids.accessoriesReversedCents - bucket.returns.accessoriesReversedCents,
       unitsSold: bucket.sales.units - bucket.voids.units - bucket.returns.units,
     },
   };
@@ -143,6 +151,8 @@ async function buildSummary({ db, vendorId = null, now = new Date() }) {
     return vendors.get(id);
   };
   const fairTotal = { today: emptyBucket(), total: emptyBucket() };
+  // liniile pe perioadă, pentru partea Artfest defalcată (comision / accesorii / produse proprii)
+  const scoped = { today: { lines: [], returnLines: [] }, total: { lines: [], returnLines: [] } };
 
   for (const line of data.lines) {
     const sale = salesById.get(line.saleId);
@@ -150,7 +160,9 @@ async function buildSummary({ db, vendorId = null, now = new Date() }) {
     const v = vendorBucket(line.vendorId);
     addSale(v.total, line);
     addSale(fairTotal.total, line);
+    scoped.total.lines.push(line);
     if (inRange(sale.soldAt, today)) {
+      scoped.today.lines.push(line);
       addSale(v.today, line);
       addSale(fairTotal.today, line);
       addProduct(v.todayProducts, line);
@@ -166,7 +178,9 @@ async function buildSummary({ db, vendorId = null, now = new Date() }) {
     addReversal(v.total[kind], rl);
     addReversal(fairTotal.total[kind], rl);
     reversalIds.total[kind].add(header.id);
+    scoped.total.returnLines.push(rl);
     if (inRange(header.createdAt, today)) {
+      scoped.today.returnLines.push(rl);
       addReversal(v.today[kind], rl);
       addReversal(fairTotal.today[kind], rl);
       reversalIds.today[kind].add(header.id);
@@ -229,6 +243,12 @@ async function buildSummary({ db, vendorId = null, now = new Date() }) {
     fairTitle: fair.title || null,
     rows,
     totals: { today: finish(fairTotal.today), total: finish(fairTotal.total), settlement: settlementTotal },
+    // partea Artfest, separat (comision participanți, recuperare accesorii - NU profit net -,
+    // produse proprii); totalCents = încasat net − cuvenit vânzătorilor, fără dublare
+    artfest: {
+      today: artfestShareOf(scoped.today.lines, scoped.today.returnLines),
+      total: artfestShareOf(scoped.total.lines, scoped.total.returnLines),
+    },
   };
 }
 

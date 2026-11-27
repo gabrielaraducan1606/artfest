@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Download, Wallet } from "lucide-react";
 import { api } from "../../../lib/api";
 import { downloadLabelsPdf } from "./fairInventory.js";
+import { accessoriesListText } from "./fairAccessories.js";
 import {
   SETTLEMENT_STATUS_LABEL,
   SETTLEMENT_STATUS_TONE,
@@ -58,10 +59,12 @@ function SettlementDetail({ id }) {
       <dl className={styles.receptionStats}>
         <Stat label="Vânzări brute" value={formatLei(s.grossSalesCents)} />
         <Stat label="Reduceri" value={formatLei(s.discountsCents)} />
-        <Stat label="Comision" value={formatLei(s.commissionCents)} />
+        <Stat label="Comision / adaos Artfest" value={formatLei(s.commissionCents)} />
+        {s.accessoriesCents > 0 && <Stat label="Ambalare și accesorii (Artfest)" value={formatLei(s.accessoriesCents)} />}
         <Stat label="Net vânzări" value={formatLei(s.vendorNetCents)} />
         <Stat label="Rambursări clienți" value={formatLei(s.returnsRefundCents)} />
         <Stat label="din care suportate de Artfest" value={formatLei(s.artfestBorneRefundCents)} />
+        {s.accessoriesReversedCents > 0 && <Stat label="Accesorii restituite la retururi" value={formatLei(s.accessoriesReversedCents)} />}
         <Stat label="Net retur care te afectează" value={s.vendorNetReversedCents ? `-${formatLei(s.vendorNetReversedCents)}` : formatLei(0)} />
         <Stat label="Ajustări" value={signedLei(s.adjustmentsCents)} />
         <Stat label="Sold reportat" value={signedLei(s.carriedInCents)} />
@@ -91,7 +94,12 @@ function SettlementDetail({ id }) {
             {s.saleLines.map((l) => (
               <li key={l.id}>
                 #{l.saleNumber} · {l.title}
-                {l.variantLabel ? ` (${l.variantLabel})` : ""} · {l.quantity} buc. · încasat {formatLei(l.lineGrossCents)} · comision {formatLei(l.commissionCents)} · net{" "}
+                {l.variantLabel ? ` (${l.variantLabel})` : ""} · {l.quantity} buc.
+                {l.declaredUnitPriceCents != null ? ` · preț declarat ${formatLei(l.declaredUnitPriceCents)} / buc.` : ""} · total client{" "}
+                {formatLei(l.lineGrossCents)} ·{" "}
+                {l.financeRule === "DECLARED_PLUS_MARKUP" ? "adaos Artfest" : l.financeRule === "DISCOUNTED_COMMISSION" ? "sub prețul propus, comision 10% după accesorii" : "comision"}{" "}
+                {formatLei(l.commissionCents)}
+                {l.accessoriesCents > 0 ? ` · ambalare și accesorii ${formatLei(l.accessoriesCents)} (${accessoriesListText(l.accessories)} / buc.)` : ""} · net{" "}
                 {formatLei(l.vendorNetCents)}
               </li>
             ))}

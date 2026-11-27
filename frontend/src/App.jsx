@@ -65,6 +65,16 @@ const ProfilMagazin = lazy(() =>
   import("./pages/Vendor/ProfilMagazin/ProfilMagazin")
 );
 import StoreRedirect from "./pages/Vendor/ProfilMagazin/StoreRedirect";
+// Cereri fără cont (vizitatori din QR): confirmarea din email și accesul la cereri
+const GuestRequestConfirmPage = lazy(() =>
+  import("./pages/Home/CustomerRequestsSection/GuestRequestConfirmPage.jsx")
+);
+const GuestRequestAccessPage = lazy(() =>
+  import("./pages/Home/CustomerRequestsSection/GuestRequestAccessPage.jsx")
+);
+const QrRequestRedirect = lazy(() =>
+  import("./pages/Home/CustomerRequestsSection/QrRequestRedirect.jsx")
+);
 const VendorStoresPage = lazy(() =>
   import("./pages/Vendor/VendorStoresPage/VendorStoresPage")
 );
@@ -734,6 +744,28 @@ export default function App() {
   path="/cereri/:id"
   element={
     <CustomerRequestDetailsPage />
+  }
+/>
+
+{/* Cereri fără cont: link de confirmare / acces din email + link scurt pentru QR */}
+<Route
+  path="/cereri/confirmare"
+  element={
+    <GuestRequestConfirmPage />
+  }
+/>
+
+<Route
+  path="/cereri/acces"
+  element={
+    <GuestRequestAccessPage />
+  }
+/>
+
+<Route
+  path="/cerere"
+  element={
+    <QrRequestRedirect />
   }
 />
             <Route

@@ -100,7 +100,12 @@ function forwardedForCount(req) {
  * X-Forwarded-For. Dacă "distinctIpKeys" rămâne 1-3 la zeci de upload-uri
  * de la clienți diferiți, req.ip este proxy-ul, nu clientul.
  */
-export function createIpDiagnostics({ logger = console, intervalMs = DIAGNOSTIC_INTERVAL_MS, now = Date.now } = {}) {
+export function createIpDiagnostics({
+  logger = console,
+  intervalMs = DIAGNOSTIC_INTERVAL_MS,
+  now = Date.now,
+  label = "[UPLOAD] customization ip diagnostics:",
+} = {}) {
   let windowStart = now();
   let requests = 0;
   let keys = new Set();
@@ -110,7 +115,7 @@ export function createIpDiagnostics({ logger = console, intervalMs = DIAGNOSTIC_
 
   const flush = () => {
     if (requests > 0) {
-      logger.info("[UPLOAD] customization ip diagnostics:", {
+      logger.info(label, {
         windowMinutes: Math.round((now() - windowStart) / 60000),
         requests,
         distinctIpKeys: keys.size,

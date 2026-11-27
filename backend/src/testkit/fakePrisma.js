@@ -249,6 +249,21 @@ const MODELS = {
     defaults: { reason: null, before: null, after: null, emailStatus: "NONE", emailAttempts: 0, emailError: null, emailSentAt: null },
     unique: {},
   },
+  // Cereri de ofertă + vizitatori fără cont (customerRequestGuest*.test.js)
+  customerRequest: {
+    defaults: { userId: null, guestId: null, images: [], status: "OPEN", acceptedOfferId: null, details: null, currency: "RON" },
+    unique: {},
+  },
+  customerRequestOffer: { defaults: { status: "SENT", images: [] }, unique: { requestId_vendorId: ["requestId", "vendorId"] } },
+  customerRequestGuest: {
+    defaults: { emailVerifiedAt: null, accessVersion: 0, linkedUserId: null, linkedAt: null, lastOfferEmailAt: null, lastAccessAt: null },
+    unique: { email: ["email"] },
+  },
+  customerRequestPending: {
+    defaults: { wantsAccount: false, ipHash: null, source: null, lastEmailAt: null, emailCount: 1, publishedRequestId: null, publishedAt: null },
+    unique: { publishedRequestId: ["publishedRequestId"] },
+  },
+  customerRequestGuestToken: { defaults: { pendingId: null, usedAt: null }, unique: { tokenHash: ["tokenHash"] } },
 };
 
 const RELATIONS = {
@@ -268,6 +283,15 @@ const RELATIONS = {
     vendor: { model: "vendor", local: "vendorId", many: false },
   },
   artfestFairInventoryItem: { fair: { model: "artfestFair", local: "fairId", many: false } },
+  customerRequest: {
+    user: { model: "user", local: "userId", many: false },
+    guest: { model: "customerRequestGuest", local: "guestId", many: false },
+    offers: { model: "customerRequestOffer", fk: "requestId", many: true },
+  },
+  customerRequestOffer: {
+    vendor: { model: "vendor", local: "vendorId", many: false },
+    request: { model: "customerRequest", local: "requestId", many: false },
+  },
 };
 
 const isPlainObject = (v) =>
@@ -353,6 +377,13 @@ export function createFakePrisma(seed = {}) {
     for (const [key, value] of Object.entries(select)) {
       if (!value) continue;
 
+      if (key === "_count" && isPlainObject(value)) {
+        out._count = Object.fromEntries(
+          Object.keys(value.select || {}).map((rel) => [rel, (relatedRows(model, row, rel) || []).length])
+        );
+        continue;
+      }
+
       const rel = RELATIONS[model]?.[key];
 
       if (rel && isPlainObject(value)) {
@@ -366,6 +397,12 @@ export function createFakePrisma(seed = {}) {
     }
 
     return out;
+  }
+
+  // include = toate câmpurile scalare + relațiile cerute
+  function selection({ select, include }, row) {
+    if (select || !include) return select;
+    return { ...Object.fromEntries(Object.keys(row).map((k) => [k, true])), ...include };
   }
 
   function sortRows(rows, orderBy) {
@@ -398,7 +435,8 @@ export function createFakePrisma(seed = {}) {
 
   function build(model, data) {
     const def = MODELS[model];
-    const now = new Date(clock++);
+    // cererile / vizitatorii compară createdAt cu ora reală (limite pe 24 h)
+    const now = model.startsWith("customerRequest") ? new Date() : new Date(clock++);
     const row = { id: nextId(model), createdAt: now, ...def.defaults, ...data };
     if (def.autoDate && !row[def.autoDate]) row[def.autoDate] = now;
     if (model.startsWith("artfest") || model.startsWith("creator")) row.updatedAt ??= now;
@@ -429,28 +467,28 @@ export function createFakePrisma(seed = {}) {
 
   function delegate(model) {
     return {
-      async findMany({ where, select, orderBy, take, skip } = {}) {
+      async findMany({ where, select, include, orderBy, take, skip } = {}) {
         let rows = sortRows(tables[model].filter((r) => match(model, r, where)), orderBy);
         if (skip) rows = rows.slice(skip);
         if (take) rows = rows.slice(0, take);
-        return rows.map((r) => project(model, r, select));
+        return rows.map((r) => project(model, r, selection({ select, include }, r)));
       },
-      async findFirst({ where, select, orderBy } = {}) {
+      async findFirst({ where, select, include, orderBy } = {}) {
         const rows = sortRows(tables[model].filter((r) => match(model, r, where)), orderBy);
-        return rows[0] ? project(model, rows[0], select) : null;
+        return rows[0] ? project(model, rows[0], selection({ select, include }, rows[0])) : null;
       },
-      async findUnique({ where, select }) {
+      async findUnique({ where, select, include }) {
         const row = whereUnique(model, where);
-        return row ? project(model, row, select) : null;
+        return row ? project(model, row, selection({ select, include }, row)) : null;
       },
       async count({ where } = {}) {
         return tables[model].filter((r) => match(model, r, where)).length;
       },
-      async create({ data }) {
+      async create({ data, select, include }) {
         const row = build(model, data);
         if (uniqueConflict(model, row)) throw Object.assign(new Error("P2002"), { code: "P2002" });
         tables[model].push(row);
-        return { ...row };
+        return select || include ? project(model, row, selection({ select, include }, row)) : { ...row };
       },
       async createMany({ data, skipDuplicates }) {
         let count = 0;

@@ -32,6 +32,15 @@ import {
   sweepExpiredCustomerRequests,
 } from "../services/customerRequestExpiry.js";
 
+import {
+  notifyGuestAboutOffer,
+  readGuestSession,
+} from "../services/customerRequestGuestService.js";
+
+import {
+  sendGuestCustomerRequestOfferEmail,
+} from "../lib/mailer.js";
+
 const router = Router();
 
 /* =========================================================
@@ -768,8 +777,39 @@ function serializeRequest(
         ?.offers ??
       0,
 
+    /*
+     * Cerere trimisă fără cont (vizitator): public apare DOAR numele ales
+     * în formular (fără email). Rămâne așa și după asocierea cu un cont;
+     * id-ul contului (dacă există) păstrează controalele proprietarului.
+     */
+    isGuestRequest:
+      Boolean(
+        request.guestId
+      ),
+
     user:
-      user
+      request.guestId &&
+      request.guest
+        ? {
+            id:
+              request.userId ||
+              null,
+
+            name:
+              cleanString(
+                request.guest
+                  .displayName,
+                60
+              ) ||
+              "Vizitator Artfest",
+
+            avatarUrl:
+              null,
+
+            city:
+              null,
+          }
+        : user
         ? {
             id:
               user.id,
@@ -811,6 +851,13 @@ const publicRequestInclude = {
       avatarUrl: true,
 
       city: true,
+    },
+  },
+
+  // vizitator fără cont: doar numele afișat (NU emailul)
+  guest: {
+    select: {
+      displayName: true,
     },
   },
 
@@ -1097,6 +1144,7 @@ router.post(
             select: {
               id: true,
               userId: true,
+              guestId: true,
               title: true,
               quantity: true,
               status: true,
@@ -1551,7 +1599,42 @@ router.post(
          NOTIFICARE CLIENT
       ===================================================== */
 
-      try {
+      /*
+       * Cerere trimisă fără cont (fără userId): fără notificare în
+       * aplicație - email cu link securizat, DUPĂ răspuns, cel mult unul
+       * până la următoarea vizită (customerRequestGuestService.js).
+       */
+      if (
+        !customerRequest.userId &&
+        customerRequest.guestId
+      ) {
+        const guestVendorName =
+          offer.vendor
+            ?.displayName ||
+          vendor.displayName ||
+          "Un artizan Artfest";
+
+        setImmediate(() => {
+          notifyGuestAboutOffer({
+            db: prisma,
+            requestId:
+              customerRequest.id,
+            vendorName:
+              guestVendorName,
+            mailer: {
+              sendGuestCustomerRequestOfferEmail,
+            },
+          }).catch((guestNotifyError) => {
+            console.error(
+              "[customer-requests] guest offer email failed:",
+              guestNotifyError?.message ||
+                guestNotifyError
+            );
+          });
+        });
+      }
+
+      if (customerRequest.userId) try {
         const vendorName =
           offer.vendor
             ?.displayName ||
@@ -2742,11 +2825,51 @@ router.get(
       serialized.offers = [];
       serialized.myOffer = null;
 
+      /*
+       * Vizitator fără cont, proprietarul cererii: sesiune din linkul
+       * primit pe email (cookie httpOnly, verificat în DB). Altfel null.
+       */
+      const guestSession =
+        request.guestId
+          ? await readGuestSession(
+              req,
+              { db: prisma }
+            )
+          : null;
+
+      const isGuestOwner =
+        Boolean(
+          guestSession &&
+          guestSession.id ===
+            request.guestId
+        );
+
+      if (isGuestOwner) {
+        serialized.viewerIsGuestOwner =
+          true;
+
+        // vizita deblochează următorul email „ofertă nouă” (anti-spam)
+        await prisma.customerRequestGuest
+          .update({
+            where: {
+              id: guestSession.id,
+            },
+            data: {
+              lastAccessAt:
+                new Date(),
+            },
+          })
+          .catch(() => {});
+      }
+
       /* =====================================================
          GUEST / USER NECONECTAT
       ===================================================== */
 
-      if (!currentUserId) {
+      if (
+        !currentUserId &&
+        !isGuestOwner
+      ) {
         return res.json({
           ok: true,
 
@@ -2762,11 +2885,17 @@ router.get(
       ===================================================== */
 
       const isOwner =
-        String(
-          request.userId
-        ) ===
-        String(
-          currentUserId
+        isGuestOwner ||
+        (
+          Boolean(
+            request.userId
+          ) &&
+          String(
+            request.userId
+          ) ===
+          String(
+            currentUserId
+          )
         );
 
       if (isOwner) {
