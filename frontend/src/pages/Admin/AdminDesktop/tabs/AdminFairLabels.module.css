@@ -310,3 +310,17 @@
   color: var(--color-warning, #b45309);
   font-weight: 600;
 }
+
+/* „Cu fotografie produs” (opțiune PDF) și starea recepției pe rând */
+.photoToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.receivedState {
+  font-size: 0.85rem;
+  color: var(--color-success, #16a34a);
+  font-weight: 600;
+}

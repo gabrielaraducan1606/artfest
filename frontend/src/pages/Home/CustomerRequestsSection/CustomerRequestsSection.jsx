@@ -26,7 +26,11 @@ import CustomerRequestOfferModal
 
 import styles from "./CustomerRequestsSection.module.css";
 import { CREATE_REQUEST_EVENT } from "../homeActions.js";
-import { useGuestRequestsEnabled } from "./guestRequest.js";
+import {
+  clearGuestLoginIntent,
+  markGuestLoginIntent,
+  useGuestRequestsEnabled,
+} from "./guestRequest.js";
 
 /* =========================================================
    HELPERS
@@ -526,6 +530,8 @@ useEffect(() => {
    * utilizatorul voia să îl folosească
    * înainte de autentificare.
    */
+  clearGuestLoginIntent();
+
   setEditingRequest(
     null
   );
@@ -811,6 +817,9 @@ useEffect(() => {
     setCreateModalOpen(
       false
     );
+
+    // login cerut explicit (nu un link vechi din QR)
+    markGuestLoginIntent();
 
     const params =
       new URLSearchParams(

@@ -172,3 +172,72 @@ export function buildQrRequestTarget(search = "") {
   }
   return `/cereri?${params.toString()}`;
 }
+
+/* =========================================================
+   Linkuri vechi cu login forțat (QR-uri deja tipărite)
+========================================================= */
+
+/*
+ * Înainte, butonul „Publică o cerere” trimitea vizitatorul la
+ * ?auth=login&action=create-customer-request (pe /cereri) sau
+ * ?auth=login&redirect=/?action=create-customer-request (pe Home) - iar
+ * astfel de URL-uri au ajuns în QR-uri tipărite. Cu fluxul pentru
+ * vizitatori activ, ele duc la formularul nou (fără login). Login-ul
+ * cerut EXPLICIT din formular („Ai deja cont?”) e marcat în tab și
+ * rămâne login.
+ */
+export const GUEST_LOGIN_INTENT_KEY = "artfest_customer_request_login_intent";
+const GUEST_LOGIN_INTENT_TTL_MS = 15 * 60 * 1000;
+
+export const GUEST_LOGIN_RETURN_PATH = "/cereri?action=create-customer-request&mode=manual";
+
+export function markGuestLoginIntent({ now = Date.now(), store = storage() } = {}) {
+  try {
+    store?.setItem(GUEST_LOGIN_INTENT_KEY, String(now));
+  } catch {
+    // indisponibil
+  }
+}
+
+export function hasGuestLoginIntent({ now = Date.now(), store = storage() } = {}) {
+  try {
+    const at = Number(store?.getItem(GUEST_LOGIN_INTENT_KEY));
+    return Number.isFinite(at) && at > 0 && now - at <= GUEST_LOGIN_INTENT_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+
+export function clearGuestLoginIntent({ store = storage() } = {}) {
+  try {
+    store?.removeItem(GUEST_LOGIN_INTENT_KEY);
+  } catch {
+    // indisponibil
+  }
+}
+
+const CREATE_ACTION_RE = /(^|[?&])action=create-customer-request(&|#|$)/;
+
+/*
+ * Ținta formularului nou pentru un link vechi de cerere cu ?auth=login|
+ * register, sau null dacă linkul nu e unul de cerere (login obișnuit).
+ * Parametrii de marketing (utm_* etc.) se păstrează.
+ */
+export function legacyRequestLinkTarget(search = "") {
+  const params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+  const auth = params.get("auth");
+  if (auth !== "login" && auth !== "register") return null;
+  if (params.get("as") === "partner") return null;
+
+  let isRequestLink = params.get("action") === "create-customer-request";
+
+  if (!isRequestLink) {
+    const redirect = params.get("redirect") || "";
+    isRequestLink = CREATE_ACTION_RE.test(redirect.split("#")[0]);
+  }
+
+  if (!isRequestLink) return null;
+
+  params.delete("as");
+  return buildQrRequestTarget(`?${params.toString()}`).replace("&src=flyer", "&src=qr-vechi");
+}

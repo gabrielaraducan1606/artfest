@@ -158,3 +158,41 @@ test("/cerere: păstrează parametrii din QR, src implicit flyer, fără auth/re
   assert.equal(withUtm.searchParams.get("auth"), null);
   assert.equal(withUtm.searchParams.get("redirect"), null);
 });
+
+test("QR-uri vechi cu login forțat => formularul nou; login-urile obișnuite rămân login", async () => {
+  const { legacyRequestLinkTarget } = await import("./guestRequestUtils.js");
+
+  const page = new URL(legacyRequestLinkTarget("?auth=login&action=create-customer-request&mode=ai&utm_source=flyer"), "https://www.artfest.ro");
+  assert.equal(page.pathname, "/cereri");
+  assert.equal(page.searchParams.get("action"), "create-customer-request");
+  assert.equal(page.searchParams.get("mode"), "manual");
+  assert.equal(page.searchParams.get("src"), "qr-vechi");
+  assert.equal(page.searchParams.get("utm_source"), "flyer");
+  assert.equal(page.searchParams.get("auth"), null);
+
+  const home = legacyRequestLinkTarget("?auth=login&redirect=%2F%3Faction%3Dcreate-customer-request%26mode%3Dmanual%23cereri-clienti");
+  assert.match(home, /^\/cereri\?action=create-customer-request&mode=manual&src=qr-vechi$/);
+  assert.ok(legacyRequestLinkTarget("?auth=register&action=create-customer-request"), "și varianta cu înregistrare");
+
+  // login-uri care NU sunt de cerere
+  assert.equal(legacyRequestLinkTarget("?auth=login"), null);
+  assert.equal(legacyRequestLinkTarget("?auth=login&redirect=%2Fcereri%2Fabc"), null);
+  assert.equal(legacyRequestLinkTarget("?auth=login&redirect=%2Fcos"), null);
+  assert.equal(legacyRequestLinkTarget("?auth=register&as=partner&action=create-customer-request"), null);
+  assert.equal(legacyRequestLinkTarget("?action=create-customer-request&mode=manual"), null, "fără auth: deja formularul nou");
+  assert.equal(legacyRequestLinkTarget("?auth=login&redirect=%2F%3Faction%3Dcreate-customer-request-x"), null);
+});
+
+test("intenția explicită de login („Ai deja cont?”): marcată în tab, expiră după 15 minute", async () => {
+  const { markGuestLoginIntent, hasGuestLoginIntent, clearGuestLoginIntent, GUEST_LOGIN_RETURN_PATH } = await import("./guestRequestUtils.js");
+  const data = new Map();
+  const store = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)), removeItem: (k) => data.delete(k) };
+  const now = 5_000_000;
+  assert.equal(hasGuestLoginIntent({ now, store }), false);
+  markGuestLoginIntent({ now, store });
+  assert.equal(hasGuestLoginIntent({ now: now + 60_000, store }), true);
+  assert.equal(hasGuestLoginIntent({ now: now + 16 * 60_000, store }), false);
+  clearGuestLoginIntent({ store });
+  assert.equal(hasGuestLoginIntent({ now, store }), false);
+  assert.equal(GUEST_LOGIN_RETURN_PATH, "/cereri?action=create-customer-request&mode=manual");
+});

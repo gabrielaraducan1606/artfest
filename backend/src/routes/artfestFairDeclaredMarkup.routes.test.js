@@ -369,3 +369,52 @@ test("coș mixt (Ana + Ion cu preț final vechi + Artfest) și istoricul: regula
   assert.ok(csv.text.includes(";declarat + adaos 10% + accesorii;50,00;60,00;0,00;60,00;5,00;5,00;Cutie 1 × 5,00 lei;50,00"), csv.text);
   assertDbChecks();
 });
+
+test("Etichete „Cu fotografie produs”: aceeași rută; miniatura doar când fotografia e disponibilă; altfel eticheta normală; prețul total și codul AF neschimbate", async () => {
+  const sharp = (await import("sharp")).default;
+  const jpeg = await sharp({ create: { width: 800, height: 600, channels: 3, background: { r: 10, g: 120, b: 60 } } }).jpeg().toBuffer();
+  const { clearLabelPhotoCache } = await import("../lib/fairLabelPhotos.js");
+  clearLabelPhotoCache();
+  process.env.LABEL_PHOTO_HOSTS = "media.test";
+  inv(ctx.cutie.id).imageUrlSnapshot = "https://media.test/inger.jpg";
+  inv(ctx.vas.id).imageUrlSnapshot = "https://media.test/lipsa.jpg";
+  const realFetch = globalThis.fetch;
+  const photoCalls = [];
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).startsWith("https://media.test/")) {
+      photoCalls.push(String(url));
+      return String(url).endsWith("inger.jpg") ? new Response(jpeg, { status: 200, headers: { "content-type": "image/jpeg" } }) : new Response("", { status: 404 });
+    }
+    return realFetch(url, opts);
+  };
+  const pdf = (body) =>
+    realFetch(`${base}${ADM}/inventory/labels.pdf`, { method: "POST", headers: { "content-type": "application/json", "x-test-user": ctx.admin.id }, body: JSON.stringify(body) });
+  try {
+    const plain = await pdf({ ids: [ctx.cutie.id, ctx.vas.id], copies: 1 });
+    assert.equal(plain.status, 200);
+    const htmlPlain = rendered.at(-1);
+    assert.equal((htmlPlain.match(/class="thumb /g) || []).length, 0, "fără opțiune: fără fotografie");
+    assert.equal(photoCalls.length, 0, "fără opțiune nu se descarcă nimic");
+
+    const withPhoto = await pdf({ ids: [ctx.cutie.id, ctx.vas.id], copies: 1, photo: true });
+    assert.equal(withPhoto.status, 200);
+    const html = rendered.at(-1);
+    assert.equal((html.match(/class="thumb ph1"/g) || []).length, 1, "doar produsul cu fotografie disponibilă");
+    assert.ok(html.includes("AF-2345-6789") && html.includes("AF-3456-7892"), "ambele etichete, cu codul AF");
+    assert.ok(html.includes(">40 lei<"), "eticheta fără fotografie (404) e generată normal, cu prețul ei");
+
+    // eticheta individuală, cu fotografia din cache (fără a doua descărcare)
+    const one = await realFetch(`${base}${ADM}/inventory/${ctx.cutie.id}/label.pdf?photo=1`, { headers: { "x-test-user": ctx.admin.id } });
+    assert.equal(one.status, 200);
+    assert.ok(rendered.at(-1).includes('class="thumb ph1"'));
+    assert.equal(photoCalls.filter((u) => u.endsWith("inger.jpg")).length, 1);
+    // drepturi: vânzătorul nu are acces
+    const denied = await realFetch(`${base}${ADM}/inventory/labels.pdf`, { method: "POST", headers: { "content-type": "application/json", "x-test-user": ctx.u1.id }, body: JSON.stringify({ ids: [ctx.cutie.id], photo: true }) });
+    assert.equal(denied.status, 403);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.LABEL_PHOTO_HOSTS;
+  }
+  // prețurile și calculul neschimbate de opțiune
+  assert.equal(inv(ctx.cutie.id).priceSnapshotCents, 5000);
+});

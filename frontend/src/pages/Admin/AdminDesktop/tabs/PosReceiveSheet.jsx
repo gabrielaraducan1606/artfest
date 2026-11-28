@@ -33,7 +33,12 @@ function errorText(err, fallback) {
   return err?.data?.message || err?.message || fallback;
 }
 
-export default function PosReceiveSheet({ lineId, onClose, onAddToCart }) {
+/*
+ * onAddToCart: POS („Salvează, recepționează și adaugă în coș”). Fără el (Admin → Etichete): doar
+ * prețul final + recepția („Salvează și recepționează”); onSaved(line) primește linia actualizată.
+ */
+export default function PosReceiveSheet({ lineId, onClose, onAddToCart = null, onSaved = null }) {
+  const withCart = typeof onAddToCart === "function";
   const [line, setLine] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [qtyText, setQtyText] = useState("");
@@ -86,7 +91,7 @@ export default function PosReceiveSheet({ lineId, onClose, onAddToCart }) {
   // regula actuală: vânzătorul primește prețul declarat; Artfest adaosul + accesoriile
   const split = line ? splitAtPrice(price, line.pricing?.vendorPriceCents ?? line.priceCents, line.accessories?.unitCents || 0) : null;
   const proposedCents = line?.pricing?.proposedFinalPriceCents ?? null;
-  const allDone = done.includes("cart");
+  const allDone = withCart ? done.includes("cart") : done.includes("receive");
 
   async function run() {
     if (busyRef.current || !line) return;
@@ -105,7 +110,7 @@ export default function PosReceiveSheet({ lineId, onClose, onAddToCart }) {
     const completed = [...done];
     let step = null;
     try {
-      for (step of pendingSteps(completed, { priceChanged })) {
+      for (step of pendingSteps(completed, { priceChanged, withCart })) {
         if (step === "price") {
           await api(`${FAIR_API}/inventory/${encodeURIComponent(line.id)}/final-price`, { method: "POST", body: { finalPriceCents: check.priceCents } });
         } else if (step === "receive") {
@@ -122,10 +127,13 @@ export default function PosReceiveSheet({ lineId, onClose, onAddToCart }) {
         completed.push(step);
         setDone([...completed]);
       }
-      await load();
+      const fresh = await load();
+      if (fresh) onSaved?.(fresh);
     } catch (err) {
       setFailure({ step, message: err?.cart ? err.message : errorText(err, "Pasul nu a reușit.") });
-      await load();
+      // salvare parțială (ex. prețul): rândul din listă reflectă exact ce s-a salvat
+      const fresh = await load();
+      if (fresh) onSaved?.(fresh);
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -240,7 +248,13 @@ export default function PosReceiveSheet({ lineId, onClose, onAddToCart }) {
                 ) : null}
 
                 <div className={styles.toolActions}>
-                  <FairAccessoriesButton line={line} onSaved={() => load()} />
+                  <FairAccessoriesButton
+                    line={line}
+                    onSaved={async () => {
+                      const fresh = await load();
+                      if (fresh) onSaved?.(fresh);
+                    }}
+                  />
                   {line.accessories?.unitCents > 0 && (
                     <span className={styles.accSplit}>
                       {accessoriesListText(line.accessories.items)} = {formatLei(line.accessories.unitCents)} / buc.
@@ -302,11 +316,17 @@ export default function PosReceiveSheet({ lineId, onClose, onAddToCart }) {
                     </button>
                   ) : (
                     <button type="button" className={styles.primaryBtn} onClick={run} disabled={busy}>
-                      {busy ? "Se salvează…" : failure || done.length ? "Reia (doar pașii rămași)" : "Salvează, recepționează și adaugă în coș"}
+                      {busy
+                        ? "Se salvează…"
+                        : failure || done.length
+                          ? "Reia (doar pașii rămași)"
+                          : withCart
+                            ? "Salvează, recepționează și adaugă în coș"
+                            : "Salvează și recepționează"}
                     </button>
                   )}
                 </div>
-                <small className={shared.subtle}>Stocul scade doar la confirmarea încasării.</small>
+                <small className={shared.subtle}>Stocul scade doar la confirmarea încasării. Recepția se face o singură dată (dublu click / „Reia” nu o repetă).</small>
               </>
             )}
           </>

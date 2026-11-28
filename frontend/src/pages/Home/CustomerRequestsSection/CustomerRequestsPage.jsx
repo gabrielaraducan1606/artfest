@@ -25,7 +25,10 @@ import CustomerRequestOfferModal
   from "./CustomerRequestOfferModal.jsx";
 
 import {
+  GUEST_LOGIN_RETURN_PATH,
+  clearGuestLoginIntent,
   linkGuestRequestsOnce,
+  markGuestLoginIntent,
   useGuestRequestsEnabled,
 } from "./guestRequest.js";
 
@@ -720,6 +723,9 @@ export default function CustomerRequestsPage() {
     null
   );
 
+  // intenția de login din „Ai deja cont?” s-a încheiat: formularul se redeschide
+  clearGuestLoginIntent();
+
   setGuestModalMode(
     !me
   );
@@ -989,8 +995,13 @@ if (!me) {
       false
     );
 
+    // login cerut explicit (nu un link vechi din QR) + întoarcere la formular
+    markGuestLoginIntent();
+
     navigate(
-      "/cereri?auth=login&action=create-customer-request&mode=manual"
+      `/cereri?auth=login&redirect=${encodeURIComponent(
+        GUEST_LOGIN_RETURN_PATH
+      )}`
     );
   }
 

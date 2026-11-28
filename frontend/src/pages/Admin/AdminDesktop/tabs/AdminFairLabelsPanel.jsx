@@ -17,6 +17,9 @@ import styles from "./AdminFairLabels.module.css";
 import { downloadLabelsPdf } from "../../../Vendor/Fair/fairInventory.js";
 import { splitAtPrice } from "../../../Vendor/Fair/fairAccessories.js";
 import AdminFairPromoLabels from "./AdminFairPromoLabels.jsx";
+import FairAccessoriesButton from "./FairAccessoriesDialog.jsx";
+import PosReceiveSheet from "./PosReceiveSheet.jsx";
+import { labelPdfQuery, receiveActionFor } from "./adminFairLabels.js";
 
 const API = "/api/admin/artfest-fair/inventory";
 const MAX_SELECTION = 500;
@@ -193,6 +196,10 @@ export default function AdminFairLabelsPanel() {
   const [labelState, setLabelState] = useState("all");
   const [copies, setCopies] = useState("declared");
   const [layout, setLayout] = useState("standard");
+  // „Cu fotografie produs”: miniatura fotografiei existente lângă denumire (fără ea, eticheta normală)
+  const [withPhoto, setWithPhoto] = useState(false);
+  // fișa de recepție (aceeași ca în POS, fără coș) pentru linia aleasă
+  const [receiveId, setReceiveId] = useState(null);
   const layoutInfo = LAYOUTS.find((l) => l.id === layout) || LAYOUTS[0];
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -262,6 +269,12 @@ export default function AdminFairLabelsPanel() {
     [items]
   );
 
+  // un singur rând actualizat (accesorii / recepție / preț): fără reîncărcarea întregii liste
+  const replaceItem = useCallback((updated) => {
+    if (!updated?.id) return;
+    setItems((prev) => prev.map((i) => (i.id === updated.id ? { ...i, ...updated } : i)));
+  }, []);
+
   function onFinalSaved(item, res) {
     setError("");
     setNotice(
@@ -313,7 +326,7 @@ export default function AdminFairLabelsPanel() {
       "selected",
       () =>
         downloadLabelsPdf(`${API}/labels.pdf`, "etichete-selectate-targ-artfest.pdf", "Nu am putut genera etichetele.", {
-          body: { ids: selectedItems.map((i) => i.id), copies, layout },
+          body: { ids: selectedItems.map((i) => i.id), copies, layout, ...(withPhoto ? { photo: true } : {}) },
         }),
       `PDF-ul a fost generat: ${labelTotal} ${labelTotal === 1 ? "etichetă" : "etichete"} (${layoutInfo.sheet}). Codurile sunt cele existente.`
     );
@@ -322,6 +335,7 @@ export default function AdminFairLabelsPanel() {
   const printAll = () => {
     const params = new URLSearchParams({ copies, layout });
     if (vendorId) params.set("vendorId", vendorId);
+    if (withPhoto) params.set("photo", "1");
     return run(
       "all",
       () =>
@@ -338,7 +352,7 @@ export default function AdminFairLabelsPanel() {
       `one:${item.id}`,
       () =>
         downloadLabelsPdf(
-          `${API}/${encodeURIComponent(item.id)}/label.pdf${layout === "promo" ? "?layout=promo" : ""}`,
+          `${API}/${encodeURIComponent(item.id)}/label.pdf${labelPdfQuery({ layout, photo: withPhoto })}`,
           `eticheta-${item.barcode}.pdf`
         ),
       item.label?.state === "valid"
@@ -406,6 +420,10 @@ export default function AdminFairLabelsPanel() {
             </option>
           ))}
         </select>
+        <label className={styles.photoToggle}>
+          <input type="checkbox" checked={withPhoto} onChange={(e) => setWithPhoto(e.target.checked)} />
+          <span>Cu fotografie produs</span>
+        </label>
         <button type="button" className={rx.ghostBtn} onClick={printAll} disabled={Boolean(busy) || !items.length}>
           {busy === "all" ? "Se generează…" : vendorId ? "Toate etichetele creatorului" : "Toate etichetele târgului"}
         </button>
@@ -487,6 +505,18 @@ export default function AdminFairLabelsPanel() {
                 </div>
                 <div className={styles.rowActions}>
                   <LabelBadge label={item.label} />
+                  {(() => {
+                    const recv = receiveActionFor(item);
+                    if (recv.kind === "receive") {
+                      return (
+                        <button type="button" className={rx.ghostBtn} onClick={() => setReceiveId(item.id)} disabled={Boolean(busy)}>
+                          Recepționează
+                        </button>
+                      );
+                    }
+                    return recv.text ? <span className={recv.kind === "received" ? styles.receivedState : styles.muted}>{recv.text}</span> : null;
+                  })()}
+                  <FairAccessoriesButton line={item} onSaved={(updated) => replaceItem(updated)} />
                   <button
                     type="button"
                     className={rx.ghostBtn}
@@ -510,6 +540,13 @@ export default function AdminFairLabelsPanel() {
       )}
 
       {promoOpen && <AdminFairPromoLabels onClose={() => setPromoOpen(false)} />}
+      {receiveId && (
+        <PosReceiveSheet
+          lineId={receiveId}
+          onSaved={replaceItem}
+          onClose={() => setReceiveId(null)}
+        />
+      )}
 
       {selectedItems.length > 0 && (
         <div className={styles.bulkBar} role="region" aria-label="Etichete pentru produsele selectate">

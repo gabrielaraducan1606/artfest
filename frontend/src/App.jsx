@@ -46,6 +46,11 @@ import PublicVendorCollectionPage
   from "./pages/VendorCollections/PublicVendorCollectionPage.jsx";
 import Login from "./pages/Auth/Login/Login";
 import { getSafeLoginRedirect, loginPathFor } from "./pages/Auth/Login/loginRedirect.js";
+import {
+  hasGuestLoginIntent,
+  legacyRequestLinkTarget,
+  useGuestRequestsEnabled,
+} from "./pages/Home/CustomerRequestsSection/guestRequest.js";
 import { AdminArea } from "./pages/Admin/AdminArea.jsx";
 import Register from "./pages/Auth/Register/Register";
 import ForgotPassword from "./pages/Auth/ForgotPassword";
@@ -426,9 +431,26 @@ function LoginPage() {
   const location = useLocation();
   const { me, loading } = useAuth();
   const redirectTo = getSafeLoginRedirect(location.search);
+  const guestRequestsEnabled = useGuestRequestsEnabled();
 
   if (redirectTo && !loading && me) {
     return <Navigate to={redirectTo} replace />;
+  }
+
+  /*
+   * Link vechi /autentificare?redirect=...create-customer-request (QR-uri
+   * tipărite): cu cererile fără cont active -> formularul nou, fără login.
+   */
+  const legacyRequestTarget = legacyRequestLinkTarget(
+    `${location.search}${location.search ? "&" : "?"}auth=login`
+  );
+
+  if (
+    legacyRequestTarget &&
+    guestRequestsEnabled === true &&
+    !hasGuestLoginIntent()
+  ) {
+    return <Navigate to={legacyRequestTarget} replace />;
   }
 
   return <Login redirectTo={redirectTo} />;

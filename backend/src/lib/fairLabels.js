@@ -8,6 +8,9 @@
 //   - "sheet":  A4, 3 coloane × 8 rânduri = 24 etichete / pagină.
 // PDF-ul se face din HTML pe browserul Puppeteer partajat (pdfBrowser.js):
 // fără o instanță Chrome nouă per etichetă.
+// Opțional „Cu fotografie produs”: miniatura fotografiei existente (lib/fairLabelPhotos.js), într-o
+// casetă mică la stânga denumirii; QR-ul, codul de bare și marginile lor rămân pe alb, iar formatul
+// fizic / alinierea pe A4 nu se schimbă. Fără fotografie => eticheta normală.
 
 import bwipjs from "bwip-js";
 import { renderPdfWithSharedBrowser } from "./pdfBrowser.js";
@@ -103,9 +106,10 @@ export function storeQrSvg(url) {
   });
 }
 
-function productCellHtml(label, { bar, qr }) {
+function productCellHtml(label, { bar, qr, photoClass = null }) {
   return `
-        <div class="top">
+        <div class="top">${photoClass ? `
+          <div class="thumb ${photoClass}" aria-hidden="true"></div>` : ""}
           <div class="text">
             <div class="title">${escapeHtml(label.title)}</div>
             ${label.variantLabel ? `<div class="variant">${escapeHtml(label.variantLabel)}</div>` : ""}
@@ -192,10 +196,20 @@ export function buildLabelsHtml(labels, { mode = "sheet", layout = "standard" } 
     if (!storeCache.has(url)) storeCache.set(url, storeQrSvg(url));
     return storeCache.get(url);
   };
+  // fotografiile: o clasă CSS per fotografie distinctă (data URI o singură dată în HTML)
+  const photoClasses = new Map();
+  const photoClass = (dataUri) => {
+    if (!dataUri) return null;
+    if (!photoClasses.has(dataUri)) photoClasses.set(dataUri, `ph${photoClasses.size + 1}`);
+    return photoClasses.get(dataUri);
+  };
   const cells = labels.map((label) => {
     // qrUrl (Etichete fără preț): QR-ul duce la pagina de promovare; codul de bare rămâne codul AF
     const codes = svgsFor(label.barcode);
-    const product = productCellHtml(label, label.qrUrl ? { bar: codes.bar, qr: storeSvg(label.qrUrl) } : codes);
+    const product = productCellHtml(label, {
+      ...(label.qrUrl ? { bar: codes.bar, qr: storeSvg(label.qrUrl) } : codes),
+      photoClass: photoClass(label.photo),
+    });
     if (!promo) return `\n      <div class="label">${product}\n      </div>`;
     const store = label.store?.url && label.store?.name ? label.store : null;
     return `
@@ -256,7 +270,12 @@ export function buildLabelsHtml(labels, { mode = "sheet", layout = "standard" } 
   .site { color: #444; }
   /* fără preț tipărit: loc alb pentru prețul scris cu pixul */
   .blankPrice { display: flex; align-items: baseline; gap: 1mm; font-size: 9pt; font-weight: 700; }
-  .blankLine { flex: 1 1 auto; min-width: 16mm; height: 4.5mm; border-bottom: 0.3mm solid #000; }${promo ? PROMO_CSS : ""}
+  .blankLine { flex: 1 1 auto; min-width: 16mm; height: 4.5mm; border-bottom: 0.3mm solid #000; }
+  /* „Cu fotografie produs”: miniatură 11 × 16 mm la stânga denumirii, proporții păstrate (contain), pe alb;
+     separată de QR prin text + spațiu - nimic sub coduri sau în marginile lor */
+  .thumb { flex: 0 0 11mm; width: 11mm; height: 16mm; background-color: #fff; background-repeat: no-repeat;
+           background-position: center top; background-size: contain; }${[...photoClasses.entries()].map(([uri, cls]) => `
+  .${cls} { background-image: url("${uri}"); }`).join("")}${promo ? PROMO_CSS : ""}
 </style>
 </head>
 <body>
@@ -305,6 +324,8 @@ export function expandLabelCopies(items) {
       priceCents: fairSalePriceCents(item),
       barcode: item.barcode,
       store: item.labelStore || null,
+      // miniatura (data URI) doar la „Cu fotografie produs”, dacă fotografia e disponibilă
+      photo: item.labelPhoto || null,
     };
     const copies = item.labelCopies ?? item.declaredQty;
     for (let i = 0; i < Math.max(1, copies || 0); i += 1) labels.push(label);

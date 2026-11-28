@@ -88,6 +88,11 @@ import {
 import { GUEST_NAV_SECTIONS } from "../../config/guestNavigation.js";
 import { prefetchChunk } from "../../lib/smartPrefetch.js";
 import { getSafeLoginRedirect } from "../../pages/Auth/Login/loginRedirect.js";
+import {
+  hasGuestLoginIntent,
+  legacyRequestLinkTarget,
+  useGuestRequestsEnabled,
+} from "../../pages/Home/CustomerRequestsSection/guestRequest.js";
 import { CREATORS_PENDING_EVENT } from "../../pages/Admin/AdminMarketing/creatorsPending.js";
 import { usePublicCollections } from "../../hooks/usePublicCollections";
 import { toCollectionCards } from "../../pages/Home/CollectionsSection/collectionCards.js";
@@ -1127,11 +1132,30 @@ useEffect(() => {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [burgerOpen]);
 
+  // cereri fără cont activ pe server? (null = încă se verifică)
+  const guestRequestsEnabled = useGuestRequestsEnabled();
+
   /* ===== open modal via query params ===== */
   useEffect(() => {
     const sp = new URLSearchParams(location.search);
     const auth = sp.get("auth");
     const as = sp.get("as");
+
+    /*
+     * Link vechi de cerere cu login forțat (inclusiv QR-uri tipărite):
+     * cu fluxul pentru vizitatori activ -> formularul nou, fără login.
+     * Login-ul cerut explicit din formular („Ai deja cont?”) rămâne login.
+     */
+    const legacyRequestTarget = legacyRequestLinkTarget(location.search);
+
+    if (legacyRequestTarget && !hasGuestLoginIntent()) {
+      if (guestRequestsEnabled === null) return; // așteptăm configurarea
+      if (guestRequestsEnabled) {
+        setAuthOpen(false);
+        navigate(legacyRequestTarget, { replace: true });
+        return;
+      }
+    }
 
     if (auth === "register" && as === "partner") {
       setPartnerOpen(true);
@@ -1146,7 +1170,7 @@ useEffect(() => {
       setPartnerOpen(false);
       return;
     }
-  }, [location.search]);
+  }, [location.search, guestRequestsEnabled, navigate]);
 
   // butoanele generice („Autentificare”, „Cont”, drawer): fără redirect contextual
   const openGenericAuth = useCallback((tab = "login") => {

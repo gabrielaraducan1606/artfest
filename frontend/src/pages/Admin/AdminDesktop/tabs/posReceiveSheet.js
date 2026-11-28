@@ -53,9 +53,12 @@ export const SHEET_STEP_LABEL = Object.freeze({
   cart: "Adăugat în coș",
 });
 
-/** Pașii rămași (în ordine), după cei deja reușiți. Prețul doar dacă diferă de cel actual. */
-export function pendingSteps(done, { priceChanged }) {
-  return SHEET_STEPS.filter((s) => !done.includes(s) && (s !== "price" || priceChanged));
+/**
+ * Pașii rămași (în ordine), după cei deja reușiți. Prețul doar dacă diferă de cel actual;
+ * coșul doar în POS (din Admin → Etichete: withCart false, doar preț + recepție).
+ */
+export function pendingSteps(done, { priceChanged, withCart = true }) {
+  return SHEET_STEPS.filter((s) => !done.includes(s) && (s !== "price" || priceChanged) && (s !== "cart" || withCart));
 }
 
 /* ===================== Produse asemănătoare ===================== */
